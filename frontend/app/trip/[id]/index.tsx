@@ -14,7 +14,6 @@ type Member = { id: string; name: string; kind: 'individual' | 'family'; family_
 type Trip = { id: string; name: string; code: string; travel_date: string; budget?: number; currency: string; owner_id: string; members: Member[] };
 type Expense = { id: string; kind: 'expense' | 'income'; amount: number; category: string; description?: string; date: string; paid_by_member_id: string; split_member_ids: string[] };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[] }[] };
-type Insights = { insights: string[]; top_category: string | null };
 
 export default function TripDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -24,9 +23,8 @@ export default function TripDetail() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [balances, setBalances] = useState<Balances | null>(null);
-  const [insights, setInsights] = useState<Insights | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [tab, setTab] = useState<'summary' | 'expenses' | 'balances' | 'members' | 'ai'>('summary');
+  const [tab, setTab] = useState<'summary' | 'expenses' | 'balances' | 'members'>('summary');
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -42,12 +40,7 @@ export default function TripDetail() {
     setRefreshing(false);
   }, [id]);
 
-  const loadInsights = useCallback(async () => {
-    if (!id) return;
-    try { setInsights(await api<Insights>(`/trips/${id}/ai/insights`)); } catch {}
-  }, [id]);
-
-  useFocusEffect(useCallback(() => { load(); loadInsights(); }, [load, loadInsights]));
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const shareCode = async () => {
     if (!trip) return;
@@ -142,14 +135,14 @@ export default function TripDetail() {
 
         {/* Tabs */}
         <View style={[styles.tabs, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
-          {(['summary', 'expenses', 'balances', 'members', 'ai'] as const).map((k) => (
+          {(['summary', 'expenses', 'balances', 'members'] as const).map((k) => (
             <TouchableOpacity key={k}
               testID={`trip-tab-${k}`}
-              onPress={() => { setTab(k); if (k === 'ai') loadInsights(); }}
+              onPress={() => setTab(k)}
               style={[styles.tab, tab === k && { backgroundColor: colors.primary }]}>
               <T style={{ fontWeight: '700', textTransform: 'capitalize', fontSize: 12 }}
                 color={tab === k ? colors.primaryText : colors.textMuted}>
-                {k === 'ai' ? 'AI' : k}
+                {k}
               </T>
             </TouchableOpacity>
           ))}
@@ -228,16 +221,6 @@ export default function TripDetail() {
                   />
                 </View>
               )}
-
-              {insights?.insights?.length ? (
-                <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border, flexDirection: 'column', alignItems: 'stretch' }]}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: SPACING.xs }}>
-                    <Ionicons name="sparkles" size={14} color={colors.primary} />
-                    <T variant="label" muted>Smart insight</T>
-                  </View>
-                  <T>{insights.insights[0]}</T>
-                </View>
-              ) : null}
             </View>
           );
         })()}
@@ -385,18 +368,6 @@ export default function TripDetail() {
           </View>
         )}
 
-        {tab === 'ai' && (
-          <View style={{ gap: SPACING.sm }}>
-            <T variant="label" muted>Smart insights</T>
-            {!insights && <T muted>Loading…</T>}
-            {insights?.insights.map((ins, i) => (
-              <View key={i} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Ionicons name="sparkles" size={18} color={colors.primary} />
-                <T style={{ flex: 1 }}>{ins}</T>
-              </View>
-            ))}
-          </View>
-        )}
       </ScrollView>
     </SafeAreaView>
   );

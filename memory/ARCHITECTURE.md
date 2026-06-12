@@ -9,9 +9,7 @@ Trip Splitter is a mobile app (Expo/React Native, file-based routing via `expo-r
 single-file FastAPI service (`backend/server.py`) and MongoDB (via Motor). Users register with an
 email + 4-digit PIN, create "trips" (each with a unique 6-character join code), add "members" who can
 be individuals or families, log expenses/income against those members, and the app computes per-member
-net balances and a minimum-transaction settlement plan. It can export an XLSX report per trip and uses
-Claude Sonnet 4.5 (via `emergentintegrations` + `EMERGENT_LLM_KEY`) to auto-categorize expenses and
-generate short spending insights.
+net balances and a minimum-transaction settlement plan. It can export an XLSX report per trip.
 
 ## 2. Backend structure (`backend/server.py`)
 
@@ -26,9 +24,8 @@ Everything lives in one file, organized into `# ---------- Name ----------` sect
   that reads `Authorization: Bearer <jwt>`), `gen_trip_code` (6-char A-Z0-9), `gen_id` (UUID4 string),
   `now_utc`/`iso` (datetime helpers). Every doc uses string `id` fields (not Mongo `_id`); all reads
   project `{"_id": 0}`.
-- **Models** (~113-198) — Pydantic request bodies: `RegisterIn`, `LoginIn`, `ForgotIn`, `ResetPinIn`,
-  `TripIn`/`TripUpdate`, `MemberIn`/`MemberUpdate`, `ExpenseIn`/`ExpenseUpdate`, `SettleIn`,
-  `AICategorizeIn`.
+- **Models** (~113-195) — Pydantic request bodies: `RegisterIn`, `LoginIn`, `ForgotIn`, `ResetPinIn`,
+  `TripIn`/`TripUpdate`, `MemberIn`/`MemberUpdate`, `ExpenseIn`/`ExpenseUpdate`, `SettleIn`.
 - **Auth** (~200-299) — `/auth/register`, `/auth/login` (password OR PIN), `/auth/me`,
   `/auth/forgot-pin` + `/auth/reset-pin` (token-based, emailed via Resend or logged), and a
   backward-compat alias `/auth/forgot-password` → `forgot_pin`.
@@ -44,12 +41,10 @@ Everything lives in one file, organized into `# ---------- Name ----------` sect
   validation, and the budget-over-limit confirmation flow (`force` query param).
 - **Balances / Settle Up** (~587-670) — `_compute_balances` (the settlement engine, see §4),
   `GET /trips/{id}/balances`, `POST /trips/{id}/settle` (writes to `db.settlements`).
-- **Reports** (~673-776) — `GET /trips/{id}/report` (JSON summary) and
+- **Reports** (~669-774) — `GET /trips/{id}/report` (JSON summary) and
   `GET /trips/{id}/report.xlsx` (4-sheet Excel via `openpyxl`, streamed back).
-- **AI** (~779-857) — `GET /meta/categories`, `POST /ai/categorize`, `GET /trips/{id}/ai/insights`,
-  both AI endpoints call Claude Sonnet 4.5 via `emergentintegrations.llm.chat.LlmChat` and degrade
-  gracefully (return `"Other"` / heuristic insights) if `EMERGENT_LLM_KEY` is unset or the call fails.
-- **Startup/Shutdown** (~860-893) — creates indexes (`users.email` unique, `trips.code` unique,
+- **Meta** (~775-780) — `GET /meta/categories` (returns the `CATEGORIES` list).
+- **Startup/Shutdown** (~781-815) — creates indexes (`users.email` unique, `trips.code` unique,
   `expenses (trip_id, created_at)`), seeds the admin user from `ADMIN_EMAIL`/`ADMIN_PASSWORD`/
   `ADMIN_PIN`, mounts the router, and adds permissive CORS (`allow_origins=["*"]`).
 
@@ -168,15 +163,6 @@ link can be opened directly by the device's browser/download manager. Builds an 
 in-memory with 4 sheets — *Summary*, *By Category*, *Per Member*, *Per Family Person*, *Transactions*
 — and streams it back as `StreamingResponse` with a `Content-Disposition: attachment` header.
 
-### AI features
-- `POST /ai/categorize` — given a free-text description, asks Claude Sonnet 4.5 to pick one of
-  `CATEGORIES`; falls back to substring matching, then `"Other"`, on any failure or missing key.
-- `GET /trips/{id}/ai/insights` — computes category totals locally, sends a summary string to Claude
-  for 3 short bullet insights; falls back to 3 templated insights (top category, budget status, generic
-  tip) if the LLM call fails or `EMERGENT_LLM_KEY` is unset.
-- Both use `emergentintegrations.llm.chat.LlmChat(...).with_model("anthropic",
-  "claude-sonnet-4-5-20250929")`.
-
 ## 5. Frontend (`frontend/`)
 
 Expo SDK 54, `expo-router` file-based routing rooted at `frontend/app/`.
@@ -201,16 +187,16 @@ Expo SDK 54, `expo-router` file-based routing rooted at `frontend/app/`.
   - `profile.tsx` — user info, dark-mode `Switch` (via `ThemeContext.toggle`), sign out.
 - `app/create-trip.tsx`, `app/join-trip.tsx` — modals for creating/joining trips.
 - `app/trip/[id]/index.tsx` — the trip detail screen; tabs are **client-side state**, not routes:
-  `summary` (You-card, budget bar, mini-stats, `DonutChart` by category, top AI insight),
+  `summary` (You-card, budget bar, mini-stats, `DonutChart` by category),
   `expenses` (list with delete + tap-to-edit), `balances` (per-member net + family breakdown +
-  suggested transfers), `members` (list + add/edit/delete), `ai` (full insights list).
+  suggested transfers), `members` (list + add/edit/delete).
 - `app/trip/[id]/add-member.tsx` / `edit-member.tsx` — member create/edit; `edit-member` implements the
   "keep original split vs re-split with new members" prompt (`reweight_past` flag, see §4) and blocks
   deleting members that have expenses or are linked to an app user.
 - `app/trip/[id]/add-expense.tsx` / `edit-expense.tsx` — the expense form: kind toggle, amount,
-  description + "✨ AI categorize" (`/ai/categorize`), category chips, date, paid-by radio list,
-  split checkboxes with per-family "split among N of M" chips (→ `weight_snapshots`), optional receipt
-  via `expo-image-picker` (base64), and the budget-warning confirm/`force=true` retry.
+  description, category chips, date, paid-by radio list, split checkboxes with per-family "split
+  among N of M" chips (→ `weight_snapshots`), optional receipt via `expo-image-picker` (base64), and
+  the budget-warning confirm/`force=true` retry.
 - `app/trip/[id]/settle-up.tsx` — lists `balances.transfers`, "Mark paid" → `POST /trips/{id}/settle`.
 - `app/trip/[id]/edit.tsx` — edit trip name/date/budget/currency.
 - `app/trip/[id]/category/[name].tsx` — drill-down into one category's transactions (reached by
@@ -270,7 +256,7 @@ Expo SDK 54, `expo-router` file-based routing rooted at `frontend/app/`.
 ## 7. Known issues / TODOs / tech debt
 
 - `backend/.env` and `frontend/.env` are **committed to git** and contain live-looking secrets
-  (`JWT_SECRET`, `RESEND_API_KEY`, `EMERGENT_LLM_KEY`). Treat as already exposed; see `../CLAUDE.md`.
+  (`JWT_SECRET`, `RESEND_API_KEY`). Treat as already exposed; see `../CLAUDE.md`.
 - `ExpenseUpdate.force` exists on the model but `update_expense` never re-runs the budget-over-limit
   check on edits (only `add_expense` does) — editing an expense's amount can silently push a trip over
   budget with no warning.
@@ -279,9 +265,6 @@ Expo SDK 54, `expo-router` file-based routing rooted at `frontend/app/`.
 - `root README.md` is a placeholder (`# Here are your Instructions`) with no real content.
 - From `memory/PRD.md`, explicitly out of scope for MVP: live FX conversion, push notifications, PDF
   export/share, role-based access beyond owner-only delete, offline sync.
-- AI features depend on the third-party `emergentintegrations` package and `EMERGENT_LLM_KEY`; if that
-  key/service becomes unavailable, both AI endpoints silently fall back to heuristics (by design, but
-  worth knowing when debugging "AI" features that seem to ignore the model).
 
 ## 8. Directory & key-file map
 
@@ -289,7 +272,7 @@ Expo SDK 54, `expo-router` file-based routing rooted at `frontend/app/`.
 backend/
   server.py            # entire API (see §2)
   requirements.txt
-  .env                  # MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_*, EMERGENT_LLM_KEY, RESEND_*, APP_URL
+  .env                  # MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_*, RESEND_*, APP_URL
   tests/
     conftest.py         # api_client / admin_token / test_user fixtures, hits EXPO_PUBLIC_BACKEND_URL
     test_auth.py
@@ -297,7 +280,7 @@ backend/
     test_members.py
     test_expenses.py
     test_balances_reports.py
-    test_ai_meta.py
+    test_meta.py
 
 frontend/
   app/

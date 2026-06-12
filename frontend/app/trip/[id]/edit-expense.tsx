@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert,
   KeyboardAvoidingView, Platform, Image,
@@ -33,7 +33,6 @@ export default function EditExpense() {
   const [paidBy, setPaidBy] = useState<string | null>(null);
   const [splitSel, setSplitSel] = useState<string[]>([]);
   const [receipt, setReceipt] = useState<string | null>(null);
-  const [aiBusy, setAiBusy] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -61,17 +60,6 @@ export default function EditExpense() {
       setReceipt(`data:image/jpeg;base64,${r.assets[0].base64}`);
     }
   };
-
-  const autoCat = useCallback(async () => {
-    if (!desc.trim()) return;
-    setAiBusy(true);
-    try {
-      const res = await api<{ category: string }>('/ai/categorize', {
-        method: 'POST', body: { description: desc },
-      });
-      if (res.category) setCat(res.category);
-    } catch {} finally { setAiBusy(false); }
-  }, [desc]);
 
   const save = async () => {
     if (!trip || !paidBy) return;
@@ -138,14 +126,7 @@ export default function EditExpense() {
           </View>
 
           <View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <T variant="label" muted>Description</T>
-              <TouchableOpacity onPress={autoCat} disabled={aiBusy}>
-                <T color={colors.primary} style={{ fontWeight: '700' }}>
-                  {aiBusy ? '…' : '✨ AI categorize'}
-                </T>
-              </TouchableOpacity>
-            </View>
+            <T variant="label" muted>Description</T>
             <TextInput testID="ee-desc" value={desc} onChangeText={setDesc}
               placeholderTextColor={colors.textMuted}
               style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]} />
