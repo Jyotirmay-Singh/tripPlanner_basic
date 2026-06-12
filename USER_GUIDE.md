@@ -96,7 +96,7 @@ If you're already a member of the trip (because you created it or joined it) and
 2. Toggle **Expense / Income** at the top.
 3. Enter the **amount** in the trip's currency.
 4. Write a short **description** (e.g. *Dinner at Leela*).
-5. Tap **✨ AI categorize** to let AI pick the category automatically. Or pick from the horizontal **Travel / Accommodation / Local Transportation / Local Sightseeing / Food / Shopping / Other** chips.
+5. Pick from the horizontal **Travel / Accommodation / Local Transportation / Local Sightseeing / Food / Shopping / Other** chips.
 6. Set the **date** (DD-MM-YY).
 7. **Paid by** — radio-pick the member who paid.
 8. **Split among** — **all members are pre-selected by default**. Uncheck any member you don't want to include.
@@ -120,7 +120,6 @@ Open any trip and look at the **Summary** tab (default tab):
 - **Budget bar** — green if under, red if over. Shows used / total.
 - **Mini-stats** — number of transactions, total income.
 - **Donut chart** — spend by category, with % in the legend. **Tap any slice or legend row** to drill down to all transactions in that category.
-- **Smart insight** — AI-generated one-line tip (from Claude Sonnet 4.5).
 
 ---
 
@@ -154,18 +153,7 @@ The download opens in your phone's browser; share or save it from there.
 
 ---
 
-## 9. AI Features
-
-The app uses Claude Sonnet 4.5 (via Emergent's Universal LLM key) for two things:
-
-1. **✨ AI categorize** (Add Expense screen) — pass a description and get back the best category.
-2. **Smart insight** (Trip Summary tab) — analyses your spend pattern and tells you the biggest category, budget status, and one practical saving tip.
-
-No data leaves the request — it's stateless per call.
-
----
-
-## 10. Practical Workflow Example
+## 9. Practical Workflow Example
 
 > "We're going to Goa, 4 of us. I'm splitting with Riddhi (individual) and the Sharma family (3 people)."
 
@@ -179,7 +167,7 @@ No data leaves the request — it's stateless per call.
 
 ---
 
-## 11. Tips & Troubleshooting
+## 10. Tips & Troubleshooting
 
 - **Icons missing or "font is empty"?** Close Expo Go fully and reopen → re-scan the QR. Asset caches can corrupt; this re-downloads them.
 - **Reset emails not arriving?** The Resend account is in test mode — emails only deliver to the account owner. Verify a domain at resend.com/domains to send to anyone. Until then, the reset token is also printed in the backend logs (admin can fetch it).
@@ -190,7 +178,7 @@ No data leaves the request — it's stateless per call.
 
 ---
 
-## 12. Default Admin Account
+## 11. Default Admin Account
 
 For demo & testing:
 - Email: `admin@trip.app`

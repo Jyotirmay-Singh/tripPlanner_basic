@@ -2,8 +2,8 @@ import pytest
 import requests
 import os
 
-# Use backend URL from frontend env or fallback to public URL
-BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL', 'https://split-trips-1.preview.emergentagent.com').rstrip('/')
+# Use backend URL from frontend env or fallback to local server
+BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL', 'http://localhost:8000').rstrip('/')
 
 @pytest.fixture
 def api_client():

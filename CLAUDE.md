@@ -13,7 +13,7 @@ See `USER_GUIDE.md` for full feature documentation and `memory/PRD.md` for the p
 ### Backend (`backend/server.py`)
 Single-file FastAPI app (no internal package structure). Sections are marked with `# ---------- Name ----------`
 comments and appear in this order: Setup → Utils → Models (Pydantic) → Auth → Trips → Members →
-Expenses → Balances/Settle Up → Reports → AI → Startup.
+Expenses → Balances/Settle Up → Reports → Meta → Startup.
 
 - All routes are registered on an `APIRouter(prefix="/api")` which is mounted on `app` at the bottom of the file.
 - Mongo access via Motor (`AsyncIOMotorClient`); collections are accessed directly as `db.<collection>` (e.g. `db.users`, `db.trips`, `db.expenses`).
@@ -23,9 +23,8 @@ Expenses → Balances/Settle Up → Reports → AI → Startup.
 - Members are either individuals or families (`family_members: []`); `_weight_of_member` determines the per-member split weight, and expenses can override the family weight per-transaction via `split_family_count`.
 - Balance/settle-up logic lives in `_compute_balances` — a greedy minimum-transaction settlement algorithm.
 - XLSX reports (`report.xlsx`) are built in-memory with `openpyxl` and streamed back; this endpoint takes the JWT as a `token` query param (not a header) since it's opened via a browser link.
-- AI features (`/api/ai/categorize`, `/api/trips/{id}/ai-insights`) call Claude Sonnet 4.5 via `emergentintegrations`, gated by `EMERGENT_LLM_KEY`.
 - On startup, indexes are created and an admin user is seeded from `ADMIN_EMAIL`/`ADMIN_PASSWORD`/`ADMIN_PIN` env vars if it doesn't exist.
-- Forgot-PIN flow sends email via Resend (`RESEND_API_KEY`); if not configured, the reset token is logged instead (see `memory/test_credentials.md` / `USER_GUIDE.md` §11).
+- Forgot-PIN flow sends email via Resend (`RESEND_API_KEY`); if not configured, the reset token is logged instead (see `memory/test_credentials.md` / `USER_GUIDE.md` §10).
 
 ### Frontend (`frontend/`)
 Expo SDK 54 app using `expo-router` (file-based routing under `frontend/app/`).
@@ -65,10 +64,10 @@ yarn lint       # expo lint
 
 ## Required environment variables
 
-- `backend/.env`: `MONGO_URL`, `DB_NAME`, `JWT_SECRET`, `ADMIN_EMAIL`/`ADMIN_PASSWORD`/`ADMIN_PIN`, `EMERGENT_LLM_KEY` (AI features), `RESEND_API_KEY`/`SENDER_EMAIL`/`APP_URL` (password-reset email).
+- `backend/.env`: `MONGO_URL`, `DB_NAME`, `JWT_SECRET`, `ADMIN_EMAIL`/`ADMIN_PASSWORD`/`ADMIN_PIN`, `RESEND_API_KEY`/`SENDER_EMAIL`/`APP_URL` (password-reset email).
 - `frontend/.env`: `EXPO_PUBLIC_BACKEND_URL` (API base URL the app talks to).
 
 Note: both `.env` files are currently committed to this repo and contain live-looking secrets
-(JWT signing secret, Resend API key, Emergent LLM key). Treat any values found there as already
+(JWT signing secret, Resend API key). Treat any values found there as already
 exposed — don't propagate them elsewhere, and prefer rotating/relocating to a non-tracked file when
 making related changes.

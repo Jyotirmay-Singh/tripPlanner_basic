@@ -5,7 +5,7 @@ Mobile (Expo React Native) + FastAPI + MongoDB app for sharing trip expenses, tr
 
 ## Tech
 - Frontend: Expo SDK 54, expo-router, React Native StyleSheet, @react-native-async-storage/async-storage, expo-image-picker
-- Backend: FastAPI, Motor (MongoDB async), bcrypt, PyJWT, openpyxl, emergentintegrations (Claude Sonnet 4.5)
+- Backend: FastAPI, Motor (MongoDB async), bcrypt, PyJWT, openpyxl
 - Auth: JWT Bearer tokens (30 days), AsyncStorage on mobile
 - Theme: light/dark, user-toggleable (Archetype Organic & Earthy)
 
@@ -17,9 +17,8 @@ Mobile (Expo React Native) + FastAPI + MongoDB app for sharing trip expenses, tr
 5. **Budget** — Over-budget warning modal with Save-anyway `force=true` bypass.
 6. **Balances & Settle Up** — Greedy minimum-transactions algorithm, record settlements.
 7. **Reports** — JSON summary + XLSX download (Summary / By Category / Per Member / Transactions sheets).
-8. **AI** — Auto-categorize expense descriptions + generate 3-bullet insights per trip (Claude Sonnet 4.5 via EMERGENT_LLM_KEY).
-9. **Dark mode** toggle in Profile.
-10. **Receipt image** via gallery picker (base64).
+8. **Dark mode** toggle in Profile.
+9. **Receipt image** via gallery picker (base64).
 
 ## Nav
 - Tabs: Dashboard · Trips · Add · Reports · Profile

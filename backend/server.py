@@ -193,10 +193,6 @@ class SettleIn(BaseModel):
     amount: float
 
 
-class AICategorizeIn(BaseModel):
-    description: str
-
-
 # ---------- Auth ----------
 @api.post("/auth/register")
 async def register(body: RegisterIn):
@@ -776,85 +772,10 @@ async def report_xlsx(trip_id: str, token: str,
     )
 
 
-# ---------- AI ----------
+# ---------- Meta ----------
 @api.get("/meta/categories")
 async def get_categories():
     return CATEGORIES
-
-
-@api.post("/ai/categorize")
-async def ai_categorize(body: AICategorizeIn, user=Depends(get_current_user)):
-    key = os.environ.get("EMERGENT_LLM_KEY")
-    if not key or not body.description.strip():
-        return {"category": "Other"}
-    try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
-        chat = LlmChat(
-            api_key=key, session_id=f"cat-{user['id']}",
-            system_message=(
-                "Classify the expense description into EXACTLY one of these categories: "
-                + ", ".join(CATEGORIES)
-                + ". Reply with only the category name, nothing else."
-            ),
-        ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-        resp = await chat.send_message(UserMessage(text=body.description))
-        cat = (resp or "").strip()
-        if cat not in CATEGORIES:
-            for c in CATEGORIES:
-                if c.lower() in cat.lower():
-                    cat = c; break
-            else:
-                cat = "Other"
-        return {"category": cat}
-    except Exception as e:
-        logger.warning(f"AI categorize failed: {e}")
-        return {"category": "Other"}
-
-
-@api.get("/trips/{trip_id}/ai/insights")
-async def ai_insights(trip_id: str, user=Depends(get_current_user)):
-    trip = await _trip_or_404(trip_id, user["id"])
-    expenses = await db.expenses.find({"trip_id": trip_id, "kind": "expense"}, {"_id": 0}).to_list(5000)
-    if not expenses:
-        return {"insights": ["No expenses yet. Start adding to get smart insights!"], "top_category": None}
-    by_cat = {}
-    for e in expenses:
-        by_cat[e["category"]] = by_cat.get(e["category"], 0) + e["amount"]
-    top_cat = max(by_cat.items(), key=lambda x: x[1])
-    total = sum(by_cat.values())
-
-    summary = "Expenses by category: " + ", ".join(f"{k}={round(v,2)}" for k, v in by_cat.items())
-    summary += f". Total={round(total,2)} {trip.get('currency','INR')}. Budget={trip.get('budget') or 'none'}."
-
-    insights: List[str] = []
-    key = os.environ.get("EMERGENT_LLM_KEY")
-    if key:
-        try:
-            from emergentintegrations.llm.chat import LlmChat, UserMessage
-            chat = LlmChat(
-                api_key=key, session_id=f"insight-{trip_id}",
-                system_message=(
-                    "You are a concise travel budget assistant. "
-                    "Given expense totals by category, return 3 short bullet-point insights: "
-                    "highest category, over/under budget status, one practical saving tip. "
-                    "Each bullet <= 18 words. Return as plain bullets with '-' prefix."
-                ),
-            ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-            resp = await chat.send_message(UserMessage(text=summary))
-            for line in (resp or "").splitlines():
-                line = line.strip().lstrip("-•* ").strip()
-                if line:
-                    insights.append(line)
-        except Exception as e:
-            logger.warning(f"AI insights failed: {e}")
-    if not insights:
-        insights = [
-            f"Highest spend: {top_cat[0]} ({round(top_cat[1],2)} {trip.get('currency','INR')})",
-            (f"You've spent {round(total,2)} of {trip.get('budget')} budget"
-             if trip.get("budget") else f"No budget set — total so far: {round(total,2)}"),
-            "Tip: review recurring categories for potential savings.",
-        ]
-    return {"insights": insights, "top_category": top_cat[0]}
 
 
 # ---------- Startup ----------
