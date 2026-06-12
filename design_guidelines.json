@@ -1,0 +1,119 @@
+{
+  "theme": "Light / Dark Toggle",
+  "archetype": "Archetype 1 (Organic & Earthy)",
+  "rationale": "Travel + Finance needs to feel grounded, trustworthy, and experiential. By avoiding generic fintech 'Tech Blue' and leaning into Deep Forest Greens and Terracotta, the app feels like a premium travel companion rather than a sterile bank. Dark mode shifts to a rich Obsidian to reduce eye strain during late-night travel calculations.",
+  "typography": {
+    "heading_font": "Outfit",
+    "body_font": "Figtree",
+    "scales": {
+      "h1": "text-4xl md:text-5xl font-bold tracking-tighter leading-none",
+      "h2": "text-2xl md:text-3xl font-semibold tracking-tight",
+      "h3": "text-xl font-medium tracking-tight",
+      "body": "text-base font-normal leading-relaxed",
+      "label": "text-xs font-bold uppercase tracking-[0.2em]"
+    },
+    "rules": [
+      "Never use Inter or Roboto for headings.",
+      "Numbers in balances MUST use proportional lining features or a monospaced variant if available, keeping the tracking very tight (-0.02em).",
+      "Use 'Outfit' for all numeric amounts to give them a modern, geometric punch."
+    ]
+  },
+  "colors": {
+    "light_mode": {
+      "background": "#F7F5F0",
+      "surface": "#FFFFFF",
+      "surface_muted": "#EDEBE3",
+      "primary": "#1C3F39",
+      "text_main": "#121A18",
+      "text_muted": "#5C6B67",
+      "border": "#DCD9CE",
+      "status": {
+        "owing": "#E05D3D",
+        "owed": "#6B8E6B",
+        "warning": "#D4A373"
+      }
+    },
+    "dark_mode": {
+      "background": "#0A0D0C",
+      "surface": "#121715",
+      "surface_muted": "#1A221F",
+      "primary": "#87C0B2",
+      "text_main": "#F7F5F0",
+      "text_muted": "#8EA39D",
+      "border": "#24302C",
+      "status": {
+        "owing": "#FF8A66",
+        "owed": "#8FC98F",
+        "warning": "#F5C28F"
+      }
+    },
+    "rules": [
+      "NO PURE BLACK OR WHITE. All grays must be tinted with the base green/brown hue.",
+      "Primary color is used sparingly for CTAs (Add Expense button, Settle Up button).",
+      "Owed/Owing colors must pass APCA contrast against their respective backgrounds."
+    ]
+  },
+  "spacing_and_layout": {
+    "philosophy": "Generous Spacing + Optical Alignment",
+    "container_padding": "p-6 md:p-8",
+    "gap_standard": "gap-4 md:gap-6",
+    "border_radius": "rounded-2xl for main cards, rounded-full for buttons and pills",
+    "grid_system": {
+      "dashboard": "Bento Grid (Control Room style). Tight gaps (gap-4). Every pixel utilized. 'You Owe' and 'You are Owed' take col-span-1 each, 'Net Balance' spans full width above them.",
+      "trip_list": "Vertical stack with gap-4. No masonry for lists."
+    },
+    "surfaces": {
+      "cards": "Flat solid surfaces. 1px solid border (border-border). NO drop shadows. Background matches 'surface'.",
+      "bottom_tab_bar": "Crystal Glass variant: backdrop-blur-xl, bg-white/70 (light) or bg-black/60 (dark), 1px top border (border-white/20 or border-white/10). No muddy transparency."
+    }
+  },
+  "components": {
+    "navigation": "Bottom Tab Nav MUST be an edge-to-edge glass bar. Active state uses primary color icon, inactive uses text_muted.",
+    "buttons": "Primary CTA must be Solid Primary Color with inverted text. rounded-full. Hover/Press state adds a subtle scale down (active:scale-95).",
+    "inputs": "Custom Shadcn-style. rounded-xl. border-border/40. focus:ring-2 focus:ring-primary/50 focus:border-primary. Background is surface_muted.",
+    "modals": "Slide-up drawers (bottom sheets) for mobile interactions instead of center-screen dialogs. E.g., 'Add Expense' should slide up from the bottom.",
+    "badges": "For categories (Travel, Food, etc.), use muted background with primary text (e.g., bg-surface_muted text-text_main).",
+    "charts": "Recharts or Victory (React Native). Minimalist. Do not use axes lines if possible. For pie charts, use the brand color palette (Primary, Terracotta, Sage, Warning).",
+    "testing": "All interactive elements MUST have `data-testid` (e.g., `data-testid=\"add-expense-button\"`)."
+  },
+  "motion": {
+    "page_transitions": "Subtle fade + slight Y-axis slide (e.g., enter from bottom +10px).",
+    "micro_interactions": "Buttons scale down on press. Checkmarks draw themselves. Settle-up action triggers a satisfying scale bounce."
+  },
+  "media": {
+    "empty_states": [
+      {
+        "url": "https://images.unsplash.com/photo-1720399811054-3ded2ca22205?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzN8MHwxfHNlYXJjaHwzfHxtaW5pbWFsaXN0JTIwdHJhdmVsJTIwbGFuZHNjYXBlfGVufDB8fHx8MTc3NjUwMTQyNXww&ixlib=rb-4.1.0&q=85",
+        "category": "empty_dashboard",
+        "description": "Minimalist sailboat on water. Use this for the 'No Trips Yet' empty state background with a heavy gradient overlay (to surface color) so text is readable."
+      }
+    ],
+    "avatars": [
+      {
+        "url": "https://images.unsplash.com/photo-1772723246507-e58357fcf6be?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2OTV8MHwxfHNlYXJjaHwzfHxzbWlsaW5nJTIwZGl2ZXJzZSUyMHBvcnRyYWl0fGVufDB8fHx8MTc3NjUwMTQyNXww&ixlib=rb-4.1.0&q=85",
+        "category": "user_avatar_group",
+        "description": "Group avatar for family/friends."
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1613005341945-35e159e522f1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2OTV8MHwxfHNlYXJjaHwyfHxzbWlsaW5nJTIwZGl2ZXJzZSUyMHBvcnRyYWl0fGVufDB8fHx8MTc3NjUwMTQyNXww&ixlib=rb-4.1.0&q=85",
+        "category": "user_avatar_1",
+        "description": "Individual member avatar."
+      }
+    ]
+  },
+  "icons": {
+    "library": "lucide-react-native",
+    "rules": "Use stroke-width 1.5. Clean, unopinionated outlines."
+  },
+  "instructions_to_main_agent": [
+    "This is an Expo React Native app. Apply these Tailwind concepts using NativeWind or your chosen styling solution. Map CSS variables to React Native theme objects if necessary.",
+    "Implement the Dark Mode toggle logic robustly using React Context or Expo's Appearance API.",
+    "For the 'Add Expense' screen, use a large, immersive numpad UI for the amount input rather than a standard tiny text input. It should feel tactile.",
+    "The JWT Auth + 4-digit PIN should feel like a premium banking app unlock screen (Archetype 1 style, calm not aggressive).",
+    "For the Splitwise logic (who owes whom), ensure the math is rock solid, but visually present it as a clean list of 'To Pay' and 'To Receive' cards.",
+    "NEVER use default blue links. Use the Primary color.",
+    "Ensure 'Settle Up' is prominently displayed in the Trip detail view.",
+    "The UI MUST have a custom, polished look. Do NOT default to basic Material Design or generic iOS components without styling them to match the Archetype 1 guidelines. Build cardless or subtle 1px bordered elements.",
+    "Ensure 'data-testid' is present on all intractable inputs, buttons, and list items."
+  ]
+}
