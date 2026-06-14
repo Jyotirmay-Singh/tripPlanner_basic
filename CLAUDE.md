@@ -101,7 +101,7 @@ AGENT DIRECTIVE: You must update this file by changing `[ ]` to `[x]` as you suc
 - [x] Step 1: Modularize Backend. Break down `server.py` into cleanly decoupled layers under `/models`, `/routes`, and `/utils`. Verify all current functional integration tests pass perfectly.
 - [x] Step 2: Trip RBAC Infrastructure. Update the Trip schema to support an explicit `admin_ids` string array. Ensure the initializing creator is flagged as the root admin.
 - [x] Step 3: Unique Family & Domain Mapping. Update the Family validation schema to guarantee unique `linked_email` addresses and prevent identical naming conventions inside a single trip context.
-- [ ] Step 4: Dual Split Mode Enums. Update the Pydantic and database Expense validation models to support a strict literal `split_mode` tracking field (`PER_CAPITA` | `PER_FAMILY`).
+- [x] Step 4: Dual Split Mode Enums. Update the Pydantic and database Expense validation models to support a strict literal `split_mode` tracking field (`PER_CAPITA` | `PER_FAMILY`).
 
 ### Phase 2: The Calculation & Export Engines (Backend)
 - [ ] Step 5: Isolate Mathematical Layer. Create `services/calculator.py`. Extract and migrate the minimum-transaction greedy settlement algorithm into this module.
