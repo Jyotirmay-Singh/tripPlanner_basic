@@ -44,6 +44,7 @@ async def add_expense(trip_id: str, body: ExpenseIn, force: bool = False,
         "description": body.description or "",
         "date": body.date, "paid_by_member_id": body.paid_by_member_id,
         "split_member_ids": split_ids,
+        "split_mode": body.split_mode,
         "weight_snapshots": body.weight_snapshots or None,
         "receipt_base64": body.receipt_base64,
         "created_by": user["id"], "created_at": now_utc().isoformat(),
@@ -57,7 +58,10 @@ async def add_expense(trip_id: str, body: ExpenseIn, force: bool = False,
 async def list_expenses(trip_id: str, user=Depends(get_current_user)):
     await _trip_or_404(trip_id, user["id"])
     cur = db.expenses.find({"trip_id": trip_id}, {"_id": 0}).sort("created_at", -1)
-    return await cur.to_list(1000)
+    expenses = await cur.to_list(1000)
+    for e in expenses:
+        e["split_mode"] = e.get("split_mode", "PER_CAPITA")
+    return expenses
 
 
 @router.patch("/trips/{trip_id}/expenses/{expense_id}")
