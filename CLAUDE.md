@@ -106,7 +106,7 @@ AGENT DIRECTIVE: You must update this file by changing `[ ]` to `[x]` as you suc
 ### Phase 2: The Calculation & Export Engines (Backend)
 - [x] Step 5: Isolate Mathematical Layer. Create `services/calculator.py`. Extract and migrate the minimum-transaction greedy settlement algorithm into this module.
 - [x] Step 6: Realize Per-Capita Mode Math. Implement the complete calculation logic for the human-count division (PER_CAPITA) specified in Section 5.
-- [ ] Step 7: Realize Per-Family Mode Math. Implement the complete entity-based division calculation logic (PER_FAMILY) specified in Section 5.
+- [x] Step 7: Realize Per-Family Mode Math. Implement the complete entity-based division calculation logic (PER_FAMILY) specified in Section 5.
 - [ ] Step 8: Retroactive Family Re-allocation Routine. Code a transactional service tracking past expenses for a target `family_id` upon member size mutations. Provide toggled options to recalculate past ledger balances.
 - [ ] Step 9: Synchronize XLSX Export Report. Update the `openpyxl` reporting code pipeline to parse the new split modes and output clear mathematical validation tabs tracking per-capita versus per-family line items.
 

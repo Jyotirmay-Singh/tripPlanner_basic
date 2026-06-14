@@ -33,6 +33,25 @@ def split_per_capita(amount: float, weights: dict) -> dict:
     return {mid: per_human * w for mid, w in weights.items()}
 
 
+def split_per_family(amount: float, member_ids: list) -> dict:
+    """PER_FAMILY (Section 5B): divide `amount` equally across entities.
+
+    member_ids: selected entities (each family OR individual id is ONE entity).
+    E = number of distinct entities; each owes amount / E, FLAT, regardless of
+    family size. Family size and weight_snapshots are intentionally ignored here
+    (the defining difference from split_per_capita). No intermediate rounding
+    (sum(shares) == amount within float epsilon); the single final round() of net
+    in _compute_balances stays the only rounding.
+    Empty member_ids or E <= 0 -> {} (caller skips the expense).
+    """
+    ids = list(dict.fromkeys(member_ids))  # de-dupe, preserve order
+    entity_count = len(ids)
+    if entity_count <= 0:
+        return {}
+    per_entity = amount / entity_count
+    return {mid: per_entity for mid in ids}
+
+
 def minimize_transfers(net: dict) -> list:
     """Greedy minimum-transaction settlement.
 
