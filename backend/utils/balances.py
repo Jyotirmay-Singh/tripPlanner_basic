@@ -18,6 +18,7 @@ async def _compute_balances(trip_id: str) -> dict:
     weight_map = {m["id"]: _weight_of_member(m) for m in members}
 
     expenses = await db.expenses.find({"trip_id": trip_id, "kind": "expense"}, {"_id": 0}).to_list(5000)
+    # Step 6/7 will branch this loop on e["split_mode"] (PER_CAPITA vs PER_FAMILY)
     for e in expenses:
         split_ids = e["split_member_ids"] or [m["id"] for m in members]
         snap = e.get("weight_snapshots") or {}
