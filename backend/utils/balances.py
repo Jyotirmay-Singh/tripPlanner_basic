@@ -1,6 +1,7 @@
 from fastapi import HTTPException
 
 from database import db
+from services.calculator import minimize_transfers
 
 
 def _weight_of_member(m: dict) -> int:
@@ -45,24 +46,7 @@ async def _compute_balances(trip_id: str) -> dict:
         net[k] = round(net[k], 2)
 
     # greedy settlement suggestion
-    debtors = sorted([(mid, v) for mid, v in net.items() if v < -0.01], key=lambda x: x[1])
-    creditors = sorted([(mid, v) for mid, v in net.items() if v > 0.01], key=lambda x: -x[1])
-    transfers = []
-    i = j = 0
-    d = list(debtors); c = list(creditors)
-    while i < len(d) and j < len(c):
-        owe = -d[i][1]
-        receive = c[j][1]
-        pay = min(owe, receive)
-        if pay > 0.01:
-            transfers.append({"from_member_id": d[i][0], "to_member_id": c[j][0],
-                              "amount": round(pay, 2)})
-        d[i] = (d[i][0], d[i][1] + pay)
-        c[j] = (c[j][0], c[j][1] - pay)
-        if abs(d[i][1]) < 0.01:
-            i += 1
-        if abs(c[j][1]) < 0.01:
-            j += 1
+    transfers = minimize_transfers(net)
     return {"net": net, "transfers": transfers, "members": members,
             "currency": trip.get("currency", "INR"),
             "per_person": [
