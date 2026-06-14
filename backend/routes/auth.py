@@ -4,11 +4,14 @@ from datetime import datetime, timedelta
 
 import resend
 from fastapi import APIRouter, HTTPException, Depends
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 
-from config import logger, RESEND_API_KEY, SENDER_EMAIL, APP_URL
+from config import logger, RESEND_API_KEY, SENDER_EMAIL, APP_URL, GOOGLE_CLIENT_ID
 from database import db
-from models.auth import RegisterIn, LoginIn, ForgotIn, ResetPinIn
+from models.auth import RegisterIn, LoginIn, ForgotIn, ResetPinIn, GoogleAuthIn
 from utils.common import gen_id, now_utc
+from utils.email_rules import assert_gmail, normalize_email
 from utils.security import hash_secret, verify_secret, create_token
 from utils.deps import get_current_user
 
@@ -19,6 +22,7 @@ router = APIRouter()
 @router.post("/auth/register")
 async def register(body: RegisterIn):
     email = body.email.lower().strip()
+    assert_gmail(email)
     if await db.users.find_one({"email": email}):
         raise HTTPException(400, "Email already registered")
     if not body.pin.isdigit():
@@ -41,6 +45,7 @@ async def register(body: RegisterIn):
 @router.post("/auth/login")
 async def login(body: LoginIn):
     email = body.email.lower().strip()
+    assert_gmail(email)
     user = await db.users.find_one({"email": email})
     if not user:
         raise HTTPException(401, "Invalid credentials")
@@ -65,6 +70,7 @@ async def me(user=Depends(get_current_user)):
 @router.post("/auth/forgot-pin")
 async def forgot_pin(body: ForgotIn):
     email = body.email.lower().strip()
+    assert_gmail(email)
     user = await db.users.find_one({"email": email})
     if user:
         token = secrets.token_urlsafe(32)
@@ -109,6 +115,40 @@ async def reset_pin(body: ResetPinIn):
                               {"$set": {"pin_hash": hash_secret(body.new_pin)}})
     await db.password_reset_tokens.update_one({"token": body.token}, {"$set": {"used": True}})
     return {"ok": True}
+
+
+@router.post("/auth/google")
+async def google_auth(body: GoogleAuthIn):
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(500, "Google sign-in is not configured")
+    try:
+        idinfo = google_id_token.verify_oauth2_token(
+            body.id_token, google_requests.Request(), GOOGLE_CLIENT_ID
+        )
+    except ValueError:
+        raise HTTPException(401, "Invalid Google token")
+
+    email = normalize_email(idinfo.get("email"))
+    if not email:
+        raise HTTPException(401, "Invalid Google token")
+    assert_gmail(email)
+
+    user = await db.users.find_one({"email": email})
+    if not user:
+        uid = gen_id()
+        name = idinfo.get("name") or email.split("@")[0]
+        user = {
+            "id": uid, "email": email, "name": name,
+            "password_hash": hash_secret(secrets.token_urlsafe(16)),
+            "pin_hash": hash_secret(secrets.token_urlsafe(16)),
+            "role": "user", "auth_provider": "google",
+            "created_at": now_utc().isoformat(),
+        }
+        await db.users.insert_one(user)
+
+    token = create_token(user["id"], email)
+    return {"access_token": token,
+            "user": {"id": user["id"], "email": email, "name": user["name"], "role": user.get("role", "user")}}
 
 
 # Backward-compat aliases (kept so old frontend builds keep working)

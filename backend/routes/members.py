@@ -5,6 +5,8 @@ from models.member import MemberIn, MemberUpdate
 from utils.common import gen_id
 from utils.deps import get_current_user, _trip_or_404
 from utils.balances import _weight_of_member
+from utils.email_rules import assert_gmail, normalize_email
+from utils.members import assert_unique_email, assert_unique_name
 
 router = APIRouter()
 
@@ -13,27 +15,20 @@ router = APIRouter()
 @router.post("/trips/{trip_id}/members")
 async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user)):
     trip = await _trip_or_404(trip_id, user["id"])
-    name = body.name.strip()
-    if not name:
-        raise HTTPException(400, "Name is required")
-    # Duplicate-name check (case-insensitive) per trip
-    for m in trip.get("members", []):
-        if m["name"].lower() == name.lower():
-            raise HTTPException(400, f"A member named '{name}' already exists in this trip")
-    email = (body.email or "").lower().strip() or None
+    name = body.name
+    members = trip.get("members", [])
+    email = normalize_email(body.email)
+    if email:
+        assert_gmail(email)
     # Determine if this email matches an existing user-individual we should merge with (in-place)
     merge_target = None
     if email and body.kind == "family":
-        for m in trip.get("members", []):
+        for m in members:
             if (m.get("email") or "").lower() == email and m.get("user_id") and m.get("kind") == "individual":
                 merge_target = m; break
-    # Duplicate email check (skip if we plan to merge that one)
-    if email:
-        for m in trip.get("members", []):
-            if merge_target and m["id"] == merge_target["id"]:
-                continue
-            if (m.get("email") or "").lower() == email:
-                raise HTTPException(400, f"A member with email '{email}' already exists in this trip")
+    exclude_id = merge_target["id"] if merge_target else None
+    assert_unique_name(members, name, exclude_id=exclude_id)
+    assert_unique_email(members, email, exclude_id=exclude_id)
     new_member = {
         "id": gen_id(), "name": name, "kind": body.kind,
         "family_members": body.family_members if body.kind == "family" else [],
@@ -66,14 +61,8 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
         raise HTTPException(404, "Member not found")
     updates: dict = {}
     if body.name is not None:
-        nm = body.name.strip()
-        if not nm:
-            raise HTTPException(400, "Name cannot be empty")
-        # duplicate check excluding self
-        for m in trip["members"]:
-            if m["id"] != member_id and m["name"].lower() == nm.lower():
-                raise HTTPException(400, f"A member named '{nm}' already exists in this trip")
-        updates["members.$.name"] = nm
+        assert_unique_name(trip["members"], body.name, exclude_id=member_id)
+        updates["members.$.name"] = body.name
     if body.kind is not None:
         updates["members.$.kind"] = body.kind
     new_kind = body.kind if body.kind is not None else target["kind"]
@@ -83,15 +72,13 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
     if body.family_members is not None or body.kind is not None:
         updates["members.$.family_members"] = new_fm
     if body.email is not None:
-        em = (body.email or "").lower().strip() or None
+        em = normalize_email(body.email)
         if em:
-            for m in trip["members"]:
-                if m["id"] != member_id and (m.get("email") or "").lower() == em:
-                    raise HTTPException(400, f"A member with email '{em}' already exists in this trip")
+            assert_gmail(em)
+            assert_unique_email(trip["members"], em, exclude_id=member_id)
         updates["members.$.email"] = em
 
     # If family members list changed and user chose NOT to re-weight past, snapshot old weights
-    old_fm = target.get("family_members", [])
     old_weight = _weight_of_member(target)
     new_weight_member = {**target, "kind": new_kind, "family_members": new_fm}
     new_weight = _weight_of_member(new_weight_member)

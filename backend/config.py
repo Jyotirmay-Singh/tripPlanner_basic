@@ -20,6 +20,7 @@ JWT_ALGORITHM = "HS256"
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 APP_URL = os.environ.get("APP_URL", "")
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 
 if RESEND_API_KEY:
     resend.api_key = RESEND_API_KEY

@@ -123,7 +123,7 @@ class TestTrips:
         """Test POST /trips/join with code from another user's trip"""
         # Create second test user
         import uuid
-        user2_email = f"TEST_join_{uuid.uuid4().hex[:8]}@trip.app"
+        user2_email = f"TEST_join_{uuid.uuid4().hex[:8]}@gmail.com"
         user2_resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": user2_email,
             "password": "test1234",
@@ -164,7 +164,7 @@ class TestTrips:
         # Create second user and trip
         import uuid
         user2_resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
-            "email": f"TEST_other_{uuid.uuid4().hex[:8]}@trip.app",
+            "email": f"TEST_other_{uuid.uuid4().hex[:8]}@gmail.com",
             "password": "test1234",
             "pin": "9999",
             "name": "Other User"

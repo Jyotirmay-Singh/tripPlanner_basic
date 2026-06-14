@@ -11,6 +11,7 @@ type Ctx = {
   savedEmail: string | null;
   signIn: (email: string, password?: string, pin?: string) => Promise<void>;
   register: (email: string, pin: string, name: string, password?: string) => Promise<void>;
+  signInWithGoogle: (idToken: string) => Promise<void>;
   signOut: (clearSavedEmail?: boolean) => Promise<void>;
   forgetSavedEmail: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -62,6 +63,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(res.user);
   };
 
+  const signInWithGoogle = async (idToken: string) => {
+    const res = await api<{ access_token: string; user: User }>('/auth/google', {
+      method: 'POST', body: { id_token: idToken }, auth: false,
+    });
+    await setToken(res.access_token);
+    await AsyncStorage.setItem(SAVED_EMAIL_KEY, res.user.email);
+    setSavedEmail(res.user.email);
+    setUser(res.user);
+  };
+
   const signOut = async (clearSavedEmail = false) => {
     await setToken(null);
     if (clearSavedEmail) {
@@ -77,7 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthCtx.Provider value={{ user, savedEmail, signIn, register, signOut, forgetSavedEmail, refresh }}>
+    <AuthCtx.Provider value={{ user, savedEmail, signIn, register, signInWithGoogle, signOut, forgetSavedEmail, refresh }}>
       {children}
     </AuthCtx.Provider>
   );

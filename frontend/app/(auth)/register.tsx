@@ -9,6 +9,8 @@ import { useAuth } from '../../src/AuthContext';
 import { useTheme } from '../../src/ThemeContext';
 import { SPACING, RADIUS } from '../../src/theme';
 import T from '../../src/T';
+import { isGmail, GMAIL_ONLY_MESSAGE } from '../../src/validation';
+import GoogleSignInButton from '../../src/GoogleSignInButton';
 
 export default function Register() {
   const { register } = useAuth();
@@ -24,6 +26,7 @@ export default function Register() {
     if (!name || !email || pin.length !== 4) {
       return Alert.alert('Missing', 'Fill name, email, and a 4-digit PIN.');
     }
+    if (!isGmail(email)) return Alert.alert('Invalid email', GMAIL_ONLY_MESSAGE);
     if (!/^\d{4}$/.test(pin)) return Alert.alert('Invalid PIN', 'PIN must be 4 digits');
     setLoading(true);
     try {
@@ -51,8 +54,11 @@ export default function Register() {
             <T variant="label" muted>Email</T>
             <TextInput testID="reg-email" value={email} onChangeText={setEmail}
               autoCapitalize="none" keyboardType="email-address"
-              placeholder="you@example.com" placeholderTextColor={colors.textMuted}
+              placeholder="you@gmail.com" placeholderTextColor={colors.textMuted}
               style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]} />
+            {!!email && !isGmail(email) && (
+              <T variant="caption" color={colors.owing} style={{ marginTop: 4 }}>{GMAIL_ONLY_MESSAGE}</T>
+            )}
           </View>
           <View>
             <T variant="label" muted>4-digit PIN (your only login credential)</T>
@@ -70,6 +76,8 @@ export default function Register() {
             {loading ? <ActivityIndicator color={colors.primaryText} /> :
               <T variant="h3" color={colors.primaryText}>Create account</T>}
           </TouchableOpacity>
+
+          <GoogleSignInButton />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

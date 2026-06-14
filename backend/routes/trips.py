@@ -4,6 +4,7 @@ from database import db
 from models.trip import TripIn, TripUpdate, AdminGrant
 from utils.common import gen_id, gen_trip_code, now_utc
 from utils.deps import get_current_user, _trip_or_404, _trip_admin_or_403
+from utils.members import name_exists
 
 router = APIRouter()
 
@@ -86,8 +87,16 @@ async def join_trip(body: dict, user=Depends(get_current_user)):
              "$set": {"members.$.user_id": user["id"]}},
         )
     else:
+        members = trip.get("members", [])
+        name = user["name"]
+        if name_exists(members, name):
+            local_part = user_email.split("@")[0]
+            candidate = f"{name} ({local_part})"
+            if name_exists(members, candidate):
+                candidate = f"{name} ({local_part}-{gen_id()[:4]})"
+            name = candidate
         new_member = {
-            "id": gen_id(), "name": user["name"], "kind": "individual",
+            "id": gen_id(), "name": name, "kind": "individual",
             "family_members": [], "email": user_email, "user_id": user["id"],
         }
         await db.trips.update_one(

@@ -60,11 +60,18 @@ yarn lint       # expo lint
 * `MONGO_URL`: MongoDB connection string
 * `DB_NAME`: Database identification string
 * `JWT_SECRET`: Signing key for HS256 authentication tokens
-* `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_PIN`: Seed credentials for system superuser
+* `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_PIN`: Seed credentials for system superuser (must be a `@gmail.com` address)
 * `RESEND_API_KEY`, `SENDER_EMAIL`, `APP_URL`: Email transactional routing configuration
+* `GOOGLE_CLIENT_ID`: OAuth 2.0 client ID used to verify Google ID tokens for `POST /api/auth/google`
 
 ### Frontend Configuration (`frontend/.env`)
 * `EXPO_PUBLIC_BACKEND_URL`: Complete targeted API base URL path
+* `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`, `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`, `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID`: OAuth 2.0 client IDs for "Sign in with Google" (`GoogleSignInButton`)
+
+### Gmail-Only Identity
+This project is gmail-only: every email address accepted anywhere (register, login, forgot-PIN, member
+linked emails, and Google sign-in) must end in `@gmail.com`, enforced server-side by
+`backend/utils/email_rules.py::assert_gmail` and mirrored client-side by `frontend/src/validation.ts`.
 
 ---
 
@@ -93,7 +100,7 @@ AGENT DIRECTIVE: You must update this file by changing `[ ]` to `[x]` as you suc
 ### Phase 1: Data Model Expansion & Refactor (Backend)
 - [x] Step 1: Modularize Backend. Break down `server.py` into cleanly decoupled layers under `/models`, `/routes`, and `/utils`. Verify all current functional integration tests pass perfectly.
 - [x] Step 2: Trip RBAC Infrastructure. Update the Trip schema to support an explicit `admin_ids` string array. Ensure the initializing creator is flagged as the root admin.
-- [ ] Step 3: Unique Family & Domain Mapping. Update the Family validation schema to guarantee unique `linked_email` addresses and prevent identical naming conventions inside a single trip context.
+- [x] Step 3: Unique Family & Domain Mapping. Update the Family validation schema to guarantee unique `linked_email` addresses and prevent identical naming conventions inside a single trip context.
 - [ ] Step 4: Dual Split Mode Enums. Update the Pydantic and database Expense validation models to support a strict literal `split_mode` tracking field (`PER_CAPITA` | `PER_FAMILY`).
 
 ### Phase 2: The Calculation & Export Engines (Backend)
