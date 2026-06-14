@@ -11,7 +11,7 @@ class TestAuth:
 
     def test_register_success(self, api_client):
         """Test user registration with email, password, pin, name"""
-        email = f"test_reg_{uuid.uuid4().hex[:8]}@trip.app"
+        email = f"test_reg_{uuid.uuid4().hex[:8]}@gmail.com"
         response = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": email,
             "password": "test1234",
@@ -28,7 +28,7 @@ class TestAuth:
     def test_register_duplicate_email(self, api_client):
         """Test registration with duplicate email fails"""
         response = api_client.post(f"{BASE_URL}/api/auth/register", json={
-            "email": "admin@trip.app",
+            "email": "admin@gmail.com",
             "password": "test1234",
             "pin": "4321",
             "name": "Duplicate"
@@ -38,7 +38,7 @@ class TestAuth:
     def test_register_invalid_pin(self, api_client):
         """Test registration with non-digit PIN fails"""
         response = api_client.post(f"{BASE_URL}/api/auth/register", json={
-            "email": f"TEST_{uuid.uuid4().hex[:8]}@trip.app",
+            "email": f"TEST_{uuid.uuid4().hex[:8]}@gmail.com",
             "password": "test1234",
             "pin": "abcd",
             "name": "Test"
@@ -48,30 +48,30 @@ class TestAuth:
     def test_login_with_password(self, api_client):
         """Test login with email + password"""
         response = api_client.post(f"{BASE_URL}/api/auth/login", json={
-            "email": "admin@trip.app",
+            "email": "admin@gmail.com",
             "password": "admin123"
         })
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
         data = response.json()
         assert "access_token" in data
         assert "user" in data
-        assert data["user"]["email"] == "admin@trip.app"
+        assert data["user"]["email"] == "admin@gmail.com"
 
     def test_login_with_pin(self, api_client):
         """Test login with email + 4-digit PIN only"""
         response = api_client.post(f"{BASE_URL}/api/auth/login", json={
-            "email": "admin@trip.app",
+            "email": "admin@gmail.com",
             "pin": "1234"
         })
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
         data = response.json()
         assert "access_token" in data
-        assert data["user"]["email"] == "admin@trip.app"
+        assert data["user"]["email"] == "admin@gmail.com"
 
     def test_login_wrong_password(self, api_client):
         """Test login with wrong password fails"""
         response = api_client.post(f"{BASE_URL}/api/auth/login", json={
-            "email": "admin@trip.app",
+            "email": "admin@gmail.com",
             "password": "wrongpass"
         })
         assert response.status_code == 401
@@ -79,7 +79,7 @@ class TestAuth:
     def test_login_wrong_pin(self, api_client):
         """Test login with wrong PIN fails"""
         response = api_client.post(f"{BASE_URL}/api/auth/login", json={
-            "email": "admin@trip.app",
+            "email": "admin@gmail.com",
             "pin": "9999"
         })
         assert response.status_code == 401
@@ -87,7 +87,7 @@ class TestAuth:
     def test_login_no_credentials(self, api_client):
         """Test login without password or PIN fails"""
         response = api_client.post(f"{BASE_URL}/api/auth/login", json={
-            "email": "admin@trip.app"
+            "email": "admin@gmail.com"
         })
         assert response.status_code == 400
 
@@ -98,7 +98,7 @@ class TestAuth:
         })
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
         data = response.json()
-        assert data["email"] == "admin@trip.app"
+        assert data["email"] == "admin@gmail.com"
         assert "password_hash" not in data
         assert "pin_hash" not in data
 
@@ -110,7 +110,7 @@ class TestAuth:
     def test_forgot_password(self, api_client):
         """Test forgot password endpoint (token logged to backend)"""
         response = api_client.post(f"{BASE_URL}/api/auth/forgot-password", json={
-            "email": "admin@trip.app"
+            "email": "admin@gmail.com"
         })
         assert response.status_code == 200
         data = response.json()
@@ -119,7 +119,7 @@ class TestAuth:
     def test_reset_password_flow(self, api_client):
         """Test full forgot + reset password flow"""
         # Create test user
-        email = f"TEST_reset_{uuid.uuid4().hex[:8]}@trip.app"
+        email = f"TEST_reset_{uuid.uuid4().hex[:8]}@gmail.com"
         reg_resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": email,
             "password": "oldpass123",

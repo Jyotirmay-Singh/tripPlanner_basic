@@ -7,6 +7,7 @@ from starlette.middleware.cors import CORSMiddleware
 from config import logger
 from database import client, db
 from utils.common import gen_id, now_utc
+from utils.email_rules import is_allowed_email
 from utils.security import hash_secret
 from routes import auth, trips, members, expenses, balances, reports, meta
 
@@ -29,9 +30,11 @@ async def startup():
         [{"$set": {"admin_ids": ["$owner_id"]}}],
     )
     # seed admin
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@trip.app")
+    admin_email = os.environ.get("ADMIN_EMAIL", "admin@gmail.com").lower().strip()
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
     admin_pin = os.environ.get("ADMIN_PIN", "1234")
+    if not is_allowed_email(admin_email):
+        logger.warning(f"ADMIN_EMAIL '{admin_email}' is not a @gmail.com address")
     existing = await db.users.find_one({"email": admin_email})
     if not existing:
         await db.users.insert_one({

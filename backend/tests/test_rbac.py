@@ -20,7 +20,7 @@ class TestTripRBAC:
         return resp.json()
 
     def _register_user(self, api_client, name="Second User"):
-        email = f"TEST_rbac_{uuid.uuid4().hex[:8]}@trip.app"
+        email = f"TEST_rbac_{uuid.uuid4().hex[:8]}@gmail.com"
         resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": email,
             "password": "test1234",

@@ -94,8 +94,8 @@ A specific, testable checklist. Each item must be something verifiable by runnin
 ---
 
 ## Step 8 — Save the spec
-Save the plan with the spec number inside the plan folder: `plan/<step_number>-<feature_slug>.md`
-*(Create the `plan/` directory if it does not exist).*
+Save the plan with the spec number inside the plan folder: `spec/<step_number>-<feature_slug>.md`
+*(Create the `spec/` directory if it does not exist).*
 
 ## Step 9 — Report to the user
 Print a short summary in this exact format:

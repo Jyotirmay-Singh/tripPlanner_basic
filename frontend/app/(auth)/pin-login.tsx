@@ -6,6 +6,7 @@ import { useAuth } from '../../src/AuthContext';
 import { useTheme } from '../../src/ThemeContext';
 import { SPACING, RADIUS } from '../../src/theme';
 import T from '../../src/T';
+import { isGmail, GMAIL_ONLY_MESSAGE } from '../../src/validation';
 
 export default function PinLogin() {
   const { signIn } = useAuth();
@@ -16,6 +17,7 @@ export default function PinLogin() {
 
   const submit = async () => {
     if (!email || pin.length !== 4) return Alert.alert('Missing', 'Email + 4-digit PIN');
+    if (!isGmail(email)) return Alert.alert('Invalid email', GMAIL_ONLY_MESSAGE);
     try {
       await signIn(email.trim(), undefined, pin);
       router.replace('/(tabs)/dashboard');
@@ -30,10 +32,15 @@ export default function PinLogin() {
       <T muted style={{ marginTop: 4 }}>For returning users</T>
 
       <View style={{ marginTop: SPACING.lg, gap: SPACING.md }}>
-        <TextInput testID="pin-email" value={email} onChangeText={setEmail}
-          autoCapitalize="none" keyboardType="email-address"
-          placeholder="Email" placeholderTextColor={colors.textMuted}
-          style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]} />
+        <View>
+          <TextInput testID="pin-email" value={email} onChangeText={setEmail}
+            autoCapitalize="none" keyboardType="email-address"
+            placeholder="Email" placeholderTextColor={colors.textMuted}
+            style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]} />
+          {!!email && !isGmail(email) && (
+            <T variant="caption" color={colors.owing} style={{ marginTop: 4 }}>{GMAIL_ONLY_MESSAGE}</T>
+          )}
+        </View>
         <TextInput testID="pin-code" value={pin}
           onChangeText={(v) => setPin(v.replace(/\D/g, '').slice(0, 4))}
           secureTextEntry keyboardType="number-pad" maxLength={4}

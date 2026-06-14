@@ -10,6 +10,8 @@ import { useAuth } from '../../src/AuthContext';
 import { useTheme } from '../../src/ThemeContext';
 import { SPACING, RADIUS } from '../../src/theme';
 import T from '../../src/T';
+import { isGmail, GMAIL_ONLY_MESSAGE } from '../../src/validation';
+import GoogleSignInButton from '../../src/GoogleSignInButton';
 
 export default function Login() {
   const { signIn, savedEmail, forgetSavedEmail } = useAuth();
@@ -21,6 +23,7 @@ export default function Login() {
 
   const submit = async () => {
     if (!email) return Alert.alert('Missing', 'Enter your email');
+    if (!isGmail(email)) return Alert.alert('Invalid email', GMAIL_ONLY_MESSAGE);
     if (pin.length !== 4) return Alert.alert('Missing', 'Enter your 4-digit PIN');
     setLoading(true);
     try {
@@ -73,10 +76,13 @@ export default function Login() {
                   autoCapitalize="none"
                   autoComplete="email"
                   keyboardType="email-address"
-                  placeholder="you@example.com"
+                  placeholder="you@gmail.com"
                   placeholderTextColor={colors.textMuted}
                   style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}
                 />
+                {!!email && !isGmail(email) && (
+                  <T variant="caption" color={colors.owing} style={{ marginTop: 4 }}>{GMAIL_ONLY_MESSAGE}</T>
+                )}
               </View>
             )}
 
@@ -111,6 +117,8 @@ export default function Login() {
                 <T color={colors.primary} style={{ textAlign: 'center' }}>Forgot PIN?</T>
               </TouchableOpacity>
             </Link>
+
+            <GoogleSignInButton />
 
             <View style={styles.bottomRow}>
               <T muted>New here?  </T>

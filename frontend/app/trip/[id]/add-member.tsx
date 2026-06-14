@@ -7,6 +7,7 @@ import { api } from '../../../src/api';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS } from '../../../src/theme';
 import T from '../../../src/T';
+import { isGmail, GMAIL_ONLY_MESSAGE } from '../../../src/validation';
 
 export default function AddMember() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -25,6 +26,7 @@ export default function AddMember() {
     if (kind === 'family' && family_members.length === 0) {
       return Alert.alert('Missing', 'Add at least one family member name');
     }
+    if (email.trim() && !isGmail(email)) return Alert.alert('Invalid email', GMAIL_ONLY_MESSAGE);
     try {
       await api(`/trips/${id}/members`, {
         method: 'POST',
@@ -83,12 +85,16 @@ export default function AddMember() {
             <T variant="label" muted>Linked email (optional)</T>
             <TextInput testID="mem-email" value={email} onChangeText={setEmail}
               autoCapitalize="none" keyboardType="email-address"
-              placeholder="family@example.com"
+              placeholder="family@gmail.com"
               placeholderTextColor={colors.textMuted}
               style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]} />
-            <T muted variant="caption" style={{ marginTop: 4 }}>
-              If this email belongs to an app user, they'll be automatically linked to this {kind === 'family' ? 'family' : 'member'} when they join the trip.
-            </T>
+            {email.trim() && !isGmail(email) ? (
+              <T variant="caption" color={colors.owing} style={{ marginTop: 4 }}>{GMAIL_ONLY_MESSAGE}</T>
+            ) : (
+              <T muted variant="caption" style={{ marginTop: 4 }}>
+                If this email belongs to an app user, they'll be automatically linked to this {kind === 'family' ? 'family' : 'member'} when they join the trip.
+              </T>
+            )}
           </View>
 
           <TouchableOpacity testID="mem-submit" onPress={submit}

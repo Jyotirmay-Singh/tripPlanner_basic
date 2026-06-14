@@ -7,6 +7,7 @@ import { api } from '../../../src/api';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS } from '../../../src/theme';
 import T from '../../../src/T';
+import { isGmail, GMAIL_ONLY_MESSAGE } from '../../../src/validation';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; email?: string | null; user_id?: string | null };
 
@@ -60,6 +61,7 @@ export default function EditMember() {
 
   const submit = () => {
     if (!member) return;
+    if (email.trim() && !isGmail(email)) return Alert.alert('Invalid email', GMAIL_ONLY_MESSAGE);
     const newFM = kind === 'family'
       ? familyText.split(',').map((s) => s.trim()).filter(Boolean)
       : [];
@@ -143,9 +145,12 @@ export default function EditMember() {
             <T variant="label" muted>Linked email</T>
             <TextInput testID="em-email" value={email} onChangeText={setEmail}
               autoCapitalize="none" keyboardType="email-address"
-              placeholder="(optional)"
+              placeholder="(optional) you@gmail.com"
               placeholderTextColor={colors.textMuted}
               style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]} />
+            {!!email.trim() && !isGmail(email) && (
+              <T variant="caption" color={colors.owing} style={{ marginTop: 4 }}>{GMAIL_ONLY_MESSAGE}</T>
+            )}
           </View>
 
           <TouchableOpacity testID="em-save" onPress={submit}

@@ -16,7 +16,7 @@ def api_client():
 def admin_token(api_client):
     """Get admin token for tests"""
     response = api_client.post(f"{BASE_URL}/api/auth/login", json={
-        "email": "admin@trip.app",
+        "email": "admin@gmail.com",
         "password": "admin123"
     })
     if response.status_code != 200:
@@ -27,7 +27,7 @@ def admin_token(api_client):
 def test_user(api_client):
     """Create a test user and return credentials + token"""
     import uuid
-    email = f"test_{uuid.uuid4().hex[:8]}@trip.app"
+    email = f"test_{uuid.uuid4().hex[:8]}@gmail.com"
     password = "test1234"
     pin = "4321"
     name = "Test User"

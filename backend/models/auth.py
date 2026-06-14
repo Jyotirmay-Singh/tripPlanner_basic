@@ -23,3 +23,7 @@ class ForgotIn(BaseModel):
 class ResetPinIn(BaseModel):
     token: str
     new_pin: str = Field(min_length=4, max_length=4)
+
+
+class GoogleAuthIn(BaseModel):
+    id_token: str
