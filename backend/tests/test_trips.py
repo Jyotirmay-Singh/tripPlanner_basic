@@ -27,6 +27,7 @@ class TestTrips:
         assert len(data["code"]) == 6
         assert data["owner_id"] == test_user["user"]["id"]
         assert test_user["user"]["id"] in data["user_ids"]
+        assert data["admin_ids"] == [data["owner_id"]]
         assert len(data["members"]) == 1
         assert data["members"][0]["name"] == test_user["name"]
         assert data["members"][0]["kind"] == "individual"

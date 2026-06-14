@@ -15,3 +15,7 @@ class TripUpdate(BaseModel):
     travel_date: Optional[str] = None
     budget: Optional[float] = None
     currency: Optional[str] = None
+
+
+class AdminGrant(BaseModel):
+    user_id: str
