@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends
 
 from database import db
-from models.trip import TripIn, TripUpdate
+from models.trip import TripIn, TripUpdate, AdminGrant
 from utils.common import gen_id, gen_trip_code, now_utc
-from utils.deps import get_current_user, _trip_or_404
+from utils.deps import get_current_user, _trip_or_404, _trip_admin_or_403
 
 router = APIRouter()
 
@@ -24,6 +24,7 @@ async def create_trip(body: TripIn, user=Depends(get_current_user)):
         "id": tid, "code": code, "name": body.name, "travel_date": body.travel_date,
         "budget": body.budget, "currency": body.currency or "INR",
         "owner_id": user["id"], "user_ids": [user["id"]],
+        "admin_ids": [user["id"]],
         "members": [owner_member],
         "created_at": now_utc().isoformat(),
     }
@@ -94,3 +95,41 @@ async def join_trip(body: dict, user=Depends(get_current_user)):
             {"$push": {"user_ids": user["id"], "members": new_member}},
         )
     return await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+
+
+# ---------- Trip Admins ----------
+def _admin_payload(trip: dict) -> dict:
+    by_uid = {m.get("user_id"): m for m in trip.get("members", []) if m.get("user_id")}
+    admins = [
+        {"user_id": uid, "id": (by_uid.get(uid) or {}).get("id"),
+         "name": (by_uid.get(uid) or {}).get("name"),
+         "email": (by_uid.get(uid) or {}).get("email")}
+        for uid in trip.get("admin_ids", [])
+    ]
+    return {"owner_id": trip["owner_id"], "admin_ids": trip.get("admin_ids", []), "admins": admins}
+
+
+@router.get("/trips/{trip_id}/admins")
+async def list_admins(trip_id: str, user=Depends(get_current_user)):
+    trip = await _trip_or_404(trip_id, user["id"])
+    return _admin_payload(trip)
+
+
+@router.post("/trips/{trip_id}/admins")
+async def add_admin(trip_id: str, body: AdminGrant, user=Depends(get_current_user)):
+    trip = await _trip_admin_or_403(trip_id, user["id"])
+    if body.user_id not in trip.get("user_ids", []):
+        raise HTTPException(400, "User is not a member of this trip")
+    await db.trips.update_one({"id": trip_id}, {"$addToSet": {"admin_ids": body.user_id}})
+    trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
+    return _admin_payload(trip)
+
+
+@router.delete("/trips/{trip_id}/admins/{user_id}")
+async def remove_admin(trip_id: str, user_id: str, user=Depends(get_current_user)):
+    trip = await _trip_admin_or_403(trip_id, user["id"])
+    if user_id == trip["owner_id"]:
+        raise HTTPException(400, "Cannot remove the root admin")
+    await db.trips.update_one({"id": trip_id}, {"$pull": {"admin_ids": user_id}})
+    trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
+    return _admin_payload(trip)

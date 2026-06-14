@@ -23,6 +23,11 @@ async def startup():
     await db.users.create_index("email", unique=True)
     await db.trips.create_index("code", unique=True)
     await db.expenses.create_index([("trip_id", 1), ("created_at", -1)])
+    # backfill admin_ids for legacy trips (root admin = owner)
+    await db.trips.update_many(
+        {"$or": [{"admin_ids": {"$exists": False}}, {"admin_ids": None}, {"admin_ids": []}]},
+        [{"$set": {"admin_ids": ["$owner_id"]}}],
+    )
     # seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@trip.app")
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
