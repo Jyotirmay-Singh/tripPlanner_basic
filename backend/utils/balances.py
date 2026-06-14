@@ -1,7 +1,12 @@
 from fastapi import HTTPException
 
 from database import db
-from services.calculator import minimize_transfers, resolve_weights, split_per_capita
+from services.calculator import (
+    minimize_transfers,
+    resolve_weights,
+    split_per_capita,
+    split_per_family,
+)
 
 
 def _weight_of_member(m: dict) -> int:
@@ -31,19 +36,14 @@ async def _compute_balances(trip_id: str) -> dict:
                 net[sid] = net.get(sid, 0) - share
             net[e["paid_by_member_id"]] = net.get(e["paid_by_member_id"], 0) + e["amount"]
         else:
-            # PER_FAMILY: interim only — entity-based division is Step 7. Keep the current
-            # weight-based behavior so existing numbers/tests are unchanged until then.
-            snap = e.get("weight_snapshots") or {}
-            def wt(sid: str) -> int:
-                if sid in snap:
-                    return int(snap[sid])
-                return weight_map.get(sid, 1)
-            total_weight = sum(wt(sid) for sid in split_ids)
-            if total_weight == 0:
+            # PER_FAMILY (Section 5B): flat entity-based division — each selected
+            # family/individual owes amount / E regardless of size. Size and
+            # weight_snapshots are intentionally ignored here.
+            shares = split_per_family(e["amount"], split_ids)
+            if not shares:
                 continue
-            per_unit = e["amount"] / total_weight
-            for sid in split_ids:
-                net[sid] = net.get(sid, 0) - per_unit * wt(sid)
+            for sid, share in shares.items():
+                net[sid] = net.get(sid, 0) - share
             net[e["paid_by_member_id"]] = net.get(e["paid_by_member_id"], 0) + e["amount"]
 
     # apply settlements
