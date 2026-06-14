@@ -104,7 +104,7 @@ AGENT DIRECTIVE: You must update this file by changing `[ ]` to `[x]` as you suc
 - [x] Step 4: Dual Split Mode Enums. Update the Pydantic and database Expense validation models to support a strict literal `split_mode` tracking field (`PER_CAPITA` | `PER_FAMILY`).
 
 ### Phase 2: The Calculation & Export Engines (Backend)
-- [ ] Step 5: Isolate Mathematical Layer. Create `services/calculator.py`. Extract and migrate the minimum-transaction greedy settlement algorithm into this module.
+- [x] Step 5: Isolate Mathematical Layer. Create `services/calculator.py`. Extract and migrate the minimum-transaction greedy settlement algorithm into this module.
 - [ ] Step 6: Realize Per-Capita Mode Math. Implement the complete calculation logic for the human-count division (PER_CAPITA) specified in Section 5.
 - [ ] Step 7: Realize Per-Family Mode Math. Implement the complete entity-based division calculation logic (PER_FAMILY) specified in Section 5.
 - [ ] Step 8: Retroactive Family Re-allocation Routine. Code a transactional service tracking past expenses for a target `family_id` upon member size mutations. Provide toggled options to recalculate past ledger balances.
