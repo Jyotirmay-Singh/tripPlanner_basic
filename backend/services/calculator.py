@@ -1,3 +1,38 @@
+def resolve_weights(split_ids: list, base_weights: dict, snapshots: dict = None) -> dict:
+    """Effective per-member human-count weights for one expense.
+
+    split_ids: member ids participating in the split.
+    base_weights: member_id -> base human count (individual=1, family=size).
+    snapshots: optional per-transaction overrides (partial family / Step 8 snapshots).
+
+    A snapshot override wins; otherwise the member's base weight; unknown/stale ids
+    default to 1 (matches the previous inline wt() behavior).
+    """
+    snapshots = snapshots or {}
+    out = {}
+    for sid in split_ids:
+        if sid in snapshots:
+            out[sid] = int(snapshots[sid])
+        else:
+            out[sid] = base_weights.get(sid, 1)
+    return out
+
+
+def split_per_capita(amount: float, weights: dict) -> dict:
+    """PER_CAPITA (Section 5A): divide `amount` across total humans.
+
+    H = sum(weights); per_human = amount / H; each member owes per_human * weight.
+    No intermediate rounding (sum(shares) == amount within float epsilon); the single
+    final round() of net in _compute_balances stays the only rounding.
+    Empty weights or H <= 0 -> {} (caller skips the expense).
+    """
+    total = sum(weights.values())
+    if total <= 0:
+        return {}
+    per_human = amount / total
+    return {mid: per_human * w for mid, w in weights.items()}
+
+
 def minimize_transfers(net: dict) -> list:
     """Greedy minimum-transaction settlement.
 
