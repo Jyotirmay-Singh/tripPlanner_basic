@@ -7,6 +7,7 @@ from utils.deps import get_current_user, _trip_or_404
 from utils.balances import _weight_of_member
 from utils.email_rules import assert_gmail, normalize_email
 from utils.members import assert_unique_email, assert_unique_name
+from services.reallocation import run_member_update_with_reallocation
 
 router = APIRouter()
 
@@ -78,20 +79,17 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
             assert_unique_email(trip["members"], em, exclude_id=member_id)
         updates["members.$.email"] = em
 
-    # If family members list changed and user chose NOT to re-weight past, snapshot old weights
+    # Step 8: a family size change re-allocates past PER_CAPITA expenses. reweight_past defaults to
+    # True (recalculate the past); False freezes the past at the pre-mutation weight. The member-doc
+    # update and the expense reallocation are applied atomically (transaction with a standalone
+    # fallback). Name/email-only edits (old_weight == new_weight) touch no expenses.
     old_weight = _weight_of_member(target)
     new_weight_member = {**target, "kind": new_kind, "family_members": new_fm}
     new_weight = _weight_of_member(new_weight_member)
-    if old_weight != new_weight and body.reweight_past is False:
-        # For every past expense that has this member in split_member_ids, snapshot the OLD weight
-        async for e in db.expenses.find({"trip_id": trip_id, "split_member_ids": member_id}):
-            snap = e.get("weight_snapshots") or {}
-            if member_id not in snap:
-                snap[member_id] = old_weight
-                await db.expenses.update_one({"id": e["id"]}, {"$set": {"weight_snapshots": snap}})
-
-    if updates:
-        await db.trips.update_one({"id": trip_id, "members.id": member_id}, {"$set": updates})
+    await run_member_update_with_reallocation(
+        trip_id, member_id, updates, old_weight, new_weight,
+        reweight_past=(body.reweight_past is not False),
+    )
     t = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     return next((m for m in t["members"] if m["id"] == member_id), None)
 
