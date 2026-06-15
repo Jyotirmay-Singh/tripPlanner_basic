@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from database import db
 from models.member import MemberIn, MemberUpdate
 from utils.common import gen_id
-from utils.deps import get_current_user, _trip_or_404
+from utils.deps import get_current_user, _trip_admin_or_403
 from utils.balances import _weight_of_member
 from utils.email_rules import assert_gmail, normalize_email
 from utils.members import assert_unique_email, assert_unique_name
@@ -15,7 +15,7 @@ router = APIRouter()
 # ---------- Members ----------
 @router.post("/trips/{trip_id}/members")
 async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user)):
-    trip = await _trip_or_404(trip_id, user["id"])
+    trip = await _trip_admin_or_403(trip_id, user["id"])
     name = body.name
     members = trip.get("members", [])
     email = normalize_email(body.email)
@@ -56,7 +56,7 @@ async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user
 
 @router.patch("/trips/{trip_id}/members/{member_id}")
 async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=Depends(get_current_user)):
-    trip = await _trip_or_404(trip_id, user["id"])
+    trip = await _trip_admin_or_403(trip_id, user["id"])
     target = next((m for m in trip["members"] if m["id"] == member_id), None)
     if not target:
         raise HTTPException(404, "Member not found")
@@ -96,7 +96,7 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
 
 @router.delete("/trips/{trip_id}/members/{member_id}")
 async def delete_member(trip_id: str, member_id: str, user=Depends(get_current_user)):
-    trip = await _trip_or_404(trip_id, user["id"])
+    trip = await _trip_admin_or_403(trip_id, user["id"])
     # cannot remove if member appears in any expense
     exists = await db.expenses.find_one({"trip_id": trip_id,
                                          "$or": [{"paid_by_member_id": member_id},
