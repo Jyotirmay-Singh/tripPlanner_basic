@@ -9,6 +9,11 @@ from database import db
 from utils.deps import get_current_user, _trip_or_404
 from utils.balances import _compute_balances
 from utils.security import decode_token
+from services.report_builder import (
+    build_per_capita_rows,
+    build_per_family_rows,
+    build_transaction_rows,
+)
 
 router = APIRouter()
 
@@ -92,18 +97,37 @@ async def report_xlsx(trip_id: str, token: str,
             for name in pp["family_members"]:
                 s3b.append([pp["member_name"], name, pp["net_per_person"]])
 
-    # Sheet 4 – Transactions
+    # Sheet 4 – Transactions (now carries the Split Mode of each line item)
+    sorted_expenses = sorted(expenses, key=lambda x: x.get("date", ""))
+    members = trip["members"]
     s4 = wb.create_sheet("Transactions")
-    s4.append(["Date", "Kind", "Category", "Description", "Amount", "Paid By", "Split Among"])
-    for e in sorted(expenses, key=lambda x: x.get("date", "")):
-        paid = members_by_id.get(e["paid_by_member_id"], {}).get("name", "?")
-        split = ", ".join(members_by_id.get(sid, {}).get("name", "?") for sid in e["split_member_ids"])
-        s4.append([e["date"], e["kind"], e["category"], e.get("description", ""),
-                   e["amount"], paid, split])
+    s4.append(["Date", "Kind", "Category", "Description", "Amount", "Paid By",
+               "Split Among", "Split Mode"])
+    for r in build_transaction_rows(sorted_expenses, members):
+        s4.append([r["date"], r["kind"], r["category"], r["description"],
+                   r["amount"], r["paid_by"], r["split_among"], r["split_mode"]])
+
+    # Sheet 5 – Per-Capita Math (Section 5A: per-human division validation)
+    s5 = wb.create_sheet("Per-Capita Math")
+    s5.append(["Date", "Category", "Description", "Amount", "Total Humans",
+               "Per-Person", "Member", "Weight", "Share"])
+    for r in build_per_capita_rows(sorted_expenses, members):
+        s5.append([r["date"], r["category"], r["description"], r["amount"],
+                   r["total_humans"], r["per_human"], r["member_name"],
+                   r["member_weight"], r["member_share"]])
+
+    # Sheet 6 – Per-Family Math (Section 5B: flat per-entity division validation)
+    s6 = wb.create_sheet("Per-Family Math")
+    s6.append(["Date", "Category", "Description", "Amount", "Total Entities",
+               "Per-Entity", "Member", "Share"])
+    for r in build_per_family_rows(sorted_expenses, members):
+        s6.append([r["date"], r["category"], r["description"], r["amount"],
+                   r["total_entities"], r["per_entity"], r["member_name"],
+                   r["member_share"]])
 
     # header styling
     header_fill = PatternFill("solid", fgColor="1C3F39")
-    for sheet in [s2, s3, s3b, s4]:
+    for sheet in [s2, s3, s3b, s4, s5, s6]:
         for cell in sheet[1]:
             cell.font = Font(bold=True, color="FFFFFF")
             cell.fill = header_fill

@@ -1,7 +1,9 @@
 # Balances, settle-up, and reports tests
+import io
 import pytest
 import requests
 import os
+from openpyxl import load_workbook
 
 BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL', 'https://split-trips-1.preview.emergentagent.com').rstrip('/')
 
@@ -183,6 +185,13 @@ class TestReports:
         trip_id = trip_resp.json()["id"]
         member_id = trip_resp.json()["members"][0]["id"]
 
+        # A family member so the PER_FAMILY math tab has a multi-entity line item.
+        fam_resp = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/members", json={
+            "name": "TEST_Fam", "kind": "family", "family_members": ["a", "b"]
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        fam_id = fam_resp.json()["id"]
+
+        # PER_CAPITA line item -> feeds the Per-Capita Math tab.
         api_client.post(f"{BASE_URL}/api/trips/{trip_id}/expenses", json={
             "kind": "expense",
             "amount": 150.0,
@@ -190,7 +199,20 @@ class TestReports:
             "description": "Souvenirs",
             "date": "26-06-27",
             "paid_by_member_id": member_id,
-            "split_member_ids": []
+            "split_member_ids": [],
+            "split_mode": "PER_CAPITA"
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+
+        # PER_FAMILY line item -> feeds the Per-Family Math tab.
+        api_client.post(f"{BASE_URL}/api/trips/{trip_id}/expenses", json={
+            "kind": "expense",
+            "amount": 120.0,
+            "category": "Travel",
+            "description": "Taxi",
+            "date": "27-06-27",
+            "paid_by_member_id": member_id,
+            "split_member_ids": [member_id, fam_id],
+            "split_mode": "PER_FAMILY"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
 
         # Get XLSX report
@@ -202,3 +224,13 @@ class TestReports:
         assert len(response.content) > 0
         # Verify it's a valid XLSX file (starts with PK zip signature)
         assert response.content[:2] == b'PK'
+
+        # Step 9: the workbook now carries split-mode validation tabs and a Split Mode column.
+        wb = load_workbook(io.BytesIO(response.content))
+        assert "Per-Capita Math" in wb.sheetnames
+        assert "Per-Family Math" in wb.sheetnames
+        tx_header = [c.value for c in wb["Transactions"][1]]
+        assert "Split Mode" in tx_header
+        # Each math tab has its header row plus at least one data row.
+        assert wb["Per-Capita Math"].max_row >= 2
+        assert wb["Per-Family Math"].max_row >= 2
