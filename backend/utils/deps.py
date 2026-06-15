@@ -34,3 +34,25 @@ async def _trip_admin_or_403(trip_id: str, user_id: str) -> dict:
     if not is_trip_admin(trip, user_id):
         raise HTTPException(403, "Admin privileges required")
     return trip
+
+
+async def _expense_or_404(trip_id: str, expense_id: str) -> dict:
+    expense = await db.expenses.find_one({"id": expense_id, "trip_id": trip_id}, {"_id": 0})
+    if not expense:
+        raise HTTPException(404, "Expense not found")
+    return expense
+
+
+def can_modify_expense(trip: dict, expense: dict, user_id: str) -> bool:
+    # Step 10: an expense may be edited/deleted only by its creator or a trip admin
+    # (the trip owner is always seeded into admin_ids). Legacy rows without created_by
+    # fall through to admin-only.
+    return expense.get("created_by") == user_id or is_trip_admin(trip, user_id)
+
+
+async def _expense_modify_or_403(trip_id: str, expense_id: str, user_id: str) -> tuple[dict, dict]:
+    trip = await _trip_or_404(trip_id, user_id)
+    expense = await _expense_or_404(trip_id, expense_id)
+    if not can_modify_expense(trip, expense, user_id):
+        raise HTTPException(403, "Only the expense creator or a trip admin can modify this expense")
+    return trip, expense

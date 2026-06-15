@@ -4,7 +4,7 @@ from config import CATEGORIES
 from database import db
 from models.expense import ExpenseIn, ExpenseUpdate
 from utils.common import gen_id, now_utc
-from utils.deps import get_current_user, _trip_or_404
+from utils.deps import get_current_user, _trip_or_404, _expense_modify_or_403
 
 router = APIRouter()
 
@@ -67,16 +67,18 @@ async def list_expenses(trip_id: str, user=Depends(get_current_user)):
 @router.patch("/trips/{trip_id}/expenses/{expense_id}")
 async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
                          user=Depends(get_current_user)):
-    await _trip_or_404(trip_id, user["id"])
+    # Step 10: only the expense creator or a trip admin may edit (404 if missing, 403 otherwise).
+    _trip, expense = await _expense_modify_or_403(trip_id, expense_id, user["id"])
     updates = {k: v for k, v in body.model_dump().items() if v is not None and k != "force"}
     if not updates:
-        return await db.expenses.find_one({"id": expense_id}, {"_id": 0})
+        return expense
     await db.expenses.update_one({"id": expense_id, "trip_id": trip_id}, {"$set": updates})
     return await db.expenses.find_one({"id": expense_id}, {"_id": 0})
 
 
 @router.delete("/trips/{trip_id}/expenses/{expense_id}")
 async def delete_expense(trip_id: str, expense_id: str, user=Depends(get_current_user)):
-    await _trip_or_404(trip_id, user["id"])
+    # Step 10: only the expense creator or a trip admin may delete (404 if missing, 403 otherwise).
+    await _expense_modify_or_403(trip_id, expense_id, user["id"])
     await db.expenses.delete_one({"id": expense_id, "trip_id": trip_id})
     return {"ok": True}
