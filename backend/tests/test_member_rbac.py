@@ -204,3 +204,107 @@ class TestMemberRBAC:
 
         joined = self._join_trip(api_client, joiner_token, trip["code"])  # asserts 200 inside
         assert any(m.get("user_id") == joiner_uid for m in joined["members"])
+
+    # ---------- gap 1: unauthenticated / invalid token -> 401 ----------
+    def test_unauthenticated_member_mutations_rejected(self, api_client, test_user):
+        # get_current_user runs before the admin guard: a missing OR malformed bearer
+        # token is rejected with 401 on all three mutation endpoints.
+        trip = self._create_trip(api_client, test_user["token"])
+        m = self._add_member(api_client, test_user["token"], trip["id"], "TEST_Auth Target").json()
+        tid, mid = trip["id"], m["id"]
+
+        no_auth = {"Content-Type": "application/json"}  # no Authorization header
+        bad_auth = {"Content-Type": "application/json", "Authorization": "Bearer not-a-real-token"}
+        for headers in (no_auth, bad_auth):
+            add = api_client.post(f"{BASE_URL}/api/trips/{tid}/members",
+                                  json={"name": "TEST_NoAuth", "kind": "individual"}, headers=headers)
+            assert add.status_code == 401, add.text
+            upd = api_client.patch(f"{BASE_URL}/api/trips/{tid}/members/{mid}",
+                                   json={"name": "TEST_NoAuth"}, headers=headers)
+            assert upd.status_code == 401, upd.text
+            dele = api_client.delete(f"{BASE_URL}/api/trips/{tid}/members/{mid}", headers=headers)
+            assert dele.status_code == 401, dele.text
+
+    # ---------- gap 2: non-admin cannot trigger family-resize reallocation ----------
+    def test_non_admin_cannot_trigger_family_reallocation(self, api_client, test_user):
+        # A family resize re-allocates past PER_CAPITA expenses (Step 8). A non-admin must be
+        # blocked (403) BEFORE the reweight runs — proven by unchanged family size AND balances.
+        token = test_user["token"]
+        trip = self._create_trip(api_client, token)
+        tid = trip["id"]
+        fam = self._add_member(api_client, token, tid, "TEST_Realloc Fam",
+                               kind="family", family_members=["a", "b"]).json()
+        ind = self._add_member(api_client, token, tid, "TEST_Realloc Ind").json()
+
+        exp = api_client.post(f"{BASE_URL}/api/trips/{tid}/expenses", json={
+            "kind": "expense", "amount": 120.0, "category": "Food", "description": "x",
+            "date": "11-05-26", "paid_by_member_id": ind["id"],
+            "split_member_ids": [fam["id"], ind["id"]], "split_mode": "PER_CAPITA",
+        }, headers=self._auth(token))
+        assert exp.status_code == 200, exp.text
+
+        def net():
+            r = api_client.get(f"{BASE_URL}/api/trips/{tid}/balances", headers=self._auth(token))
+            assert r.status_code == 200, r.text
+            return r.json()["net"]
+        before = net()
+
+        member_token, _ = self._register_user(api_client, "Realloc Attacker")
+        self._join_trip(api_client, member_token, trip["code"])
+        resp = self._update_member(api_client, member_token, tid, fam["id"],
+                                   {"family_members": ["a", "b", "c", "d"], "reweight_past": True})
+        assert resp.status_code == 403, resp.text
+
+        fam_now = next(x for x in self._get_members(api_client, token, tid) if x["id"] == fam["id"])
+        assert fam_now["family_members"] == ["a", "b"]  # size unchanged
+        # reallocation never fired: the fam/ind nets are untouched (a new net-0 entry for the
+        # joined attacker is expected and irrelevant, so compare the affected members only).
+        after = net()
+        assert after[fam["id"]] == before[fam["id"]]
+        assert after[ind["id"]] == before[ind["id"]]
+
+    # ---------- gap 3: distinct 403 messages (non-member vs non-admin) ----------
+    def test_403_messages_distinguish_non_member_vs_non_admin(self, api_client, test_user):
+        token = test_user["token"]
+        trip = self._create_trip(api_client, token)
+        tid = trip["id"]
+        m = self._add_member(api_client, token, tid, "TEST_Msg Target").json()
+
+        outsider_token, _ = self._register_user(api_client, "Msg Outsider")  # never joins
+        r_out = self._update_member(api_client, outsider_token, tid, m["id"], {"name": "TEST_X"})
+        assert r_out.status_code == 403, r_out.text
+        assert r_out.json()["detail"] == "Not a member of this trip"
+
+        member_token, _ = self._register_user(api_client, "Msg Member")
+        self._join_trip(api_client, member_token, trip["code"])
+        r_mem = self._update_member(api_client, member_token, tid, m["id"], {"name": "TEST_X"})
+        assert r_mem.status_code == 403, r_mem.text
+        assert r_mem.json()["detail"] == "Admin privileges required"
+
+    # ---------- gap 5: admin can still perform individual->family in-place merge ----------
+    def test_admin_can_merge_individual_into_family_in_place(self, api_client, test_user):
+        # The lock must not break the legit merge path: an admin adding a family whose email
+        # matches an existing individual app-user converts that member IN-PLACE (same id).
+        token = test_user["token"]
+        trip = self._create_trip(api_client, token)
+        tid = trip["id"]
+
+        joiner_email = f"TEST_merge_{uuid.uuid4().hex[:8]}@gmail.com"
+        reg = api_client.post(f"{BASE_URL}/api/auth/register", json={
+            "email": joiner_email, "password": "test1234", "pin": "5678", "name": "Merge Joiner",
+        })
+        assert reg.status_code == 200, reg.text
+        self._join_trip(api_client, reg.json()["access_token"], trip["code"])
+        joined = next(x for x in self._get_members(api_client, token, tid)
+                      if (x.get("email") or "").lower() == joiner_email.lower())
+        assert joined["kind"] == "individual"
+
+        resp = api_client.post(f"{BASE_URL}/api/trips/{tid}/members", json={
+            "name": "TEST_Merged Family", "kind": "family",
+            "family_members": ["x", "y"], "email": joiner_email,
+        }, headers=self._auth(token))
+        assert resp.status_code == 200, resp.text
+        merged = resp.json()
+        assert merged["id"] == joined["id"]  # merged in place, member id preserved
+        assert merged["kind"] == "family"
+        assert merged["family_members"] == ["x", "y"]
