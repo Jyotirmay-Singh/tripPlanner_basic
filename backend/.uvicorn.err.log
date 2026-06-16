@@ -1,0 +1,11 @@
+INFO:     Started server process [6628]
+INFO:     Waiting for application startup.
+2026-06-16 19:31:34,946 INFO Seeded admin user
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+2026-06-16 19:43:46,582 INFO [PIN RESET] Email=admin@gmail.com  Token=D2OX1tnCFDIPyiIayQebrRln881bMybbqLzHAYhoGzQ  Link=https://split-trips-1.preview.emergentagent.com/reset-pin?token=D2OX1tnCFDIPyiIayQebrRln881bMybbqLzHAYhoGzQ
+2026-06-16 19:43:47,018 WARNING Resend send failed: You can only send testing emails to your own email address (ladj.riddhi@gmail.com). To send emails to other recipients, please verify a domain at resend.com/domains, and change the `from` address to an email using this domain.
+2026-06-16 19:43:47,549 INFO [PIN RESET] Email=test_reset_287476b1@gmail.com  Token=dJAgDLmYqK6mWSZkEZ9jwxXOJ30cBGtk5hwZfinXEYc  Link=https://split-trips-1.preview.emergentagent.com/reset-pin?token=dJAgDLmYqK6mWSZkEZ9jwxXOJ30cBGtk5hwZfinXEYc
+2026-06-16 19:43:47,870 WARNING Resend send failed: You can only send testing emails to your own email address (ladj.riddhi@gmail.com). To send emails to other recipients, please verify a domain at resend.com/domains, and change the `from` address to an email using this domain.
+2026-06-16 19:43:51,288 INFO [PIN RESET] Email=admin@gmail.com  Token=nkAGppj6fYB__LQ_hKcr6L5TJu-pQq-y4K2-AZvWAac  Link=https://split-trips-1.preview.emergentagent.com/reset-pin?token=nkAGppj6fYB__LQ_hKcr6L5TJu-pQq-y4K2-AZvWAac
+2026-06-16 19:43:51,645 WARNING Resend send failed: You can only send testing emails to your own email address (ladj.riddhi@gmail.com). To send emails to other recipients, please verify a domain at resend.com/domains, and change the `from` address to an email using this domain.
