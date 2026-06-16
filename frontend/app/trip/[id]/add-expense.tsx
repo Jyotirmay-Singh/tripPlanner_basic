@@ -11,6 +11,7 @@ import { api } from '../../../src/api';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, CATEGORIES } from '../../../src/theme';
 import T from '../../../src/T';
+import SplitModeSelector, { SplitMode, splitPreviewLabel } from '../../../src/SplitModeSelector';
 
 type Member = { id: string; name: string; kind: string; family_members: string[] };
 type Trip = { id: string; name: string; currency: string; members: Member[] };
@@ -34,6 +35,7 @@ export default function AddExpense() {
   const [date, setDate] = useState(toDDMMYY(new Date()));
   const [paidBy, setPaidBy] = useState<string | null>(null);
   const [splitSel, setSplitSel] = useState<string[]>([]);
+  const [splitMode, setSplitMode] = useState<SplitMode>('PER_CAPITA');
   const [weightOverrides, setWeightOverrides] = useState<Record<string, number>>({});
   const [allInited, setAllInited] = useState(false);
   const [receipt, setReceipt] = useState<string | null>(null);
@@ -69,19 +71,22 @@ export default function AddExpense() {
     setSaving(true);
     try {
       const allSelected = trip.members.length > 0 && splitSel.length === trip.members.length;
-      // Only include overrides for currently-selected family members where override differs from full size
+      // Per-family overrides only apply in PER_CAPITA; PER_FAMILY ignores family size entirely (§5B).
       const snapshots: Record<string, number> = {};
-      for (const sid of splitSel) {
-        const m = trip.members.find((x) => x.id === sid);
-        if (m && m.kind === 'family' && weightOverrides[sid]) {
-          const fullSize = Math.max(1, m.family_members.length);
-          if (weightOverrides[sid] !== fullSize) snapshots[sid] = weightOverrides[sid];
+      if (splitMode === 'PER_CAPITA') {
+        for (const sid of splitSel) {
+          const m = trip.members.find((x) => x.id === sid);
+          if (m && m.kind === 'family' && weightOverrides[sid]) {
+            const fullSize = Math.max(1, m.family_members.length);
+            if (weightOverrides[sid] !== fullSize) snapshots[sid] = weightOverrides[sid];
+          }
         }
       }
       const body: any = {
         kind, amount: a, category: cat, description: desc, date,
         paid_by_member_id: paidBy,
         split_member_ids: allSelected ? [] : splitSel,
+        split_mode: splitMode,
         weight_snapshots: Object.keys(snapshots).length ? snapshots : null,
         receipt_base64: receipt,
       };
@@ -208,7 +213,7 @@ export default function AddExpense() {
                       <Ionicons name={active ? 'checkbox' : 'square-outline'} size={20} color={colors.primary} />
                       <T style={{ flex: 1 }}>{m.name}{isFamily ? ` (${fullSize})` : ''}</T>
                     </TouchableOpacity>
-                    {active && isFamily && fullSize > 1 && (
+                    {active && isFamily && fullSize > 1 && splitMode === 'PER_CAPITA' && (
                       <View style={{ paddingLeft: 28, flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                         <T variant="caption" muted>Split among</T>
                         {Array.from({ length: fullSize }, (_, i) => i + 1).map((n) => (
@@ -228,9 +233,25 @@ export default function AddExpense() {
               })}
             </View>
             <T variant="caption" muted style={{ marginTop: 4 }}>
-              All selected by default — uncheck anyone you want to exclude. Family members are split per person.
+              {splitMode === 'PER_CAPITA'
+                ? 'All selected by default — uncheck anyone to exclude. Cost is divided by total people (families count by size).'
+                : 'All selected by default — uncheck anyone to exclude. Cost is divided equally per family/individual, regardless of size.'}
             </T>
           </View>
+
+          {/* Split mode */}
+          <SplitModeSelector
+            value={splitMode}
+            onChange={setSplitMode}
+            subLabel={splitPreviewLabel({
+              amount: parseFloat(amount),
+              mode: splitMode,
+              members: trip.members,
+              splitSel,
+              weightOverrides,
+              currency: trip.currency,
+            })}
+          />
 
           {/* Receipt */}
           <View>

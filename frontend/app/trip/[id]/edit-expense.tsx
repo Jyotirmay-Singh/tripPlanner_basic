@@ -11,13 +11,15 @@ import { api } from '../../../src/api';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, CATEGORIES } from '../../../src/theme';
 import T from '../../../src/T';
+import SplitModeSelector, { SplitMode, splitPreviewLabel } from '../../../src/SplitModeSelector';
 
-type Member = { id: string; name: string; kind: string };
+type Member = { id: string; name: string; kind: string; family_members: string[] };
 type Trip = { id: string; name: string; currency: string; members: Member[] };
 type Expense = {
   id: string; kind: 'expense' | 'income'; amount: number; category: string;
   description?: string; date: string; paid_by_member_id: string;
-  split_member_ids: string[]; receipt_base64?: string | null;
+  split_member_ids: string[]; split_mode?: SplitMode;
+  weight_snapshots?: Record<string, number> | null; receipt_base64?: string | null;
 };
 
 export default function EditExpense() {
@@ -32,6 +34,8 @@ export default function EditExpense() {
   const [date, setDate] = useState('');
   const [paidBy, setPaidBy] = useState<string | null>(null);
   const [splitSel, setSplitSel] = useState<string[]>([]);
+  const [splitMode, setSplitMode] = useState<SplitMode>('PER_CAPITA');
+  const [weightOverrides, setWeightOverrides] = useState<Record<string, number>>({});
   const [receipt, setReceipt] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -46,6 +50,8 @@ export default function EditExpense() {
       setCat(e.category); setDate(e.date); setPaidBy(e.paid_by_member_id);
       const allIds = t.members.map((m) => m.id);
       setSplitSel(e.split_member_ids && e.split_member_ids.length ? e.split_member_ids : allIds);
+      setSplitMode(e.split_mode || 'PER_CAPITA');
+      setWeightOverrides(e.weight_snapshots || {});
       setReceipt(e.receipt_base64 || null);
     })();
   }, [id, eid]);
@@ -68,12 +74,25 @@ export default function EditExpense() {
     setSaving(true);
     try {
       const allSelected = trip.members.length > 0 && splitSel.length === trip.members.length;
+      // Per-family overrides only apply in PER_CAPITA; PER_FAMILY ignores family size entirely (§5B).
+      const snapshots: Record<string, number> = {};
+      if (splitMode === 'PER_CAPITA') {
+        for (const sid of splitSel) {
+          const m = trip.members.find((x) => x.id === sid);
+          if (m && m.kind === 'family' && weightOverrides[sid]) {
+            const fullSize = Math.max(1, m.family_members.length);
+            if (weightOverrides[sid] !== fullSize) snapshots[sid] = weightOverrides[sid];
+          }
+        }
+      }
       await api(`/trips/${id}/expenses/${eid}`, {
         method: 'PATCH',
         body: {
           kind, amount: a, category: cat, description: desc, date,
           paid_by_member_id: paidBy,
           split_member_ids: allSelected ? [] : splitSel,
+          split_mode: splitMode,
+          weight_snapshots: Object.keys(snapshots).length ? snapshots : null,
           receipt_base64: receipt,
         },
       });
@@ -183,16 +202,51 @@ export default function EditExpense() {
             <View style={{ gap: SPACING.xs, marginTop: SPACING.xs }}>
               {trip.members.map((m) => {
                 const active = splitSel.includes(m.id);
+                const isFamily = m.kind === 'family';
+                const fullSize = Math.max(1, m.family_members.length);
+                const currentCount = weightOverrides[m.id] ?? fullSize;
                 return (
-                  <TouchableOpacity key={m.id} onPress={() => toggleSplit(m.id)}
-                    style={[styles.row, { backgroundColor: active ? colors.surfaceMuted : colors.surface, borderColor: active ? colors.primary : colors.border }]}>
-                    <Ionicons name={active ? 'checkbox' : 'square-outline'} size={20} color={colors.primary} />
-                    <T style={{ flex: 1 }}>{m.name}</T>
-                  </TouchableOpacity>
+                  <View key={m.id} style={[styles.row, { backgroundColor: active ? colors.surfaceMuted : colors.surface, borderColor: active ? colors.primary : colors.border, flexDirection: 'column', alignItems: 'stretch', gap: 8 }]}>
+                    <TouchableOpacity onPress={() => toggleSplit(m.id)}
+                      testID={`ee-split-${m.id}`}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
+                      <Ionicons name={active ? 'checkbox' : 'square-outline'} size={20} color={colors.primary} />
+                      <T style={{ flex: 1 }}>{m.name}{isFamily ? ` (${fullSize})` : ''}</T>
+                    </TouchableOpacity>
+                    {active && isFamily && fullSize > 1 && splitMode === 'PER_CAPITA' && (
+                      <View style={{ paddingLeft: 28, flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <T variant="caption" muted>Split among</T>
+                        {Array.from({ length: fullSize }, (_, i) => i + 1).map((n) => (
+                          <TouchableOpacity key={n}
+                            testID={`ee-fam-${m.id}-${n}`}
+                            onPress={() => setWeightOverrides((w) => ({ ...w, [m.id]: n }))}
+                            style={[styles.numChip, { backgroundColor: currentCount === n ? colors.primary : colors.surface, borderColor: currentCount === n ? colors.primary : colors.border }]}>
+                            <T variant="caption" style={{ fontWeight: '700' }}
+                              color={currentCount === n ? colors.primaryText : colors.textMain}>{n}</T>
+                          </TouchableOpacity>
+                        ))}
+                        <T variant="caption" muted>of {fullSize}</T>
+                      </View>
+                    )}
+                  </View>
                 );
               })}
             </View>
           </View>
+
+          {/* Split mode */}
+          <SplitModeSelector
+            value={splitMode}
+            onChange={setSplitMode}
+            subLabel={splitPreviewLabel({
+              amount: parseFloat(amount),
+              mode: splitMode,
+              members: trip.members,
+              splitSel,
+              weightOverrides,
+              currency: trip.currency,
+            })}
+          />
 
           <View>
             <T variant="label" muted>Receipt</T>
@@ -240,5 +294,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row', gap: 8, padding: SPACING.md, borderRadius: RADIUS.md,
     borderWidth: 1, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', marginTop: 4,
   },
+  numChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: RADIUS.pill, borderWidth: 1 },
   btn: { marginTop: SPACING.md, paddingVertical: 16, borderRadius: RADIUS.pill, alignItems: 'center' },
 });
