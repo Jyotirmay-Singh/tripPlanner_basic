@@ -8,10 +8,11 @@ import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS } from '../../../src/theme';
 import T from '../../../src/T';
+import Badge from '../../../src/Badge';
 import DonutChart, { paletteForMode } from '../../../src/DonutChart';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
-type Trip = { id: string; name: string; code: string; travel_date: string; budget?: number; currency: string; owner_id: string; members: Member[] };
+type Trip = { id: string; name: string; code: string; travel_date: string; budget?: number; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
 type Expense = { id: string; kind: 'expense' | 'income'; amount: number; category: string; description?: string; date: string; paid_by_member_id: string; split_member_ids: string[] };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[] }[] };
 
@@ -72,6 +73,14 @@ export default function TripDetail() {
   const totalSpent = expenses.filter((e) => e.kind === 'expense').reduce((s, e) => s + e.amount, 0);
   const over = trip.budget ? totalSpent > trip.budget : false;
   const isOwner = trip.owner_id === user?.id;
+  const adminIds = trip.admin_ids ?? [];
+  const meIsAdmin = !!user && adminIds.includes(user.id);
+  // Role of a member's linked app user (only app users can hold a role). Owner supersedes Admin.
+  const roleOf = (m: Member): 'owner' | 'admin' | null => {
+    if (!m.user_id) return null;
+    if (m.user_id === trip.owner_id) return 'owner';
+    return adminIds.includes(m.user_id) ? 'admin' : null;
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
@@ -325,46 +334,48 @@ export default function TripDetail() {
 
         {tab === 'members' && (
           <View style={{ gap: SPACING.sm }}>
-            <TouchableOpacity testID="trip-add-member"
-              onPress={() => router.push(`/trip/${id}/add-member`)}
-              style={[styles.addRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Ionicons name="add" size={18} color={colors.primary} />
-              <T color={colors.primary} style={{ fontWeight: '700' }}>Add member or family</T>
-            </TouchableOpacity>
-            {trip.members.map((m) => (
-              <View key={m.id} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <View style={[styles.memberIcon, { backgroundColor: colors.surfaceMuted }]}>
-                  <Ionicons name={m.kind === 'family' ? 'people' : 'person'} size={18} color={colors.primary} />
+            {meIsAdmin ? (
+              <TouchableOpacity testID="trip-add-member"
+                onPress={() => router.push(`/trip/${id}/add-member`)}
+                style={[styles.addRow, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Ionicons name="add" size={18} color={colors.primary} />
+                <T color={colors.primary} style={{ fontWeight: '700' }}>Add member or family</T>
+              </TouchableOpacity>
+            ) : (
+              <T testID="members-readonly-note" variant="caption" muted style={{ paddingHorizontal: SPACING.xs }}>
+                Only trip admins can add or change members.
+              </T>
+            )}
+            {trip.members.map((m) => {
+              const role = roleOf(m);
+              return (
+                <View key={m.id} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  <View style={[styles.memberIcon, { backgroundColor: colors.surfaceMuted }]}>
+                    <Ionicons name={m.kind === 'family' ? 'people' : 'person'} size={18} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm }}>
+                      <T variant="h3">{m.name}{m.kind === 'family' ? ` (${m.family_members.length})` : ''}</T>
+                      {role === 'owner' ? <Badge label="Owner" color={colors.primary} /> : null}
+                      {role === 'admin' ? <Badge label="Admin" color={colors.owed} /> : null}
+                      {m.user_id === user?.id ? <Badge label="You" color={colors.textMuted} /> : null}
+                    </View>
+                    <T variant="caption" muted>
+                      {m.kind === 'family' ? `Family: ${m.family_members.join(', ') || '—'}` : (m.user_id ? 'App user' : 'Individual')}
+                      {m.email ? ` · ${m.email}` : ''}
+                    </T>
+                  </View>
+                  {meIsAdmin && (
+                    <TouchableOpacity
+                      testID={`member-manage-${m.id}`}
+                      onPress={() => router.push({ pathname: '/trip/[id]/manage-member', params: { id: id as string, mid: m.id } })}
+                      style={{ padding: 8 }}>
+                      <Ionicons name="ellipsis-horizontal" size={20} color={colors.primary} />
+                    </TouchableOpacity>
+                  )}
                 </View>
-                <View style={{ flex: 1 }}>
-                  <T variant="h3">
-                    {m.name}{m.kind === 'family' ? ` (${m.family_members.length})` : ''}
-                    {m.user_id === user?.id ? '  ·  You' : ''}
-                  </T>
-                  <T variant="caption" muted>
-                    {m.kind === 'family' ? `Family: ${m.family_members.join(', ') || '—'}` : (m.user_id ? 'App user' : 'Individual')}
-                    {m.email ? ` · ${m.email}` : ''}
-                  </T>
-                </View>
-                <TouchableOpacity
-                  testID={`member-edit-${m.id}`}
-                  onPress={() => router.push({ pathname: '/trip/[id]/edit-member', params: { id: id as string, mid: m.id } })}
-                  style={{ padding: 8 }}>
-                  <Ionicons name="pencil-outline" size={20} color={colors.primary} />
-                </TouchableOpacity>
-                {!m.user_id && (
-                  <TouchableOpacity
-                    testID={`member-del-${m.id}`}
-                    onPress={async () => {
-                      try { await api(`/trips/${id}/members/${m.id}`, { method: 'DELETE' }); load(); }
-                      catch (err: any) { Alert.alert('Error', err.message); }
-                    }}
-                    style={{ padding: 8 }}>
-                    <Ionicons name="trash-outline" size={20} color={colors.owing} />
-                  </TouchableOpacity>
-                )}
-              </View>
-            ))}
+              );
+            })}
           </View>
         )}
 

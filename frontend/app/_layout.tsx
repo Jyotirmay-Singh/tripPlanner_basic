@@ -31,6 +31,7 @@ function Inner() {
         <Stack.Screen name="trip/[id]/index" options={{ title: 'Trip' }} />
         <Stack.Screen name="trip/[id]/add-member" options={{ title: 'Add Member', presentation: 'modal' }} />
         <Stack.Screen name="trip/[id]/edit-member" options={{ title: 'Edit Member', presentation: 'modal' }} />
+        <Stack.Screen name="trip/[id]/manage-member" options={{ title: 'Manage Member', presentation: 'modal' }} />
         <Stack.Screen name="trip/[id]/add-expense" options={{ title: 'Add Transaction', presentation: 'modal' }} />
         <Stack.Screen name="trip/[id]/edit-expense" options={{ title: 'Edit Transaction', presentation: 'modal' }} />
         <Stack.Screen name="trip/[id]/settle-up" options={{ title: 'Settle Up' }} />
