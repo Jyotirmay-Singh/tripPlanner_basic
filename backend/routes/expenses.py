@@ -69,7 +69,10 @@ async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
                          user=Depends(get_current_user)):
     # Step 10: only the expense creator or a trip admin may edit (404 if missing, 403 otherwise).
     _trip, expense = await _expense_modify_or_403(trip_id, expense_id, user["id"])
-    updates = {k: v for k, v in body.model_dump().items() if v is not None and k != "force"}
+    # exclude_unset: only persist fields the client actually sent, so an explicit
+    # null (e.g. clearing weight_snapshots when switching to PER_FAMILY, or removing
+    # a receipt) clears the field instead of being silently dropped.
+    updates = {k: v for k, v in body.model_dump(exclude_unset=True).items() if k != "force"}
     if not updates:
         return expense
     await db.expenses.update_one({"id": expense_id, "trip_id": trip_id}, {"$set": updates})

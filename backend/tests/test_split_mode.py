@@ -125,6 +125,49 @@ class TestSplitMode:
 
         assert patch_resp.status_code == 422
 
+    def test_patch_clears_weight_snapshots_when_switching_to_per_family(self, api_client, test_user):
+        """Switching an expense to PER_FAMILY via PATCH (sending weight_snapshots=null) clears
+        the stored snapshots instead of silently keeping them (regression for the exclude_unset fix)."""
+        trip_id, individual_id = self._create_trip_and_member(api_client, test_user, "TEST_SplitMode Clear Snapshots Trip")
+
+        # Add a family of 3 so a per-capita override can be stored.
+        fam_resp = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/members", json={
+            "name": "TEST_Family of 3",
+            "kind": "family",
+            "family_members": ["A", "B", "C"]
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        family_id = fam_resp.json()["id"]
+
+        # Create a PER_CAPITA expense with a partial-family override (2 of 3).
+        post_resp = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/expenses", json={
+            "kind": "expense",
+            "amount": 90.0,
+            "category": "Food",
+            "description": "Partial family dinner",
+            "date": "17-05-26",
+            "paid_by_member_id": individual_id,
+            "split_member_ids": [individual_id, family_id],
+            "split_mode": "PER_CAPITA",
+            "weight_snapshots": {family_id: 2}
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        assert post_resp.status_code == 200
+        expense_id = post_resp.json()["expense"]["id"]
+        assert post_resp.json()["expense"]["weight_snapshots"] == {family_id: 2}
+
+        # Flip to PER_FAMILY and explicitly clear the snapshots.
+        patch_resp = api_client.patch(f"{BASE_URL}/api/trips/{trip_id}/expenses/{expense_id}", json={
+            "split_mode": "PER_FAMILY",
+            "weight_snapshots": None
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        assert patch_resp.status_code == 200
+
+        list_resp = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/expenses", headers={
+            "Authorization": f"Bearer {test_user['token']}"
+        })
+        found = next(e for e in list_resp.json() if e["id"] == expense_id)
+        assert found["split_mode"] == "PER_FAMILY"
+        assert not found.get("weight_snapshots"), f"snapshots should be cleared, got {found.get('weight_snapshots')}"
+
     def test_list_expenses_includes_split_mode(self, api_client, test_user):
         """GET /trips/{id}/expenses returns split_mode on every expense"""
         trip_id, member_id = self._create_trip_and_member(api_client, test_user, "TEST_SplitMode List Trip")
