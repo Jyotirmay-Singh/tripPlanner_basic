@@ -2,11 +2,33 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from database import db
 from models.trip import TripIn, TripUpdate, AdminGrant
+from models.join import JoinRequest, JoinPreviewRequest
 from utils.common import gen_id, gen_trip_code, now_utc
 from utils.deps import get_current_user, _trip_or_404, _trip_admin_or_403
-from utils.members import name_exists
+from utils.email_rules import assert_gmail, normalize_email
+from utils.members import (
+    name_exists,
+    email_exists,
+    assert_unique_name,
+    assert_unique_email,
+)
 
 router = APIRouter()
+
+
+def _unique_individual_name(members: list, name: str, email: str) -> str:
+    """Disambiguate a joiner's display name against existing members.
+
+    If the name is taken, append the email local-part; if that collides too,
+    append a short random suffix. Shared by the legacy and "individual" join paths.
+    """
+    if not name_exists(members, name):
+        return name
+    local_part = (email or "").split("@")[0]
+    candidate = f"{name} ({local_part})"
+    if name_exists(members, candidate):
+        candidate = f"{name} ({local_part}-{gen_id()[:4]})"
+    return candidate
 
 
 # ---------- Trips ----------
@@ -66,44 +88,132 @@ async def delete_trip(trip_id: str, user=Depends(get_current_user)):
 
 
 @router.post("/trips/join")
-async def join_trip(body: dict, user=Depends(get_current_user)):
-    code = (body.get("code") or "").upper().strip()
+async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
+    # Step 12: join is self-service — possession of the valid trip code is the
+    # authorization. The joiner may only create/link their OWN membership; every
+    # other member mutation stays behind _trip_admin_or_403. The joiner's explicit
+    # `mode` decides how they enter; a missing mode preserves the legacy auto-behavior.
+    code = (body.code or "").upper().strip()
     trip = await db.trips.find_one({"code": code}, {"_id": 0})
     if not trip:
         raise HTTPException(404, "Trip not found")
     if user["id"] in trip.get("user_ids", []):
-        return trip
-    # Check if a family member in this trip has this user's email -> link instead of adding
-    user_email = user["email"].lower().strip()
-    linked_family = None
-    for m in trip.get("members", []):
-        if m.get("kind") == "family" and (m.get("email") or "").lower() == user_email and not m.get("user_id"):
-            linked_family = m
-            break
-    if linked_family:
-        await db.trips.update_one(
-            {"id": trip["id"], "members.id": linked_family["id"]},
-            {"$push": {"user_ids": user["id"]},
-             "$set": {"members.$.user_id": user["id"]}},
+        return trip  # idempotent — already a member, regardless of mode
+
+    members = trip.get("members", [])
+    user_email = normalize_email(user["email"])
+    mode = body.mode
+
+    if mode is None:
+        # ---- Legacy auto-behavior: email auto-link, else new individual ----
+        linked_family = next(
+            (m for m in members
+             if m.get("kind") == "family"
+             and normalize_email(m.get("email")) == user_email
+             and not m.get("user_id")),
+            None,
         )
-    else:
-        members = trip.get("members", [])
-        name = user["name"]
-        if name_exists(members, name):
-            local_part = user_email.split("@")[0]
-            candidate = f"{name} ({local_part})"
-            if name_exists(members, candidate):
-                candidate = f"{name} ({local_part}-{gen_id()[:4]})"
-            name = candidate
+        if linked_family:
+            await db.trips.update_one(
+                {"id": trip["id"], "members.id": linked_family["id"]},
+                {"$push": {"user_ids": user["id"]},
+                 "$set": {"members.$.user_id": user["id"]}},
+            )
+        else:
+            new_member = {
+                "id": gen_id(), "name": _unique_individual_name(members, user["name"], user_email),
+                "kind": "individual", "family_members": [],
+                "email": user_email, "user_id": user["id"],
+            }
+            await db.trips.update_one(
+                {"id": trip["id"]},
+                {"$push": {"user_ids": user["id"], "members": new_member}},
+            )
+
+    elif mode == "individual":
+        # Explicit individual — never auto-link, even if an email-matching family exists.
         new_member = {
-            "id": gen_id(), "name": name, "kind": "individual",
-            "family_members": [], "email": user_email, "user_id": user["id"],
+            "id": gen_id(), "name": _unique_individual_name(members, user["name"], user_email),
+            "kind": "individual", "family_members": [],
+            "email": user_email, "user_id": user["id"],
         }
         await db.trips.update_one(
             {"id": trip["id"]},
             {"$push": {"user_ids": user["id"], "members": new_member}},
         )
+
+    elif mode == "family":
+        if not body.family_id:
+            raise HTTPException(400, "family_id is required to link into a family")
+        target = next((m for m in members if m["id"] == body.family_id), None)
+        if not target:
+            raise HTTPException(404, "Family not found")
+        if target.get("kind") != "family":
+            raise HTTPException(400, "Target member is not a family")
+        if target.get("user_id") and target["user_id"] != user["id"]:
+            raise HTTPException(400, "This family is already linked to another account")
+        set_fields = {"members.$.user_id": user["id"]}
+        # Stamp the joiner's email only if the family has none and it stays unique.
+        if user_email and not normalize_email(target.get("email")) \
+                and not email_exists(members, user_email, exclude_id=target["id"]):
+            set_fields["members.$.email"] = user_email
+        await db.trips.update_one(
+            {"id": trip["id"], "members.id": target["id"]},
+            {"$push": {"user_ids": user["id"]}, "$set": set_fields},
+        )
+
+    elif mode == "new_family":
+        if not body.family_name:
+            raise HTTPException(400, "family_name is required to create a new family")
+        assert_unique_name(members, body.family_name)
+        if user_email:
+            assert_gmail(user_email)
+            assert_unique_email(members, user_email)
+        new_member = {
+            "id": gen_id(), "name": body.family_name, "kind": "family",
+            "family_members": body.family_members, "email": user_email, "user_id": user["id"],
+        }
+        await db.trips.update_one(
+            {"id": trip["id"]},
+            {"$push": {"user_ids": user["id"], "members": new_member}},
+        )
+
     return await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+
+
+@router.post("/trips/join/preview")
+async def join_preview(body: JoinPreviewRequest, user=Depends(get_current_user)):
+    # Step 12: read-only context for the join wizard. Resolve by code (no membership
+    # required — the code is the authorization) and surface the family link targets.
+    code = (body.code or "").upper().strip()
+    trip = await db.trips.find_one({"code": code}, {"_id": 0})
+    if not trip:
+        raise HTTPException(404, "Trip not found")
+    members = trip.get("members", [])
+    user_email = normalize_email(user["email"])
+    families = [
+        {"id": m["id"], "name": m["name"],
+         "size": len(m.get("family_members", [])),
+         "linked": bool(m.get("user_id"))}
+        for m in members if m.get("kind") == "family"
+    ]
+    matched = next(
+        (m for m in members
+         if m.get("kind") == "family"
+         and normalize_email(m.get("email")) == user_email
+         and not m.get("user_id")),
+        None,
+    )
+    return {
+        "trip": {
+            "id": trip["id"], "name": trip["name"], "code": trip["code"],
+            "travel_date": trip.get("travel_date"), "currency": trip.get("currency"),
+            "member_count": len(members),
+        },
+        "already_member": user["id"] in trip.get("user_ids", []),
+        "matched_family": {"id": matched["id"], "name": matched["name"]} if matched else None,
+        "families": families,
+    }
 
 
 # ---------- Trip Admins ----------
