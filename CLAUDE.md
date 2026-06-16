@@ -116,7 +116,7 @@ AGENT DIRECTIVE: You must update this file by changing `[ ]` to `[x]` as you suc
 - [x] Step 12: Complex Joining Context API. Refactor the invitation code route (`/join`) to handle contextual payloads mapping whether the incoming profile is arriving as a clean individual, linking into a family entity, or initializing a new group structure.
 
 ### Phase 4: Join Pipeline & Member Administration (Frontend)
-- [ ] Step 13: Interactive Join Wizard UI. Build out a clear navigation step processing trip code validations. Prompt user with clear selection triggers: "Join as Individual", "Join existing Family [Dynamic Picker]", or "Create New Family Lineage".
+- [x] Step 13: Interactive Join Wizard UI. Build out a clear navigation step processing trip code validations. Prompt user with clear selection triggers: "Join as Individual", "Join existing Family [Dynamic Picker]", or "Create New Family Lineage".
 - [ ] Step 14: Administrative Controls Member Tab. Upgrade the Members roster interface. Implement crisp operational badges distinguishing Admins, and open modal pathways to allow designated admins to safely alter family configurations.
 - [ ] Step 15: Structural Recalculation Prompt. Attach a UI confirmation trigger upon family size adjustment saving operations. Prompt: "Apply updates retroactively to prior expenses or apply to future items only?", firing the Phase 2 backend recalculation route when accepted.
 
