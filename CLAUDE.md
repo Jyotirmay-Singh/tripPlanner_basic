@@ -113,7 +113,7 @@ AGENT DIRECTIVE: You must update this file by changing `[ ]` to `[x]` as you suc
 ### Phase 3: Access Control & Route Constraints (Backend)
 - [x] Step 10: Expense Modification Protection. Intercept expense edit/delete endpoints to verify that the requesting user context matches either the record creator ID or a designated Trip Admin ID.
 - [x] Step 11: Member Administration Locks. Protect member/family mutation endpoints to ensure exclusively authenticated Trip Admins can execute modifications.
-- [ ] Step 12: Complex Joining Context API. Refactor the invitation code route (`/join`) to handle contextual payloads mapping whether the incoming profile is arriving as a clean individual, linking into a family entity, or initializing a new group structure.
+- [x] Step 12: Complex Joining Context API. Refactor the invitation code route (`/join`) to handle contextual payloads mapping whether the incoming profile is arriving as a clean individual, linking into a family entity, or initializing a new group structure.
 
 ### Phase 4: Join Pipeline & Member Administration (Frontend)
 - [ ] Step 13: Interactive Join Wizard UI. Build out a clear navigation step processing trip code validations. Prompt user with clear selection triggers: "Join as Individual", "Join existing Family [Dynamic Picker]", or "Create New Family Lineage".
