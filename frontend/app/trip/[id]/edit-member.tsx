@@ -8,8 +8,12 @@ import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS } from '../../../src/theme';
 import T from '../../../src/T';
 import { isGmail, GMAIL_ONLY_MESSAGE } from '../../../src/validation';
+import ConfirmModal from '../../../src/ConfirmModal';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; email?: string | null; user_id?: string | null };
+
+// Effective per-capita weight of a member: a family counts as its roster size, anything else as 1.
+const effWeight = (kind: 'individual' | 'family', fm: string[]) => (kind === 'family' ? fm.length : 1);
 
 export default function EditMember() {
   const { id, mid } = useLocalSearchParams<{ id: string; mid: string }>();
@@ -21,7 +25,10 @@ export default function EditMember() {
   const [kind, setKind] = useState<'individual' | 'family'>('individual');
   const [familyText, setFamilyText] = useState('');
   const [originalFM, setOriginalFM] = useState<string[]>([]);
-  const [hasExpenses, setHasExpenses] = useState(false);
+  const [originalKind, setOriginalKind] = useState<'individual' | 'family'>('individual');
+  const [qualifiesForRecalc, setQualifiesForRecalc] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [delta, setDelta] = useState<{ from: number; to: number }>({ from: 0, to: 0 });
 
   useEffect(() => {
     (async () => {
@@ -31,10 +38,18 @@ export default function EditMember() {
       setMember(m); setName(m.name); setKind(m.kind); setEmail(m.email || '');
       setFamilyText(m.family_members.join(', '));
       setOriginalFM(m.family_members);
-      // check if this member has any expenses
+      setOriginalKind(m.kind);
+      // Does this member participate in any past expense the backend would re-split? Mirror the
+      // backend recalc query (reallocation._load_candidate_expenses): split_mode != PER_FAMILY
+      // (missing/legacy counts as PER_CAPITA) AND the member is in the split (or split is empty =
+      // everyone) OR paid for it.
       const exps: any[] = await api(`/trips/${id}/expenses`);
-      const used = exps.some((e) => e.paid_by_member_id === mid || (e.split_member_ids || []).includes(mid));
-      setHasExpenses(used);
+      const used = exps.some((e) => {
+        if ((e.split_mode || 'PER_CAPITA') === 'PER_FAMILY') return false;
+        const splitIds: string[] = e.split_member_ids || [];
+        return splitIds.length === 0 || splitIds.includes(mid) || e.paid_by_member_id === mid;
+      });
+      setQualifiesForRecalc(used);
     })();
   }, [id, mid]);
 
@@ -61,24 +76,21 @@ export default function EditMember() {
 
   const submit = () => {
     if (!member) return;
+    if (!name.trim()) return Alert.alert('Missing', 'Name is required');
     if (email.trim() && !isGmail(email)) return Alert.alert('Invalid email', GMAIL_ONLY_MESSAGE);
     const newFM = kind === 'family'
       ? familyText.split(',').map((s) => s.trim()).filter(Boolean)
       : [];
-    const familyChanged = kind === 'family' && hasExpenses &&
-      JSON.stringify(newFM) !== JSON.stringify(originalFM) &&
-      newFM.length !== originalFM.length;
-
-    if (familyChanged) {
-      Alert.alert(
-        'Apply to past expenses?',
-        `The number of family members changed (${originalFM.length} → ${newFM.length}).\n\nShould past expenses be re-split among the NEW members, or keep the ORIGINAL split?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Keep original split', onPress: () => save(false) },
-          { text: 'Re-split with new members', onPress: () => save(true) },
-        ]
-      );
+    if (kind === 'family' && newFM.length === 0) {
+      return Alert.alert('Missing', 'Add at least one family member name');
+    }
+    // A change to the member's effective per-capita weight (family grow/shrink, or family<->individual)
+    // re-splits past PER_CAPITA expenses. Prompt only when qualifying past expenses exist.
+    const oldW = effWeight(originalKind, originalFM);
+    const newW = effWeight(kind, newFM);
+    if (oldW !== newW && qualifiesForRecalc) {
+      setDelta({ from: oldW, to: newW });
+      setModalVisible(true);
     } else {
       save(true);
     }
@@ -166,6 +178,19 @@ export default function EditMember() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <ConfirmModal
+        visible={modalVisible}
+        testID="recalc-modal"
+        title="Apply to past expenses?"
+        message={`The number of people in this split changed (${delta.from} → ${delta.to}). Apply updates retroactively to prior expenses, or apply to future items only?`}
+        onRequestClose={() => setModalVisible(false)}
+        actions={[
+          { label: 'Apply retroactively', variant: 'primary', testID: 'recalc-retro', onPress: () => { setModalVisible(false); save(true); } },
+          { label: 'Future items only', variant: 'default', testID: 'recalc-future', onPress: () => { setModalVisible(false); save(false); } },
+          { label: 'Cancel', variant: 'cancel', testID: 'recalc-cancel', onPress: () => setModalVisible(false) },
+        ]}
+      />
     </SafeAreaView>
   );
 }
