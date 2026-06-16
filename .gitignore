@@ -19,6 +19,9 @@ node_modules/
 # Testing
 /coverage
 
+# Local dev server logs (e.g. uvicorn output captured during local test runs)
+.uvicorn.*.log
+
 # Next.js
 /.next/
 /out/
