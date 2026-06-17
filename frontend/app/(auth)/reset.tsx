@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { api } from '../../src/api';
 import { useTheme } from '../../src/ThemeContext';
-import { SPACING, RADIUS } from '../../src/theme';
+import { SPACING, RADIUS, CONTROL } from '../../src/theme';
 import T from '../../src/T';
 
 export default function Reset() {
@@ -53,6 +53,6 @@ export default function Reset() {
 }
 
 const styles = StyleSheet.create({
-  input: { paddingHorizontal: SPACING.md, paddingVertical: 14, borderRadius: RADIUS.md, borderWidth: 1, fontSize: 16 },
+  input: { paddingHorizontal: SPACING.md, paddingVertical: CONTROL.paddingY, borderRadius: CONTROL.radius, borderWidth: 1, fontSize: CONTROL.fontSize },
   btn: { paddingVertical: 16, borderRadius: RADIUS.pill, alignItems: 'center' },
 });

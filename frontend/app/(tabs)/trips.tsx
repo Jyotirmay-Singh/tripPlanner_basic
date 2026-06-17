@@ -5,10 +5,12 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/api';
 import { useTheme } from '../../src/ThemeContext';
-import { SPACING, RADIUS } from '../../src/theme';
+import { SPACING, RADIUS, LAYOUT } from '../../src/theme';
 import T from '../../src/T';
+import { compositionLabel } from '../../src/composition';
 
-type Trip = { id: string; name: string; code: string; travel_date: string; budget?: number; currency: string };
+type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
+type Trip = { id: string; name: string; code: string; travel_date: string; budget?: number; currency: string; members: Member[] };
 
 export default function Trips() {
   const { colors } = useTheme();
@@ -35,7 +37,7 @@ export default function Trips() {
         </TouchableOpacity>
       </View>
       <ScrollView
-        contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.md, paddingBottom: 120 }}
+        contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.md, paddingBottom: LAYOUT.scrollBottomInset }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor={colors.primary} />}
       >
         <TouchableOpacity testID="trips-join-btn" onPress={() => router.push('/join-trip')}
@@ -60,6 +62,9 @@ export default function Trips() {
               <T variant="h3">{t.name}</T>
               <T muted variant="caption" style={{ marginTop: 2 }}>
                 {t.travel_date} · {t.currency}{t.budget ? ` · Budget ${t.budget}` : ''}
+              </T>
+              <T muted variant="caption" style={{ marginTop: 2 }}>
+                {compositionLabel(t.members)}
               </T>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
                 <Ionicons name="link-outline" size={12} color={colors.textMuted} />

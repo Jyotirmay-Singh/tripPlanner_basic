@@ -5,7 +5,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../../../src/api';
 import { useTheme } from '../../../../src/ThemeContext';
-import { SPACING, RADIUS } from '../../../../src/theme';
+import { SPACING, RADIUS, LAYOUT } from '../../../../src/theme';
 import T from '../../../../src/T';
 
 type Member = { id: string; name: string };
@@ -39,7 +39,7 @@ export default function CategoryDetail() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
       <ScrollView
-        contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.md, paddingBottom: 120 }}
+        contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.md, paddingBottom: LAYOUT.scrollBottomInset }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor={colors.primary} />}
       >
         <View style={[styles.header, { backgroundColor: colors.primary }]}>

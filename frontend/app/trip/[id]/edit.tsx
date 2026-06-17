@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api } from '../../../src/api';
 import { useTheme } from '../../../src/ThemeContext';
-import { SPACING, RADIUS, CURRENCIES } from '../../../src/theme';
+import { SPACING, RADIUS, CONTROL, CURRENCIES } from '../../../src/theme';
 import T from '../../../src/T';
 
 export default function EditTrip() {
@@ -82,7 +82,7 @@ export default function EditTrip() {
 }
 
 const styles = StyleSheet.create({
-  input: { marginTop: 4, paddingHorizontal: SPACING.md, paddingVertical: 14, borderRadius: RADIUS.md, borderWidth: 1, fontSize: 16 },
+  input: { marginTop: 4, paddingHorizontal: SPACING.md, paddingVertical: CONTROL.paddingY, borderRadius: CONTROL.radius, borderWidth: 1, fontSize: CONTROL.fontSize },
   pill: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: RADIUS.pill, borderWidth: 1 },
   btn: { marginTop: SPACING.md, paddingVertical: 16, borderRadius: RADIUS.pill, alignItems: 'center' },
 });

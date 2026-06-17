@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../../src/api';
 import { useTheme } from '../../../src/ThemeContext';
-import { SPACING, RADIUS } from '../../../src/theme';
+import { SPACING, RADIUS, CONTROL } from '../../../src/theme';
 import T from '../../../src/T';
 import { isGmail, GMAIL_ONLY_MESSAGE } from '../../../src/validation';
 import ConfirmModal from '../../../src/ConfirmModal';
@@ -197,6 +197,6 @@ export default function EditMember() {
 
 const styles = StyleSheet.create({
   pill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderRadius: RADIUS.pill, borderWidth: 1 },
-  input: { marginTop: 4, paddingHorizontal: SPACING.md, paddingVertical: 14, borderRadius: RADIUS.md, borderWidth: 1, fontSize: 16 },
+  input: { marginTop: 4, paddingHorizontal: SPACING.md, paddingVertical: CONTROL.paddingY, borderRadius: CONTROL.radius, borderWidth: 1, fontSize: CONTROL.fontSize },
   btn: { marginTop: SPACING.md, paddingVertical: 16, borderRadius: RADIUS.pill, alignItems: 'center' },
 });

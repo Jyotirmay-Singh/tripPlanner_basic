@@ -6,10 +6,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/api';
 import { useAuth } from '../../src/AuthContext';
 import { useTheme } from '../../src/ThemeContext';
-import { SPACING, RADIUS } from '../../src/theme';
+import { SPACING, RADIUS, LAYOUT } from '../../src/theme';
 import T from '../../src/T';
+import { compositionLabel } from '../../src/composition';
 
-type Trip = { id: string; name: string; code: string; travel_date: string; budget?: number; currency: string };
+type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
+type Trip = { id: string; name: string; code: string; travel_date: string; budget?: number; currency: string; members: Member[] };
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -48,7 +50,7 @@ export default function Dashboard() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
       <ScrollView
-        contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.md, paddingBottom: 120 }}
+        contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.md, paddingBottom: LAYOUT.scrollBottomInset }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor={colors.primary} />}
       >
         <View>
@@ -109,6 +111,9 @@ export default function Dashboard() {
               <T variant="h3">{t.name}</T>
               <T muted variant="caption" style={{ marginTop: 2 }}>
                 {t.travel_date} · {t.currency} · Code {t.code}
+              </T>
+              <T muted variant="caption" style={{ marginTop: 2 }}>
+                {compositionLabel(t.members)}
               </T>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />

@@ -10,7 +10,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { api } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
-import { SPACING, RADIUS, CATEGORIES } from '../../../src/theme';
+import { SPACING, RADIUS, CONTROL, CATEGORIES } from '../../../src/theme';
 import T from '../../../src/T';
 import SplitModeSelector, { SplitMode, splitPreviewLabel } from '../../../src/SplitModeSelector';
 import { canModifyExpense } from '../../../src/permissions';
@@ -309,7 +309,7 @@ const styles = StyleSheet.create({
   pill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderRadius: RADIUS.pill, borderWidth: 1 },
   amountBox: { padding: SPACING.lg, borderRadius: RADIUS.xl, borderWidth: 1 },
   amountInput: { fontSize: 44, fontWeight: '700', letterSpacing: -1, paddingVertical: 4 },
-  input: { marginTop: 4, paddingHorizontal: SPACING.md, paddingVertical: 14, borderRadius: RADIUS.md, borderWidth: 1, fontSize: 16 },
+  input: { marginTop: 4, paddingHorizontal: SPACING.md, paddingVertical: CONTROL.paddingY, borderRadius: CONTROL.radius, borderWidth: 1, fontSize: CONTROL.fontSize },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
     padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1,

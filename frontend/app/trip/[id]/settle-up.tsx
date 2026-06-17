@@ -5,7 +5,7 @@ import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../../src/api';
 import { useTheme } from '../../../src/ThemeContext';
-import { SPACING, RADIUS } from '../../../src/theme';
+import { SPACING, RADIUS, LAYOUT } from '../../../src/theme';
 import T from '../../../src/T';
 
 type Member = { id: string; name: string };
@@ -43,7 +43,7 @@ export default function SettleUp() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
-      <ScrollView contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.md, paddingBottom: 120 }}>
+      <ScrollView contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.md, paddingBottom: LAYOUT.scrollBottomInset }}>
         <T variant="h1">Settle Up</T>
         <T muted>Minimum number of transactions to zero out everyone.</T>
 
