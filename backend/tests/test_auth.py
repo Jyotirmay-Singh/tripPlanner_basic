@@ -3,8 +3,34 @@ import pytest
 import requests
 import os
 import uuid
+from pathlib import Path
+
+from dotenv import load_dotenv
+from pymongo import MongoClient
 
 BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL', 'https://split-trips-1.preview.emergentagent.com').rstrip('/')
+
+# Load backend/.env so the reset-flow test can read the PIN-reset token straight from
+# MongoDB. The token is delivered by email/log only (never in the API response), so an
+# integration test retrieves it out-of-band from the same DB the server writes to.
+load_dotenv(Path(__file__).resolve().parents[1] / '.env')
+
+
+def _latest_reset_token(user_id: str):
+    """Return the most recent unused PIN-reset token for a user, or None."""
+    mongo_url = os.environ.get('MONGO_URL')
+    db_name = os.environ.get('DB_NAME')
+    if not mongo_url or not db_name:
+        return None
+    client = MongoClient(mongo_url)
+    try:
+        rec = client[db_name].password_reset_tokens.find_one(
+            {"user_id": user_id, "used": False},
+            sort=[("expires_at", -1)],
+        )
+        return rec["token"] if rec else None
+    finally:
+        client.close()
 
 class TestAuth:
     """Authentication endpoint tests"""
@@ -117,7 +143,7 @@ class TestAuth:
         assert data["ok"] is True
 
     def test_reset_password_flow(self, api_client):
-        """Test full forgot + reset password flow"""
+        """Test the full forgot-PIN + reset-PIN flow."""
         # Create test user
         email = f"TEST_reset_{uuid.uuid4().hex[:8]}@gmail.com"
         reg_resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
@@ -127,45 +153,43 @@ class TestAuth:
             "name": "Reset Test"
         })
         assert reg_resp.status_code == 200
+        user_id = reg_resp.json()["user"]["id"]
 
-        # Request password reset
-        forgot_resp = api_client.post(f"{BASE_URL}/api/auth/forgot-password", json={
+        # Request a PIN reset
+        forgot_resp = api_client.post(f"{BASE_URL}/api/auth/forgot-pin", json={
             "email": email
         })
         assert forgot_resp.status_code == 200
 
-        # Parse token from backend logs
-        import subprocess
-        logs = subprocess.check_output(["tail", "-n", "50", "/var/log/supervisor/backend.err.log"]).decode()
-        token = None
-        for line in logs.splitlines():
-            if "[PASSWORD RESET]" in line and email in line:
-                parts = line.split("Token=")
-                if len(parts) > 1:
-                    token = parts[1].split()[0]
-                    break
-
+        # The token is delivered by email/log only; read it from the DB out-of-band.
+        token = _latest_reset_token(user_id)
         if not token:
-            pytest.skip("Could not parse reset token from logs")
+            pytest.skip("Could not read PIN-reset token from MongoDB")
 
-        # Reset password
-        reset_resp = api_client.post(f"{BASE_URL}/api/auth/reset-password", json={
+        # Reset the PIN
+        reset_resp = api_client.post(f"{BASE_URL}/api/auth/reset-pin", json={
             "token": token,
-            "new_password": "newpass456"
+            "new_pin": "2222"
         })
-        assert reset_resp.status_code == 200
+        assert reset_resp.status_code == 200, f"Expected 200, got {reset_resp.status_code}: {reset_resp.text}"
 
-        # Verify new password works
+        # New PIN works; old PIN no longer does
         login_resp = api_client.post(f"{BASE_URL}/api/auth/login", json={
             "email": email,
-            "password": "newpass456"
+            "pin": "2222"
         })
         assert login_resp.status_code == 200
 
+        old_login = api_client.post(f"{BASE_URL}/api/auth/login", json={
+            "email": email,
+            "pin": "1111"
+        })
+        assert old_login.status_code == 401
+
     def test_reset_password_invalid_token(self, api_client):
-        """Test reset with invalid token fails"""
-        response = api_client.post(f"{BASE_URL}/api/auth/reset-password", json={
+        """Test reset-PIN with an invalid token fails (valid 4-digit PIN, bad token)."""
+        response = api_client.post(f"{BASE_URL}/api/auth/reset-pin", json={
             "token": "invalid_token_xyz",
-            "new_password": "newpass123"
+            "new_pin": "5678"
         })
         assert response.status_code == 400
