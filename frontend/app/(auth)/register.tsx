@@ -7,7 +7,7 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/AuthContext';
 import { useTheme } from '../../src/ThemeContext';
-import { SPACING, RADIUS } from '../../src/theme';
+import { SPACING, RADIUS, CONTROL } from '../../src/theme';
 import T from '../../src/T';
 import { isGmail, GMAIL_ONLY_MESSAGE } from '../../src/validation';
 import GoogleSignInButton from '../../src/GoogleSignInButton';
@@ -85,6 +85,6 @@ export default function Register() {
 }
 
 const styles = StyleSheet.create({
-  input: { marginTop: SPACING.xs, paddingHorizontal: SPACING.md, paddingVertical: 14, borderRadius: RADIUS.md, borderWidth: 1, fontSize: 16 },
+  input: { marginTop: SPACING.xs, paddingHorizontal: SPACING.md, paddingVertical: CONTROL.paddingY, borderRadius: CONTROL.radius, borderWidth: 1, fontSize: CONTROL.fontSize },
   btn: { marginTop: SPACING.md, paddingVertical: 16, borderRadius: RADIUS.pill, alignItems: 'center' },
 });

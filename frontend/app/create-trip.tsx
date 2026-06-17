@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../src/api';
 import { useTheme } from '../src/ThemeContext';
-import { SPACING, RADIUS, CURRENCIES } from '../src/theme';
+import { SPACING, RADIUS, CONTROL, CURRENCIES } from '../src/theme';
 import T from '../src/T';
 
 function toDDMMYY(d: Date) {
@@ -93,7 +93,7 @@ export default function CreateTrip() {
 }
 
 const styles = StyleSheet.create({
-  input: { marginTop: 4, paddingHorizontal: SPACING.md, paddingVertical: 14, borderRadius: RADIUS.md, borderWidth: 1, fontSize: 16 },
+  input: { marginTop: 4, paddingHorizontal: SPACING.md, paddingVertical: CONTROL.paddingY, borderRadius: CONTROL.radius, borderWidth: 1, fontSize: CONTROL.fontSize },
   pill: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: RADIUS.pill, borderWidth: 1 },
   btn: { marginTop: SPACING.md, flexDirection: 'row', gap: SPACING.xs, paddingVertical: 16, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
 });

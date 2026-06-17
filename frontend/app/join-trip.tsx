@@ -8,7 +8,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../src/api';
 import { useTheme } from '../src/ThemeContext';
-import { SPACING, RADIUS } from '../src/theme';
+import { SPACING, RADIUS, CONTROL } from '../src/theme';
 import T from '../src/T';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -263,7 +263,7 @@ export default function JoinTrip() {
 
 const styles = StyleSheet.create({
   codeInput: { paddingHorizontal: SPACING.md, paddingVertical: 16, borderRadius: RADIUS.md, borderWidth: 1, fontSize: 24, letterSpacing: 6, textAlign: 'center', fontWeight: '700' },
-  input: { marginTop: 4, paddingHorizontal: SPACING.md, paddingVertical: 14, borderRadius: RADIUS.md, borderWidth: 1, fontSize: 16 },
+  input: { marginTop: 4, paddingHorizontal: SPACING.md, paddingVertical: CONTROL.paddingY, borderRadius: CONTROL.radius, borderWidth: 1, fontSize: CONTROL.fontSize },
   btn: { paddingVertical: 16, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
   modeCard: { flexDirection: 'row', alignItems: 'center', padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1 },
   familyRow: { flexDirection: 'row', alignItems: 'center', padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1 },

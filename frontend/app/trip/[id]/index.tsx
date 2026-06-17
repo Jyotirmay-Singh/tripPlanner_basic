@@ -6,11 +6,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
-import { SPACING, RADIUS } from '../../../src/theme';
+import { SPACING, RADIUS, LAYOUT } from '../../../src/theme';
 import T from '../../../src/T';
 import Badge from '../../../src/Badge';
 import DonutChart, { paletteForMode } from '../../../src/DonutChart';
 import { canModifyExpense } from '../../../src/permissions';
+import { compositionLabel } from '../../../src/composition';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
 type Trip = { id: string; name: string; code: string; travel_date: string; budget?: number; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
@@ -68,9 +69,6 @@ export default function TripDetail() {
   }
 
   const memberById = (mid: string) => trip.members.find((m) => m.id === mid);
-  const totalPeople = trip.members.reduce(
-    (s, m) => s + (m.kind === 'family' ? Math.max(1, (m.family_members || []).length) : 1), 0,
-  );
   const totalSpent = expenses.filter((e) => e.kind === 'expense').reduce((s, e) => s + e.amount, 0);
   const over = trip.budget ? totalSpent > trip.budget : false;
   const isOwner = trip.owner_id === user?.id;
@@ -86,14 +84,14 @@ export default function TripDetail() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
       <ScrollView
-        contentContainerStyle={{ padding: SPACING.lg, paddingBottom: 120, gap: SPACING.md }}
+        contentContainerStyle={{ padding: SPACING.lg, paddingBottom: LAYOUT.scrollBottomInset, gap: SPACING.md }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor={colors.primary} />}
       >
         {/* Header card */}
         <View style={[styles.header, { backgroundColor: colors.primary }]}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
             <T variant="label" color={colors.primaryText} style={{ opacity: 0.8 }}>{trip.travel_date}</T>
-            <TouchableOpacity testID="trip-share" onPress={shareCode} style={styles.codeChip}>
+            <TouchableOpacity testID="trip-share" onPress={shareCode} style={[styles.codeChip, { backgroundColor: colors.overlayOnPrimary }]}>
               <Ionicons name="share-outline" size={14} color={colors.primaryText} />
               <T color={colors.primaryText} style={{ fontWeight: '700' }}>{trip.code}</T>
             </TouchableOpacity>
@@ -102,7 +100,7 @@ export default function TripDetail() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
             <Ionicons name="people" size={14} color={colors.primaryText} />
             <T color={colors.primaryText} style={{ opacity: 0.85 }}>
-              {totalPeople} {totalPeople === 1 ? 'person' : 'people'} · {trip.members.length} {trip.members.length === 1 ? 'member' : 'members'}
+              {compositionLabel(trip.members)}
             </T>
           </View>
           <View style={{ flexDirection: 'row', gap: SPACING.md, marginTop: SPACING.md }}>
@@ -150,7 +148,7 @@ export default function TripDetail() {
               testID={`trip-tab-${k}`}
               onPress={() => setTab(k)}
               style={[styles.tab, tab === k && { backgroundColor: colors.primary }]}>
-              <T style={{ fontWeight: '700', textTransform: 'capitalize', fontSize: 12 }}
+              <T variant="caption" style={{ fontWeight: '700', textTransform: 'capitalize' }}
                 color={tab === k ? colors.primaryText : colors.textMuted}>
                 {k}
               </T>
@@ -392,7 +390,7 @@ const styles = StyleSheet.create({
   header: { padding: SPACING.lg, borderRadius: RADIUS.xl },
   codeChip: {
     flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingVertical: 6,
-    borderRadius: RADIUS.pill, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center',
+    borderRadius: RADIUS.pill, alignItems: 'center',
   },
   actionBtn: { flex: 1, flexDirection: 'row', gap: 6, paddingVertical: 12, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
   iconBtn: { width: 44, height: 44, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },

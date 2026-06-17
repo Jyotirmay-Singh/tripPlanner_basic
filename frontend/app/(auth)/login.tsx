@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/AuthContext';
 import { useTheme } from '../../src/ThemeContext';
-import { SPACING, RADIUS } from '../../src/theme';
+import { SPACING, RADIUS, CONTROL } from '../../src/theme';
 import T from '../../src/T';
 import { isGmail, GMAIL_ONLY_MESSAGE } from '../../src/validation';
 import GoogleSignInButton from '../../src/GoogleSignInButton';
@@ -140,8 +140,8 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   input: {
-    marginTop: SPACING.xs, paddingHorizontal: SPACING.md, paddingVertical: 14,
-    borderRadius: RADIUS.md, borderWidth: 1, fontSize: 16,
+    marginTop: SPACING.xs, paddingHorizontal: SPACING.md, paddingVertical: CONTROL.paddingY,
+    borderRadius: CONTROL.radius, borderWidth: 1, fontSize: CONTROL.fontSize,
   },
   pinInput: {
     marginTop: SPACING.xs, paddingHorizontal: SPACING.md, paddingVertical: 18,
