@@ -121,7 +121,7 @@ AGENT DIRECTIVE: You must update this file by changing `[ ]` to `[x]` as you suc
 - [x] Step 15: Structural Recalculation Prompt. Attach a UI confirmation trigger upon family size adjustment saving operations. Prompt: "Apply updates retroactively to prior expenses or apply to future items only?", firing the Phase 2 backend recalculation route when accepted.
 
 ### Phase 5: Transaction Interfaces (Frontend)
-- [ ] Step 16: Dual Split Mode Selector. Integration of a visible segmented control element inside Add/Edit transaction screens supporting toggles between [Per Person] and [Per Family]. Drive active form sub-label state changes detailing simulated pricing splits dynamically.
+- [x] Step 16: Dual Split Mode Selector. Integration of a visible segmented control element inside Add/Edit transaction screens supporting toggles between [Per Person] and [Per Family]. Drive active form sub-label state changes detailing simulated pricing splits dynamically.
 - [ ] Step 17: RBAC-Driven Component Hiding. Condition the visibility states of transaction update and deletion elements based on current identity roles (validating creator token flags or trip admin criteria).
 
 ### Phase 6: Core Presentation Layer & Media Handling (Frontend)

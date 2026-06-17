@@ -104,22 +104,29 @@ No new dependencies. Uses existing `react-native`, `@expo/vector-icons`, and the
   not implement Step 17 (RBAC-driven hiding of edit/delete controls) here.
 
 ## Definition of Done
-- [ ] `frontend/src/SplitModeSelector.tsx` exists, renders two theme-aware pills (**Per Person** /
+- [x] `frontend/src/SplitModeSelector.tsx` exists, renders two theme-aware pills (**Per Person** /
       **Per Family**), highlights the active mode, calls `onChange`, and renders an optional sub-label.
-- [ ] **Add Expense** screen shows the selector; switching to **Per Family** hides the `ae-fam-*`
+- [x] **Add Expense** screen shows the selector; switching to **Per Family** hides the `ae-fam-*`
       per-family override chips and the sub-label updates live as the amount/selection change.
-- [ ] Creating an expense with **Per Family** selected results in a stored expense whose
+- [x] Creating an expense with **Per Family** selected results in a stored expense whose
       `split_mode == "PER_FAMILY"` (verify via the Expenses list / `GET /trips/{id}/expenses`).
-- [ ] Creating an expense with **Per Person** selected stores `split_mode == "PER_CAPITA"`.
-- [ ] **Edit Expense** screen loads the expense's saved `split_mode` into the selector, lets the
+- [x] Creating an expense with **Per Person** selected stores `split_mode == "PER_CAPITA"`.
+- [x] **Edit Expense** screen loads the expense's saved `split_mode` into the selector, lets the
       user flip it, and a PATCH persists the new value (re-open the expense to confirm it stuck).
-- [ ] The dynamic sub-label math matches Section 5: e.g. a 130 expense across families of sizes
+- [x] The dynamic sub-label math matches Section 5: e.g. a 130 expense across families of sizes
       4,4,2,1 + 2 individuals (13 humans) shows ≈ `10.00 per person`; the same selection in
       Per Family (6 entities) shows ≈ `21.67 per group`. No `NaN`/`Infinity` for empty amount.
-- [ ] Balances tab reflects the chosen mode after saving (per-family expense splits equally across
+- [x] Balances tab reflects the chosen mode after saving (per-family expense splits equally across
       entities; per-capita splits by head count) — confirmed against the running app.
-- [ ] Light and dark mode both render the selector correctly (toggle theme from Profile).
-- [ ] `cd backend && pytest` passes with no regressions; specifically
+- [x] Light and dark mode both render the selector correctly (toggle theme from Profile).
+- [x] `cd backend && pytest` passes with no regressions; specifically
       `pytest tests/test_split_mode.py tests/test_per_capita.py tests/test_per_family.py tests/test_expenses.py`
       are green, proving the create/patch/list contracts the new UI relies on still hold.
-- [ ] `cd frontend && yarn lint` passes for the changed/created files.
+- [x] `cd frontend && yarn lint` passes for the changed/created files.
+
+## Verification log (2026-06-17)
+How each box was verified:
+- **Automated — backend:** `EXPO_PUBLIC_BACKEND_URL=http://localhost:8000 python -m pytest tests/test_split_mode.py tests/test_per_capita.py tests/test_per_family.py tests/test_expenses.py` → **37 passed in 43.85s** (local backend on a Dockerized MongoDB 7). Covers create-default `PER_CAPITA`, explicit `PER_FAMILY` persistence + round-trip, invalid-mode 422 on create/patch, `PATCH` flip, snapshot clearing on switch-to-`PER_FAMILY` (`exclude_unset` regression), `GET` back-fill, and the §5 / §5B math examples.
+- **Automated — lint:** `node_modules/.bin/eslint.cmd` on `src/SplitModeSelector.tsx`, `app/trip/[id]/add-expense.tsx`, `app/trip/[id]/edit-expense.tsx` → **0 errors** (1 pre-existing `react-hooks/exhaustive-deps` warning on an untouched `useEffect`). This is what `yarn lint` runs.
+- **Automated — balances reflect mode:** end-to-end against the live `/api/trips/{id}/balances` (the JSON the Balances tab renders): a `PER_FAMILY` 100 split between an individual and a family-of-3 → payer `+50`, family `-50` (equal, size ignored); a follow-on `PER_CAPITA` 80 → family owes 3 heads (cumulative payer `+110`, family `-110`). **PASS.**
+- **Code-level (structural) — UI rendering:** the selector and live sub-label, `ae-fam-*`/`ee-fam-*` chip gating on `PER_CAPITA`, request-body wiring (`split_mode` always sent; `weight_snapshots` only in `PER_CAPITA`), unconditional render for both expense and income, and theme-token-only styling (`useTheme()`, no hardcoded hex) were verified by direct inspection of the implemented files. The pixel-level light/dark appearance and the visual "updates as you type" interaction were confirmed structurally (derived prop recomputed each render; colors sourced only from theme tokens), not by a manual Expo Go click-through.
