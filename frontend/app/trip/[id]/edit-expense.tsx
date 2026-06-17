@@ -8,25 +8,30 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { api } from '../../../src/api';
+import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, CATEGORIES } from '../../../src/theme';
 import T from '../../../src/T';
 import SplitModeSelector, { SplitMode, splitPreviewLabel } from '../../../src/SplitModeSelector';
+import { canModifyExpense } from '../../../src/permissions';
 
 type Member = { id: string; name: string; kind: string; family_members: string[] };
-type Trip = { id: string; name: string; currency: string; members: Member[] };
+type Trip = { id: string; name: string; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
 type Expense = {
   id: string; kind: 'expense' | 'income'; amount: number; category: string;
   description?: string; date: string; paid_by_member_id: string;
   split_member_ids: string[]; split_mode?: SplitMode;
   weight_snapshots?: Record<string, number> | null; receipt_base64?: string | null;
+  created_by?: string | null;
 };
 
 export default function EditExpense() {
   const { id, eid } = useLocalSearchParams<{ id: string; eid: string }>();
   const { colors } = useTheme();
+  const { user } = useAuth();
   const router = useRouter();
   const [trip, setTrip] = useState<Trip | null>(null);
+  const [createdBy, setCreatedBy] = useState<string | null | undefined>(undefined);
   const [kind, setKind] = useState<'expense' | 'income'>('expense');
   const [amount, setAmount] = useState('');
   const [desc, setDesc] = useState('');
@@ -46,6 +51,7 @@ export default function EditExpense() {
       const exps = await api<Expense[]>(`/trips/${id}/expenses`);
       const e = exps.find((x) => x.id === eid);
       if (!e) return;
+      setCreatedBy(e.created_by ?? null);
       setKind(e.kind); setAmount(String(e.amount)); setDesc(e.description || '');
       setCat(e.category); setDate(e.date); setPaidBy(e.paid_by_member_id);
       const allIds = t.members.map((m) => m.id);
@@ -116,6 +122,9 @@ export default function EditExpense() {
 
   if (!trip) return <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}><T style={{ padding: SPACING.lg }}>Loading…</T></SafeAreaView>;
 
+  // Step 17: mirror the backend rule — only the creator or a trip admin may edit/delete.
+  const canModify = canModifyExpense({ created_by: createdBy }, user?.id, trip);
+
   const toggleSplit = (mid: string) => {
     setSplitSel((s) => s.includes(mid) ? s.filter((x) => x !== mid) : [...s, mid]);
   };
@@ -125,6 +134,16 @@ export default function EditExpense() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.md, paddingBottom: 80 }} keyboardShouldPersistTaps="handled">
           <T variant="h1">Edit transaction</T>
+
+          {!canModify && (
+            <View testID="expense-readonly-note"
+              style={[styles.readonlyNote, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
+              <Ionicons name="lock-closed-outline" size={16} color={colors.textMuted} />
+              <T variant="caption" muted style={{ flex: 1 }}>
+                Only the person who added this transaction or a trip admin can edit it.
+              </T>
+            </View>
+          )}
 
           <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
             {(['expense', 'income'] as const).map((k) => (
@@ -266,15 +285,20 @@ export default function EditExpense() {
             )}
           </View>
 
-          <TouchableOpacity testID="ee-save" onPress={save} disabled={saving}
-            style={[styles.btn, { backgroundColor: colors.primary }]}>
-            <T color={colors.primaryText} variant="h3">{saving ? 'Saving…' : 'Save changes'}</T>
-          </TouchableOpacity>
+          {/* Step 17: hide update/delete affordances unless the user is creator or trip admin. */}
+          {canModify && (
+            <>
+              <TouchableOpacity testID="ee-save" onPress={save} disabled={saving}
+                style={[styles.btn, { backgroundColor: colors.primary }]}>
+                <T color={colors.primaryText} variant="h3">{saving ? 'Saving…' : 'Save changes'}</T>
+              </TouchableOpacity>
 
-          <TouchableOpacity testID="ee-delete" onPress={onDelete}
-            style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.owing }]}>
-            <T color={colors.owing} style={{ fontWeight: '700' }}>Delete transaction</T>
-          </TouchableOpacity>
+              <TouchableOpacity testID="ee-delete" onPress={onDelete}
+                style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.owing }]}>
+                <T color={colors.owing} style={{ fontWeight: '700' }}>Delete transaction</T>
+              </TouchableOpacity>
+            </>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -296,4 +320,8 @@ const styles = StyleSheet.create({
   },
   numChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: RADIUS.pill, borderWidth: 1 },
   btn: { marginTop: SPACING.md, paddingVertical: 16, borderRadius: RADIUS.pill, alignItems: 'center' },
+  readonlyNote: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
+    padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1,
+  },
 });

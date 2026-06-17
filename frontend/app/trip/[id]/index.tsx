@@ -10,10 +10,11 @@ import { SPACING, RADIUS } from '../../../src/theme';
 import T from '../../../src/T';
 import Badge from '../../../src/Badge';
 import DonutChart, { paletteForMode } from '../../../src/DonutChart';
+import { canModifyExpense } from '../../../src/permissions';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
 type Trip = { id: string; name: string; code: string; travel_date: string; budget?: number; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
-type Expense = { id: string; kind: 'expense' | 'income'; amount: number; category: string; description?: string; date: string; paid_by_member_id: string; split_member_ids: string[] };
+type Expense = { id: string; kind: 'expense' | 'income'; amount: number; category: string; description?: string; date: string; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[] }[] };
 
 export default function TripDetail() {
@@ -253,23 +254,26 @@ export default function TripDetail() {
                 <T variant="h3" color={e.kind === 'income' ? colors.owed : colors.textMain}>
                   {e.kind === 'income' ? '+' : ''}{e.amount.toFixed(2)}
                 </T>
-                <TouchableOpacity
-                  testID={`expense-del-${e.id}`}
-                  onPress={() => {
-                    Alert.alert('Delete transaction?', '', [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Delete', style: 'destructive',
-                        onPress: async () => {
-                          try { await api(`/trips/${id}/expenses/${e.id}`, { method: 'DELETE' }); load(); }
-                          catch (err: any) { Alert.alert('Error', err.message); }
+                {/* Step 17: only the expense creator or a trip admin sees the inline delete. */}
+                {canModifyExpense(e, user?.id, trip) && (
+                  <TouchableOpacity
+                    testID={`expense-del-${e.id}`}
+                    onPress={() => {
+                      Alert.alert('Delete transaction?', '', [
+                        { text: 'Cancel', style: 'cancel' },
+                        {
+                          text: 'Delete', style: 'destructive',
+                          onPress: async () => {
+                            try { await api(`/trips/${id}/expenses/${e.id}`, { method: 'DELETE' }); load(); }
+                            catch (err: any) { Alert.alert('Error', err.message); }
+                          },
                         },
-                      },
-                    ]);
-                  }}
-                  style={{ padding: 6, marginLeft: 4 }}>
-                  <Ionicons name="trash-outline" size={18} color={colors.owing} />
-                </TouchableOpacity>
+                      ]);
+                    }}
+                    style={{ padding: 6, marginLeft: 4 }}>
+                    <Ionicons name="trash-outline" size={18} color={colors.owing} />
+                  </TouchableOpacity>
+                )}
               </TouchableOpacity>
             ))}
           </View>
