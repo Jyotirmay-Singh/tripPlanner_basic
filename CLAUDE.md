@@ -122,7 +122,7 @@ AGENT DIRECTIVE: You must update this file by changing `[ ]` to `[x]` as you suc
 
 ### Phase 5: Transaction Interfaces (Frontend)
 - [x] Step 16: Dual Split Mode Selector. Integration of a visible segmented control element inside Add/Edit transaction screens supporting toggles between [Per Person] and [Per Family]. Drive active form sub-label state changes detailing simulated pricing splits dynamically.
-- [ ] Step 17: RBAC-Driven Component Hiding. Condition the visibility states of transaction update and deletion elements based on current identity roles (validating creator token flags or trip admin criteria).
+- [x] Step 17: RBAC-Driven Component Hiding. Condition the visibility states of transaction update and deletion elements based on current identity roles (validating creator token flags or trip admin criteria).
 
 ### Phase 6: Core Presentation Layer & Media Handling (Frontend)
 - [ ] Step 18: Layout UI Audit & Standardization. Homogenize typography scales, layout padding grids, and color tokens across all interfaces. Update Home and Detail layouts to compute exact strings reading: `[X] Individuals across [Y] Families & [Z] Singles`.
