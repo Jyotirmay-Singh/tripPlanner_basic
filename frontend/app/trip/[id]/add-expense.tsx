@@ -12,6 +12,7 @@ import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, CONTROL, CATEGORIES } from '../../../src/theme';
 import T from '../../../src/T';
 import SplitModeSelector, { SplitMode, splitPreviewLabel } from '../../../src/SplitModeSelector';
+import ReceiptViewer from '../../../src/ReceiptViewer';
 
 type Member = { id: string; name: string; kind: string; family_members: string[] };
 type Trip = { id: string; name: string; currency: string; members: Member[] };
@@ -39,6 +40,7 @@ export default function AddExpense() {
   const [weightOverrides, setWeightOverrides] = useState<Record<string, number>>({});
   const [allInited, setAllInited] = useState(false);
   const [receipt, setReceipt] = useState<string | null>(null);
+  const [viewerOpen, setViewerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -52,15 +54,34 @@ export default function AddExpense() {
     }).catch((e) => Alert.alert('Error', e.message));
   }, [id]);
 
-  const pickReceipt = async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) return;
-    const r = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'], quality: 0.4, base64: true,
-    });
-    if (!r.canceled && r.assets[0].base64) {
+  const applyAsset = (r: ImagePicker.ImagePickerResult) => {
+    if (!r.canceled && r.assets[0]?.base64) {
       setReceipt(`data:image/jpeg;base64,${r.assets[0].base64}`);
     }
+  };
+
+  const pickFromLibrary = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return Alert.alert('Permission needed', 'Allow photo access to attach a receipt.');
+    applyAsset(await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'], quality: 0.4, base64: true, allowsEditing: true,
+    }));
+  };
+
+  const takePhoto = async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) return Alert.alert('Permission needed', 'Allow camera access to capture a receipt.');
+    applyAsset(await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'], quality: 0.4, base64: true, allowsEditing: true,
+    }));
+  };
+
+  const chooseReceiptSource = () => {
+    Alert.alert('Add receipt', undefined, [
+      { text: 'Take photo', onPress: takePhoto },
+      { text: 'Choose from library', onPress: pickFromLibrary },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   const submit = async (force = false) => {
@@ -258,19 +279,23 @@ export default function AddExpense() {
             <T variant="label" muted>Receipt (optional)</T>
             {receipt ? (
               <View style={{ marginTop: 6 }}>
-                <Image source={{ uri: receipt }} style={{ width: '100%', height: 200, borderRadius: RADIUS.lg }} />
+                <TouchableOpacity testID="receipt-view" activeOpacity={0.8} onPress={() => setViewerOpen(true)}>
+                  <Image source={{ uri: receipt }} style={{ width: '100%', height: 200, borderRadius: RADIUS.lg }} />
+                </TouchableOpacity>
                 <TouchableOpacity onPress={() => setReceipt(null)} style={{ marginTop: 8, alignSelf: 'flex-start' }}>
                   <T color={colors.owing}>Remove</T>
                 </TouchableOpacity>
               </View>
             ) : (
-              <TouchableOpacity testID="ae-receipt" onPress={pickReceipt}
+              <TouchableOpacity testID="ae-receipt" onPress={chooseReceiptSource}
                 style={[styles.receiptBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <Ionicons name="image-outline" size={18} color={colors.primary} />
                 <T color={colors.primary} style={{ fontWeight: '700' }}>Attach image</T>
               </TouchableOpacity>
             )}
           </View>
+
+          <ReceiptViewer uri={receipt} visible={viewerOpen} onClose={() => setViewerOpen(false)} />
 
           <TouchableOpacity testID="ae-submit" onPress={() => submit(false)} disabled={saving}
             style={[styles.btn, { backgroundColor: colors.primary }]}>

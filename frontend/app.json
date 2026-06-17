@@ -11,7 +11,9 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Attach receipt photos to expenses"
+        "NSPhotoLibraryUsageDescription": "Attach receipt photos to expenses",
+        "NSPhotoLibraryAddUsageDescription": "Save receipt photos to your gallery",
+        "NSCameraUsageDescription": "Take photos of receipts to attach to expenses"
       }
     },
     "android": {
@@ -21,7 +23,9 @@
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
-        "READ_EXTERNAL_STORAGE"
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES"
       ]
     },
     "web": {
@@ -43,7 +47,15 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Attach receipt photos to expenses"
+          "photosPermission": "Attach receipt photos to expenses",
+          "cameraPermission": "Take photos of receipts to attach to expenses"
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow access to save receipts to your gallery",
+          "savePhotosPermission": "Save receipt photos to your gallery"
         }
       ],
       "@react-native-community/datetimepicker",
