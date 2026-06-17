@@ -295,16 +295,22 @@ export default function EditExpense() {
                 <TouchableOpacity testID="receipt-view" activeOpacity={0.8} onPress={() => setViewerOpen(true)}>
                   <Image source={{ uri: receipt }} style={{ width: '100%', height: 200, borderRadius: RADIUS.lg }} />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => setReceipt(null)} style={{ marginTop: 8, alignSelf: 'flex-start' }}>
-                  <T color={colors.owing}>Remove</T>
-                </TouchableOpacity>
+                {/* Step 20/17: only the creator or a trip admin may remove the receipt;
+                    everyone can still view it and save it to their gallery. */}
+                {canModify && (
+                  <TouchableOpacity onPress={() => setReceipt(null)} style={{ marginTop: 8, alignSelf: 'flex-start' }}>
+                    <T color={colors.owing}>Remove</T>
+                  </TouchableOpacity>
+                )}
               </View>
-            ) : (
+            ) : canModify ? (
               <TouchableOpacity onPress={chooseReceiptSource}
                 style={[styles.receiptBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <Ionicons name="image-outline" size={18} color={colors.primary} />
                 <T color={colors.primary} style={{ fontWeight: '700' }}>Attach image</T>
               </TouchableOpacity>
+            ) : (
+              <T variant="caption" muted style={{ marginTop: 6 }}>No receipt attached.</T>
             )}
           </View>
 
