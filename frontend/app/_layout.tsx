@@ -29,16 +29,16 @@ function Inner() {
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="trip/[id]/index" options={{ title: 'Trip' }} />
-        <Stack.Screen name="trip/[id]/add-member" options={{ title: 'Add Member', presentation: 'modal' }} />
-        <Stack.Screen name="trip/[id]/edit-member" options={{ title: 'Edit Member', presentation: 'modal' }} />
-        <Stack.Screen name="trip/[id]/manage-member" options={{ title: 'Manage Member', presentation: 'modal' }} />
-        <Stack.Screen name="trip/[id]/add-expense" options={{ title: 'Add Transaction', presentation: 'modal' }} />
-        <Stack.Screen name="trip/[id]/edit-expense" options={{ title: 'Edit Transaction', presentation: 'modal' }} />
+        <Stack.Screen name="trip/[id]/add-member" options={{ title: 'Add Member', presentation: 'modal', headerRight: undefined }} />
+        <Stack.Screen name="trip/[id]/edit-member" options={{ title: 'Edit Member', presentation: 'modal', headerRight: undefined }} />
+        <Stack.Screen name="trip/[id]/manage-member" options={{ title: 'Manage Member', presentation: 'modal', headerRight: undefined }} />
+        <Stack.Screen name="trip/[id]/add-expense" options={{ title: 'Add Transaction', presentation: 'modal', headerRight: undefined }} />
+        <Stack.Screen name="trip/[id]/edit-expense" options={{ title: 'Edit Transaction', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="trip/[id]/settle-up" options={{ title: 'Settle Up' }} />
-        <Stack.Screen name="trip/[id]/edit" options={{ title: 'Edit Trip', presentation: 'modal' }} />
+        <Stack.Screen name="trip/[id]/edit" options={{ title: 'Edit Trip', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="trip/[id]/category/[name]" options={{ title: 'Category' }} />
-        <Stack.Screen name="create-trip" options={{ title: 'Create Trip', presentation: 'modal' }} />
-        <Stack.Screen name="join-trip" options={{ title: 'Join Trip', presentation: 'modal' }} />
+        <Stack.Screen name="create-trip" options={{ title: 'Create Trip', presentation: 'modal', headerRight: undefined }} />
+        <Stack.Screen name="join-trip" options={{ title: 'Join Trip', presentation: 'modal', headerRight: undefined }} />
       </Stack>
     </>
   );

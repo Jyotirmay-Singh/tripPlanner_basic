@@ -1,24 +1,17 @@
 import React from 'react';
-import { View, TouchableOpacity, StyleSheet, Switch, Alert } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Switch } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/AuthContext';
 import { useTheme } from '../../src/ThemeContext';
+import { useLogout } from '../../src/useLogout';
 import { SPACING, RADIUS } from '../../src/theme';
 import T from '../../src/T';
 
 export default function Profile() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const { colors, mode, toggle } = useTheme();
-  const router = useRouter();
-
-  const handleSignOut = () => {
-    Alert.alert('Sign out?', '', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign out', style: 'destructive', onPress: async () => { await signOut(); router.replace('/(auth)/login'); } },
-    ]);
-  };
+  const { confirmAndSignOut } = useLogout();
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
@@ -42,7 +35,7 @@ export default function Profile() {
             trackColor={{ false: colors.border, true: colors.primary }} />
         </View>
 
-        <TouchableOpacity testID="profile-logout" onPress={handleSignOut}
+        <TouchableOpacity testID="profile-logout" onPress={confirmAndSignOut}
           style={[styles.row, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Ionicons name="log-out-outline" size={20} color={colors.owing} />
           <T color={colors.owing} style={{ flex: 1, fontWeight: '700' }}>Sign out</T>

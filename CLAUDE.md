@@ -126,5 +126,5 @@ AGENT DIRECTIVE: You must update this file by changing `[ ]` to `[x]` as you suc
 
 ### Phase 6: Core Presentation Layer & Media Handling (Frontend)
 - [x] Step 18: Layout UI Audit & Standardization. Homogenize typography scales, layout padding grids, and color tokens across all interfaces. Update Home and Detail layouts to compute exact strings reading: `[X] Individuals across [Y] Families & [Z] Singles`.
-- [ ] Step 19: Ubiquitous Global Session Drop. Leverage Expo Router layout configurations (`_layout.tsx`) utilizing `screenOptions` mappings to anchor the shared application `LogoutButton` element into the persistent top-right header layout frame universally across all screens.
+- [x] Step 19: Ubiquitous Global Session Drop. Leverage Expo Router layout configurations (`_layout.tsx`) utilizing `screenOptions` mappings to anchor the shared application `LogoutButton` element into the persistent top-right header layout frame universally across all screens.
 - [ ] Step 20: Photo Asset Acquisition & Gallery Pipeline. Wire up `expo-image-picker` actions to intercept receipt images. Embed a download trigger on the target transaction asset modal consuming `expo-media-library` configurations to safely write files back into the phone’s local camera roll gallery.
