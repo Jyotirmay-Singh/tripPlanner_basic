@@ -5,7 +5,7 @@ import requests
 import os
 from openpyxl import load_workbook
 
-BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL', 'https://split-trips-1.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL', 'http://localhost:8000').rstrip('/')
 
 class TestBalances:
     """Balance calculation and settle-up tests"""

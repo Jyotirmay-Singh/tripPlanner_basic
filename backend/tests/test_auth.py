@@ -8,7 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
-BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL', 'https://split-trips-1.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL', 'http://localhost:8000').rstrip('/')
 
 # Load backend/.env so the reset-flow test can read the PIN-reset token straight from
 # MongoDB. The token is delivered by email/log only (never in the API response), so an
