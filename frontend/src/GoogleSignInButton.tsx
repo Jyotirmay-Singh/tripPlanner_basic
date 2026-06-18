@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Platform } from 'react-native';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,7 +15,17 @@ const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || undefined;
 const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || undefined;
 const ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || undefined;
 
-export default function GoogleSignInButton() {
+// The id-token auth hook validates that the client ID for the *current* platform is
+// defined and throws if it isn't (e.g. "Client Id property 'androidClientId' must be
+// defined to use Google auth on this platform"). Hooks can't be called conditionally,
+// so we gate the hook-bearing component behind this check in the parent: an
+// unconfigured platform hides the button instead of crashing the whole screen.
+const PLATFORM_CLIENT_ID =
+  Platform.OS === 'android' ? ANDROID_CLIENT_ID
+  : Platform.OS === 'ios' ? IOS_CLIENT_ID
+  : WEB_CLIENT_ID;
+
+function GoogleSignInInner() {
   const { signInWithGoogle } = useAuth();
   const { colors } = useTheme();
   const router = useRouter();
@@ -42,8 +52,6 @@ export default function GoogleSignInButton() {
       .finally(() => setLoading(false));
   }, [response, router, signInWithGoogle]);
 
-  if (!WEB_CLIENT_ID && !IOS_CLIENT_ID && !ANDROID_CLIENT_ID) return null;
-
   return (
     <TouchableOpacity
       testID="google-signin"
@@ -59,6 +67,12 @@ export default function GoogleSignInButton() {
       )}
     </TouchableOpacity>
   );
+}
+
+export default function GoogleSignInButton() {
+  // Only mount the hook-bearing component when this platform's client ID is configured.
+  if (!PLATFORM_CLIENT_ID) return null;
+  return <GoogleSignInInner />;
 }
 
 const styles = StyleSheet.create({

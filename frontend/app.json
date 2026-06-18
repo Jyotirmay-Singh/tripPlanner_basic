@@ -17,6 +17,7 @@
       }
     },
     "android": {
+      "package": "com.tripsplitter.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#0A0D0C"
