@@ -178,6 +178,30 @@ class TestGoogleAuthUnit:
         assert decoded["sub"] == r.json()["user"]["id"]
         assert decoded["type"] == "access"
 
+    def test_comma_separated_audiences_passed_through(self, client, fake_users, monkeypatch):
+        """A comma-separated GOOGLE_CLIENT_ID (web,ios,android) is parsed into a list
+        and forwarded as the audience, so a token minted for any platform's client ID
+        still verifies. Without this, native (iOS/Android) logins would 401."""
+        monkeypatch.setattr(
+            auth_module, "GOOGLE_CLIENT_ID",
+            " web.apps.googleusercontent.com , ios.apps.googleusercontent.com ,android.apps.googleusercontent.com ",
+        )
+        fake_users.find_one.return_value = None
+        captured = {}
+
+        def capture(token, request, audience, *a, **k):
+            captured["audience"] = audience
+            return {"email": "crossplatform@gmail.com", "name": "X Plat"}
+
+        monkeypatch.setattr(auth_module.google_id_token, "verify_oauth2_token", capture)
+        r = client.post("/api/auth/google", json={"id_token": "good"})
+        assert r.status_code == 200, r.text
+        assert captured["audience"] == [
+            "web.apps.googleusercontent.com",
+            "ios.apps.googleusercontent.com",
+            "android.apps.googleusercontent.com",
+        ]
+
     def test_real_verifier_rejects_malformed_token(self, client, configured, fake_users):
         """No stubbing here: exercises the REAL google-auth library. A structurally
         invalid token must be rejected (ValueError -> 401). Skips gracefully if the

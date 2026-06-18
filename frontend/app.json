@@ -9,6 +9,7 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
+      "bundleIdentifier": "com.tripsplitter.app", 
       "supportsTablet": true,
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Attach receipt photos to expenses",
@@ -61,7 +62,13 @@
       ],
       "@react-native-community/datetimepicker",
       "expo-web-browser",
-      "expo-font"
+      "expo-font",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.307368957277-19ho7nrl2drsdvkahh7nkqpi6f2tag9h"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

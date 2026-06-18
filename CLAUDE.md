@@ -62,7 +62,7 @@ yarn lint       # expo lint
 * `JWT_SECRET`: Signing key for HS256 authentication tokens
 * `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_PIN`: Seed credentials for system superuser (must be a `@gmail.com` address)
 * `RESEND_API_KEY`, `SENDER_EMAIL`, `APP_URL`: Email transactional routing configuration
-* `GOOGLE_CLIENT_ID`: OAuth 2.0 client ID used to verify Google ID tokens for `POST /api/auth/google`
+* `GOOGLE_CLIENT_ID`: OAuth 2.0 client ID(s) used to verify Google ID tokens for `POST /api/auth/google`. Accepts a single client ID or a comma-separated list of accepted audiences (e.g. `<web>,<ios>,<android>`), since `expo-auth-session` mints an `id_token` whose `aud` is the current platform's client ID.
 
 ### Frontend Configuration (`frontend/.env`)
 * `EXPO_PUBLIC_BACKEND_URL`: Complete targeted API base URL path

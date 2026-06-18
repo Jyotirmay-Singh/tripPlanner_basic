@@ -119,11 +119,17 @@ async def reset_pin(body: ResetPinIn):
 
 @router.post("/auth/google")
 async def google_auth(body: GoogleAuthIn):
-    if not GOOGLE_CLIENT_ID:
+    # GOOGLE_CLIENT_ID may be a single client ID or a comma-separated list of
+    # accepted audiences (web + ios + android). expo-auth-session issues an
+    # id_token whose `aud` is the *current platform's* client ID, so the backend
+    # must accept every platform's client ID or native logins 401. google-auth's
+    # verify_oauth2_token forwards `audience` to verify_token, which accepts a list.
+    audiences = [c.strip() for c in GOOGLE_CLIENT_ID.split(",") if c.strip()]
+    if not audiences:
         raise HTTPException(500, "Google sign-in is not configured")
     try:
         idinfo = google_id_token.verify_oauth2_token(
-            body.id_token, google_requests.Request(), GOOGLE_CLIENT_ID
+            body.id_token, google_requests.Request(), audiences
         )
     except ValueError:
         raise HTTPException(401, "Invalid Google token")
