@@ -21,6 +21,8 @@ node_modules/
 
 # Local dev server logs (e.g. uvicorn output captured during local test runs)
 .uvicorn.*.log
+uvicorn.*.log
+expo.*.log
 
 # Next.js
 /.next/
@@ -34,7 +36,10 @@ dist/
 dist
 
 # Environment files (comprehensive coverage)
-
+.env
+.env.*
+*.env
+!.env.example
 *token.json*
 *credentials.json*
 
