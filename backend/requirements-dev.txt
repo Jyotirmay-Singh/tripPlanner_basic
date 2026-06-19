@@ -1,0 +1,8 @@
+# Test-only dependencies (not required to run the API at runtime).
+# The FastAPI/Starlette TestClient used by the in-process unit tests in
+# tests/test_google_auth.py imports httpx. Keeping it out of requirements.txt
+# preserves that file as the curated production dependency closure.
+#
+# Install with:  pip install -r requirements-dev.txt
+-r requirements.txt
+httpx==0.28.1
