@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 
 import config  # noqa: F401  (loads .env and initializes logging/resend before anything else)
 from fastapi import FastAPI, APIRouter
@@ -11,16 +12,12 @@ from utils.email_rules import is_allowed_email
 from utils.security import hash_secret
 from routes import auth, trips, members, expenses, balances, reports, meta, receipts
 
-app = FastAPI(title="Trip Splitter")
-api = APIRouter(prefix="/api")
 
-for module in (auth, trips, members, expenses, balances, reports, meta, receipts):
-    api.include_router(module.router)
-
-
-# ---------- Startup ----------
-@app.on_event("startup")
-async def startup():
+# ---------- Startup / Shutdown ----------
+# Lifespan handler (the modern replacement for the deprecated @app.on_event hooks):
+# everything before `yield` runs on startup, everything after runs on shutdown.
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     await db.users.create_index("email", unique=True)
     await db.trips.create_index("code", unique=True)
     await db.expenses.create_index([("trip_id", 1), ("created_at", -1)])
@@ -47,10 +44,16 @@ async def startup():
         })
         logger.info("Seeded admin user")
 
+    yield
 
-@app.on_event("shutdown")
-async def shutdown():
     client.close()
+
+
+app = FastAPI(title="Trip Splitter", lifespan=lifespan)
+api = APIRouter(prefix="/api")
+
+for module in (auth, trips, members, expenses, balances, reports, meta, receipts):
+    api.include_router(module.router)
 
 
 app.include_router(api)
