@@ -1,21 +1,23 @@
 import React, { useCallback, useState } from 'react';
-import { View, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Share, Alert } from 'react-native';
+import { View, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Share, Alert, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { api } from '../../../src/api';
+import { api, getToken, receiptUrl } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, LAYOUT } from '../../../src/theme';
 import T from '../../../src/T';
 import Badge from '../../../src/Badge';
 import DonutChart, { paletteForMode } from '../../../src/DonutChart';
+import ReceiptViewer from '../../../src/ReceiptViewer';
 import { canModifyExpense } from '../../../src/permissions';
 import { compositionLabel } from '../../../src/composition';
+import { receiptExpenses, billLabel } from '../../../src/gallery';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
 type Trip = { id: string; name: string; code: string; travel_date: string; budget?: number; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
-type Expense = { id: string; kind: 'expense' | 'income'; amount: number; category: string; description?: string; date: string; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null };
+type Expense = { id: string; kind: 'expense' | 'income'; amount: number; category: string; description?: string; date: string; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[] }[] };
 
 export default function TripDetail() {
@@ -27,18 +29,23 @@ export default function TripDetail() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [balances, setBalances] = useState<Balances | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [tab, setTab] = useState<'summary' | 'expenses' | 'balances' | 'members'>('summary');
+  const [tab, setTab] = useState<'summary' | 'expenses' | 'balances' | 'members' | 'gallery'>('summary');
+  // Step 22: token drives the streamed receipt URL (?token=) for thumbnails/viewer; viewerUri
+  // holds the receipt currently open in the full-screen ReceiptViewer.
+  const [token, setToken] = useState<string | null>(null);
+  const [viewerUri, setViewerUri] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
     setRefreshing(true);
     try {
-      const [t, e, b] = await Promise.all([
+      const [t, e, b, tok] = await Promise.all([
         api<Trip>(`/trips/${id}`),
         api<Expense[]>(`/trips/${id}/expenses`),
         api<Balances>(`/trips/${id}/balances`),
+        getToken(),
       ]);
-      setTrip(t); setExpenses(e); setBalances(b);
+      setTrip(t); setExpenses(e); setBalances(b); setToken(tok);
     } catch (err: any) { Alert.alert('Error', err.message); }
     setRefreshing(false);
   }, [id]);
@@ -143,7 +150,7 @@ export default function TripDetail() {
 
         {/* Tabs */}
         <View style={[styles.tabs, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
-          {(['summary', 'expenses', 'balances', 'members'] as const).map((k) => (
+          {(['summary', 'expenses', 'balances', 'members', 'gallery'] as const).map((k) => (
             <TouchableOpacity key={k}
               testID={`trip-tab-${k}`}
               onPress={() => setTab(k)}
@@ -248,6 +255,20 @@ export default function TripDetail() {
                   <T muted variant="caption">
                     {e.date} · {e.category} · by {memberById(e.paid_by_member_id)?.name || '?'}
                   </T>
+                  {/* Step 22: show the attached bill inline, or a clear "Bill not attached" note. */}
+                  {e.has_receipt ? (
+                    token ? (
+                      <TouchableOpacity
+                        testID={`expense-bill-${e.id}`}
+                        onPress={() => setViewerUri(receiptUrl(id as string, e.id, token))}
+                        style={{ marginTop: 6 }}>
+                        <Image source={{ uri: receiptUrl(id as string, e.id, token) }}
+                          style={[styles.billThumb, { borderColor: colors.border }]} />
+                      </TouchableOpacity>
+                    ) : null
+                  ) : (
+                    <T variant="caption" color={colors.textMuted} style={{ marginTop: 4 }}>{billLabel(e)}</T>
+                  )}
                 </View>
                 <T variant="h3" color={e.kind === 'income' ? colors.owed : colors.textMain}>
                   {e.kind === 'income' ? '+' : ''}{e.amount.toFixed(2)}
@@ -381,7 +402,39 @@ export default function TripDetail() {
           </View>
         )}
 
+        {tab === 'gallery' && (() => {
+          // Step 22: a per-trip wall of attached bills. Reuses the already-loaded expense list
+          // (no extra fetch); tapping a thumbnail opens the full-screen ReceiptViewer.
+          const withBills = receiptExpenses(expenses);
+          return (
+            <View style={{ gap: SPACING.sm }}>
+              {withBills.length === 0 ? (
+                <T muted style={{ padding: SPACING.md }}>No bills attached yet.</T>
+              ) : (
+                <View style={styles.galleryGrid}>
+                  {withBills.map((e) => (
+                    <TouchableOpacity
+                      key={e.id}
+                      testID={`gallery-item-${e.id}`}
+                      disabled={!token}
+                      onPress={() => token && setViewerUri(receiptUrl(id as string, e.id, token))}
+                      style={[styles.galleryCell, { borderColor: colors.border, backgroundColor: colors.surfaceMuted }]}>
+                      {token ? (
+                        <Image source={{ uri: receiptUrl(id as string, e.id, token) }}
+                          style={styles.galleryImage} resizeMode="cover" />
+                      ) : null}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+          );
+        })()}
+
       </ScrollView>
+
+      {/* Step 22: shared full-screen viewer (remote receipt URL) with save-to-gallery. */}
+      <ReceiptViewer uri={viewerUri} visible={!!viewerUri} onClose={() => setViewerUri(null)} />
     </SafeAreaView>
   );
 }
@@ -404,6 +457,13 @@ const styles = StyleSheet.create({
     padding: SPACING.md, borderRadius: RADIUS.lg, borderWidth: 1,
   },
   catDot: { width: 10, height: 10, borderRadius: 5 },
+  billThumb: { width: 44, height: 44, borderRadius: RADIUS.md, borderWidth: 1 },
+  galleryGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+  galleryCell: {
+    width: '31.5%', aspectRatio: 1, borderRadius: RADIUS.lg, borderWidth: 1,
+    overflow: 'hidden', marginBottom: SPACING.sm,
+  },
+  galleryImage: { width: '100%', height: '100%' },
   addRow: {
     flexDirection: 'row', gap: SPACING.sm, padding: SPACING.md,
     borderRadius: RADIUS.lg, borderWidth: 1, alignItems: 'center', justifyContent: 'center',

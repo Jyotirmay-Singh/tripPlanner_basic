@@ -46,8 +46,18 @@ export default function ReceiptViewer({ uri, visible, onClose }: Props) {
           encoding: FileSystem.EncodingType.Base64,
         });
         fileUri = tempUri;
+      } else if (/^https?:\/\//i.test(uri)) {
+        // Step 22: a streamed receipt URL (GridFS). saveToLibraryAsync needs a local file,
+        // so download it to the cache first, then save.
+        tempUri = `${FileSystem.cacheDirectory}receipt-${Date.now()}.jpg`;
+        const dl = await FileSystem.downloadAsync(uri, tempUri);
+        if (!dl?.uri || (dl.status && dl.status >= 400)) {
+          Alert.alert('Error', "Couldn't download this receipt.");
+          return;
+        }
+        fileUri = dl.uri;
       }
-      // Already a file:// / remote URI? saveToLibraryAsync handles it directly.
+      // A local file:// URI (freshly picked or just downloaded) saves directly.
       await MediaLibrary.saveToLibraryAsync(fileUri);
       Alert.alert('Saved', 'Saved to your gallery.');
     } catch (e: any) {

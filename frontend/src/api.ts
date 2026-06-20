@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
 const TOKEN_KEY = 'auth_token';
@@ -50,4 +51,57 @@ export async function api<T = any>(
 
 export function xlsxUrl(tripId: string, token: string) {
   return `${BASE}/api/trips/${tripId}/report.xlsx?token=${encodeURIComponent(token)}`;
+}
+
+// Step 22: a streamed receipt URL for <Image source={{ uri }}> / browser links. Auth rides on
+// the ?token= query (RN <Image> can't set an Authorization header), mirroring xlsxUrl.
+export function receiptUrl(tripId: string, expenseId: string, token: string) {
+  return `${BASE}/api/trips/${tripId}/expenses/${expenseId}/receipt?token=${encodeURIComponent(token)}`;
+}
+
+// Step 22: upload a bill image to GridFS via multipart. Pass the picked asset's local uri +
+// mimeType; we must NOT set Content-Type so React Native generates the multipart boundary.
+export async function uploadReceipt(
+  tripId: string,
+  expenseId: string,
+  asset: { uri: string; mimeType?: string; fileName?: string }
+): Promise<{ receipt_id: string }> {
+  const mime = asset.mimeType || 'image/jpeg';
+  const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
+  const name = asset.fileName || `receipt.${ext}`;
+  const form = new FormData();
+  if (Platform.OS === 'web') {
+    // In a browser, FormData.append coerces a plain {uri,name,type} object to the string
+    // "[object Object]" — FastAPI then rejects it (422). Fetch the picked uri (data:/blob:)
+    // into a real Blob so the part is a genuine file; guarantee an allowed Content-Type.
+    const r = await fetch(asset.uri);
+    let blob = await r.blob();
+    if (!blob.type) blob = new Blob([blob], { type: mime });
+    form.append('file', blob, name);
+  } else {
+    // On native, RN's FormData understands this shape and computes the multipart boundary.
+    form.append('file', { uri: asset.uri, name, type: mime } as any);
+  }
+
+  const t = await getToken();
+  const res = await fetch(`${BASE}/api/trips/${tripId}/expenses/${expenseId}/receipt`, {
+    method: 'POST',
+    headers: t ? { Authorization: `Bearer ${t}` } : {},
+    body: form,
+  });
+  const text = await res.text();
+  let data: any = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) {
+    const err: any = new Error(formatDetail(data?.detail ?? data));
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data as { receipt_id: string };
+}
+
+// Step 22: detach the receipt from an expense (deletes the GridFS file). Idempotent server-side.
+export async function deleteReceipt(tripId: string, expenseId: string): Promise<void> {
+  await api(`/trips/${tripId}/expenses/${expenseId}/receipt`, { method: 'DELETE' });
 }
