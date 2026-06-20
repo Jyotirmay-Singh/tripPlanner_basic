@@ -7,7 +7,7 @@ import T from './T';
 export type ConfirmAction = {
   label: string;
   onPress: () => void;
-  variant?: 'primary' | 'default' | 'cancel';
+  variant?: 'primary' | 'default' | 'cancel' | 'destructive';
   testID?: string;
 };
 
@@ -27,11 +27,12 @@ export default function ConfirmModal({ visible, title, message, actions, onReque
 
   const btnStyle = (variant: ConfirmAction['variant']) => {
     if (variant === 'primary') return { backgroundColor: colors.primary };
+    if (variant === 'destructive') return { backgroundColor: colors.owing };
     if (variant === 'cancel') return { backgroundColor: 'transparent' };
     return { backgroundColor: colors.surfaceMuted };
   };
   const btnTextColor = (variant: ConfirmAction['variant']) => {
-    if (variant === 'primary') return colors.primaryText;
+    if (variant === 'primary' || variant === 'destructive') return colors.primaryText;
     if (variant === 'cancel') return colors.textMuted;
     return colors.textMain;
   };
