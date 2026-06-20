@@ -30,6 +30,7 @@ PyJWT==2.12.1
 pymongo==4.5.0
 pytest==9.0.3
 python-dotenv==1.2.2
+python-multipart==0.0.20
 PyYAML==6.0.3
 requests==2.33.1
 resend==2.29.0

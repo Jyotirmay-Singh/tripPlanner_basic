@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { api } from '../../../src/api';
+import { api, uploadReceipt, deleteReceipt, receiptUrl, getToken } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, CONTROL, CATEGORIES } from '../../../src/theme';
@@ -23,6 +23,7 @@ type Expense = {
   description?: string; date: string; paid_by_member_id: string;
   split_member_ids: string[]; split_mode?: SplitMode;
   weight_snapshots?: Record<string, number> | null; receipt_base64?: string | null;
+  receipt_id?: string | null; has_receipt?: boolean;
   created_by?: string | null;
 };
 
@@ -42,7 +43,11 @@ export default function EditExpense() {
   const [splitSel, setSplitSel] = useState<string[]>([]);
   const [splitMode, setSplitMode] = useState<SplitMode>('PER_CAPITA');
   const [weightOverrides, setWeightOverrides] = useState<Record<string, number>>({});
-  const [receipt, setReceipt] = useState<string | null>(null);
+  // Step 22: receiptUri is what we preview (existing remote URL or a freshly-picked local file);
+  // newAsset is a just-picked image to upload; hadReceipt records whether one existed on load.
+  const [receiptUri, setReceiptUri] = useState<string | null>(null);
+  const [newAsset, setNewAsset] = useState<{ uri: string; mimeType?: string; fileName?: string } | null>(null);
+  const [hadReceipt, setHadReceipt] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -60,13 +65,22 @@ export default function EditExpense() {
       setSplitSel(e.split_member_ids && e.split_member_ids.length ? e.split_member_ids : allIds);
       setSplitMode(e.split_mode || 'PER_CAPITA');
       setWeightOverrides(e.weight_snapshots || {});
-      setReceipt(e.receipt_base64 || null);
+      // Step 22: render an existing receipt from the streamed GridFS endpoint (legacy rows
+      // surface via has_receipt too). The ?token= URL works in <Image> without auth headers.
+      const has = !!(e.has_receipt || e.receipt_id || e.receipt_base64);
+      setHadReceipt(has);
+      if (has) {
+        const token = await getToken();
+        if (token) setReceiptUri(receiptUrl(id, eid, token));
+      }
     })();
   }, [id, eid]);
 
   const applyAsset = (r: ImagePicker.ImagePickerResult) => {
-    if (!r.canceled && r.assets[0]?.base64) {
-      setReceipt(`data:image/jpeg;base64,${r.assets[0].base64}`);
+    if (!r.canceled && r.assets[0]?.uri) {
+      const a = r.assets[0];
+      setNewAsset({ uri: a.uri, mimeType: a.mimeType || 'image/jpeg', fileName: a.fileName ?? undefined });
+      setReceiptUri(a.uri);
     }
   };
 
@@ -74,7 +88,7 @@ export default function EditExpense() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) return Alert.alert('Permission needed', 'Allow photo access to attach a receipt.');
     applyAsset(await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'], quality: 0.4, base64: true, allowsEditing: true,
+      mediaTypes: ['images'], quality: 0.4, allowsEditing: true,
     }));
   };
 
@@ -82,11 +96,17 @@ export default function EditExpense() {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) return Alert.alert('Permission needed', 'Allow camera access to capture a receipt.');
     applyAsset(await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'], quality: 0.4, base64: true, allowsEditing: true,
+      mediaTypes: ['images'], quality: 0.4, allowsEditing: true,
     }));
   };
 
   const chooseReceiptSource = () => {
+    // Web has no native action sheet (RN Alert buttons don't render in the browser), so go
+    // straight to the file picker. Native keeps the Take photo / Choose from library choice.
+    if (Platform.OS === 'web') {
+      pickFromLibrary();
+      return;
+    }
     Alert.alert('Add receipt', undefined, [
       { text: 'Take photo', onPress: takePhoto },
       { text: 'Choose from library', onPress: pickFromLibrary },
@@ -120,9 +140,14 @@ export default function EditExpense() {
           split_member_ids: allSelected ? [] : splitSel,
           split_mode: splitMode,
           weight_snapshots: Object.keys(snapshots).length ? snapshots : null,
-          receipt_base64: receipt,
         },
       });
+      // Step 22: reconcile the receipt via the dedicated endpoints (GridFS replace semantics).
+      if (newAsset) {
+        await uploadReceipt(id, eid, newAsset);
+      } else if (hadReceipt && !receiptUri) {
+        await deleteReceipt(id, eid);
+      }
       router.back();
     } catch (e: any) { Alert.alert('Error', e.message); }
     finally { setSaving(false); }
@@ -290,15 +315,15 @@ export default function EditExpense() {
 
           <View>
             <T variant="label" muted>Receipt</T>
-            {receipt ? (
+            {receiptUri ? (
               <View style={{ marginTop: 6 }}>
                 <TouchableOpacity testID="receipt-view" activeOpacity={0.8} onPress={() => setViewerOpen(true)}>
-                  <Image source={{ uri: receipt }} style={{ width: '100%', height: 200, borderRadius: RADIUS.lg }} />
+                  <Image source={{ uri: receiptUri }} style={{ width: '100%', height: 200, borderRadius: RADIUS.lg }} />
                 </TouchableOpacity>
                 {/* Step 20/17: only the creator or a trip admin may remove the receipt;
                     everyone can still view it and save it to their gallery. */}
                 {canModify && (
-                  <TouchableOpacity onPress={() => setReceipt(null)} style={{ marginTop: 8, alignSelf: 'flex-start' }}>
+                  <TouchableOpacity onPress={() => { setReceiptUri(null); setNewAsset(null); }} style={{ marginTop: 8, alignSelf: 'flex-start' }}>
                     <T color={colors.owing}>Remove</T>
                   </TouchableOpacity>
                 )}
@@ -314,7 +339,7 @@ export default function EditExpense() {
             )}
           </View>
 
-          <ReceiptViewer uri={receipt} visible={viewerOpen} onClose={() => setViewerOpen(false)} />
+          <ReceiptViewer uri={receiptUri} visible={viewerOpen} onClose={() => setViewerOpen(false)} />
 
           {/* Step 17: hide update/delete affordances unless the user is creator or trip admin. */}
           {canModify && (

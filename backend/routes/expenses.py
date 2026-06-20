@@ -5,6 +5,7 @@ from database import db
 from models.expense import ExpenseIn, ExpenseUpdate
 from utils.common import gen_id, now_utc
 from utils.deps import get_current_user, _trip_or_404, _expense_modify_or_403
+from services.receipts import delete_receipts_for_expense
 
 router = APIRouter()
 
@@ -46,7 +47,8 @@ async def add_expense(trip_id: str, body: ExpenseIn, force: bool = False,
         "split_member_ids": split_ids,
         "split_mode": body.split_mode,
         "weight_snapshots": body.weight_snapshots or None,
-        "receipt_base64": body.receipt_base64,
+        # Step 22: receipts are no longer stored inline; the client uploads the bill image to
+        # POST /trips/{id}/expenses/{eid}/receipt after the expense is created, which sets receipt_id.
         "created_by": user["id"], "created_at": now_utc().isoformat(),
     }
     await db.expenses.insert_one(doc)
@@ -57,10 +59,22 @@ async def add_expense(trip_id: str, body: ExpenseIn, force: bool = False,
 @router.get("/trips/{trip_id}/expenses")
 async def list_expenses(trip_id: str, user=Depends(get_current_user)):
     await _trip_or_404(trip_id, user["id"])
-    cur = db.expenses.find({"trip_id": trip_id}, {"_id": 0}).sort("created_at", -1)
+    # Step 22: never return the heavy receipt bytes in the list. Expose a lightweight
+    # `has_receipt` flag (true for a GridFS receipt_id OR a legacy inline blob) so the client
+    # can render a thumbnail via the streamed GET endpoint without downloading bytes here.
+    cur = db.expenses.aggregate([
+        {"$match": {"trip_id": trip_id}},
+        {"$sort": {"created_at": -1}},
+        {"$addFields": {"has_receipt": {"$or": [
+            {"$ifNull": ["$receipt_id", False]},
+            {"$ifNull": ["$receipt_base64", False]},
+        ]}}},
+        {"$project": {"_id": 0, "receipt_base64": 0}},
+    ])
     expenses = await cur.to_list(1000)
     for e in expenses:
         e["split_mode"] = e.get("split_mode", "PER_CAPITA")
+        e["has_receipt"] = bool(e.get("has_receipt"))
     return expenses
 
 
@@ -83,5 +97,7 @@ async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
 async def delete_expense(trip_id: str, expense_id: str, user=Depends(get_current_user)):
     # Step 10: only the expense creator or a trip admin may delete (404 if missing, 403 otherwise).
     await _expense_modify_or_403(trip_id, expense_id, user["id"])
+    # Step 22: clean up any GridFS receipt so we never leave orphaned receipts.files/.chunks.
+    await delete_receipts_for_expense(expense_id)
     await db.expenses.delete_one({"id": expense_id, "trip_id": trip_id})
     return {"ok": True}
