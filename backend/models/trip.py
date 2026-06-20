@@ -19,3 +19,7 @@ class TripUpdate(BaseModel):
 
 class AdminGrant(BaseModel):
     user_id: str
+
+
+class OwnershipTransfer(BaseModel):
+    user_id: str

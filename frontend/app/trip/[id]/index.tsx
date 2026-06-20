@@ -11,7 +11,7 @@ import Badge from '../../../src/Badge';
 import DonutChart, { paletteForMode } from '../../../src/DonutChart';
 import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
-import { canModifyExpense } from '../../../src/permissions';
+import { canModifyExpense, roleOf, canEditTripSettings, canManageMembers, canDeleteTrip } from '../../../src/permissions';
 import { compositionLabel } from '../../../src/composition';
 import { receiptExpenses, billLabel } from '../../../src/gallery';
 import { formatMoney } from '../../../src/format';
@@ -112,13 +112,14 @@ export default function TripDetail() {
   const memberById = (mid: string) => trip.members.find((m) => m.id === mid);
   const totalSpent = expenses.filter((e) => e.kind === 'expense').reduce((s, e) => s + e.amount, 0);
   const over = trip.budget ? totalSpent > trip.budget : false;
-  const isOwner = trip.owner_id === user?.id;
-  const adminIds = trip.admin_ids ?? [];
-  const meIsAdmin = !!user && adminIds.includes(user.id);
-  const roleOf = (m: Member): 'owner' | 'admin' | null => {
+  // Role gating routes through the shared src/permissions.ts matrix (mirror of the backend).
+  const meCanEditSettings = canEditTripSettings(trip, user?.id);
+  const meCanManageMembers = canManageMembers(trip, user?.id);
+  const meCanDeleteTrip = canDeleteTrip(trip, user?.id);
+  const memberRole = (m: Member): 'owner' | 'admin' | null => {
     if (!m.user_id) return null;
-    if (m.user_id === trip.owner_id) return 'owner';
-    return adminIds.includes(m.user_id) ? 'admin' : null;
+    const r = roleOf(trip, m.user_id);
+    return r === 'owner' || r === 'admin' ? r : null;
   };
 
   return (
@@ -165,8 +166,10 @@ export default function TripDetail() {
             <View style={{ flex: 1 }}>
               <Button label="Settle Up" icon="arrow-left-right" variant="secondary" onPress={() => router.push(`/trip/${id}/settle-up`)} fullWidth testID="trip-settle-up" />
             </View>
-            <IconButton name="pencil" variant="surface" onPress={() => router.push(`/trip/${id}/edit`)} accessibilityLabel="Edit trip" testID="trip-edit" size={18} />
-            {isOwner && (
+            {meCanEditSettings && (
+              <IconButton name="pencil" variant="surface" onPress={() => router.push(`/trip/${id}/edit`)} accessibilityLabel="Edit trip" testID="trip-edit" size={18} />
+            )}
+            {meCanDeleteTrip && (
               <IconButton name="trash" variant="surface" color={colors.danger} onPress={onDelete} accessibilityLabel="Delete trip" testID="trip-delete" size={18} />
             )}
           </View>
@@ -334,7 +337,7 @@ export default function TripDetail() {
 
           {tab === 'members' && (
             <View style={{ gap: SPACING.sm }}>
-              {meIsAdmin ? (
+              {meCanManageMembers ? (
                 <Card onPress={() => router.push(`/trip/${id}/add-member`)} testID="trip-add-member"
                   style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm }}>
                   <Icon name="plus" size={18} color={colors.primary} />
@@ -346,7 +349,7 @@ export default function TripDetail() {
                 </T>
               )}
               {trip.members.map((m) => {
-                const role = roleOf(m);
+                const role = memberRole(m);
                 return (
                   <Card key={m.id} style={styles.rowCard}>
                     <View style={[styles.memberIcon, { backgroundColor: colors.surfaceMuted }]}>
@@ -364,7 +367,7 @@ export default function TripDetail() {
                         {m.email ? ` · ${m.email}` : ''}
                       </T>
                     </View>
-                    {meIsAdmin && (
+                    {meCanManageMembers && (
                       <IconButton name="more-vertical" onPress={() => router.push({ pathname: '/trip/[id]/manage-member', params: { id: id as string, mid: m.id } })}
                         accessibilityLabel={`Manage ${m.name}`} testID={`member-manage-${m.id}`} size={20} color={colors.primary} />
                     )}
