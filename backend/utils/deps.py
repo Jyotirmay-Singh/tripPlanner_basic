@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import HTTPException, Header
 
 from database import db
+from utils.permissions import role_of
 from utils.security import decode_token
 
 
@@ -26,13 +27,21 @@ async def _trip_or_404(trip_id: str, user_id: str) -> dict:
 
 
 def is_trip_admin(trip: dict, user_id: str) -> bool:
-    return user_id in trip.get("admin_ids", [])
+    # Owner is always seeded into admin_ids; role_of treats owner as admin-or-above.
+    return role_of(trip, user_id) in ("owner", "admin")
 
 
 async def _trip_admin_or_403(trip_id: str, user_id: str) -> dict:
     trip = await _trip_or_404(trip_id, user_id)
     if not is_trip_admin(trip, user_id):
         raise HTTPException(403, "Admin privileges required")
+    return trip
+
+
+async def _trip_owner_or_403(trip_id: str, user_id: str) -> dict:
+    trip = await _trip_or_404(trip_id, user_id)
+    if role_of(trip, user_id) != "owner":
+        raise HTTPException(403, "Only the trip owner can perform this action")
     return trip
 
 

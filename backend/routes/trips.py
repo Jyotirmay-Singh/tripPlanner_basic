@@ -1,10 +1,10 @@
 from fastapi import APIRouter, HTTPException, Depends
 
 from database import db
-from models.trip import TripIn, TripUpdate, AdminGrant
+from models.trip import TripIn, TripUpdate, AdminGrant, OwnershipTransfer
 from models.join import JoinRequest, JoinPreviewRequest
 from utils.common import gen_id, gen_trip_code, now_utc
-from utils.deps import get_current_user, _trip_or_404, _trip_admin_or_403
+from utils.deps import get_current_user, _trip_or_404, _trip_admin_or_403, _trip_owner_or_403
 from utils.email_rules import assert_gmail, normalize_email
 from utils.members import (
     name_exists,
@@ -69,7 +69,8 @@ async def get_trip(trip_id: str, user=Depends(get_current_user)):
 
 @router.patch("/trips/{trip_id}")
 async def update_trip(trip_id: str, body: TripUpdate, user=Depends(get_current_user)):
-    trip = await _trip_or_404(trip_id, user["id"])
+    # Step 23: editing trip settings is an Owner/Admin capability; a plain member is rejected.
+    trip = await _trip_admin_or_403(trip_id, user["id"])
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if updates:
         await db.trips.update_one({"id": trip_id}, {"$set": updates})
@@ -78,9 +79,8 @@ async def update_trip(trip_id: str, body: TripUpdate, user=Depends(get_current_u
 
 @router.delete("/trips/{trip_id}")
 async def delete_trip(trip_id: str, user=Depends(get_current_user)):
-    trip = await _trip_or_404(trip_id, user["id"])
-    if trip["owner_id"] != user["id"]:
-        raise HTTPException(403, "Only the owner can delete")
+    # Step 23: deleting a trip is owner-only (the shared role guard enforces it).
+    await _trip_owner_or_403(trip_id, user["id"])
     await db.trips.delete_one({"id": trip_id})
     await db.expenses.delete_many({"trip_id": trip_id})
     await db.settlements.delete_many({"trip_id": trip_id})
@@ -236,7 +236,8 @@ async def list_admins(trip_id: str, user=Depends(get_current_user)):
 
 @router.post("/trips/{trip_id}/admins")
 async def add_admin(trip_id: str, body: AdminGrant, user=Depends(get_current_user)):
-    trip = await _trip_admin_or_403(trip_id, user["id"])
+    # Step 23: managing admins is an owner-only power (admins cannot promote/demote).
+    trip = await _trip_owner_or_403(trip_id, user["id"])
     if body.user_id not in trip.get("user_ids", []):
         raise HTTPException(400, "User is not a member of this trip")
     await db.trips.update_one({"id": trip_id}, {"$addToSet": {"admin_ids": body.user_id}})
@@ -246,9 +247,28 @@ async def add_admin(trip_id: str, body: AdminGrant, user=Depends(get_current_use
 
 @router.delete("/trips/{trip_id}/admins/{user_id}")
 async def remove_admin(trip_id: str, user_id: str, user=Depends(get_current_user)):
-    trip = await _trip_admin_or_403(trip_id, user["id"])
+    # Step 23: managing admins is an owner-only power (admins cannot promote/demote).
+    trip = await _trip_owner_or_403(trip_id, user["id"])
     if user_id == trip["owner_id"]:
         raise HTTPException(400, "Cannot remove the root admin")
     await db.trips.update_one({"id": trip_id}, {"$pull": {"admin_ids": user_id}})
+    trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
+    return _admin_payload(trip)
+
+
+@router.post("/trips/{trip_id}/transfer-ownership")
+async def transfer_ownership(trip_id: str, body: OwnershipTransfer, user=Depends(get_current_user)):
+    # Step 23: owner-only. Reassigns owner_id and keeps the new owner in admin_ids; the
+    # previous owner stays an admin (never dropped to plain member). Touches only the
+    # owner_id / admin_ids fields — no member, family, or split data changes.
+    trip = await _trip_owner_or_403(trip_id, user["id"])
+    if body.user_id == trip["owner_id"]:
+        raise HTTPException(400, "Already the owner")
+    if body.user_id not in trip.get("user_ids", []):
+        raise HTTPException(400, "User is not a member of this trip")
+    await db.trips.update_one(
+        {"id": trip_id},
+        {"$set": {"owner_id": body.user_id}, "$addToSet": {"admin_ids": body.user_id}},
+    )
     trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     return _admin_payload(trip)
