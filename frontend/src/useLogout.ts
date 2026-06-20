@@ -1,28 +1,9 @@
-import { Alert } from 'react-native';
-import { useRouter } from 'expo-router';
-import { useAuth } from './AuthContext';
+import { useContext } from 'react';
+import { LogoutContext } from './LogoutProvider';
 
-// Single source of truth for the logout flow. Both the header LogoutButton and the
-// Profile "Sign out" row call this so the confirm copy, redirect target, and behavior
-// never drift. signOut() is called with the default (clearSavedEmail = false) so the
-// last-used email is preserved for PIN quick-login.
+// Thin accessor for the consolidated logout flow owned by LogoutProvider. Both the header
+// LogoutButton and the Profile "Sign out" row call confirmAndSignOut(), so the confirm copy,
+// redirect target, and behavior live in exactly one place (LogoutProvider).
 export function useLogout() {
-  const { signOut } = useAuth();
-  const router = useRouter();
-
-  const confirmAndSignOut = () => {
-    Alert.alert('Sign out?', '', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign out',
-        style: 'destructive',
-        onPress: async () => {
-          await signOut();
-          router.replace('/(auth)/login');
-        },
-      },
-    ]);
-  };
-
-  return { confirmAndSignOut };
+  return useContext(LogoutContext);
 }

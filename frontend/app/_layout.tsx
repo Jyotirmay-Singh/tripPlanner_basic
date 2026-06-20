@@ -1,6 +1,5 @@
-import React from 'react';
-import { View, ActivityIndicator } from 'react-native';
-import { Stack } from 'expo-router';
+import React, { useEffect } from 'react';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -8,14 +7,27 @@ import { useFonts } from 'expo-font';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemeProvider, useTheme } from '../src/ThemeContext';
 import { AuthProvider, useAuth } from '../src/AuthContext';
+import { LogoutProvider } from '../src/LogoutProvider';
 import LogoutButton from '../src/LogoutButton';
+import { authRedirectTarget, navResetTo } from '../src/authNav';
 
 function Inner() {
   const { mode, colors } = useTheme();
   const { user } = useAuth();
+  const router = useRouter();
+  const segments = useSegments();
+
+  // Declarative auth guard: redirect on any session change (logout, token expiry) and fully
+  // reset the stack so back-navigation can't reach a signed-out screen. No-op while loading
+  // (user === undefined) so the index splash shows.
+  useEffect(() => {
+    const target = authRedirectTarget(user, segments[0] === '(auth)');
+    if (target) navResetTo(router, target);
+  }, [user, segments, router]);
+
   const headerRight = user ? () => <LogoutButton /> : undefined;
   return (
-    <>
+    <LogoutProvider>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <Stack screenOptions={{
         headerStyle: { backgroundColor: colors.background },
@@ -40,7 +52,7 @@ function Inner() {
         <Stack.Screen name="create-trip" options={{ title: 'Create Trip', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="join-trip" options={{ title: 'Join Trip', presentation: 'modal', headerRight: undefined }} />
       </Stack>
-    </>
+    </LogoutProvider>
   );
 }
 
