@@ -1,90 +1,62 @@
 import React, { useState } from 'react';
-import {
-  View, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView,
-  Platform, ScrollView, Alert, ActivityIndicator,
-} from 'react-native';
+import { View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/AuthContext';
-import { useTheme } from '../../src/ThemeContext';
-import { SPACING, RADIUS, CONTROL } from '../../src/theme';
+import { SPACING } from '../../src/theme';
 import T from '../../src/T';
 import { isGmail, GMAIL_ONLY_MESSAGE } from '../../src/validation';
 import GoogleSignInButton from '../../src/GoogleSignInButton';
+import { AuthShell, Input, PinInput, Button, useToast } from '../../src/ui';
 
 export default function Register() {
   const { register } = useAuth();
-  const { colors } = useTheme();
   const router = useRouter();
+  const toast = useToast();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [pin, setPin] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const emailError = !!email && !isGmail(email) ? GMAIL_ONLY_MESSAGE : null;
+
   const submit = async () => {
-    if (!name || !email || pin.length !== 4) {
-      return Alert.alert('Missing', 'Fill name, email, and a 4-digit PIN.');
-    }
-    if (!isGmail(email)) return Alert.alert('Invalid email', GMAIL_ONLY_MESSAGE);
-    if (!/^\d{4}$/.test(pin)) return Alert.alert('Invalid PIN', 'PIN must be 4 digits');
+    if (!name || !email || pin.length !== 4) return toast.show('Fill name, email, and a 4-digit PIN.', 'error');
+    if (!isGmail(email)) return toast.show(GMAIL_ONLY_MESSAGE, 'error');
+    if (!/^\d{4}$/.test(pin)) return toast.show('PIN must be 4 digits', 'error');
     setLoading(true);
     try {
       await register(email.trim(), pin, name.trim());
       router.replace('/(tabs)/dashboard');
     } catch (e: any) {
-      Alert.alert('Registration failed', e.message || 'Try again');
+      toast.show(e.message || 'Registration failed. Try again.', 'error');
     } finally { setLoading(false); }
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.md }} keyboardShouldPersistTaps="handled">
-          <T variant="h1">Let's get started</T>
-          <T muted>Your trips, shared seamlessly.</T>
+    <AuthShell title="Let's get started" subtitle="Your trips, shared seamlessly.">
+      <Input testID="reg-name" label="Your name" value={name} onChangeText={setName} placeholder="Jane Doe" icon="user" />
+      <Input
+        testID="reg-email"
+        label="Email"
+        value={email}
+        onChangeText={setEmail}
+        autoCapitalize="none"
+        keyboardType="email-address"
+        placeholder="you@gmail.com"
+        icon="mail"
+        error={emailError}
+      />
 
-          <View>
-            <T variant="label" muted>Your name</T>
-            <TextInput testID="reg-name" value={name} onChangeText={setName}
-              placeholder="Jane Doe" placeholderTextColor={colors.textMuted}
-              style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]} />
-          </View>
-          <View>
-            <T variant="label" muted>Email</T>
-            <TextInput testID="reg-email" value={email} onChangeText={setEmail}
-              autoCapitalize="none" keyboardType="email-address"
-              placeholder="you@gmail.com" placeholderTextColor={colors.textMuted}
-              style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]} />
-            {!!email && !isGmail(email) && (
-              <T variant="caption" color={colors.owing} style={{ marginTop: 4 }}>{GMAIL_ONLY_MESSAGE}</T>
-            )}
-          </View>
-          <View>
-            <T variant="label" muted>4-digit PIN (your only login credential)</T>
-            <TextInput testID="reg-pin" value={pin} onChangeText={(v) => setPin(v.replace(/\D/g, '').slice(0, 4))}
-              secureTextEntry keyboardType="number-pad" maxLength={4}
-              placeholder="0000" placeholderTextColor={colors.textMuted}
-              style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border, letterSpacing: 8 }]} />
-            <T muted variant="caption" style={{ marginTop: 4 }}>
-              You'll log in using only your email + PIN. If you forget your PIN, you can reset it via email.
-            </T>
-          </View>
+      <View style={{ gap: SPACING.sm }}>
+        <T variant="label" muted style={{ textAlign: 'center' }}>Choose a 4-digit PIN</T>
+        <PinInput testID="reg-pin" value={pin} onChangeText={setPin} onSubmit={submit} />
+        <T muted variant="caption" style={{ textAlign: 'center' }}>
+          {"You'll log in using only your email + PIN. Forgot it? Reset via email."}
+        </T>
+      </View>
 
-          <TouchableOpacity testID="reg-submit" onPress={submit} disabled={loading}
-            style={[styles.btn, { backgroundColor: colors.primary }]}>
-            {loading ? <ActivityIndicator color={colors.primaryText} /> :
-              <T variant="h3" color={colors.primaryText}>Create account</T>}
-          </TouchableOpacity>
-
-          <GoogleSignInButton />
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+      <Button label="Create account" icon="check" onPress={submit} loading={loading} fullWidth size="lg" testID="reg-submit" />
+      <GoogleSignInButton />
+    </AuthShell>
   );
 }
-
-const styles = StyleSheet.create({
-  input: { marginTop: SPACING.xs, paddingHorizontal: SPACING.md, paddingVertical: CONTROL.paddingY, borderRadius: CONTROL.radius, borderWidth: 1, fontSize: CONTROL.fontSize },
-  btn: { marginTop: SPACING.md, paddingVertical: 16, borderRadius: RADIUS.pill, alignItems: 'center' },
-});

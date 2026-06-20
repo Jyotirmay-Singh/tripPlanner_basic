@@ -1,20 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert,
+  View, TextInput, TouchableOpacity, StyleSheet, ScrollView,
   KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { api, uploadReceipt, deleteReceipt, receiptUrl, getToken } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
-import { SPACING, RADIUS, CONTROL, CATEGORIES } from '../../../src/theme';
+import { SPACING, RADIUS, FONTS, CATEGORIES, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
 import SplitModeSelector, { SplitMode, splitPreviewLabel } from '../../../src/SplitModeSelector';
 import { canModifyExpense } from '../../../src/permissions';
 import ReceiptViewer from '../../../src/ReceiptViewer';
+import ConfirmModal from '../../../src/ConfirmModal';
+import {
+  Card, Button, Input, Pill, SegmentedControl, Icon, ActionSheet, SkeletonCard, useToast,
+} from '../../../src/ui';
 
 type Member = { id: string; name: string; kind: string; family_members: string[] };
 type Trip = { id: string; name: string; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
@@ -32,6 +35,7 @@ export default function EditExpense() {
   const { colors } = useTheme();
   const { user } = useAuth();
   const router = useRouter();
+  const toast = useToast();
   const [trip, setTrip] = useState<Trip | null>(null);
   const [createdBy, setCreatedBy] = useState<string | null | undefined>(undefined);
   const [kind, setKind] = useState<'expense' | 'income'>('expense');
@@ -43,13 +47,13 @@ export default function EditExpense() {
   const [splitSel, setSplitSel] = useState<string[]>([]);
   const [splitMode, setSplitMode] = useState<SplitMode>('PER_CAPITA');
   const [weightOverrides, setWeightOverrides] = useState<Record<string, number>>({});
-  // Step 22: receiptUri is what we preview (existing remote URL or a freshly-picked local file);
-  // newAsset is a just-picked image to upload; hadReceipt records whether one existed on load.
   const [receiptUri, setReceiptUri] = useState<string | null>(null);
   const [newAsset, setNewAsset] = useState<{ uri: string; mimeType?: string; fileName?: string } | null>(null);
   const [hadReceipt, setHadReceipt] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [sourceSheet, setSourceSheet] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -65,8 +69,6 @@ export default function EditExpense() {
       setSplitSel(e.split_member_ids && e.split_member_ids.length ? e.split_member_ids : allIds);
       setSplitMode(e.split_mode || 'PER_CAPITA');
       setWeightOverrides(e.weight_snapshots || {});
-      // Step 22: render an existing receipt from the streamed GridFS endpoint (legacy rows
-      // surface via has_receipt too). The ?token= URL works in <Image> without auth headers.
       const has = !!(e.has_receipt || e.receipt_id || e.receipt_base64);
       setHadReceipt(has);
       if (has) {
@@ -85,43 +87,31 @@ export default function EditExpense() {
   };
 
   const pickFromLibrary = async () => {
+    setSourceSheet(false);
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) return Alert.alert('Permission needed', 'Allow photo access to attach a receipt.');
-    applyAsset(await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'], quality: 0.4, allowsEditing: true,
-    }));
+    if (!perm.granted) return toast.show('Allow photo access to attach a receipt.', 'error');
+    applyAsset(await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.4, allowsEditing: true }));
   };
 
   const takePhoto = async () => {
+    setSourceSheet(false);
     const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) return Alert.alert('Permission needed', 'Allow camera access to capture a receipt.');
-    applyAsset(await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'], quality: 0.4, allowsEditing: true,
-    }));
+    if (!perm.granted) return toast.show('Allow camera access to capture a receipt.', 'error');
+    applyAsset(await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.4, allowsEditing: true }));
   };
 
   const chooseReceiptSource = () => {
-    // Web has no native action sheet (RN Alert buttons don't render in the browser), so go
-    // straight to the file picker. Native keeps the Take photo / Choose from library choice.
-    if (Platform.OS === 'web') {
-      pickFromLibrary();
-      return;
-    }
-    Alert.alert('Add receipt', undefined, [
-      { text: 'Take photo', onPress: takePhoto },
-      { text: 'Choose from library', onPress: pickFromLibrary },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    if (Platform.OS === 'web') { pickFromLibrary(); return; }
+    setSourceSheet(true);
   };
 
   const save = async () => {
     if (!trip || !paidBy) return;
     const a = parseFloat(amount);
-    if (!a || a <= 0) return Alert.alert('Invalid', 'Amount must be > 0');
+    if (!a || a <= 0) return toast.show('Amount must be greater than 0', 'error');
     setSaving(true);
     try {
       const allSelected = trip.members.length > 0 && splitSel.length === trip.members.length;
-      // Per-family overrides only apply in PER_CAPITA; PER_FAMILY ignores family size entirely (§5B).
       const snapshots: Record<string, number> = {};
       if (splitMode === 'PER_CAPITA') {
         for (const sid of splitSel) {
@@ -142,240 +132,220 @@ export default function EditExpense() {
           weight_snapshots: Object.keys(snapshots).length ? snapshots : null,
         },
       });
-      // Step 22: reconcile the receipt via the dedicated endpoints (GridFS replace semantics).
       if (newAsset) {
         await uploadReceipt(id, eid, newAsset);
       } else if (hadReceipt && !receiptUri) {
         await deleteReceipt(id, eid);
       }
       router.back();
-    } catch (e: any) { Alert.alert('Error', e.message); }
+    } catch (e: any) { toast.show(e.message || 'Could not save', 'error'); }
     finally { setSaving(false); }
   };
 
-  const onDelete = () => {
-    Alert.alert('Delete transaction?', '', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete', style: 'destructive',
-        onPress: async () => {
-          try { await api(`/trips/${id}/expenses/${eid}`, { method: 'DELETE' }); router.back(); }
-          catch (e: any) { Alert.alert('Error', e.message); }
-        },
-      },
-    ]);
+  const doDelete = async () => {
+    setConfirmDelete(false);
+    try { await api(`/trips/${id}/expenses/${eid}`, { method: 'DELETE' }); router.back(); }
+    catch (e: any) { toast.show(e.message || 'Delete failed', 'error'); }
   };
 
-  if (!trip) return <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}><T style={{ padding: SPACING.lg }}>Loading…</T></SafeAreaView>;
+  if (!trip) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+        <View style={{ padding: SPACING.lg, gap: SPACING.md }}><SkeletonCard count={4} /></View>
+      </SafeAreaView>
+    );
+  }
 
-  // Step 17: mirror the backend rule — only the creator or a trip admin may edit/delete.
   const canModify = canModifyExpense({ created_by: createdBy }, user?.id, trip);
-
-  const toggleSplit = (mid: string) => {
-    setSplitSel((s) => s.includes(mid) ? s.filter((x) => x !== mid) : [...s, mid]);
-  };
+  const toggleSplit = (mid: string) => setSplitSel((s) => s.includes(mid) ? s.filter((x) => x !== mid) : [...s, mid]);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.md, paddingBottom: 80 }} keyboardShouldPersistTaps="handled">
-          <T variant="h1">Edit transaction</T>
+        <ScrollView contentContainerStyle={{ padding: SPACING.lg, paddingBottom: 80, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
+          <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
+            <T variant="h1">Edit transaction</T>
 
-          {!canModify && (
-            <View testID="expense-readonly-note"
-              style={[styles.readonlyNote, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
-              <Ionicons name="lock-closed-outline" size={16} color={colors.textMuted} />
-              <T variant="caption" muted style={{ flex: 1 }}>
-                Only the person who added this transaction or a trip admin can edit it.
-              </T>
-            </View>
-          )}
-
-          <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
-            {(['expense', 'income'] as const).map((k) => (
-              <TouchableOpacity key={k} onPress={() => setKind(k)}
-                testID={`ee-kind-${k}`}
-                style={[styles.pill, { flex: 1, justifyContent: 'center', backgroundColor: kind === k ? colors.primary : colors.surfaceMuted, borderColor: colors.border }]}>
-                <T style={{ fontWeight: '700', textTransform: 'capitalize' }}
-                  color={kind === k ? colors.primaryText : colors.textMain}>{k}</T>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <View style={[styles.amountBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <T variant="label" muted>{trip.currency} amount *</T>
-            <TextInput testID="ee-amount" value={amount} onChangeText={setAmount}
-              keyboardType="decimal-pad"
-              style={[styles.amountInput, { color: colors.textMain }]} />
-          </View>
-
-          <View>
-            <T variant="label" muted>Description</T>
-            <TextInput testID="ee-desc" value={desc} onChangeText={setDesc}
-              placeholderTextColor={colors.textMuted}
-              style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]} />
-          </View>
-
-          <View>
-            <T variant="label" muted>Category *</T>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4 }}>
-              <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
-                {CATEGORIES.map((c) => (
-                  <TouchableOpacity key={c} onPress={() => setCat(c)}
-                    style={[styles.pill, { backgroundColor: cat === c ? colors.primary : colors.surfaceMuted, borderColor: colors.border }]}>
-                    <T style={{ fontWeight: '700' }}
-                      color={cat === c ? colors.primaryText : colors.textMain}>{c}</T>
-                  </TouchableOpacity>
-                ))}
+            {!canModify && (
+              <View testID="expense-readonly-note" style={[styles.readonlyNote, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
+                <Icon name="lock" size={16} color={colors.textMuted} />
+                <T variant="caption" muted style={{ flex: 1 }}>
+                  Only the person who added this transaction or a trip admin can edit it.
+                </T>
               </View>
-            </ScrollView>
-          </View>
+            )}
 
-          <View>
-            <T variant="label" muted>Date (DD-MM-YY) *</T>
-            <TextInput testID="ee-date" value={date} onChangeText={setDate}
-              placeholderTextColor={colors.textMuted}
-              style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]} />
-          </View>
+            <SegmentedControl
+              segments={[{ value: 'expense', label: 'Expense', icon: 'trending-down' }, { value: 'income', label: 'Income', icon: 'trending-up' }]}
+              value={kind}
+              onChange={setKind}
+              testIDPrefix="ee-kind"
+            />
 
-          <View>
-            <T variant="label" muted>Paid by *</T>
-            <View style={{ gap: SPACING.xs, marginTop: 4 }}>
-              {trip.members.map((m) => (
-                <TouchableOpacity key={m.id} onPress={() => setPaidBy(m.id)}
-                  style={[styles.row, { backgroundColor: paidBy === m.id ? colors.surfaceMuted : colors.surface, borderColor: paidBy === m.id ? colors.primary : colors.border }]}>
-                  <Ionicons name={paidBy === m.id ? 'radio-button-on' : 'radio-button-off'} size={20} color={colors.primary} />
-                  <T style={{ flex: 1 }}>{m.name}</T>
-                  <T variant="caption" muted>{m.kind}</T>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          <View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <T variant="label" muted>Split among ({splitSel.length}/{trip.members.length})</T>
-              <View style={{ flexDirection: 'row', gap: 12 }}>
-                <TouchableOpacity onPress={() => setSplitSel(trip.members.map((m) => m.id))}>
-                  <T color={colors.primary} style={{ fontWeight: '700' }}>Select all</T>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setSplitSel([])}>
-                  <T muted style={{ fontWeight: '700' }}>None</T>
-                </TouchableOpacity>
+            <Card padding="lg" radius={RADIUS.xl}>
+              <T variant="label" muted>{trip.currency} amount *</T>
+              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: SPACING.sm, marginTop: 6 }}>
+                <T style={{ fontFamily: FONTS.number, fontSize: 28, color: colors.textMuted }}>{trip.currency}</T>
+                <TextInput testID="ee-amount" value={amount} onChangeText={setAmount} keyboardType="decimal-pad"
+                  style={[styles.amountInput, { color: colors.textMain }]} />
               </View>
+            </Card>
+
+            <Input testID="ee-desc" label="Description" value={desc} onChangeText={setDesc} />
+
+            <View>
+              <T variant="label" muted>Category *</T>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: SPACING.xs }}>
+                <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
+                  {CATEGORIES.map((c) => (
+                    <Pill key={c} label={c} active={cat === c} onPress={() => setCat(c)} />
+                  ))}
+                </View>
+              </ScrollView>
             </View>
-            <View style={{ gap: SPACING.xs, marginTop: SPACING.xs }}>
-              {trip.members.map((m) => {
-                const active = splitSel.includes(m.id);
-                const isFamily = m.kind === 'family';
-                const fullSize = Math.max(1, m.family_members.length);
-                const currentCount = weightOverrides[m.id] ?? fullSize;
-                return (
-                  <View key={m.id} style={[styles.row, { backgroundColor: active ? colors.surfaceMuted : colors.surface, borderColor: active ? colors.primary : colors.border, flexDirection: 'column', alignItems: 'stretch', gap: 8 }]}>
-                    <TouchableOpacity onPress={() => toggleSplit(m.id)}
-                      testID={`ee-split-${m.id}`}
-                      style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
-                      <Ionicons name={active ? 'checkbox' : 'square-outline'} size={20} color={colors.primary} />
-                      <T style={{ flex: 1 }}>{m.name}{isFamily ? ` (${fullSize})` : ''}</T>
+
+            <Input testID="ee-date" label="Date (DD-MM-YY) *" value={date} onChangeText={setDate} icon="calendar" />
+
+            <View>
+              <T variant="label" muted style={{ marginBottom: SPACING.xs }}>Paid by *</T>
+              <View style={{ gap: SPACING.xs }}>
+                {trip.members.map((m) => {
+                  const sel = paidBy === m.id;
+                  return (
+                    <TouchableOpacity key={m.id} onPress={() => setPaidBy(m.id)}
+                      style={[styles.row, { backgroundColor: sel ? colors.surfaceMuted : colors.surface, borderColor: sel ? colors.primary : colors.border }]}>
+                      <Icon name={sel ? 'radio-on' : 'radio-off'} size={20} color={sel ? colors.primary : colors.textMuted} />
+                      <T style={{ flex: 1 }}>{m.name}</T>
+                      <T variant="caption" muted>{m.kind}</T>
                     </TouchableOpacity>
-                    {active && isFamily && fullSize > 1 && splitMode === 'PER_CAPITA' && (
-                      <View style={{ paddingLeft: 28, flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                        <T variant="caption" muted>Split among</T>
-                        {Array.from({ length: fullSize }, (_, i) => i + 1).map((n) => (
-                          <TouchableOpacity key={n}
-                            testID={`ee-fam-${m.id}-${n}`}
-                            onPress={() => setWeightOverrides((w) => ({ ...w, [m.id]: n }))}
-                            style={[styles.numChip, { backgroundColor: currentCount === n ? colors.primary : colors.surface, borderColor: currentCount === n ? colors.primary : colors.border }]}>
-                            <T variant="caption" style={{ fontWeight: '700' }}
-                              color={currentCount === n ? colors.primaryText : colors.textMain}>{n}</T>
-                          </TouchableOpacity>
-                        ))}
-                        <T variant="caption" muted>of {fullSize}</T>
-                      </View>
-                    )}
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-
-          {/* Split mode */}
-          <SplitModeSelector
-            value={splitMode}
-            onChange={setSplitMode}
-            subLabel={splitPreviewLabel({
-              amount: parseFloat(amount),
-              mode: splitMode,
-              members: trip.members,
-              splitSel,
-              weightOverrides,
-              currency: trip.currency,
-            })}
-          />
-
-          <View>
-            <T variant="label" muted>Receipt</T>
-            {receiptUri ? (
-              <View style={{ marginTop: 6 }}>
-                <TouchableOpacity testID="receipt-view" activeOpacity={0.8} onPress={() => setViewerOpen(true)}>
-                  <Image source={{ uri: receiptUri }} style={{ width: '100%', height: 200, borderRadius: RADIUS.lg }} />
-                </TouchableOpacity>
-                {/* Step 20/17: only the creator or a trip admin may remove the receipt;
-                    everyone can still view it and save it to their gallery. */}
-                {canModify && (
-                  <TouchableOpacity onPress={() => { setReceiptUri(null); setNewAsset(null); }} style={{ marginTop: 8, alignSelf: 'flex-start' }}>
-                    <T color={colors.owing}>Remove</T>
-                  </TouchableOpacity>
-                )}
+                  );
+                })}
               </View>
-            ) : canModify ? (
-              <TouchableOpacity onPress={chooseReceiptSource}
-                style={[styles.receiptBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Ionicons name="image-outline" size={18} color={colors.primary} />
-                <T color={colors.primary} style={{ fontWeight: '700' }}>Attach image</T>
-              </TouchableOpacity>
-            ) : (
-              <T variant="caption" muted style={{ marginTop: 6 }}>No receipt attached.</T>
+            </View>
+
+            <View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <T variant="label" muted>Split among ({splitSel.length}/{trip.members.length})</T>
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <TouchableOpacity onPress={() => setSplitSel(trip.members.map((m) => m.id))}>
+                    <T color={colors.primary} style={{ fontWeight: '700' }}>Select all</T>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setSplitSel([])}>
+                    <T muted style={{ fontWeight: '700' }}>None</T>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <View style={{ gap: SPACING.xs, marginTop: SPACING.xs }}>
+                {trip.members.map((m) => {
+                  const active = splitSel.includes(m.id);
+                  const isFamily = m.kind === 'family';
+                  const fullSize = Math.max(1, m.family_members.length);
+                  const currentCount = weightOverrides[m.id] ?? fullSize;
+                  return (
+                    <View key={m.id} style={[styles.row, { backgroundColor: active ? colors.surfaceMuted : colors.surface, borderColor: active ? colors.primary : colors.border, flexDirection: 'column', alignItems: 'stretch', gap: 8 }]}>
+                      <TouchableOpacity onPress={() => toggleSplit(m.id)} testID={`ee-split-${m.id}`}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
+                        <Icon name={active ? 'checkbox-on' : 'checkbox-off'} size={20} color={active ? colors.primary : colors.textMuted} />
+                        <T style={{ flex: 1 }}>{m.name}{isFamily ? ` (${fullSize})` : ''}</T>
+                      </TouchableOpacity>
+                      {active && isFamily && fullSize > 1 && splitMode === 'PER_CAPITA' && (
+                        <View style={{ paddingLeft: 28, flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <T variant="caption" muted>Split among</T>
+                          {Array.from({ length: fullSize }, (_, i) => i + 1).map((n) => (
+                            <TouchableOpacity key={n} testID={`ee-fam-${m.id}-${n}`}
+                              onPress={() => setWeightOverrides((w) => ({ ...w, [m.id]: n }))}
+                              style={[styles.numChip, { backgroundColor: currentCount === n ? colors.primary : colors.surface, borderColor: currentCount === n ? colors.primary : colors.border }]}>
+                              <T variant="caption" style={{ fontWeight: '700' }} color={currentCount === n ? colors.primaryText : colors.textMain}>{n}</T>
+                            </TouchableOpacity>
+                          ))}
+                          <T variant="caption" muted>of {fullSize}</T>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+
+            <SplitModeSelector
+              value={splitMode}
+              onChange={setSplitMode}
+              subLabel={splitPreviewLabel({
+                amount: parseFloat(amount), mode: splitMode, members: trip.members, splitSel, weightOverrides, currency: trip.currency,
+              })}
+            />
+
+            <View>
+              <T variant="label" muted style={{ marginBottom: SPACING.xs }}>Receipt</T>
+              {receiptUri ? (
+                <View>
+                  <TouchableOpacity testID="receipt-view" activeOpacity={0.85} onPress={() => setViewerOpen(true)} accessibilityLabel="View receipt">
+                    <Image source={{ uri: receiptUri }} style={{ width: '100%', height: 200, borderRadius: RADIUS.lg }} />
+                  </TouchableOpacity>
+                  {canModify && (
+                    <TouchableOpacity onPress={() => { setReceiptUri(null); setNewAsset(null); }} style={{ marginTop: 8, alignSelf: 'flex-start' }}>
+                      <T color={colors.danger} style={{ fontWeight: '700' }}>Remove</T>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ) : canModify ? (
+                <TouchableOpacity onPress={chooseReceiptSource}
+                  style={[styles.receiptBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} accessibilityRole="button" accessibilityLabel="Attach receipt image">
+                  <Icon name="image-plus" size={18} color={colors.primary} />
+                  <T color={colors.primary} style={{ fontWeight: '700' }}>Attach image</T>
+                </TouchableOpacity>
+              ) : (
+                <T variant="caption" muted>No receipt attached.</T>
+              )}
+            </View>
+
+            <ReceiptViewer uri={receiptUri} visible={viewerOpen} onClose={() => setViewerOpen(false)} />
+
+            {canModify && (
+              <>
+                <Button label="Save changes" icon="check" onPress={save} loading={saving} fullWidth size="lg" testID="ee-save" style={{ marginTop: SPACING.sm }} />
+                <Button label="Delete transaction" icon="trash" variant="destructive" onPress={() => setConfirmDelete(true)} fullWidth testID="ee-delete" />
+              </>
             )}
           </View>
-
-          <ReceiptViewer uri={receiptUri} visible={viewerOpen} onClose={() => setViewerOpen(false)} />
-
-          {/* Step 17: hide update/delete affordances unless the user is creator or trip admin. */}
-          {canModify && (
-            <>
-              <TouchableOpacity testID="ee-save" onPress={save} disabled={saving}
-                style={[styles.btn, { backgroundColor: colors.primary }]}>
-                <T color={colors.primaryText} variant="h3">{saving ? 'Saving…' : 'Save changes'}</T>
-              </TouchableOpacity>
-
-              <TouchableOpacity testID="ee-delete" onPress={onDelete}
-                style={[styles.btn, { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.owing }]}>
-                <T color={colors.owing} style={{ fontWeight: '700' }}>Delete transaction</T>
-              </TouchableOpacity>
-            </>
-          )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <ActionSheet
+        visible={sourceSheet}
+        onClose={() => setSourceSheet(false)}
+        title="Add receipt"
+        actions={[
+          { label: 'Take photo', icon: 'camera', onPress: takePhoto },
+          { label: 'Choose from library', icon: 'image', onPress: pickFromLibrary },
+        ]}
+      />
+
+      <ConfirmModal
+        visible={confirmDelete}
+        title="Delete transaction?"
+        message="This permanently removes the transaction and its bill."
+        onRequestClose={() => setConfirmDelete(false)}
+        actions={[
+          { label: 'Cancel', variant: 'cancel', onPress: () => setConfirmDelete(false) },
+          { label: 'Delete', variant: 'destructive', onPress: doDelete, testID: 'ee-delete-confirm' },
+        ]}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  pill: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderRadius: RADIUS.pill, borderWidth: 1 },
-  amountBox: { padding: SPACING.lg, borderRadius: RADIUS.xl, borderWidth: 1 },
-  amountInput: { fontSize: 44, fontWeight: '700', letterSpacing: -1, paddingVertical: 4 },
-  input: { marginTop: 4, paddingHorizontal: SPACING.md, paddingVertical: CONTROL.paddingY, borderRadius: CONTROL.radius, borderWidth: 1, fontSize: CONTROL.fontSize },
+  amountInput: { flex: 1, fontFamily: FONTS.numberBold, fontSize: 44, letterSpacing: -1, paddingVertical: 4 },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
     padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1,
   },
   receiptBtn: {
     flexDirection: 'row', gap: 8, padding: SPACING.md, borderRadius: RADIUS.md,
-    borderWidth: 1, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', marginTop: 4,
+    borderWidth: 1, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center',
   },
   numChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: RADIUS.pill, borderWidth: 1 },
-  btn: { marginTop: SPACING.md, paddingVertical: 16, borderRadius: RADIUS.pill, alignItems: 'center' },
   readonlyNote: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
     padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1,

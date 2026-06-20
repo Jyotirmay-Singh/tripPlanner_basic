@@ -1,36 +1,35 @@
 import React, { useState } from 'react';
-import {
-  View, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView,
-  Platform, ScrollView, Alert, ActivityIndicator,
-} from 'react-native';
-import { Link, useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import { View, Pressable, StyleSheet } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/AuthContext';
 import { useTheme } from '../../src/ThemeContext';
-import { SPACING, RADIUS, CONTROL } from '../../src/theme';
+import { SPACING, RADIUS } from '../../src/theme';
 import T from '../../src/T';
 import { isGmail, GMAIL_ONLY_MESSAGE } from '../../src/validation';
 import GoogleSignInButton from '../../src/GoogleSignInButton';
+import { AuthShell, Card, Input, PinInput, Button, Icon, useToast } from '../../src/ui';
 
 export default function Login() {
   const { signIn, savedEmail, forgetSavedEmail } = useAuth();
   const { colors } = useTheme();
   const router = useRouter();
+  const toast = useToast();
   const [email, setEmail] = useState(savedEmail || '');
   const [pin, setPin] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const emailError = !!email && !isGmail(email) ? GMAIL_ONLY_MESSAGE : null;
+
   const submit = async () => {
-    if (!email) return Alert.alert('Missing', 'Enter your email');
-    if (!isGmail(email)) return Alert.alert('Invalid email', GMAIL_ONLY_MESSAGE);
-    if (pin.length !== 4) return Alert.alert('Missing', 'Enter your 4-digit PIN');
+    if (!email) return toast.show('Enter your email', 'error');
+    if (!isGmail(email)) return toast.show(GMAIL_ONLY_MESSAGE, 'error');
+    if (pin.length !== 4) return toast.show('Enter your 4-digit PIN', 'error');
     setLoading(true);
     try {
       await signIn(email.trim(), undefined, pin);
       router.replace('/(tabs)/dashboard');
     } catch (e: any) {
-      Alert.alert('Login failed', e.message || 'Try again');
+      toast.show(e.message || 'Login failed. Try again.', 'error');
     } finally { setLoading(false); }
   };
 
@@ -41,120 +40,55 @@ export default function Login() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          <View style={[styles.brand, { backgroundColor: colors.primary }]}>
-            <Ionicons name="airplane" size={28} color={colors.primaryText} />
+    <AuthShell title={savedEmail ? 'Welcome back' : 'Sign in'} subtitle="Use your 4-digit PIN to continue.">
+      {savedEmail ? (
+        <Card style={styles.savedRow}>
+          <Icon name="user-round" size={26} color={colors.primary} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <T variant="caption" muted>Signing in as</T>
+            <T variant="h4" numberOfLines={1}>{savedEmail}</T>
           </View>
-          <T variant="h1" style={{ marginTop: SPACING.lg }}>
-            {savedEmail ? 'Welcome back' : 'Sign in'}
-          </T>
-          <T variant="body" muted style={{ marginTop: SPACING.xs }}>
-            Use your 4-digit PIN to continue.
-          </T>
+          <Button label="Switch" variant="ghost" size="sm" onPress={useDifferent} testID="login-switch-account" haptic={false} />
+        </Card>
+      ) : (
+        <Input
+          testID="login-email"
+          label="Email"
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          autoComplete="email"
+          keyboardType="email-address"
+          placeholder="you@gmail.com"
+          icon="mail"
+          error={emailError}
+        />
+      )}
 
-          <View style={{ marginTop: SPACING.xl, gap: SPACING.md }}>
-            {savedEmail ? (
-              <View style={[styles.savedEmailBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                <Ionicons name="person-circle-outline" size={28} color={colors.primary} />
-                <View style={{ flex: 1 }}>
-                  <T variant="caption" muted>Signing in as</T>
-                  <T variant="h3">{savedEmail}</T>
-                </View>
-                <TouchableOpacity testID="login-switch-account" onPress={useDifferent}>
-                  <T color={colors.primary} style={{ fontWeight: '700' }}>Switch</T>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View>
-                <T variant="label" muted>Email</T>
-                <TextInput
-                  testID="login-email"
-                  value={email}
-                  onChangeText={setEmail}
-                  autoCapitalize="none"
-                  autoComplete="email"
-                  keyboardType="email-address"
-                  placeholder="you@gmail.com"
-                  placeholderTextColor={colors.textMuted}
-                  style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}
-                />
-                {!!email && !isGmail(email) && (
-                  <T variant="caption" color={colors.owing} style={{ marginTop: 4 }}>{GMAIL_ONLY_MESSAGE}</T>
-                )}
-              </View>
-            )}
+      <View style={{ gap: SPACING.sm }}>
+        <T variant="label" muted style={{ textAlign: 'center' }}>4-digit PIN</T>
+        <PinInput testID="login-pin" value={pin} onChangeText={setPin} autoFocus={!!savedEmail} onSubmit={submit} />
+      </View>
 
-            <View>
-              <T variant="label" muted>4-digit PIN</T>
-              <TextInput
-                testID="login-pin"
-                value={pin}
-                onChangeText={(v) => setPin(v.replace(/\D/g, '').slice(0, 4))}
-                secureTextEntry
-                keyboardType="number-pad"
-                maxLength={4}
-                autoFocus={!!savedEmail}
-                placeholder="••••"
-                placeholderTextColor={colors.textMuted}
-                style={[styles.pinInput, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}
-              />
-            </View>
+      <Button label="Unlock" icon="lock" onPress={submit} loading={loading} fullWidth size="lg" testID="login-submit" />
 
-            <TouchableOpacity
-              testID="login-submit"
-              onPress={submit}
-              disabled={loading}
-              style={[styles.btn, { backgroundColor: colors.primary }]}
-            >
-              {loading ? <ActivityIndicator color={colors.primaryText} /> :
-                <T variant="h3" color={colors.primaryText}>Unlock</T>}
-            </TouchableOpacity>
+      <Pressable testID="login-forgot-link" onPress={() => router.push('/(auth)/forgot')} hitSlop={8}>
+        <T color={colors.primary} style={{ textAlign: 'center' }}>Forgot PIN?</T>
+      </Pressable>
 
-            <Link href="/(auth)/forgot" asChild>
-              <TouchableOpacity testID="login-forgot-link">
-                <T color={colors.primary} style={{ textAlign: 'center' }}>Forgot PIN?</T>
-              </TouchableOpacity>
-            </Link>
+      <GoogleSignInButton />
 
-            <GoogleSignInButton />
-
-            <View style={styles.bottomRow}>
-              <T muted>New here?  </T>
-              <Link href="/(auth)/register" asChild>
-                <TouchableOpacity testID="login-register-link"><T color={colors.primary} style={{ fontWeight: '700' }}>Create an account</T></TouchableOpacity>
-              </Link>
-            </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+      <View style={styles.bottomRow}>
+        <T muted>New here?  </T>
+        <Pressable testID="login-register-link" onPress={() => router.push('/(auth)/register')} hitSlop={8}>
+          <T color={colors.primary} style={{ fontWeight: '700' }}>Create an account</T>
+        </Pressable>
+      </View>
+    </AuthShell>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { padding: SPACING.lg, flexGrow: 1, justifyContent: 'center' },
-  brand: {
-    width: 56, height: 56, borderRadius: RADIUS.lg,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  input: {
-    marginTop: SPACING.xs, paddingHorizontal: SPACING.md, paddingVertical: CONTROL.paddingY,
-    borderRadius: CONTROL.radius, borderWidth: 1, fontSize: CONTROL.fontSize,
-  },
-  pinInput: {
-    marginTop: SPACING.xs, paddingHorizontal: SPACING.md, paddingVertical: 18,
-    borderRadius: RADIUS.md, borderWidth: 1,
-    fontSize: 28, fontWeight: '700', letterSpacing: 16, textAlign: 'center',
-  },
-  savedEmailBox: {
-    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
-    padding: SPACING.md, borderRadius: RADIUS.lg, borderWidth: 1,
-  },
-  btn: {
-    marginTop: SPACING.sm, paddingVertical: 16, borderRadius: RADIUS.pill,
-    alignItems: 'center',
-  },
-  bottomRow: { flexDirection: 'row', justifyContent: 'center' },
+  savedRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, borderRadius: RADIUS.lg },
+  bottomRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
 });

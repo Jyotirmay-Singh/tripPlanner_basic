@@ -1,13 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { View, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../../src/api';
 import { useTheme } from '../../../src/ThemeContext';
-import { SPACING, RADIUS } from '../../../src/theme';
+import { SPACING } from '../../../src/theme';
 import T from '../../../src/T';
 import Badge from '../../../src/Badge';
+import { Screen, Card, Button, Icon, useToast } from '../../../src/ui';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
 type Trip = { id: string; name: string; owner_id: string; admin_ids: string[]; members: Member[] };
@@ -16,6 +15,7 @@ export default function ManageMember() {
   const { id, mid } = useLocalSearchParams<{ id: string; mid: string }>();
   const { colors } = useTheme();
   const router = useRouter();
+  const toast = useToast();
   const [trip, setTrip] = useState<Trip | null>(null);
   const [member, setMember] = useState<Member | null>(null);
   const [adminIds, setAdminIds] = useState<string[]>([]);
@@ -29,16 +29,12 @@ export default function ManageMember() {
         setTrip(t);
         setAdminIds(t.admin_ids ?? []);
         setMember((t.members || []).find((m) => m.id === mid) ?? null);
-      } catch (e: any) { setError(e.message); }
+      } catch (e: any) { setError(e.message); toast.show(e.message || 'Could not load', 'error'); }
     })();
-  }, [id, mid]);
+  }, [id, mid, toast]);
 
   if (!trip || !member) {
-    return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-        <T style={{ padding: SPACING.lg }}>Loading…</T>
-      </SafeAreaView>
-    );
+    return <Screen edges={['bottom']}><T muted style={{ padding: SPACING.lg }}>Loading…</T></Screen>;
   }
 
   const isOwner = !!member.user_id && member.user_id === trip.owner_id;
@@ -53,92 +49,77 @@ export default function ManageMember() {
       if (isMemberAdmin) {
         await api(`/trips/${id}/admins/${uid}`, { method: 'DELETE' });
         setAdminIds((prev) => prev.filter((u) => u !== uid));
+        toast.show('Admin removed', 'success');
       } else {
         await api(`/trips/${id}/admins`, { method: 'POST', body: { user_id: uid } });
         setAdminIds((prev) => (prev.includes(uid) ? prev : [...prev, uid]));
+        toast.show('Admin added', 'success');
       }
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setError(e.message); toast.show(e.message || 'Could not update role', 'error'); }
     finally { setBusy(false); }
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
-      <ScrollView contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.md }}>
-        <View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm }}>
-            <T variant="h1">{member.name}{member.kind === 'family' ? ` (${member.family_members.length})` : ''}</T>
-            {role === 'owner' ? <Badge label="Owner" color={colors.primary} /> : null}
-            {role === 'admin' ? <Badge label="Admin" color={colors.owed} /> : null}
-          </View>
-          <T muted style={{ marginTop: 4 }}>
-            {member.kind === 'family' ? `Family of ${member.family_members.length}` : (member.user_id ? 'App user' : 'Individual')}
-            {member.email ? ` · ${member.email}` : ''}
-          </T>
+    <Screen edges={['bottom']}>
+      <View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm }}>
+          <T variant="h1">{member.name}{member.kind === 'family' ? ` (${member.family_members.length})` : ''}</T>
+          {role === 'owner' ? <Badge label="Owner" color={colors.primary} /> : null}
+          {role === 'admin' ? <Badge label="Admin" color={colors.success} /> : null}
         </View>
+        <T muted style={{ marginTop: 4 }}>
+          {member.kind === 'family' ? `Family of ${member.family_members.length}` : (member.user_id ? 'App user' : 'Individual')}
+          {member.email ? ` · ${member.email}` : ''}
+        </T>
+      </View>
 
-        {/* Trip role */}
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <T variant="label" muted>Trip role</T>
-          {!member.user_id ? (
-            <T variant="caption" muted style={{ marginTop: SPACING.sm }}>
-              Only app users who have joined this trip can become admins.
-            </T>
-          ) : isOwner ? (
-            <View style={{ marginTop: SPACING.sm, flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
-              <Ionicons name="shield-checkmark" size={18} color={colors.primary} />
-              <T>Owner · root admin (cannot be removed)</T>
-            </View>
-          ) : (
-            <>
-              <T variant="caption" muted style={{ marginTop: SPACING.sm }}>
-                {isMemberAdmin
-                  ? 'Admins can add and change members and expenses on this trip.'
-                  : 'Promote to let this member add and change members and expenses.'}
-              </T>
-              <TouchableOpacity
-                testID={isMemberAdmin ? 'mm-remove-admin' : 'mm-make-admin'}
-                onPress={toggleAdmin} disabled={busy}
-                style={[styles.btn, {
-                  marginTop: SPACING.sm,
-                  backgroundColor: isMemberAdmin ? colors.surface : colors.primary,
-                  borderWidth: isMemberAdmin ? 1 : 0,
-                  borderColor: colors.owing,
-                  opacity: busy ? 0.6 : 1,
-                }]}>
-                {busy ? (
-                  <ActivityIndicator color={isMemberAdmin ? colors.owing : colors.primaryText} />
-                ) : (
-                  <T color={isMemberAdmin ? colors.owing : colors.primaryText} style={{ fontWeight: '700' }}>
-                    {isMemberAdmin ? 'Remove admin' : 'Make admin'}
-                  </T>
-                )}
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
-
-        {/* Member & family configuration */}
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <T variant="label" muted>Member configuration</T>
+      <Card>
+        <T variant="label" muted>Trip role</T>
+        {!member.user_id ? (
           <T variant="caption" muted style={{ marginTop: SPACING.sm }}>
-            Update the name, linked email, or {member.kind === 'family' ? 'family roster' : 'member kind'}.
+            Only app users who have joined this trip can become admins.
           </T>
-          <TouchableOpacity
-            testID="mm-edit-details"
-            onPress={() => router.push({ pathname: '/trip/[id]/edit-member', params: { id: id as string, mid: mid as string } })}
-            style={[styles.btn, { marginTop: SPACING.sm, backgroundColor: colors.surfaceMuted }]}>
-            <Ionicons name="pencil-outline" size={16} color={colors.textMain} />
-            <T style={{ fontWeight: '700', marginLeft: 6 }}>Edit member &amp; family details</T>
-          </TouchableOpacity>
-        </View>
+        ) : isOwner ? (
+          <View style={{ marginTop: SPACING.sm, flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
+            <Icon name="shield-check" size={18} color={colors.primary} />
+            <T>Owner · root admin (cannot be removed)</T>
+          </View>
+        ) : (
+          <>
+            <T variant="caption" muted style={{ marginTop: SPACING.sm, marginBottom: SPACING.sm }}>
+              {isMemberAdmin
+                ? 'Admins can add and change members and expenses on this trip.'
+                : 'Promote to let this member add and change members and expenses.'}
+            </T>
+            <Button
+              testID={isMemberAdmin ? 'mm-remove-admin' : 'mm-make-admin'}
+              label={isMemberAdmin ? 'Remove admin' : 'Make admin'}
+              icon={isMemberAdmin ? 'close' : 'shield'}
+              variant={isMemberAdmin ? 'destructive' : 'primary'}
+              onPress={toggleAdmin}
+              loading={busy}
+              fullWidth
+            />
+          </>
+        )}
+      </Card>
 
-        {error ? <T testID="mm-error" variant="caption" color={colors.owing}>{error}</T> : null}
-      </ScrollView>
-    </SafeAreaView>
+      <Card>
+        <T variant="label" muted>Member configuration</T>
+        <T variant="caption" muted style={{ marginTop: SPACING.sm, marginBottom: SPACING.sm }}>
+          Update the name, linked email, or {member.kind === 'family' ? 'family roster' : 'member kind'}.
+        </T>
+        <Button
+          testID="mm-edit-details"
+          label="Edit member & family details"
+          icon="pencil"
+          variant="secondary"
+          onPress={() => router.push({ pathname: '/trip/[id]/edit-member', params: { id: id as string, mid: mid as string } })}
+          fullWidth
+        />
+      </Card>
+
+      {error ? <T testID="mm-error" variant="caption" color={colors.danger}>{error}</T> : null}
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  card: { padding: SPACING.md, borderRadius: RADIUS.lg, borderWidth: 1 },
-  btn: { flexDirection: 'row', paddingVertical: 14, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
-});

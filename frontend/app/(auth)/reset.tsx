@@ -1,58 +1,47 @@
 import React, { useState } from 'react';
-import { View, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { api } from '../../src/api';
-import { useTheme } from '../../src/ThemeContext';
-import { SPACING, RADIUS, CONTROL } from '../../src/theme';
+import { SPACING } from '../../src/theme';
 import T from '../../src/T';
+import { AuthShell, Input, PinInput, Button, useToast } from '../../src/ui';
 
 export default function Reset() {
-  const { colors } = useTheme();
   const router = useRouter();
+  const toast = useToast();
   const params = useLocalSearchParams<{ token?: string }>();
   const [token, setToken] = useState((params.token as string) || '');
   const [pin, setPin] = useState('');
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
-    if (!token) return Alert.alert('Missing', 'Enter the reset token from your email');
-    if (!/^\d{4}$/.test(pin)) return Alert.alert('Invalid', 'PIN must be 4 digits');
+    if (!token) return toast.show('Enter the reset token from your email', 'error');
+    if (!/^\d{4}$/.test(pin)) return toast.show('PIN must be 4 digits', 'error');
     setBusy(true);
     try {
       await api('/auth/reset-pin', { method: 'POST', body: { token: token.trim(), new_pin: pin }, auth: false });
-      Alert.alert('Success', 'PIN reset. Please sign in with your new PIN.', [
-        { text: 'OK', onPress: () => router.replace('/(auth)/login') },
-      ]);
-    } catch (e: any) { Alert.alert('Error', e.message); }
+      toast.show('PIN reset. Sign in with your new PIN.', 'success');
+      setTimeout(() => router.replace('/(auth)/login'), 900);
+    } catch (e: any) { toast.show(e.message || 'Something went wrong', 'error'); }
     finally { setBusy(false); }
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background, padding: SPACING.lg }}>
-      <T variant="h2">Reset PIN</T>
-      <T muted style={{ marginTop: 4 }}>Paste the token from your email and choose a new 4-digit PIN.</T>
-
-      <View style={{ marginTop: SPACING.lg, gap: SPACING.md }}>
-        <TextInput testID="reset-token" value={token} onChangeText={setToken}
-          placeholder="Reset token from email" placeholderTextColor={colors.textMuted}
-          autoCapitalize="none"
-          style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]} />
-        <TextInput testID="reset-pin" value={pin}
-          onChangeText={(v) => setPin(v.replace(/\D/g, '').slice(0, 4))}
-          secureTextEntry keyboardType="number-pad" maxLength={4}
-          placeholder="New 4-digit PIN" placeholderTextColor={colors.textMuted}
-          style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border, letterSpacing: 12, textAlign: 'center', fontSize: 24 }]} />
-        <TouchableOpacity testID="reset-submit" onPress={submit} disabled={busy}
-          style={[styles.btn, { backgroundColor: colors.primary }]}>
-          <T variant="h3" color={colors.primaryText}>{busy ? 'Resetting…' : 'Reset PIN'}</T>
-        </TouchableOpacity>
+    <AuthShell brandIcon="lock" title="Reset PIN" subtitle="Paste the token from your email and choose a new 4-digit PIN.">
+      <Input
+        testID="reset-token"
+        label="Reset token"
+        value={token}
+        onChangeText={setToken}
+        autoCapitalize="none"
+        placeholder="Token from email"
+        icon="key"
+      />
+      <View style={{ gap: SPACING.sm }}>
+        <T variant="label" muted style={{ textAlign: 'center' }}>New 4-digit PIN</T>
+        <PinInput testID="reset-pin" value={pin} onChangeText={setPin} onSubmit={submit} />
       </View>
-    </SafeAreaView>
+      <Button label={busy ? 'Resetting…' : 'Reset PIN'} icon="check" onPress={submit} loading={busy} fullWidth size="lg" testID="reset-submit" />
+    </AuthShell>
   );
 }
-
-const styles = StyleSheet.create({
-  input: { paddingHorizontal: SPACING.md, paddingVertical: CONTROL.paddingY, borderRadius: CONTROL.radius, borderWidth: 1, fontSize: CONTROL.fontSize },
-  btn: { paddingVertical: 16, borderRadius: RADIUS.pill, alignItems: 'center' },
-});

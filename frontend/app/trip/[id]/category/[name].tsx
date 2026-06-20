@@ -1,12 +1,11 @@
 import React, { useCallback, useState } from 'react';
-import { View, ScrollView, TouchableOpacity, StyleSheet, Alert, RefreshControl } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../../../src/api';
 import { useTheme } from '../../../../src/ThemeContext';
-import { SPACING, RADIUS, LAYOUT } from '../../../../src/theme';
+import { RADIUS } from '../../../../src/theme';
+import { pluralize } from '../../../../src/format';
 import T from '../../../../src/T';
+import { Screen, Card, ListRow, EmptyState, AmountText, SkeletonCard, useToast } from '../../../../src/ui';
 
 type Member = { id: string; name: string };
 type Trip = { id: string; name: string; currency: string; members: Member[] };
@@ -17,18 +16,21 @@ export default function CategoryDetail() {
   const decoded = decodeURIComponent(name as string);
   const { colors } = useTheme();
   const router = useRouter();
+  const toast = useToast();
   const [trip, setTrip] = useState<Trip | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
       const [t, e] = await Promise.all([api<Trip>(`/trips/${id}`), api<Expense[]>(`/trips/${id}/expenses`)]);
       setTrip(t); setExpenses(e);
-    } catch (err: any) { Alert.alert('Error', err.message); }
+    } catch (err: any) { toast.show(err.message || 'Could not load', 'error'); }
     setRefreshing(false);
-  }, [id]);
+    setLoaded(true);
+  }, [id, toast]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -37,40 +39,29 @@ export default function CategoryDetail() {
   const memberById = (mid: string) => trip?.members.find((m) => m.id === mid)?.name || '?';
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
-      <ScrollView
-        contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.md, paddingBottom: LAYOUT.scrollBottomInset }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor={colors.primary} />}
-      >
-        <View style={[styles.header, { backgroundColor: colors.primary }]}>
-          <T variant="label" color={colors.primaryText} style={{ opacity: 0.8 }}>{decoded}</T>
-          <T variant="money" color={colors.primaryText} style={{ marginTop: 4 }}>
-            {total.toFixed(2)} {trip?.currency || ''}
-          </T>
-          <T color={colors.primaryText} style={{ opacity: 0.75, marginTop: 4 }}>
-            {filtered.length} transaction{filtered.length === 1 ? '' : 's'}
-          </T>
-        </View>
+    <Screen edges={['bottom']} refreshing={refreshing} onRefresh={load}>
+      <Card variant="primary" padding="lg" radius={RADIUS.xl}>
+        <T variant="label" color={colors.primaryText} style={{ opacity: 0.85 }}>{decoded}</T>
+        <AmountText value={total} currency={trip?.currency} variant="moneyLg" color={colors.primaryText} style={{ marginTop: 4 }} />
+        <T color={colors.primaryText} style={{ opacity: 0.8, marginTop: 4 }}>{pluralize(filtered.length, 'transaction')}</T>
+      </Card>
 
-        {filtered.length === 0 && <T muted style={{ padding: SPACING.md }}>No transactions in this category.</T>}
-        {filtered.map((e) => (
-          <TouchableOpacity key={e.id}
+      {!loaded ? (
+        <SkeletonCard count={3} />
+      ) : filtered.length === 0 ? (
+        <EmptyState icon="tag" title="Nothing here yet" body={`No transactions filed under ${decoded}.`} testID="category-empty" />
+      ) : (
+        filtered.map((e) => (
+          <ListRow
+            key={e.id}
+            title={e.description || decoded}
+            subtitle={`${e.date} · by ${memberById(e.paid_by_member_id)}`}
+            right={<AmountText value={e.amount} />}
             onPress={() => router.push({ pathname: '/trip/[id]/edit-expense', params: { id: id as string, eid: e.id } })}
-            style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={{ flex: 1 }}>
-              <T variant="h3">{e.description || decoded}</T>
-              <T variant="caption" muted>{e.date} · by {memberById(e.paid_by_member_id)}</T>
-            </View>
-            <T variant="h3">{e.amount.toFixed(2)}</T>
-            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-    </SafeAreaView>
+            showChevron={false}
+          />
+        ))
+      )}
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  header: { padding: SPACING.lg, borderRadius: RADIUS.xl },
-  card: { padding: SPACING.md, borderRadius: RADIUS.lg, borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
-});

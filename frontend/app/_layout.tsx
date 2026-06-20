@@ -4,12 +4,20 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useFonts } from 'expo-font';
+import * as SplashScreen from 'expo-splash-screen';
 import { Ionicons } from '@expo/vector-icons';
+import { Outfit_500Medium, Outfit_600SemiBold, Outfit_700Bold } from '@expo-google-fonts/outfit';
+import { Figtree_400Regular, Figtree_500Medium, Figtree_600SemiBold, Figtree_700Bold } from '@expo-google-fonts/figtree';
 import { ThemeProvider, useTheme } from '../src/ThemeContext';
 import { AuthProvider, useAuth } from '../src/AuthContext';
 import { LogoutProvider } from '../src/LogoutProvider';
 import LogoutButton from '../src/LogoutButton';
+import { ToastProvider } from '../src/ui';
+import { FONTS } from '../src/theme';
 import { authRedirectTarget, navResetTo } from '../src/authNav';
+
+// Keep the native splash up until our fonts are ready, so text never flashes in a fallback face.
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function Inner() {
   const { mode, colors } = useTheme();
@@ -32,10 +40,11 @@ function Inner() {
       <Stack screenOptions={{
         headerStyle: { backgroundColor: colors.background },
         headerTintColor: colors.textMain,
-        headerTitleStyle: { fontWeight: '600' },
+        headerTitleStyle: { fontFamily: FONTS.heading },
         contentStyle: { backgroundColor: colors.background },
         headerShadowVisible: false,
         headerRight,
+        animation: 'fade',
       }}>
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
@@ -57,18 +66,30 @@ function Inner() {
 }
 
 export default function RootLayout() {
-  // Preload Ionicons font explicitly so all icons render in Expo Go even with a fresh cache.
-  // Non-blocking — if the font fails (stale Expo Go asset cache), we still render UI;
-  // every icon-only button also has a visible text label so the app stays usable.
-  useFonts({ ...Ionicons.font });
+  // Load the brand typefaces (Outfit headings/numbers + Figtree body) and Ionicons glyphs.
+  // We gate the first render on this so headings never paint in a fallback font; `error`
+  // still releases the splash so a font CDN/cache failure can't wedge the app.
+  const [loaded, error] = useFonts({
+    ...Ionicons.font,
+    Outfit_500Medium, Outfit_600SemiBold, Outfit_700Bold,
+    Figtree_400Regular, Figtree_500Medium, Figtree_600SemiBold, Figtree_700Bold,
+  });
+
+  useEffect(() => {
+    if (loaded || error) SplashScreen.hideAsync().catch(() => {});
+  }, [loaded, error]);
+
+  if (!loaded && !error) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider>
-          <AuthProvider>
-            <Inner />
-          </AuthProvider>
+          <ToastProvider>
+            <AuthProvider>
+              <Inner />
+            </AuthProvider>
+          </ToastProvider>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

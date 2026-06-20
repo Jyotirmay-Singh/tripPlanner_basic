@@ -1,20 +1,23 @@
 import React, { useEffect, useState } from 'react';
-import { View, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api } from '../../../src/api';
 import { useTheme } from '../../../src/ThemeContext';
-import { SPACING, RADIUS, CONTROL, CURRENCIES } from '../../../src/theme';
+import { SPACING, CURRENCIES, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
+import { Input, Button, Pill, useToast } from '../../../src/ui';
 
 export default function EditTrip() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const router = useRouter();
+  const toast = useToast();
   const [name, setName] = useState('');
   const [date, setDate] = useState('');
   const [budget, setBudget] = useState('');
   const [currency, setCurrency] = useState('INR');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     api<any>(`/trips/${id}`).then((t) => {
@@ -24,65 +27,43 @@ export default function EditTrip() {
   }, [id]);
 
   const save = async () => {
+    setSaving(true);
     try {
       await api(`/trips/${id}`, {
         method: 'PATCH',
         body: { name, travel_date: date, budget: budget ? Number(budget) : null, currency },
       });
       router.back();
-    } catch (e: any) { Alert.alert('Error', e.message); }
+    } catch (e: any) { toast.show(e.message || 'Could not save', 'error'); }
+    finally { setSaving(false); }
   };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.md }} keyboardShouldPersistTaps="handled">
-          <T variant="h1">Edit trip</T>
+        <ScrollView contentContainerStyle={{ padding: SPACING.lg, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
+          <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
+            <T variant="h1">Edit trip</T>
 
-          <View>
-            <T variant="label" muted>Name</T>
-            <TextInput testID="et-name" value={name} onChangeText={setName}
-              style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]} />
+            <Input testID="et-name" label="Name" value={name} onChangeText={setName} icon="plane" />
+            <Input testID="et-date" label="Travel date (DD-MM-YY)" value={date} onChangeText={setDate} icon="calendar" />
+            <Input testID="et-budget" label="Budget" value={budget} onChangeText={setBudget} keyboardType="decimal-pad" icon="wallet" />
+
+            <View>
+              <T variant="label" muted style={{ marginBottom: SPACING.xs }}>Currency</T>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
+                  {CURRENCIES.map((c) => (
+                    <Pill key={c} label={c} active={currency === c} onPress={() => setCurrency(c)} />
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+
+            <Button label="Save" icon="check" onPress={save} loading={saving} fullWidth size="lg" testID="et-save" style={{ marginTop: SPACING.sm }} />
           </View>
-
-          <View>
-            <T variant="label" muted>Travel date (DD-MM-YY)</T>
-            <TextInput testID="et-date" value={date} onChangeText={setDate}
-              style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]} />
-          </View>
-
-          <View>
-            <T variant="label" muted>Budget</T>
-            <TextInput testID="et-budget" value={budget} onChangeText={setBudget} keyboardType="decimal-pad"
-              style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]} />
-          </View>
-
-          <View>
-            <T variant="label" muted>Currency</T>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 4 }}>
-              <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
-                {CURRENCIES.map((c) => (
-                  <TouchableOpacity key={c} onPress={() => setCurrency(c)}
-                    style={[styles.pill, { backgroundColor: currency === c ? colors.primary : colors.surfaceMuted, borderColor: colors.border }]}>
-                    <T color={currency === c ? colors.primaryText : colors.textMain} style={{ fontWeight: '700' }}>{c}</T>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
-          </View>
-
-          <TouchableOpacity testID="et-save" onPress={save}
-            style={[styles.btn, { backgroundColor: colors.primary }]}>
-            <T color={colors.primaryText} variant="h3">Save</T>
-          </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  input: { marginTop: 4, paddingHorizontal: SPACING.md, paddingVertical: CONTROL.paddingY, borderRadius: CONTROL.radius, borderWidth: 1, fontSize: CONTROL.fontSize },
-  pill: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: RADIUS.pill, borderWidth: 1 },
-  btn: { marginTop: SPACING.md, paddingVertical: 16, borderRadius: RADIUS.pill, alignItems: 'center' },
-});

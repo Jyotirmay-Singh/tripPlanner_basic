@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
 import {
   View, TextInput, TouchableOpacity, StyleSheet, ScrollView,
-  KeyboardAvoidingView, Platform, ActivityIndicator,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { api } from '../src/api';
 import { useTheme } from '../src/ThemeContext';
-import { SPACING, RADIUS, CONTROL } from '../src/theme';
+import { SPACING, RADIUS, FONTS, CONTENT_MAX_WIDTH } from '../src/theme';
 import T from '../src/T';
+import Badge from '../src/Badge';
+import { Input, Button, Icon } from '../src/ui';
+import { IconName } from '../src/ui/Icon';
 
-type IconName = React.ComponentProps<typeof Ionicons>['name'];
 type Mode = 'individual' | 'family' | 'new_family';
 
 type PreviewFamily = { id: string; name: string; size: number; linked: boolean };
@@ -26,18 +27,10 @@ type Preview = {
 };
 
 const MODE_OPTIONS: { m: Mode; icon: IconName; title: string; desc: string }[] = [
-  { m: 'individual', icon: 'person', title: 'Join as Individual', desc: 'You pay your own share as a single person.' },
-  { m: 'family', icon: 'people', title: 'Join existing Family', desc: 'Link yourself into a family already on this trip.' },
-  { m: 'new_family', icon: 'add-circle', title: 'Create New Family', desc: 'Start a new family group and list its members.' },
+  { m: 'individual', icon: 'user', title: 'Join as Individual', desc: 'You pay your own share as a single person.' },
+  { m: 'family', icon: 'users', title: 'Join existing Family', desc: 'Link yourself into a family already on this trip.' },
+  { m: 'new_family', icon: 'plus-circle', title: 'Create New Family', desc: 'Start a new family group and list its members.' },
 ];
-
-function Badge({ label, color }: { label: string; color: string }) {
-  return (
-    <View style={[styles.badge, { borderColor: color }]}>
-      <T variant="caption" color={color} style={styles.badgeText}>{label}</T>
-    </View>
-  );
-}
 
 export default function JoinTrip() {
   const { colors } = useTheme();
@@ -60,9 +53,7 @@ export default function JoinTrip() {
     if (code.length !== 6) { setError('Trip code is 6 characters'); return; }
     setBusy(true); setError(null);
     try {
-      const p = await api<Preview>('/trips/join/preview', {
-        method: 'POST', body: { code: code.toUpperCase().trim() },
-      });
+      const p = await api<Preview>('/trips/join/preview', { method: 'POST', body: { code: code.toUpperCase().trim() } });
       if (p.already_member) { goToTrip(p.trip.id); return; }
       setPreview(p);
       if (p.matched_family) { setMode('family'); setFamilyId(p.matched_family.id); }
@@ -102,8 +93,6 @@ export default function JoinTrip() {
       goToTrip(trip.id);
     } catch (e: any) {
       setError(e.message);
-      // A family may have been claimed (or removed) between preview and submit —
-      // refresh the picker so the stale row is reflected and can't be re-tried.
       if (mode === 'family' && (e.status === 400 || e.status === 404)) {
         try {
           const p = await api<Preview>('/trips/join/preview', { method: 'POST', body: { code: c } });
@@ -116,26 +105,33 @@ export default function JoinTrip() {
 
   // ---------- Stage 1: code entry ----------
   if (stage === 'code') {
-    const continueDisabled = busy || code.length !== 6;
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background, padding: SPACING.lg }} edges={['bottom']}>
-        <T variant="h1">Join a trip</T>
-        <T muted style={{ marginTop: 4 }}>Enter the 6-character trip code your friend shared.</T>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView contentContainerStyle={{ padding: SPACING.lg, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
+            <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
+              <View style={[styles.brand, { backgroundColor: colors.primary }]}>
+                <Icon name="key" size={26} color={colors.primaryText} strokeWidth={2} />
+              </View>
+              <T variant="h1" style={{ marginTop: SPACING.sm }}>Join a trip</T>
+              <T muted>Enter the 6-character trip code your friend shared.</T>
 
-        <View style={{ marginTop: SPACING.xl, gap: SPACING.md }}>
-          <TextInput testID="jt-code" value={code}
-            onChangeText={(v) => { setCode(v.toUpperCase().replace(/\s/g, '').slice(0, 6)); if (error) setError(null); }}
-            placeholder="ABCD12" placeholderTextColor={colors.textMuted}
-            autoCapitalize="characters" editable={!busy}
-            style={[styles.codeInput, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]} />
+              <TextInput
+                testID="jt-code"
+                value={code}
+                onChangeText={(v) => { setCode(v.toUpperCase().replace(/\s/g, '').slice(0, 6)); if (error) setError(null); }}
+                placeholder="ABCD12"
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="characters"
+                editable={!busy}
+                style={[styles.codeInput, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: error ? colors.danger : colors.border }]}
+              />
+              {error ? <T testID="jt-error" variant="caption" color={colors.danger}>{error}</T> : null}
 
-          {error ? <T testID="jt-error" variant="caption" color={colors.owing}>{error}</T> : null}
-
-          <TouchableOpacity testID="jt-submit" onPress={loadPreview} disabled={continueDisabled}
-            style={[styles.btn, { backgroundColor: colors.primary, opacity: continueDisabled ? 0.5 : 1 }]}>
-            {busy ? <ActivityIndicator color={colors.primaryText} /> : <T color={colors.primaryText} variant="h3">Continue</T>}
-          </TouchableOpacity>
-        </View>
+              <Button label="Continue" iconRight="chevron-right" onPress={loadPreview} loading={busy} disabled={code.length !== 6} fullWidth size="lg" testID="jt-submit" />
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }
@@ -145,8 +141,7 @@ export default function JoinTrip() {
   const hasFamilies = families.length > 0;
   const allLinked = hasFamilies && families.every((f) => f.linked);
   const matchedId = preview?.matched_family?.id ?? null;
-  const sortedFamilies = [...families].sort((a, b) =>
-    (a.id === matchedId ? -1 : 0) - (b.id === matchedId ? -1 : 0));
+  const sortedFamilies = [...families].sort((a, b) => (a.id === matchedId ? -1 : 0) - (b.id === matchedId ? -1 : 0));
 
   const confirmDisabled = busy
     || (mode === 'family' && !familyId)
@@ -155,106 +150,94 @@ export default function JoinTrip() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={{ padding: SPACING.lg, gap: SPACING.md }} keyboardShouldPersistTaps="handled">
-          <TouchableOpacity testID="jt-back" onPress={backToCode} disabled={busy}
-            style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' }}>
-            <Ionicons name="chevron-back" size={18} color={colors.textMuted} />
-            <T muted style={{ marginLeft: 2 }}>Back</T>
-          </TouchableOpacity>
+        <ScrollView contentContainerStyle={{ padding: SPACING.lg, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
+          <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
+            <TouchableOpacity testID="jt-back" onPress={backToCode} disabled={busy}
+              style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' }} accessibilityLabel="Back">
+              <Icon name="chevron-left" size={18} color={colors.textMuted} />
+              <T muted style={{ marginLeft: 2 }}>Back</T>
+            </TouchableOpacity>
 
-          <View>
-            <T variant="h1">How are you joining?</T>
-            <T muted style={{ marginTop: 4 }}>
-              {preview?.trip.name} · {preview?.trip.member_count} {preview?.trip.member_count === 1 ? 'member' : 'members'}
-            </T>
-          </View>
+            <View>
+              <T variant="h1">How are you joining?</T>
+              <T muted style={{ marginTop: 4 }}>
+                {preview?.trip.name} · {preview?.trip.member_count} {preview?.trip.member_count === 1 ? 'member' : 'members'}
+              </T>
+            </View>
 
-          <View style={{ gap: SPACING.sm }}>
-            {MODE_OPTIONS.map((opt) => {
-              const active = mode === opt.m;
-              const optDisabled = busy || (opt.m === 'family' && !hasFamilies);
-              const desc = opt.m === 'family' && !hasFamilies ? 'No families in this trip yet.' : opt.desc;
-              return (
-                <TouchableOpacity key={opt.m} testID={`jt-mode-${opt.m}`} disabled={optDisabled}
-                  onPress={() => { setMode(opt.m); setError(null); }}
-                  style={[styles.modeCard, {
-                    backgroundColor: active ? colors.primary : colors.surface,
-                    borderColor: active ? colors.primary : colors.border,
-                    opacity: optDisabled && !active ? 0.5 : 1,
-                  }]}>
-                  <Ionicons name={opt.icon} size={22} color={active ? colors.primaryText : colors.textMain} />
-                  <View style={{ flex: 1, marginLeft: SPACING.md }}>
-                    <T variant="h3" color={active ? colors.primaryText : colors.textMain}>{opt.title}</T>
-                    <T variant="caption" color={active ? colors.primaryText : colors.textMuted} style={{ marginTop: 2 }}>{desc}</T>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {mode === 'family' && hasFamilies && (
             <View style={{ gap: SPACING.sm }}>
-              {allLinked ? (
-                <T testID="jt-family-all-linked" muted variant="caption">
-                  All families are already claimed. Pick another option above.
-                </T>
-              ) : null}
-              {sortedFamilies.map((f) => {
-                const selected = familyId === f.id;
-                const isMatched = f.id === matchedId;
-                const rowDisabled = f.linked || busy;
+              {MODE_OPTIONS.map((opt) => {
+                const active = mode === opt.m;
+                const optDisabled = busy || (opt.m === 'family' && !hasFamilies);
+                const desc = opt.m === 'family' && !hasFamilies ? 'No families in this trip yet.' : opt.desc;
                 return (
-                  <TouchableOpacity key={f.id} testID={`jt-family-${f.id}`} disabled={rowDisabled}
-                    onPress={() => { setFamilyId(f.id); setError(null); }}
-                    style={[styles.familyRow, {
-                      backgroundColor: selected ? colors.surfaceMuted : colors.surface,
-                      borderColor: selected ? colors.primary : colors.border,
-                      opacity: f.linked ? 0.5 : 1,
+                  <TouchableOpacity key={opt.m} testID={`jt-mode-${opt.m}`} disabled={optDisabled}
+                    onPress={() => { setMode(opt.m); setError(null); }}
+                    accessibilityRole="radio" accessibilityState={{ selected: active, disabled: optDisabled }}
+                    style={[styles.modeCard, {
+                      backgroundColor: active ? colors.primary : colors.surface,
+                      borderColor: active ? colors.primary : colors.border,
+                      opacity: optDisabled && !active ? 0.5 : 1,
                     }]}>
-                    <Ionicons name={selected ? 'radio-button-on' : 'radio-button-off'} size={20}
-                      color={selected ? colors.primary : colors.textMuted} />
-                    <View style={{ flex: 1, marginLeft: SPACING.sm, gap: 2 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm }}>
-                        <T style={{ fontWeight: '600' }}>{f.name}</T>
-                        {isMatched ? <Badge label="Recommended" color={colors.owed} /> : null}
-                        {f.linked ? <Badge label="Linked" color={colors.textMuted} /> : null}
-                      </View>
-                      <T muted variant="caption">{f.size} {f.size === 1 ? 'member' : 'members'}</T>
+                    <Icon name={opt.icon} size={22} color={active ? colors.primaryText : colors.textMain} />
+                    <View style={{ flex: 1, marginLeft: SPACING.md }}>
+                      <T variant="h4" color={active ? colors.primaryText : colors.textMain}>{opt.title}</T>
+                      <T variant="caption" color={active ? colors.primaryText : colors.textMuted} style={{ marginTop: 2 }}>{desc}</T>
                     </View>
                   </TouchableOpacity>
                 );
               })}
             </View>
-          )}
 
-          {mode === 'new_family' && (
-            <View style={{ gap: SPACING.md }}>
-              <View>
-                <T variant="label" muted>Family name *</T>
-                <TextInput testID="jt-family-name" value={familyName}
+            {mode === 'family' && hasFamilies && (
+              <View style={{ gap: SPACING.sm }}>
+                {allLinked ? (
+                  <T testID="jt-family-all-linked" muted variant="caption">All families are already claimed. Pick another option above.</T>
+                ) : null}
+                {sortedFamilies.map((f) => {
+                  const selected = familyId === f.id;
+                  const isMatched = f.id === matchedId;
+                  const rowDisabled = f.linked || busy;
+                  return (
+                    <TouchableOpacity key={f.id} testID={`jt-family-${f.id}`} disabled={rowDisabled}
+                      onPress={() => { setFamilyId(f.id); setError(null); }}
+                      accessibilityRole="radio" accessibilityState={{ selected, disabled: rowDisabled }}
+                      style={[styles.familyRow, {
+                        backgroundColor: selected ? colors.surfaceMuted : colors.surface,
+                        borderColor: selected ? colors.primary : colors.border,
+                        opacity: f.linked ? 0.5 : 1,
+                      }]}>
+                      <Icon name={selected ? 'radio-on' : 'radio-off'} size={20} color={selected ? colors.primary : colors.textMuted} />
+                      <View style={{ flex: 1, marginLeft: SPACING.sm, gap: 2 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm }}>
+                          <T style={{ fontFamily: FONTS.bodySemibold }}>{f.name}</T>
+                          {isMatched ? <Badge label="Recommended" color={colors.success} /> : null}
+                          {f.linked ? <Badge label="Linked" color={colors.textMuted} /> : null}
+                        </View>
+                        <T muted variant="caption">{f.size} {f.size === 1 ? 'member' : 'members'}</T>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+
+            {mode === 'new_family' && (
+              <View style={{ gap: SPACING.md }}>
+                <Input testID="jt-family-name" label="Family name *" value={familyName}
                   onChangeText={(v) => { setFamilyName(v); if (error) setError(null); }}
-                  placeholder="e.g. Sharma Family" placeholderTextColor={colors.textMuted} editable={!busy}
-                  style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]} />
-              </View>
-              <View>
-                <T variant="label" muted>Family member names (comma separated) *</T>
-                <TextInput testID="jt-family-members" value={familyText}
+                  placeholder="e.g. Sharma Family" editable={!busy} />
+                <Input testID="jt-family-members" label="Family member names (comma separated) *" value={familyText}
                   onChangeText={(v) => { setFamilyText(v); if (error) setError(null); }}
-                  placeholder="e.g. Arjun, Priya, Rohan" placeholderTextColor={colors.textMuted} editable={!busy}
-                  style={[styles.input, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border }]} />
-                <T muted variant="caption" style={{ marginTop: 4 }}>
-                  List everyone in your family, including yourself. Expenses on this family split per member.
-                </T>
+                  placeholder="e.g. Arjun, Priya, Rohan" editable={!busy}
+                  helper="List everyone in your family, including yourself. Expenses on this family split per member." />
               </View>
-            </View>
-          )}
+            )}
 
-          {error ? <T testID="jt-error" variant="caption" color={colors.owing}>{error}</T> : null}
+            {error ? <T testID="jt-error" variant="caption" color={colors.danger}>{error}</T> : null}
 
-          <TouchableOpacity testID="jt-join-confirm" onPress={submitJoin} disabled={confirmDisabled}
-            style={[styles.btn, { backgroundColor: colors.primary, opacity: confirmDisabled ? 0.5 : 1 }]}>
-            {busy ? <ActivityIndicator color={colors.primaryText} /> : <T color={colors.primaryText} variant="h3">Join trip</T>}
-          </TouchableOpacity>
+            <Button label="Join trip" icon="check" onPress={submitJoin} loading={busy} disabled={confirmDisabled} fullWidth size="lg" testID="jt-join-confirm" />
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -262,11 +245,8 @@ export default function JoinTrip() {
 }
 
 const styles = StyleSheet.create({
-  codeInput: { paddingHorizontal: SPACING.md, paddingVertical: 16, borderRadius: RADIUS.md, borderWidth: 1, fontSize: 24, letterSpacing: 6, textAlign: 'center', fontWeight: '700' },
-  input: { marginTop: 4, paddingHorizontal: SPACING.md, paddingVertical: CONTROL.paddingY, borderRadius: CONTROL.radius, borderWidth: 1, fontSize: CONTROL.fontSize },
-  btn: { paddingVertical: 16, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
+  brand: { width: 52, height: 52, borderRadius: RADIUS.lg, alignItems: 'center', justifyContent: 'center' },
+  codeInput: { paddingHorizontal: SPACING.md, paddingVertical: 16, borderRadius: RADIUS.md, borderWidth: 1, fontSize: 26, letterSpacing: 8, textAlign: 'center', fontFamily: FONTS.numberBold },
   modeCard: { flexDirection: 'row', alignItems: 'center', padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1 },
   familyRow: { flexDirection: 'row', alignItems: 'center', padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1 },
-  badge: { borderWidth: 1, borderRadius: RADIUS.sm, paddingHorizontal: 6, paddingVertical: 1 },
-  badgeText: { fontWeight: '700', fontSize: 10 },
 });

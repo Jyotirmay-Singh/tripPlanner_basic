@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Platform } from 'react-native';
+import { Pressable, StyleSheet, ActivityIndicator, Platform } from 'react-native';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons'; // brand logo only (lucide has no brand glyphs)
 import { useRouter } from 'expo-router';
 import { useAuth } from './AuthContext';
 import { useTheme } from './ThemeContext';
-import { SPACING, RADIUS } from './theme';
+import { SPACING, RADIUS, FONTS } from './theme';
 import T from './T';
+import { useToast } from './ui';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -29,6 +30,7 @@ function GoogleSignInInner() {
   const { signInWithGoogle } = useAuth();
   const { colors } = useTheme();
   const router = useRouter();
+  const toast = useToast();
   const [loading, setLoading] = useState(false);
 
   const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
@@ -40,7 +42,7 @@ function GoogleSignInInner() {
 
   useEffect(() => {
     if (response?.type !== 'success') {
-      if (response?.type === 'error') Alert.alert('Google sign-in failed', 'Try again');
+      if (response?.type === 'error') toast.show('Google sign-in failed. Try again.', 'error');
       return;
     }
     const idToken = response.params?.id_token || response.authentication?.idToken;
@@ -48,24 +50,29 @@ function GoogleSignInInner() {
     setLoading(true);
     signInWithGoogle(idToken)
       .then(() => router.replace('/(tabs)/dashboard'))
-      .catch((e: any) => Alert.alert('Google sign-in failed', e.message || 'Try again'))
+      .catch((e: any) => toast.show(e.message || 'Google sign-in failed', 'error'))
       .finally(() => setLoading(false));
-  }, [response, router, signInWithGoogle]);
+  }, [response, router, signInWithGoogle, toast]);
 
   return (
-    <TouchableOpacity
+    <Pressable
       testID="google-signin"
       disabled={!request || loading}
       onPress={() => promptAsync()}
-      style={[styles.btn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+      accessibilityRole="button"
+      accessibilityLabel="Continue with Google"
+      style={({ pressed }) => [
+        styles.btn,
+        { backgroundColor: colors.surface, borderColor: colors.border, opacity: pressed ? 0.9 : 1 },
+      ]}
     >
       {loading ? <ActivityIndicator color={colors.textMain} /> : (
         <>
           <Ionicons name="logo-google" size={18} color={colors.textMain} />
-          <T style={{ marginLeft: SPACING.sm, fontWeight: '700' }}>Continue with Google</T>
+          <T style={{ marginLeft: SPACING.sm, fontFamily: FONTS.bodyBold }}>Continue with Google</T>
         </>
       )}
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 
