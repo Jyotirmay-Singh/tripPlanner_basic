@@ -9,12 +9,12 @@ from database import client, db
 from utils.common import gen_id, now_utc
 from utils.email_rules import is_allowed_email
 from utils.security import hash_secret
-from routes import auth, trips, members, expenses, balances, reports, meta
+from routes import auth, trips, members, expenses, balances, reports, meta, receipts
 
 app = FastAPI(title="Trip Splitter")
 api = APIRouter(prefix="/api")
 
-for module in (auth, trips, members, expenses, balances, reports, meta):
+for module in (auth, trips, members, expenses, balances, reports, meta, receipts):
     api.include_router(module.router)
 
 
@@ -24,6 +24,8 @@ async def startup():
     await db.users.create_index("email", unique=True)
     await db.trips.create_index("code", unique=True)
     await db.expenses.create_index([("trip_id", 1), ("created_at", -1)])
+    # Step 22: index GridFS receipt lookup/cleanup by the owning expense.
+    await db["receipts.files"].create_index("metadata.expense_id")
     # backfill admin_ids for legacy trips (root admin = owner)
     await db.trips.update_many(
         {"$or": [{"admin_ids": {"$exists": False}}, {"admin_ids": None}, {"admin_ids": []}]},

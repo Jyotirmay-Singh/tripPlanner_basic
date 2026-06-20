@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { api } from '../../../src/api';
+import { api, uploadReceipt } from '../../../src/api';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, CONTROL, CATEGORIES } from '../../../src/theme';
 import T from '../../../src/T';
@@ -39,7 +39,8 @@ export default function AddExpense() {
   const [splitMode, setSplitMode] = useState<SplitMode>('PER_CAPITA');
   const [weightOverrides, setWeightOverrides] = useState<Record<string, number>>({});
   const [allInited, setAllInited] = useState(false);
-  const [receipt, setReceipt] = useState<string | null>(null);
+  // Step 22: hold the picked bill image locally; it's uploaded to GridFS after the expense is created.
+  const [receiptAsset, setReceiptAsset] = useState<{ uri: string; mimeType?: string; fileName?: string } | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -55,8 +56,9 @@ export default function AddExpense() {
   }, [id]);
 
   const applyAsset = (r: ImagePicker.ImagePickerResult) => {
-    if (!r.canceled && r.assets[0]?.base64) {
-      setReceipt(`data:image/jpeg;base64,${r.assets[0].base64}`);
+    if (!r.canceled && r.assets[0]?.uri) {
+      const a = r.assets[0];
+      setReceiptAsset({ uri: a.uri, mimeType: a.mimeType || 'image/jpeg', fileName: a.fileName ?? undefined });
     }
   };
 
@@ -64,7 +66,7 @@ export default function AddExpense() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) return Alert.alert('Permission needed', 'Allow photo access to attach a receipt.');
     applyAsset(await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'], quality: 0.4, base64: true, allowsEditing: true,
+      mediaTypes: ['images'], quality: 0.4, allowsEditing: true,
     }));
   };
 
@@ -72,11 +74,17 @@ export default function AddExpense() {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) return Alert.alert('Permission needed', 'Allow camera access to capture a receipt.');
     applyAsset(await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'], quality: 0.4, base64: true, allowsEditing: true,
+      mediaTypes: ['images'], quality: 0.4, allowsEditing: true,
     }));
   };
 
   const chooseReceiptSource = () => {
+    // Web has no native action sheet (RN Alert buttons don't render in the browser), so go
+    // straight to the file picker. Native keeps the Take photo / Choose from library choice.
+    if (Platform.OS === 'web') {
+      pickFromLibrary();
+      return;
+    }
     Alert.alert('Add receipt', undefined, [
       { text: 'Take photo', onPress: takePhoto },
       { text: 'Choose from library', onPress: pickFromLibrary },
@@ -109,7 +117,6 @@ export default function AddExpense() {
         split_member_ids: allSelected ? [] : splitSel,
         split_mode: splitMode,
         weight_snapshots: Object.keys(snapshots).length ? snapshots : null,
-        receipt_base64: receipt,
       };
       const qs = force ? '?force=true' : '';
       const res = await api<any>(`/trips/${id}/expenses${qs}`, { method: 'POST', body });
@@ -119,6 +126,15 @@ export default function AddExpense() {
           { text: 'Cancel', style: 'cancel' },
           { text: 'Save anyway', onPress: () => submit(true) },
         ]);
+      }
+      // Step 22: now that the expense exists, upload the bill image (if any) to GridFS.
+      const newId = res.expense?.id;
+      if (receiptAsset && newId) {
+        try {
+          await uploadReceipt(id, newId, receiptAsset);
+        } catch (e: any) {
+          Alert.alert('Saved, but receipt upload failed', e.message || 'You can re-attach it from the transaction.');
+        }
       }
       router.back();
     } catch (e: any) { Alert.alert('Error', e.message); }
@@ -277,12 +293,12 @@ export default function AddExpense() {
           {/* Receipt */}
           <View>
             <T variant="label" muted>Receipt (optional)</T>
-            {receipt ? (
+            {receiptAsset ? (
               <View style={{ marginTop: 6 }}>
                 <TouchableOpacity testID="receipt-view" activeOpacity={0.8} onPress={() => setViewerOpen(true)}>
-                  <Image source={{ uri: receipt }} style={{ width: '100%', height: 200, borderRadius: RADIUS.lg }} />
+                  <Image source={{ uri: receiptAsset.uri }} style={{ width: '100%', height: 200, borderRadius: RADIUS.lg }} />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => setReceipt(null)} style={{ marginTop: 8, alignSelf: 'flex-start' }}>
+                <TouchableOpacity onPress={() => setReceiptAsset(null)} style={{ marginTop: 8, alignSelf: 'flex-start' }}>
                   <T color={colors.owing}>Remove</T>
                 </TouchableOpacity>
               </View>
@@ -295,7 +311,7 @@ export default function AddExpense() {
             )}
           </View>
 
-          <ReceiptViewer uri={receipt} visible={viewerOpen} onClose={() => setViewerOpen(false)} />
+          <ReceiptViewer uri={receiptAsset?.uri ?? null} visible={viewerOpen} onClose={() => setViewerOpen(false)} />
 
           <TouchableOpacity testID="ae-submit" onPress={() => submit(false)} disabled={saving}
             style={[styles.btn, { backgroundColor: colors.primary }]}>
