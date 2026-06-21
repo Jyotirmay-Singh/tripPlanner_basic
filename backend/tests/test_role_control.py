@@ -99,7 +99,7 @@ class TestRoleControlAPI:
     def _register_user(self, api_client, name="Role User"):
         email = f"TEST_role_{uuid.uuid4().hex[:8]}@gmail.com"
         resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
-            "email": email, "password": "test1234", "pin": "5678", "name": name,
+            "email": email, "password": "test12345", "pin": "5678", "name": name,
         })
         assert resp.status_code == 200, resp.text
         data = resp.json()

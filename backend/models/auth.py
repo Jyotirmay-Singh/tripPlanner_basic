@@ -7,7 +7,7 @@ class RegisterIn(BaseModel):
     email: EmailStr
     pin: str = Field(min_length=4, max_length=4)
     name: str = Field(min_length=1)
-    password: Optional[str] = None  # legacy, optional
+    password: str = Field(min_length=1)  # required; length rule (>=9) enforced in route
 
 
 class LoginIn(BaseModel):
@@ -22,6 +22,12 @@ class ForgotIn(BaseModel):
 
 class ResetPinIn(BaseModel):
     token: str
+    new_pin: str = Field(min_length=4, max_length=4)
+
+
+class ResetPinByPasswordIn(BaseModel):
+    email: EmailStr
+    password: str
     new_pin: str = Field(min_length=4, max_length=4)
 
 

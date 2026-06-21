@@ -53,7 +53,7 @@ class TestRegisterLoginDomain:
     def test_register_non_gmail_rejected(self, api_client):
         response = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": f"TEST_{uuid.uuid4().hex[:8]}@yahoo.com",
-            "password": "test1234",
+            "password": "test12345",
             "pin": "4321",
             "name": "Non Gmail"
         })
@@ -63,7 +63,7 @@ class TestRegisterLoginDomain:
         email = f"TEST_{uuid.uuid4().hex[:8]}@gmail.com"
         response = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": email,
-            "password": "test1234",
+            "password": "test12345",
             "pin": "4321",
             "name": "Gmail User"
         })

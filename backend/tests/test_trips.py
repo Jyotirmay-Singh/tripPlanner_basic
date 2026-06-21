@@ -126,7 +126,7 @@ class TestTrips:
         user2_email = f"TEST_join_{uuid.uuid4().hex[:8]}@gmail.com"
         user2_resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": user2_email,
-            "password": "test1234",
+            "password": "test12345",
             "pin": "5678",
             "name": "User Two"
         })
@@ -165,7 +165,7 @@ class TestTrips:
         import uuid
         user2_resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": f"TEST_other_{uuid.uuid4().hex[:8]}@gmail.com",
-            "password": "test1234",
+            "password": "test12345",
             "pin": "9999",
             "name": "Other User"
         })

@@ -40,7 +40,7 @@ class TestAuth:
         email = f"test_reg_{uuid.uuid4().hex[:8]}@gmail.com"
         response = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": email,
-            "password": "test1234",
+            "password": "test12345",
             "pin": "4321",
             "name": "Test User"
         })
@@ -55,7 +55,7 @@ class TestAuth:
         """Test registration with duplicate email fails"""
         response = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": "admin@gmail.com",
-            "password": "test1234",
+            "password": "test12345",
             "pin": "4321",
             "name": "Duplicate"
         })
@@ -65,7 +65,7 @@ class TestAuth:
         """Test registration with non-digit PIN fails"""
         response = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": f"TEST_{uuid.uuid4().hex[:8]}@gmail.com",
-            "password": "test1234",
+            "password": "test12345",
             "pin": "abcd",
             "name": "Test"
         })
@@ -193,3 +193,56 @@ class TestAuth:
             "new_pin": "5678"
         })
         assert response.status_code == 400
+
+    def test_register_short_password(self, api_client):
+        """Registration with a password shorter than 9 chars is rejected server-side."""
+        response = api_client.post(f"{BASE_URL}/api/auth/register", json={
+            "email": f"test_short_{uuid.uuid4().hex[:8]}@gmail.com",
+            "password": "test1234",  # 8 chars -> too short
+            "pin": "4321",
+            "name": "Short Pass"
+        })
+        assert response.status_code == 400, response.text
+
+    def test_reset_pin_by_password_success(self, api_client):
+        """Forgot-PIN via password: the correct password lets you set a new PIN."""
+        email = f"test_rpbp_{uuid.uuid4().hex[:8]}@gmail.com"
+        reg = api_client.post(f"{BASE_URL}/api/auth/register", json={
+            "email": email, "password": "rightpass123", "pin": "1111", "name": "RPBP",
+        })
+        assert reg.status_code == 200, reg.text
+
+        reset = api_client.post(f"{BASE_URL}/api/auth/reset-pin-by-password", json={
+            "email": email, "password": "rightpass123", "new_pin": "2222",
+        })
+        assert reset.status_code == 200, reset.text
+
+        # New PIN works; old PIN no longer does
+        new_login = api_client.post(f"{BASE_URL}/api/auth/login", json={"email": email, "pin": "2222"})
+        assert new_login.status_code == 200
+        old_login = api_client.post(f"{BASE_URL}/api/auth/login", json={"email": email, "pin": "1111"})
+        assert old_login.status_code == 401
+
+    def test_reset_pin_by_password_wrong_password(self, api_client):
+        """Wrong password on reset is rejected with a generic 401 and does not change the PIN."""
+        email = f"test_rpbp_wrong_{uuid.uuid4().hex[:8]}@gmail.com"
+        reg = api_client.post(f"{BASE_URL}/api/auth/register", json={
+            "email": email, "password": "rightpass123", "pin": "1111", "name": "RPBP Wrong",
+        })
+        assert reg.status_code == 200, reg.text
+
+        reset = api_client.post(f"{BASE_URL}/api/auth/reset-pin-by-password", json={
+            "email": email, "password": "wrongpass999", "new_pin": "2222",
+        })
+        assert reset.status_code == 401
+        # Original PIN still valid — the failed reset must not have changed it.
+        still_old = api_client.post(f"{BASE_URL}/api/auth/login", json={"email": email, "pin": "1111"})
+        assert still_old.status_code == 200
+
+    def test_reset_pin_by_password_unknown_email(self, api_client):
+        """Unknown email on reset returns the same generic 401 (no account disclosure)."""
+        reset = api_client.post(f"{BASE_URL}/api/auth/reset-pin-by-password", json={
+            "email": f"nobody_{uuid.uuid4().hex[:8]}@gmail.com",
+            "password": "whatever123", "new_pin": "2222",
+        })
+        assert reset.status_code == 401

@@ -1,0 +1,42 @@
+# Trip Splitter local stack: MongoDB (durable) + FastAPI backend.
+# The Expo frontend stays host-run (`cd frontend && yarn web`) against http://127.0.0.1:8000.
+#
+#   docker compose up -d --build      # start
+#   docker compose down               # stop (KEEPS data — named volume is preserved)
+#   docker compose down -v            # stop AND wipe the database volume
+services:
+  mongo:
+    image: mongo:7
+    container_name: tripsplitter-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      # Named volume → user records survive `docker compose down && up` and new sessions.
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  backend:
+    build: ./backend
+    container_name: tripsplitter-backend
+    restart: unless-stopped
+    # Secrets (JWT_SECRET, ADMIN_*, DB_NAME, RESEND_*, GOOGLE_CLIENT_ID, …) come from the
+    # host file at runtime; it is never baked into the image (see backend/.dockerignore).
+    env_file:
+      - ./backend/.env
+    # Override MONGO_URL to reach Mongo over the compose network (takes precedence over env_file).
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+volumes:
+  mongo_data:

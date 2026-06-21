@@ -1,0 +1,13 @@
+# Keep the build context (and image) small and secret-free.
+.venv/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+*.log
+
+# Secrets are provided at runtime via docker-compose env_file — never bake them into the image.
+.env
+.env.*
+
+# Integration tests run against the live server from the host, not inside the image.
+tests/

@@ -9,13 +9,17 @@ from google.oauth2 import id_token as google_id_token
 
 from config import logger, RESEND_API_KEY, SENDER_EMAIL, APP_URL, GOOGLE_CLIENT_ID
 from database import db
-from models.auth import RegisterIn, LoginIn, ForgotIn, ResetPinIn, GoogleAuthIn
+from models.auth import RegisterIn, LoginIn, ForgotIn, ResetPinIn, ResetPinByPasswordIn, GoogleAuthIn
 from utils.common import gen_id, now_utc
 from utils.email_rules import assert_gmail, normalize_email
 from utils.security import hash_secret, verify_secret, create_token
 from utils.deps import get_current_user
 
 router = APIRouter()
+
+# Minimum account-password length (length-only; no complexity rules). Mirrored client-side in
+# frontend/src/validation.ts (MIN_PASSWORD_LENGTH).
+MIN_PASSWORD_LENGTH = 9
 
 
 # ---------- Auth ----------
@@ -27,9 +31,10 @@ async def register(body: RegisterIn):
         raise HTTPException(400, "Email already registered")
     if not body.pin.isdigit():
         raise HTTPException(400, "PIN must be 4 digits")
+    if len(body.password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(400, f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
     uid = gen_id()
-    # Password is optional now; PIN is the primary credential.
-    password_hash = hash_secret(body.password) if body.password else hash_secret(secrets.token_urlsafe(16))
+    password_hash = hash_secret(body.password)
     doc = {
         "id": uid, "email": email, "name": body.name,
         "password_hash": password_hash,
@@ -114,6 +119,23 @@ async def reset_pin(body: ResetPinIn):
     await db.users.update_one({"id": rec["user_id"]},
                               {"$set": {"pin_hash": hash_secret(body.new_pin)}})
     await db.password_reset_tokens.update_one({"token": body.token}, {"$set": {"used": True}})
+    return {"ok": True}
+
+
+@router.post("/auth/reset-pin-by-password")
+async def reset_pin_by_password(body: ResetPinByPasswordIn):
+    # Self-service PIN reset: prove ownership with the account password (no email round-trip),
+    # then set a new PIN. Errors are deliberately generic so we never reveal whether the email
+    # exists or which field was wrong.
+    if not body.new_pin.isdigit():
+        raise HTTPException(400, "PIN must be 4 digits")
+    email = body.email.lower().strip()
+    assert_gmail(email)
+    user = await db.users.find_one({"email": email})
+    if not user or not verify_secret(body.password, user["password_hash"]):
+        raise HTTPException(401, "Invalid email or password")
+    await db.users.update_one({"id": user["id"]},
+                              {"$set": {"pin_hash": hash_secret(body.new_pin)}})
     return {"ok": True}
 
 

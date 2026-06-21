@@ -23,7 +23,7 @@ class TestTripRBAC:
         email = f"TEST_rbac_{uuid.uuid4().hex[:8]}@gmail.com"
         resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": email,
-            "password": "test1234",
+            "password": "test12345",
             "pin": "5678",
             "name": name
         })

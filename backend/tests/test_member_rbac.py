@@ -33,7 +33,7 @@ class TestMemberRBAC:
         email = f"TEST_memrbac_{uuid.uuid4().hex[:8]}@gmail.com"
         resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": email,
-            "password": "test1234",
+            "password": "test12345",
             "pin": "5678",
             "name": name,
         })
@@ -291,7 +291,7 @@ class TestMemberRBAC:
 
         joiner_email = f"TEST_merge_{uuid.uuid4().hex[:8]}@gmail.com"
         reg = api_client.post(f"{BASE_URL}/api/auth/register", json={
-            "email": joiner_email, "password": "test1234", "pin": "5678", "name": "Merge Joiner",
+            "email": joiner_email, "password": "test12345", "pin": "5678", "name": "Merge Joiner",
         })
         assert reg.status_code == 200, reg.text
         self._join_trip(api_client, reg.json()["access_token"], trip["code"])
