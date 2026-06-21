@@ -12,7 +12,7 @@ class TestSplitMode:
     def _create_trip_and_member(self, api_client, test_user, name):
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": name,
-            "travel_date": "10-05-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "INR"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = trip_resp.json()["id"]

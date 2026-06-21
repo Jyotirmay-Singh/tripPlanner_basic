@@ -7,12 +7,13 @@ import { useTheme } from '../../src/ThemeContext';
 import { SPACING, RADIUS } from '../../src/theme';
 import T from '../../src/T';
 import { compositionLabel } from '../../src/composition';
+import { formatTripDates } from '../../src/date';
 import {
   Screen, Card, Button, StatCard, ListRow, EmptyState, AmountText, SkeletonCard,
 } from '../../src/ui';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
-type Trip = { id: string; name: string; code: string; travel_date: string; budget?: number; currency: string; members: Member[] };
+type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; members: Member[] };
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -108,7 +109,7 @@ export default function Dashboard() {
             testID={`dash-trip-${t.id}`}
             icon="plane"
             title={t.name}
-            subtitle={`${t.travel_date} · ${t.currency} · Code ${t.code}`}
+            subtitle={`${formatTripDates(t)} · ${t.currency} · Code ${t.code}`}
             meta={compositionLabel(t.members)}
             onPress={() => router.push(`/trip/${t.id}`)}
           />

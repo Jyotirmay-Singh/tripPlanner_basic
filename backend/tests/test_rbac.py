@@ -13,7 +13,7 @@ class TestTripRBAC:
     def _create_trip(self, api_client, token, name="TEST_RBAC Trip"):
         resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": name,
-            "travel_date": "15-05-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "USD"
         }, headers={"Authorization": f"Bearer {token}"})
         assert resp.status_code == 200, resp.text

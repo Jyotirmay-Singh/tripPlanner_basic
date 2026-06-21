@@ -12,15 +12,17 @@ class TestTrips:
         """Test POST /trips creates trip with unique code and auto-adds owner as member"""
         response = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Beach Trip",
-            "travel_date": "15-05-26",
+            "start_date": "2026-05-15",
+            "end_date": "2026-05-20",
             "budget": 5000.0,
             "currency": "USD"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
-        
+
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
         data = response.json()
         assert data["name"] == "TEST_Beach Trip"
-        assert data["travel_date"] == "15-05-26"
+        assert data["start_date"] == "2026-05-15"
+        assert data["end_date"] == "2026-05-20"
         assert data["budget"] == 5000.0
         assert data["currency"] == "USD"
         assert "code" in data
@@ -37,7 +39,8 @@ class TestTrips:
         # Create a trip first
         create_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_List Trip",
-            "travel_date": "20-06-26",
+            "start_date": "2026-06-20",
+            "end_date": "2026-06-25",
             "currency": "INR"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         assert create_resp.status_code == 200
@@ -57,7 +60,8 @@ class TestTrips:
         # Create trip
         create_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Get Trip",
-            "travel_date": "25-07-26",
+            "start_date": "2026-07-25",
+            "end_date": "2026-07-30",
             "currency": "EUR"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = create_resp.json()["id"]
@@ -76,7 +80,8 @@ class TestTrips:
         # Create trip
         create_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Old Name",
-            "travel_date": "10-08-26",
+            "start_date": "2026-08-10",
+            "end_date": "2026-08-15",
             "currency": "GBP"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = create_resp.json()["id"]
@@ -102,7 +107,8 @@ class TestTrips:
         # Create trip
         create_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Delete Trip",
-            "travel_date": "15-09-26",
+            "start_date": "2026-09-15",
+            "end_date": "2026-09-20",
             "currency": "INR"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = create_resp.json()["id"]
@@ -136,7 +142,8 @@ class TestTrips:
         # User 1 creates trip
         create_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Join Trip",
-            "travel_date": "20-10-26",
+            "start_date": "2026-10-20",
+            "end_date": "2026-10-25",
             "currency": "USD"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_code = create_resp.json()["code"]
@@ -173,7 +180,8 @@ class TestTrips:
         
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Private Trip",
-            "travel_date": "01-11-26",
+            "start_date": "2026-11-01",
+            "end_date": "2026-11-05",
             "currency": "INR"
         }, headers={"Authorization": f"Bearer {user2_token}"})
         trip_id = trip_resp.json()["id"]
@@ -183,3 +191,61 @@ class TestTrips:
             "Authorization": f"Bearer {test_user['token']}"
         })
         assert response.status_code == 403
+
+    # ---------- Date range validation ----------
+    def test_create_trip_same_day_allowed(self, api_client, test_user):
+        """Same-day trip (start == end) is valid."""
+        response = api_client.post(f"{BASE_URL}/api/trips", json={
+            "name": "TEST_Same Day", "start_date": "2026-12-11", "end_date": "2026-12-11",
+            "currency": "INR",
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["start_date"] == "2026-12-11"
+        assert data["end_date"] == "2026-12-11"
+
+    def test_create_trip_end_before_start_rejected(self, api_client, test_user):
+        """End date before start date is rejected with 400."""
+        response = api_client.post(f"{BASE_URL}/api/trips", json={
+            "name": "TEST_Bad Range", "start_date": "2026-12-21", "end_date": "2026-12-11",
+            "currency": "INR",
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        assert response.status_code == 400, response.text
+
+    def test_create_trip_invalid_date_rejected(self, api_client, test_user):
+        """An impossible calendar date is rejected with 400."""
+        response = api_client.post(f"{BASE_URL}/api/trips", json={
+            "name": "TEST_Bad Date", "start_date": "2026-02-31", "end_date": "2026-03-05",
+            "currency": "INR",
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        assert response.status_code == 400, response.text
+
+    def test_update_trip_dates_persist(self, api_client, test_user):
+        """PATCH can change the date range and it persists."""
+        create_resp = api_client.post(f"{BASE_URL}/api/trips", json={
+            "name": "TEST_Date Update", "start_date": "2026-01-10", "end_date": "2026-01-15",
+            "currency": "INR",
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        trip_id = create_resp.json()["id"]
+
+        response = api_client.patch(f"{BASE_URL}/api/trips/{trip_id}", json={
+            "start_date": "2026-01-12", "end_date": "2026-01-20",
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["start_date"] == "2026-01-12"
+        assert data["end_date"] == "2026-01-20"
+
+    def test_update_trip_inverting_range_rejected(self, api_client, test_user):
+        """An edit that moves the start past the existing end is rejected with 400."""
+        create_resp = api_client.post(f"{BASE_URL}/api/trips", json={
+            "name": "TEST_Invert", "start_date": "2026-01-10", "end_date": "2026-01-15",
+            "currency": "INR",
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        trip_id = create_resp.json()["id"]
+
+        # Only start_date changes, to a value after the existing end_date.
+        response = api_client.patch(f"{BASE_URL}/api/trips/{trip_id}", json={
+            "start_date": "2026-01-20",
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        assert response.status_code == 400, response.text

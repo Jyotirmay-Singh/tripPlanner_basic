@@ -4,6 +4,7 @@ from database import db
 from models.trip import TripIn, TripUpdate, AdminGrant, OwnershipTransfer
 from models.join import JoinRequest, JoinPreviewRequest
 from utils.common import gen_id, gen_trip_code, now_utc
+from utils.date_rules import assert_valid_range, ensure_date_range
 from utils.deps import get_current_user, _trip_or_404, _trip_admin_or_403, _trip_owner_or_403
 from utils.email_rules import assert_gmail, normalize_email
 from utils.members import (
@@ -34,6 +35,8 @@ def _unique_individual_name(members: list, name: str, email: str) -> str:
 # ---------- Trips ----------
 @router.post("/trips")
 async def create_trip(body: TripIn, user=Depends(get_current_user)):
+    # Calendar dates are stored as 'YYYY-MM-DD'; reject impossible dates and end-before-start.
+    assert_valid_range(body.start_date, body.end_date)
     tid = gen_id()
     code = gen_trip_code()
     while await db.trips.find_one({"code": code}):
@@ -44,7 +47,8 @@ async def create_trip(body: TripIn, user=Depends(get_current_user)):
         "family_members": [], "email": user["email"], "user_id": user["id"],
     }
     doc = {
-        "id": tid, "code": code, "name": body.name, "travel_date": body.travel_date,
+        "id": tid, "code": code, "name": body.name,
+        "start_date": body.start_date.strip(), "end_date": body.end_date.strip(),
         "budget": body.budget, "currency": body.currency or "INR",
         "owner_id": user["id"], "user_ids": [user["id"]],
         "admin_ids": [user["id"]],
@@ -59,12 +63,13 @@ async def create_trip(body: TripIn, user=Depends(get_current_user)):
 @router.get("/trips")
 async def list_trips(user=Depends(get_current_user)):
     cur = db.trips.find({"user_ids": user["id"]}, {"_id": 0}).sort("created_at", -1)
-    return await cur.to_list(500)
+    trips = await cur.to_list(500)
+    return [ensure_date_range(t) for t in trips]
 
 
 @router.get("/trips/{trip_id}")
 async def get_trip(trip_id: str, user=Depends(get_current_user)):
-    return await _trip_or_404(trip_id, user["id"])
+    return ensure_date_range(await _trip_or_404(trip_id, user["id"]))
 
 
 @router.patch("/trips/{trip_id}")
@@ -72,9 +77,19 @@ async def update_trip(trip_id: str, body: TripUpdate, user=Depends(get_current_u
     # Step 23: editing trip settings is an Owner/Admin capability; a plain member is rejected.
     trip = await _trip_admin_or_403(trip_id, user["id"])
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    # If either date is changing, validate the resulting range against the existing values.
+    if "start_date" in updates or "end_date" in updates:
+        existing = ensure_date_range(dict(trip))
+        new_start = updates.get("start_date", existing.get("start_date"))
+        new_end = updates.get("end_date", existing.get("end_date"))
+        assert_valid_range(new_start, new_end)
+        if "start_date" in updates:
+            updates["start_date"] = updates["start_date"].strip()
+        if "end_date" in updates:
+            updates["end_date"] = updates["end_date"].strip()
     if updates:
         await db.trips.update_one({"id": trip_id}, {"$set": updates})
-    return await db.trips.find_one({"id": trip_id}, {"_id": 0})
+    return ensure_date_range(await db.trips.find_one({"id": trip_id}, {"_id": 0}))
 
 
 @router.delete("/trips/{trip_id}")
@@ -189,6 +204,7 @@ async def join_preview(body: JoinPreviewRequest, user=Depends(get_current_user))
     trip = await db.trips.find_one({"code": code}, {"_id": 0})
     if not trip:
         raise HTTPException(404, "Trip not found")
+    ensure_date_range(trip)
     members = trip.get("members", [])
     user_email = normalize_email(user["email"])
     families = [
@@ -207,7 +223,8 @@ async def join_preview(body: JoinPreviewRequest, user=Depends(get_current_user))
     return {
         "trip": {
             "id": trip["id"], "name": trip["name"], "code": trip["code"],
-            "travel_date": trip.get("travel_date"), "currency": trip.get("currency"),
+            "start_date": trip.get("start_date"), "end_date": trip.get("end_date"),
+            "currency": trip.get("currency"),
             "member_count": len(members),
         },
         "already_member": user["id"] in trip.get("user_ids", []),

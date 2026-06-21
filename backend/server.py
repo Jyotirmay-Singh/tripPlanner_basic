@@ -8,6 +8,7 @@ from starlette.middleware.cors import CORSMiddleware
 from config import logger
 from database import client, db
 from utils.common import gen_id, now_utc
+from utils.date_rules import legacy_to_iso
 from utils.email_rules import is_allowed_email
 from utils.security import hash_secret
 from routes import auth, trips, members, expenses, balances, reports, meta, receipts
@@ -28,6 +29,16 @@ async def lifespan(app: FastAPI):
         {"$or": [{"admin_ids": {"$exists": False}}, {"admin_ids": None}, {"admin_ids": []}]},
         [{"$set": {"admin_ids": ["$owner_id"]}}],
     )
+    # backfill start_date/end_date for legacy single-date trips: parse the old DD-MM-YY
+    # travel_date into YYYY-MM-DD and set both endpoints to it (idempotent — only un-migrated
+    # trips). Done in Python since DD-MM-YY parsing is awkward in an aggregation pipeline.
+    async for t in db.trips.find({"start_date": {"$exists": False}}, {"id": 1, "travel_date": 1}):
+        iso_date = legacy_to_iso(t.get("travel_date"))
+        if iso_date:
+            await db.trips.update_one(
+                {"id": t["id"]},
+                {"$set": {"start_date": iso_date, "end_date": iso_date}},
+            )
     # seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@gmail.com").lower().strip()
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")

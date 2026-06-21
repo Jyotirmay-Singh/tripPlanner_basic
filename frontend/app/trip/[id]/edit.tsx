@@ -6,7 +6,8 @@ import { api } from '../../../src/api';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, CURRENCIES, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
-import { Input, Button, Pill, useToast } from '../../../src/ui';
+import { Input, DateField, Button, Pill, useToast } from '../../../src/ui';
+import { fromISO, toISO, isRangeValid, INVALID_DATE_MESSAGE, END_BEFORE_START_MESSAGE } from '../../../src/date';
 
 export default function EditTrip() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -14,24 +15,32 @@ export default function EditTrip() {
   const router = useRouter();
   const toast = useToast();
   const [name, setName] = useState('');
-  const [date, setDate] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [dateError, setDateError] = useState<string | null>(null);
   const [budget, setBudget] = useState('');
   const [currency, setCurrency] = useState('INR');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     api<any>(`/trips/${id}`).then((t) => {
-      setName(t.name); setDate(t.travel_date);
+      setName(t.name);
+      setStartDate(fromISO(t.start_date)); setEndDate(fromISO(t.end_date));
       setBudget(t.budget ? String(t.budget) : ''); setCurrency(t.currency || 'INR');
     });
   }, [id]);
 
   const save = async () => {
+    const startISO = toISO(startDate);
+    const endISO = toISO(endDate);
+    if (!startISO || !endISO) { setDateError(INVALID_DATE_MESSAGE); return; }
+    if (!isRangeValid(startISO, endISO)) { setDateError(END_BEFORE_START_MESSAGE); return; }
+    setDateError(null);
     setSaving(true);
     try {
       await api(`/trips/${id}`, {
         method: 'PATCH',
-        body: { name, travel_date: date, budget: budget ? Number(budget) : null, currency },
+        body: { name, start_date: startISO, end_date: endISO, budget: budget ? Number(budget) : null, currency },
       });
       router.back();
     } catch (e: any) { toast.show(e.message || 'Could not save', 'error'); }
@@ -46,7 +55,8 @@ export default function EditTrip() {
             <T variant="h1">Edit trip</T>
 
             <Input testID="et-name" label="Name" value={name} onChangeText={setName} icon="plane" />
-            <Input testID="et-date" label="Travel date (DD-MM-YY)" value={date} onChangeText={setDate} icon="calendar" />
+            <DateField testID="et-start" label="Start date (dd/mm/yyyy)" value={startDate} onChangeText={(v) => { setStartDate(v); setDateError(null); }} error={dateError} />
+            <DateField testID="et-end" label="End date (dd/mm/yyyy)" value={endDate} onChangeText={(v) => { setEndDate(v); setDateError(null); }} minISO={toISO(startDate) ?? undefined} />
             <Input testID="et-budget" label="Budget" value={budget} onChangeText={setBudget} keyboardType="decimal-pad" icon="wallet" />
 
             <View>

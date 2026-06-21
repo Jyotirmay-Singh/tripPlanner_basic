@@ -30,7 +30,7 @@ class TestJoin:
 
     def _create_trip(self, api_client, token, name="TEST_Join Trip"):
         resp = api_client.post(f"{BASE_URL}/api/trips", json={
-            "name": name, "travel_date": "20-10-26", "currency": "INR",
+            "name": name, "start_date": "2026-01-10", "end_date": "2026-01-15", "currency": "INR",
         }, headers=_auth(token))
         assert resp.status_code == 200, resp.text
         return resp.json()

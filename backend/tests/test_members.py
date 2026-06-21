@@ -13,7 +13,7 @@ class TestMembers:
         # Create trip
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Member Trip",
-            "travel_date": "10-05-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "INR"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = trip_resp.json()["id"]
@@ -36,7 +36,7 @@ class TestMembers:
         # Create trip
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Family Trip",
-            "travel_date": "15-06-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "USD"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = trip_resp.json()["id"]
@@ -59,7 +59,7 @@ class TestMembers:
         # Create trip and member
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Update Member Trip",
-            "travel_date": "20-07-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "EUR"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = trip_resp.json()["id"]
@@ -88,7 +88,7 @@ class TestMembers:
         # Create trip and member
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Delete Member Trip",
-            "travel_date": "25-08-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "GBP"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = trip_resp.json()["id"]
@@ -110,7 +110,7 @@ class TestMembers:
         # Create trip
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Expense Member Trip",
-            "travel_date": "30-09-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "INR"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = trip_resp.json()["id"]

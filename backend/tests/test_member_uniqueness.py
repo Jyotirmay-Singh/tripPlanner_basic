@@ -14,7 +14,7 @@ class TestMemberUniqueness:
     def _create_trip(self, api_client, test_user, name="TEST_Uniqueness Trip"):
         resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": name,
-            "travel_date": "10-05-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "INR"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         assert resp.status_code == 200, resp.text
@@ -127,7 +127,7 @@ class TestMemberUniqueness:
         # User1 (test_user) creates a trip; its owner member name == test_user["name"]
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Join Disambiguation Trip",
-            "travel_date": "20-10-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "USD"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         assert trip_resp.status_code == 200, trip_resp.text

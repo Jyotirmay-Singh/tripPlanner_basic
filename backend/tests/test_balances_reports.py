@@ -15,7 +15,7 @@ class TestBalances:
         # Create trip with 2 members
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Balance Trip",
-            "travel_date": "10-03-27",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "INR"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = trip_resp.json()["id"]
@@ -65,7 +65,7 @@ class TestBalances:
         # Create trip with 2 members
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Settle Trip",
-            "travel_date": "15-04-27",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "USD"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = trip_resp.json()["id"]
@@ -126,7 +126,7 @@ class TestReports:
         # Create trip with expenses
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Report Trip",
-            "travel_date": "20-05-27",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "budget": 2000.0,
             "currency": "EUR"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
@@ -179,7 +179,7 @@ class TestReports:
         # Create trip with expenses
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_XLSX Report Trip",
-            "travel_date": "25-06-27",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "GBP"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = trip_resp.json()["id"]

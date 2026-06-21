@@ -5,14 +5,16 @@ from pydantic import BaseModel
 
 class TripIn(BaseModel):
     name: str
-    travel_date: str  # DD-MM-YY
+    start_date: str  # YYYY-MM-DD (timezone-free calendar date)
+    end_date: str    # YYYY-MM-DD, must be >= start_date
     budget: Optional[float] = None
     currency: str = "INR"
 
 
 class TripUpdate(BaseModel):
     name: Optional[str] = None
-    travel_date: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
     budget: Optional[float] = None
     currency: Optional[str] = None
 

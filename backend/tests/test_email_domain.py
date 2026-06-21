@@ -95,7 +95,7 @@ class TestMemberLinkedEmailDomain:
     def _create_trip(self, api_client, test_user):
         resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Email Domain Trip",
-            "travel_date": "10-05-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "INR"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         assert resp.status_code == 200, resp.text

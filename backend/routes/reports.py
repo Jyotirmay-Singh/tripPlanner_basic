@@ -7,6 +7,7 @@ from openpyxl.styles import Font, PatternFill
 
 from database import db
 from utils.deps import get_current_user, _trip_or_404
+from utils.date_rules import ensure_date_range, trip_date_label
 from utils.balances import _compute_balances
 from utils.security import decode_token
 from services.report_builder import (
@@ -21,7 +22,7 @@ router = APIRouter()
 # ---------- Reports ----------
 @router.get("/trips/{trip_id}/report")
 async def report(trip_id: str, user=Depends(get_current_user)):
-    trip = await _trip_or_404(trip_id, user["id"])
+    trip = ensure_date_range(await _trip_or_404(trip_id, user["id"]))
     expenses = await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(5000)
     bal = await _compute_balances(trip_id)
     # category breakdown
@@ -67,7 +68,7 @@ async def report_xlsx(trip_id: str, token: str,
     s1.title = "Summary"
     s1["A1"] = f"Trip: {trip['name']}"
     s1["A1"].font = Font(bold=True, size=16)
-    s1["A2"] = f"Date: {trip['travel_date']}   Currency: {trip.get('currency','INR')}"
+    s1["A2"] = f"Dates: {trip_date_label(trip)}   Currency: {trip.get('currency','INR')}"
     s1["A3"] = f"Budget: {trip.get('budget', 'N/A')}"
     total = sum(e["amount"] for e in expenses if e["kind"] == "expense")
     s1["A4"] = f"Total Spent: {round(total,2)}"

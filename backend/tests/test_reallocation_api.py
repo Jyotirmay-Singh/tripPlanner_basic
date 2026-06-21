@@ -14,7 +14,7 @@ def _h(token):
 def _setup(api_client, token, name, fam_size=2):
     """Create a trip with a family (fam_size members) + an individual. Returns ids."""
     trip = api_client.post(f"{BASE_URL}/api/trips", json={
-        "name": name, "travel_date": "10-05-26", "currency": "INR",
+        "name": name, "start_date": "2026-01-10", "end_date": "2026-01-15", "currency": "INR",
     }, headers=_h(token)).json()
     trip_id = trip["id"]
     fam = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/members", json={

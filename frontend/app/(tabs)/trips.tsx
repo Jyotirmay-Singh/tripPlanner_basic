@@ -6,10 +6,11 @@ import { useTheme } from '../../src/ThemeContext';
 import { SPACING } from '../../src/theme';
 import T from '../../src/T';
 import { compositionLabel } from '../../src/composition';
+import { formatTripDates } from '../../src/date';
 import { Screen, Card, Button, ListRow, EmptyState, SkeletonCard, Icon } from '../../src/ui';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
-type Trip = { id: string; name: string; code: string; travel_date: string; budget?: number; currency: string; members: Member[] };
+type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; members: Member[] };
 
 export default function Trips() {
   const { colors } = useTheme();
@@ -58,7 +59,7 @@ export default function Trips() {
             testID={`trip-item-${t.id}`}
             icon="plane"
             title={t.name}
-            subtitle={`${t.travel_date} · ${t.currency}${t.budget ? ` · Budget ${t.budget}` : ''}`}
+            subtitle={`${formatTripDates(t)} · ${t.currency}${t.budget ? ` · Budget ${t.budget}` : ''}`}
             meta={`${compositionLabel(t.members)} · Code ${t.code}`}
             onPress={() => router.push(`/trip/${t.id}`)}
           />

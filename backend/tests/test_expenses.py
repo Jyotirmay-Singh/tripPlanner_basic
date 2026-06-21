@@ -13,7 +13,7 @@ class TestExpenses:
         # Create trip
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Expense Trip",
-            "travel_date": "10-05-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "INR"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = trip_resp.json()["id"]
@@ -44,7 +44,7 @@ class TestExpenses:
         # Create trip with 2 members
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Split Trip",
-            "travel_date": "15-06-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "USD"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = trip_resp.json()["id"]
@@ -80,7 +80,7 @@ class TestExpenses:
         # Create trip with 3 members
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Selected Split Trip",
-            "travel_date": "20-07-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "EUR"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = trip_resp.json()["id"]
@@ -121,7 +121,7 @@ class TestExpenses:
         # Create trip with budget
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Budget Trip",
-            "travel_date": "25-08-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "budget": 1000.0,
             "currency": "GBP"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
@@ -150,7 +150,7 @@ class TestExpenses:
         # Create trip with budget
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Force Budget Trip",
-            "travel_date": "30-09-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "budget": 500.0,
             "currency": "INR"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
@@ -178,7 +178,7 @@ class TestExpenses:
         # Create trip and expense
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_List Expenses Trip",
-            "travel_date": "05-10-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "USD"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = trip_resp.json()["id"]
@@ -209,7 +209,7 @@ class TestExpenses:
         # Create trip and expense
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Update Expense Trip",
-            "travel_date": "10-11-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "EUR"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = trip_resp.json()["id"]
@@ -242,7 +242,7 @@ class TestExpenses:
         # Create trip and expense
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Delete Expense Trip",
-            "travel_date": "15-12-26",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "GBP"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = trip_resp.json()["id"]
@@ -270,7 +270,7 @@ class TestExpenses:
         # Create trip
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Family Weight Trip",
-            "travel_date": "20-01-27",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "INR"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = trip_resp.json()["id"]
@@ -313,7 +313,7 @@ class TestExpenses:
         """Test expense with invalid category fails"""
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Invalid Category Trip",
-            "travel_date": "25-02-27",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
             "currency": "USD"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         trip_id = trip_resp.json()["id"]

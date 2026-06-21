@@ -15,13 +15,14 @@ import { canModifyExpense, roleOf, canEditTripSettings, canManageMembers, canDel
 import { compositionLabel } from '../../../src/composition';
 import { receiptExpenses, billLabel } from '../../../src/gallery';
 import { formatMoney } from '../../../src/format';
+import { formatTripDates } from '../../../src/date';
 import {
   Card, Button, IconButton, Icon, SegmentedControl, StatCard, ProgressBar,
   EmptyState, AmountText, SkeletonCard, useToast,
 } from '../../../src/ui';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
-type Trip = { id: string; name: string; code: string; travel_date: string; budget?: number; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
+type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
 type Expense = { id: string; kind: 'expense' | 'income'; amount: number; category: string; description?: string; date: string; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[] }[] };
 
@@ -132,7 +133,7 @@ export default function TripDetail() {
           {/* Header card */}
           <Card variant="primary" padding="lg" radius={RADIUS.xl}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <T variant="label" color={colors.primaryText} style={{ opacity: 0.85 }}>{trip.travel_date}</T>
+              <T variant="label" color={colors.primaryText} style={{ opacity: 0.85 }}>{formatTripDates(trip)}</T>
               <TouchableOpacity testID="trip-share" onPress={shareCode} accessibilityRole="button" accessibilityLabel="Share trip code"
                 style={[styles.codeChip, { backgroundColor: colors.overlayOnPrimary }]}>
                 <Icon name="share" size={14} color={colors.primaryText} />

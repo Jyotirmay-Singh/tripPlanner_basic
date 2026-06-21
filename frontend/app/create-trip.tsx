@@ -6,32 +6,33 @@ import { api } from '../src/api';
 import { useTheme } from '../src/ThemeContext';
 import { SPACING, CURRENCIES, CONTENT_MAX_WIDTH } from '../src/theme';
 import T from '../src/T';
-import { Input, Button, Pill, useToast } from '../src/ui';
-
-function toDDMMYY(d: Date) {
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const yy = String(d.getFullYear()).slice(-2);
-  return `${dd}-${mm}-${yy}`;
-}
+import { Input, DateField, Button, Pill, useToast } from '../src/ui';
+import { fromISO, toISO, todayISO, isRangeValid, INVALID_DATE_MESSAGE, END_BEFORE_START_MESSAGE } from '../src/date';
 
 export default function CreateTrip() {
   const { colors } = useTheme();
   const router = useRouter();
   const toast = useToast();
   const [name, setName] = useState('');
-  const [date, setDate] = useState(toDDMMYY(new Date()));
+  const [startDate, setStartDate] = useState(fromISO(todayISO()));
+  const [endDate, setEndDate] = useState(fromISO(todayISO()));
+  const [dateError, setDateError] = useState<string | null>(null);
   const [budget, setBudget] = useState('');
   const [currency, setCurrency] = useState('INR');
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
-    if (!name.trim() || !date.trim()) return toast.show('Name and travel date are required', 'error');
+    if (!name.trim()) return toast.show('Trip name is required', 'error');
+    const startISO = toISO(startDate);
+    const endISO = toISO(endDate);
+    if (!startISO || !endISO) { setDateError(INVALID_DATE_MESSAGE); return; }
+    if (!isRangeValid(startISO, endISO)) { setDateError(END_BEFORE_START_MESSAGE); return; }
+    setDateError(null);
     setSaving(true);
     try {
       const trip = await api<{ id: string }>('/trips', {
         method: 'POST',
-        body: { name: name.trim(), travel_date: date.trim(), budget: budget ? Number(budget) : null, currency },
+        body: { name: name.trim(), start_date: startISO, end_date: endISO, budget: budget ? Number(budget) : null, currency },
       });
       router.replace(`/trip/${trip.id}`);
     } catch (e: any) { toast.show(e.message || 'Could not create trip', 'error'); }
@@ -46,7 +47,8 @@ export default function CreateTrip() {
             <T variant="h1">New Trip</T>
 
             <Input testID="ct-name" label="Trip name *" value={name} onChangeText={setName} placeholder="e.g. Goa December" icon="plane" />
-            <Input testID="ct-date" label="Travel date (DD-MM-YY) *" value={date} onChangeText={setDate} placeholder="15-12-26" icon="calendar" />
+            <DateField testID="ct-start" label="Start date (dd/mm/yyyy) *" value={startDate} onChangeText={(v) => { setStartDate(v); setDateError(null); }} error={dateError} />
+            <DateField testID="ct-end" label="End date (dd/mm/yyyy) *" value={endDate} onChangeText={(v) => { setEndDate(v); setDateError(null); }} minISO={toISO(startDate) ?? undefined} />
             <Input testID="ct-budget" label="Budget (optional)" value={budget} onChangeText={setBudget} keyboardType="decimal-pad" placeholder="0" icon="wallet" />
 
             <View>

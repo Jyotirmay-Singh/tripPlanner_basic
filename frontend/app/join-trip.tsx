@@ -19,7 +19,7 @@ type PreviewFamily = { id: string; name: string; size: number; linked: boolean }
 type Preview = {
   trip: {
     id: string; name: string; code: string;
-    travel_date?: string | null; currency?: string | null; member_count: number;
+    start_date?: string | null; end_date?: string | null; currency?: string | null; member_count: number;
   };
   already_member: boolean;
   matched_family: { id: string; name: string } | null;
