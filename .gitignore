@@ -68,6 +68,7 @@ chainlit.md
 .chainlit
 .ipynb_checkpoints/
 .ac
+.playwright-mcp/
 
 # Deployment
 .vercel

@@ -1,0 +1,7 @@
+# Vercel installs deps and runs the build itself; never upload these.
+node_modules
+dist
+.expo
+.metro-cache
+.vercel
+*.log
