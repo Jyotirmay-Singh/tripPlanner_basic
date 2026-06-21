@@ -1,0 +1,12 @@
+[    2114ms] Error: Minified React error #418; visit https://react.dev/errors/418?args[]= for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at bl (https://tripsplitter-web.vercel.app/_expo/static/js/web/entry-0ce9ac31ec653a5b013a1bc0a363e6cc.js:535:36758)
+    at Sl (https://tripsplitter-web.vercel.app/_expo/static/js/web/entry-0ce9ac31ec653a5b013a1bc0a363e6cc.js:535:38058)
+    at vi (https://tripsplitter-web.vercel.app/_expo/static/js/web/entry-0ce9ac31ec653a5b013a1bc0a363e6cc.js:535:89665)
+    at vc (https://tripsplitter-web.vercel.app/_expo/static/js/web/entry-0ce9ac31ec653a5b013a1bc0a363e6cc.js:535:118580)
+    at mc (https://tripsplitter-web.vercel.app/_expo/static/js/web/entry-0ce9ac31ec653a5b013a1bc0a363e6cc.js:535:117828)
+    at fc (https://tripsplitter-web.vercel.app/_expo/static/js/web/entry-0ce9ac31ec653a5b013a1bc0a363e6cc.js:535:116838)
+    at cc (https://tripsplitter-web.vercel.app/_expo/static/js/web/entry-0ce9ac31ec653a5b013a1bc0a363e6cc.js:535:116680)
+    at Js (https://tripsplitter-web.vercel.app/_expo/static/js/web/entry-0ce9ac31ec653a5b013a1bc0a363e6cc.js:535:113491)
+    at Bc (https://tripsplitter-web.vercel.app/_expo/static/js/web/entry-0ce9ac31ec653a5b013a1bc0a363e6cc.js:535:125226)
+    at jc (https://tripsplitter-web.vercel.app/_expo/static/js/web/entry-0ce9ac31ec653a5b013a1bc0a363e6cc.js:535:123816)
+[   12661ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://tripsplitter-api.onrender.com/api/auth/login:0

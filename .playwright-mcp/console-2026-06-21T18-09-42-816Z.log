@@ -1,0 +1,6 @@
+[   24337ms] [ERROR] Failed to load resource: the server responded with a status of 405 () @ https://tripsplitter-web.vercel.app/%EF%BB%BFhttps:/tripsplitter-api.onrender.com/api/auth/login:0
+[   28690ms] [WARNING] Blocked aria-hidden on an element because its descendant retained focus. The focus must not be hidden from assistive technology users. Avoid using aria-hidden on a focused element or its ancestor. Consider using the inert attribute instead, which will also prevent focus. For more details, see the aria-hidden section of the WAI-ARIA specification at https://w3c.github.io/aria/#aria-hidden.
+Element with focus: <div.css-g5y9jx r-1loqt21 r-1otgn73>
+Ancestor with aria-hidden: <div.css-g5y9jx r-13awgt0 r-1p0dtai r-1d2f490 r-u8s1d r-zchlnj r-ipm5af> @ https://tripsplitter-web.vercel.app/register:0
+[   28775ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ https://tripsplitter-web.vercel.app/register:0
+[   28775ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ https://tripsplitter-web.vercel.app/register:0
