@@ -24,14 +24,11 @@ export default function Root({ children }: PropsWithChildren) {
               body > div:first-child { position: fixed !important; top: 0; left: 0; right: 0; bottom: 0; }
               [role="tablist"] [role="tab"] * { overflow: visible !important; }
               [role="heading"], [role="heading"] * { overflow: visible !important; }
-              /* Inputs carry their own themed focus ring (see src/ui/Input.tsx). Drop the harsh
-                 default outline, but keep a branded ring for keyboard users via :focus-visible. */
+              /* Inputs carry their own themed focus ring (see src/ui/Input.tsx), so drop the
+                 browser's default outline here. No :focus-visible ring — a second, offset outline
+                 stacked on the component's ring and rendered as green corner squares + a faint
+                 double-edge (worse under fractional display scaling). */
               input, textarea, select { outline: none; }
-              input:focus-visible, textarea:focus-visible, select:focus-visible {
-                outline: 2px solid rgba(94, 158, 145, 0.7);
-                outline-offset: 1px;
-                border-radius: 8px;
-              }
             `,
           }}
         />
