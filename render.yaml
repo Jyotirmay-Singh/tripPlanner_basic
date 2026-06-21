@@ -1,0 +1,26 @@
+# Render Blueprint for the Trip Splitter FastAPI backend (free tier, Singapore).
+# Infra-only: builds backend/Dockerfile.prod and runs gunicorn bound to Render's injected $PORT.
+# Secrets are NEVER committed here — every var is `sync: false`, i.e. pasted in the Render
+# dashboard (Environment tab). PORT is injected by Render automatically; do not add it.
+services:
+  - type: web
+    name: tripsplitter-api
+    runtime: docker
+    region: singapore
+    plan: free
+    branch: main                       # set to feature/global-hosting-backend for a first test
+    dockerfilePath: ./backend/Dockerfile.prod
+    dockerContext: ./backend
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - { key: MONGO_URL,        sync: false }   # SECRET — Atlas SRV string w/ URL-encoded password
+      - { key: DB_NAME,          sync: false }   # unchanged from local
+      - { key: JWT_SECRET,       sync: false }   # SECRET — reuse local, or swap to generateValue: true
+      - { key: ADMIN_EMAIL,      sync: false }   # must be a @gmail.com address
+      - { key: ADMIN_PASSWORD,   sync: false }   # SECRET — seed admin
+      - { key: ADMIN_PIN,        sync: false }   # SECRET — seed admin
+      - { key: RESEND_API_KEY,   sync: false }   # SECRET — optional (unset => reset token logged)
+      - { key: SENDER_EMAIL,     sync: false }   # optional, defaults onboarding@resend.dev
+      - { key: APP_URL,          sync: false }   # set to the web URL (Resend forgot-PIN reset links)
+      - { key: GOOGLE_CLIENT_ID, sync: false }   # public client id(s), comma-separated audiences
