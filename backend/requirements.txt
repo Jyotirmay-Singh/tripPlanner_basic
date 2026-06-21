@@ -12,6 +12,7 @@ email-validator==2.3.0
 et_xmlfile==2.0.0
 fastapi==0.110.1
 google-auth==2.49.1
+gunicorn==23.0.0
 h11==0.16.0
 httptools==0.8.0
 idna==3.18

@@ -1,0 +1,23 @@
+# Production image for Render/Cloud Run (binds the platform-injected $PORT).
+# The local docker-compose stack keeps using the existing Dockerfile (uvicorn :8000) untouched.
+# All runtime deps (incl. gunicorn for the prod server, dnspython for Atlas mongodb+srv://,
+# bcrypt, and python-multipart for receipt uploads) are pinned in requirements.txt.
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies first so this layer is cached across code-only changes.
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Application code. .dockerignore keeps out .venv, caches, logs, tests, and .env.
+COPY . .
+
+# Shell-form CMD so ${PORT} EXPANDS at runtime (a JSON-array CMD would pass it literally and the
+# health check would fail). A single worker is deliberate: it avoids the admin-seed
+# DuplicateKeyError race on first boot and fits the free RAM + MongoDB Atlas M0 connection limits.
+CMD gunicorn server:app \
+    -k uvicorn.workers.UvicornWorker \
+    --bind 0.0.0.0:${PORT:-8000} \
+    --workers 1 \
+    --timeout 120
