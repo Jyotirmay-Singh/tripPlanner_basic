@@ -19,10 +19,13 @@ node_modules/
 # Testing
 /coverage
 
-# Local dev server logs (e.g. uvicorn output captured during local test runs)
+# Local dev server logs (e.g. uvicorn/expo output captured during local test runs)
 .uvicorn.*.log
 uvicorn.*.log
 expo.*.log
+*uvicorn*.log
+.expo-web*.log
+_run_*.log
 
 # Next.js
 /.next/
