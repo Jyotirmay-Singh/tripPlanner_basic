@@ -14,7 +14,7 @@ import { LogoutProvider } from '../src/LogoutProvider';
 import LogoutButton from '../src/LogoutButton';
 import { ToastProvider } from '../src/ui';
 import { FONTS } from '../src/theme';
-import { authRedirectTarget, navResetTo } from '../src/authNav';
+import { authRedirectTarget, navResetTo, isPublicTokenRoute } from '../src/authNav';
 
 // Keep the native splash up until our fonts are ready, so text never flashes in a fallback face.
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -29,7 +29,7 @@ function Inner() {
   // reset the stack so back-navigation can't reach a signed-out screen. No-op while loading
   // (user === undefined) so the index splash shows.
   useEffect(() => {
-    const target = authRedirectTarget(user, segments[0] === '(auth)');
+    const target = authRedirectTarget(user, segments[0] === '(auth)', isPublicTokenRoute(segments[0]));
     if (target) navResetTo(router, target);
   }, [user, segments, router]);
 
@@ -60,6 +60,10 @@ function Inner() {
         <Stack.Screen name="trip/[id]/category/[name]" options={{ title: 'Category' }} />
         <Stack.Screen name="create-trip" options={{ title: 'Create Trip', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="join-trip" options={{ title: 'Join Trip', presentation: 'modal', headerRight: undefined }} />
+        {/* Phase 9: email-link landing pages (work signed-out) + the one-time OAuth setup step. */}
+        <Stack.Screen name="verify-email" options={{ headerShown: false }} />
+        <Stack.Screen name="reset-password" options={{ headerShown: false }} />
+        <Stack.Screen name="set-credentials" options={{ headerShown: false }} />
       </Stack>
     </LogoutProvider>
   );

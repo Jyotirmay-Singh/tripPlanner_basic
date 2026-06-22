@@ -9,11 +9,24 @@ from google.oauth2 import id_token as google_id_token
 
 from config import logger, RESEND_API_KEY, SENDER_EMAIL, APP_URL, GOOGLE_CLIENT_ID
 from database import db
-from models.auth import RegisterIn, LoginIn, ForgotIn, ResetPinIn, ResetPinByPasswordIn, GoogleAuthIn
+from models.auth import (
+    RegisterIn, LoginIn, ForgotIn, ResetPinIn, ResetPinByPasswordIn, GoogleAuthIn,
+    VerifyEmailIn, RequestPasswordResetIn, ResetPasswordIn, SetCredentialsIn,
+)
 from utils.common import gen_id, now_utc
 from utils.email_rules import assert_gmail, normalize_email
 from utils.security import hash_secret, verify_secret, create_token
 from utils.deps import get_current_user
+from utils.auth_tokens import (
+    issue_token, consume_token, seconds_since_last, VERIFY_EMAIL, RESET_PASSWORD,
+)
+from utils.emailer import send_email, build_link, verification_html, password_reset_html
+
+# Email-token lifetimes (Phase 9): verification link 24h, password-reset link 1h.
+VERIFY_TTL = timedelta(hours=24)
+RESET_TTL = timedelta(hours=1)
+# Minimum seconds between "resend verification email" requests (per user).
+RESEND_COOLDOWN_SECONDS = 60
 
 router = APIRouter()
 
@@ -23,6 +36,28 @@ MIN_PASSWORD_LENGTH = 9
 
 
 # ---------- Auth ----------
+def _user_payload(user: dict) -> dict:
+    """The public user object returned alongside an access token. `email_verified` /
+    `credentials_set` default True so legacy rows (read before the startup backfill) and
+    any caller-built dict behave as already-provisioned rather than locked out."""
+    return {
+        "id": user["id"], "email": user["email"], "name": user["name"],
+        "role": user.get("role", "user"),
+        "email_verified": user.get("email_verified", True),
+        "credentials_set": user.get("credentials_set", True),
+    }
+
+
+async def _send_verification(user: dict) -> None:
+    """Issue a fresh verify-email token (invalidating older ones) and email the link."""
+    raw = await issue_token(user["id"], VERIFY_EMAIL, VERIFY_TTL)
+    link = build_link("verify-email", raw)
+    await send_email(
+        user["email"], "Verify your Trip Splitter email",
+        verification_html(user.get("name", "there"), link, raw), link_for_log=link,
+    )
+
+
 @router.post("/auth/register")
 async def register(body: RegisterIn):
     email = body.email.lower().strip()
@@ -40,11 +75,16 @@ async def register(body: RegisterIn):
         "password_hash": password_hash,
         "pin_hash": hash_secret(body.pin),
         "role": "user",
+        # Phase 9: new email/password signups start UNVERIFIED (soft gate — they can still
+        # log in, the app shows a "verify your email" banner) but already have credentials.
+        "email_verified": False,
+        "credentials_set": True,
         "created_at": now_utc().isoformat(),
     }
     await db.users.insert_one(doc)
+    await _send_verification(doc)
     token = create_token(uid, email)
-    return {"access_token": token, "user": {"id": uid, "email": email, "name": body.name, "role": "user"}}
+    return {"access_token": token, "user": _user_payload(doc)}
 
 
 @router.post("/auth/login")
@@ -63,8 +103,7 @@ async def login(body: LoginIn):
     else:
         raise HTTPException(400, "Provide password or pin")
     token = create_token(user["id"], email)
-    return {"access_token": token,
-            "user": {"id": user["id"], "email": email, "name": user["name"], "role": user.get("role", "user")}}
+    return {"access_token": token, "user": _user_payload(user)}
 
 
 @router.get("/auth/me")
@@ -170,13 +209,95 @@ async def google_auth(body: GoogleAuthIn):
             "password_hash": hash_secret(secrets.token_urlsafe(16)),
             "pin_hash": hash_secret(secrets.token_urlsafe(16)),
             "role": "user", "auth_provider": "google",
+            # Phase 9: Google already verified the address, so skip email verification.
+            # credentials_set=False routes the user through a one-time "set PIN + password"
+            # step (their pin/password above are random placeholders) so email+PIN quick
+            # login works afterwards.
+            "email_verified": True,
+            "credentials_set": False,
             "created_at": now_utc().isoformat(),
         }
         await db.users.insert_one(user)
 
     token = create_token(user["id"], email)
-    return {"access_token": token,
-            "user": {"id": user["id"], "email": email, "name": user["name"], "role": user.get("role", "user")}}
+    return {"access_token": token, "user": _user_payload(user)}
+
+
+# ---------- Email verification (Phase 9) ----------
+@router.post("/auth/verify-email")
+async def verify_email(body: VerifyEmailIn):
+    # Unauthenticated: the single-use token in the email link is the proof of ownership.
+    user_id = await consume_token(body.token, VERIFY_EMAIL)
+    if not user_id:
+        raise HTTPException(400, "Invalid or expired verification link")
+    await db.users.update_one({"id": user_id}, {"$set": {"email_verified": True}})
+    return {"ok": True}
+
+
+@router.post("/auth/resend-verification")
+async def resend_verification(user=Depends(get_current_user)):
+    if user.get("email_verified", True):
+        return {"ok": True, "message": "Email already verified"}
+    email = user["email"]
+    assert_gmail(email)
+    last = await seconds_since_last(user["id"], VERIFY_EMAIL)
+    if last is not None and last < RESEND_COOLDOWN_SECONDS:
+        raise HTTPException(429, "Please wait a moment before requesting another email")
+    await _send_verification(user)
+    return {"ok": True, "message": "Verification email sent"}
+
+
+# ---------- Forgot PASSWORD (email link) (Phase 9) ----------
+@router.post("/auth/request-password-reset")
+async def request_password_reset(body: RequestPasswordResetIn):
+    # ALWAYS returns the same generic response so the endpoint never reveals whether an
+    # account exists (no enumeration). The link is only emailed when the account is real.
+    email = body.email.lower().strip()
+    assert_gmail(email)
+    user = await db.users.find_one({"email": email})
+    if user:
+        raw = await issue_token(user["id"], RESET_PASSWORD, RESET_TTL)
+        link = build_link("reset-password", raw)
+        await send_email(
+            email, "Reset your Trip Splitter password",
+            password_reset_html(user.get("name", "there"), link, raw), link_for_log=link,
+        )
+    return {"ok": True, "message": "If this email exists, a reset link has been sent."}
+
+
+@router.post("/auth/reset-password")
+async def reset_password(body: ResetPasswordIn):
+    # Validate the new password BEFORE consuming the token so a rejected password doesn't
+    # burn the user's single-use link. PIN is intentionally left unchanged.
+    if len(body.new_password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(400, f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
+    user_id = await consume_token(body.token, RESET_PASSWORD)
+    if not user_id:
+        raise HTTPException(400, "Invalid or expired reset link")
+    await db.users.update_one(
+        {"id": user_id}, {"$set": {"password_hash": hash_secret(body.new_password)}}
+    )
+    return {"ok": True}
+
+
+# ---------- OAuth one-time credential setup (Phase 9) ----------
+@router.post("/auth/set-credentials")
+async def set_credentials(body: SetCredentialsIn, user=Depends(get_current_user)):
+    # Lets a Google-OAuth user (whose pin/password are random placeholders) choose a real
+    # 4-digit PIN + password so email+PIN and email+password login work afterwards.
+    if not body.pin.isdigit():
+        raise HTTPException(400, "PIN must be 4 digits")
+    if len(body.password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(400, f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
+    await db.users.update_one({"id": user["id"]}, {"$set": {
+        "pin_hash": hash_secret(body.pin),
+        "password_hash": hash_secret(body.password),
+        "credentials_set": True,
+    }})
+    updated = await db.users.find_one(
+        {"id": user["id"]}, {"_id": 0, "password_hash": 0, "pin_hash": 0}
+    )
+    return {"ok": True, "user": _user_payload(updated)}
 
 
 # Backward-compat aliases (kept so old frontend builds keep working)

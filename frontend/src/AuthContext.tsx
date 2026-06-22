@@ -2,7 +2,16 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, getToken, setToken } from './api';
 
-export type User = { id: string; email: string; name: string; role: string };
+export type User = {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  // Phase 9 (additive, optional so older payloads stay valid): email verification + whether an
+  // OAuth user has chosen a real PIN/password yet.
+  email_verified?: boolean;
+  credentials_set?: boolean;
+};
 
 const SAVED_EMAIL_KEY = 'last_login_email';
 
@@ -11,7 +20,7 @@ type Ctx = {
   savedEmail: string | null;
   signIn: (email: string, password?: string, pin?: string) => Promise<void>;
   register: (email: string, pin: string, name: string, password?: string) => Promise<void>;
-  signInWithGoogle: (idToken: string) => Promise<void>;
+  signInWithGoogle: (idToken: string) => Promise<User>;
   signOut: (clearSavedEmail?: boolean) => Promise<void>;
   forgetSavedEmail: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -63,7 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(res.user);
   };
 
-  const signInWithGoogle = async (idToken: string) => {
+  const signInWithGoogle = async (idToken: string): Promise<User> => {
     const res = await api<{ access_token: string; user: User }>('/auth/google', {
       method: 'POST', body: { id_token: idToken }, auth: false,
     });
@@ -71,6 +80,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await AsyncStorage.setItem(SAVED_EMAIL_KEY, res.user.email);
     setSavedEmail(res.user.email);
     setUser(res.user);
+    // Returned so the caller can route a first-time OAuth user (credentials_set === false)
+    // through the one-time "set PIN + password" step instead of straight to the dashboard.
+    return res.user;
   };
 
   const signOut = async (clearSavedEmail = false) => {

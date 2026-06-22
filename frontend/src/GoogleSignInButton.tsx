@@ -49,7 +49,9 @@ function GoogleSignInInner() {
     if (!idToken) return;
     setLoading(true);
     signInWithGoogle(idToken)
-      .then(() => router.replace('/(tabs)/dashboard'))
+      // A first-time Google user (credentials_set === false) has only random placeholder
+      // PIN/password — send them through the one-time setup so email+PIN login works later.
+      .then((u) => router.replace(u.credentials_set === false ? '/set-credentials' : '/(tabs)/dashboard'))
       .catch((e: any) => toast.show(e.message || 'Google sign-in failed', 'error'))
       .finally(() => setLoading(false));
   }, [response, router, signInWithGoogle, toast]);
