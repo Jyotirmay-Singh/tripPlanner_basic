@@ -7,13 +7,26 @@ import type { User } from './AuthContext';
 export const AUTH_LOGIN_HREF = '/(auth)/login' as Href;
 export const DASHBOARD_HREF = '/(tabs)/dashboard' as Href;
 
+// Top-level routes reached from an emailed link (verify-email / reset-password). They must work
+// whether the visitor is signed in or out, so the guard never redirects away from them.
+export const PUBLIC_TOKEN_ROUTES = ['verify-email', 'reset-password'] as const;
+
+export function isPublicTokenRoute(firstSegment: string | undefined): boolean {
+  return !!firstSegment && (PUBLIC_TOKEN_ROUTES as readonly string[]).includes(firstSegment);
+}
+
 // Decision table for the root layout's declarative auth guard.
 // `user === undefined` means the session is still loading — stay put so the splash shows.
+// `isPublicRoute` (optional, defaults false) short-circuits the email-link landing pages so a
+// logged-out visitor isn't bounced to login and a logged-in one isn't bounced to the dashboard
+// before they can act on the token.
 export function authRedirectTarget(
   user: User | null | undefined,
   inAuthGroup: boolean,
+  isPublicRoute: boolean = false,
 ): Href | null {
   if (user === undefined) return null;
+  if (isPublicRoute) return null;
   if (!user && !inAuthGroup) return AUTH_LOGIN_HREF;
   if (user && inAuthGroup) return DASHBOARD_HREF;
   return null;

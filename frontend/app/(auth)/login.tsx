@@ -72,9 +72,14 @@ export default function Login() {
 
       <Button label="Unlock" icon="lock" onPress={submit} loading={loading} fullWidth size="lg" testID="login-submit" />
 
-      <Pressable testID="login-forgot-link" onPress={() => router.push('/(auth)/forgot')} hitSlop={8}>
-        <T color={colors.primary} style={{ textAlign: 'center' }}>Forgot PIN?</T>
-      </Pressable>
+      <View style={styles.linksRow}>
+        <Pressable testID="login-forgot-link" onPress={() => router.push('/(auth)/forgot')} hitSlop={8}>
+          <T color={colors.primary}>Forgot PIN?</T>
+        </Pressable>
+        <Pressable testID="login-forgot-password-link" onPress={() => router.push('/(auth)/forgot-password')} hitSlop={8}>
+          <T color={colors.primary}>Forgot password?</T>
+        </Pressable>
+      </View>
 
       <GoogleSignInButton />
 
@@ -90,5 +95,6 @@ export default function Login() {
 
 const styles = StyleSheet.create({
   savedRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, borderRadius: RADIUS.lg },
+  linksRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   bottomRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
 });

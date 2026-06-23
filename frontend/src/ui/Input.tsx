@@ -1,9 +1,10 @@
 import React, { forwardRef, useState } from 'react';
-import { View, TextInput, StyleSheet, Platform, type TextInputProps } from 'react-native';
+import { View, TextInput, Pressable, StyleSheet, Platform, type TextInputProps } from 'react-native';
 import { useTheme } from '../ThemeContext';
 import { SPACING, CONTROL, FONTS } from '../theme';
 import T from '../T';
 import Icon, { IconName } from './Icon';
+import { eyeIcon, toggleVisible, secureA11yLabel } from '../secureField';
 
 type Props = TextInputProps & {
   label?: string;
@@ -19,10 +20,13 @@ type Props = TextInputProps & {
  * TextInputProps (incl. testID, value, onChangeText) so callers keep their field wiring.
  */
 const Input = forwardRef<TextInput, Props>(function Input(
-  { label, helper, error, icon, containerStyle, style, onFocus, onBlur, ...rest }, ref,
+  { label, helper, error, icon, containerStyle, style, onFocus, onBlur, secureTextEntry, ...rest }, ref,
 ) {
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
+  // Password fields (secureTextEntry) get a trailing eye toggle. Local + default masked so the
+  // plaintext never persists and re-masks on every mount/navigation.
+  const [reveal, setReveal] = useState(false);
   const hasError = !!error;
   const borderColor = hasError ? colors.danger : focused ? colors.primary : colors.border;
 
@@ -42,9 +46,21 @@ const Input = forwardRef<TextInput, Props>(function Input(
           placeholderTextColor={colors.textMuted}
           onFocus={(e) => { setFocused(true); onFocus?.(e); }}
           onBlur={(e) => { setFocused(false); onBlur?.(e); }}
+          secureTextEntry={secureTextEntry && !reveal}
           style={[styles.input, { color: colors.textMain }, style]}
           {...rest}
         />
+        {secureTextEntry ? (
+          <Pressable
+            onPress={() => setReveal(toggleVisible)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={secureA11yLabel(reveal, 'password')}
+            style={styles.eyeBtn}
+          >
+            <Icon name={eyeIcon(reveal)} size={18} color={colors.textMain} />
+          </Pressable>
+        ) : null}
       </View>
       {hasError ? (
         <View style={styles.helperRow}>
@@ -76,4 +92,5 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
   },
   helperRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs, marginTop: SPACING.xs },
+  eyeBtn: { padding: 4, alignItems: 'center', justifyContent: 'center' },
 });

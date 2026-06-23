@@ -24,6 +24,15 @@ async def lifespan(app: FastAPI):
     await db.expenses.create_index([("trip_id", 1), ("created_at", -1)])
     # Step 22: index GridFS receipt lookup/cleanup by the owning expense.
     await db["receipts.files"].create_index("metadata.expense_id")
+    # Phase 9: hashed/typed email tokens (verify-email + reset-password). Unique by hash;
+    # TTL index purges expired rows (expireAfterSeconds=0 => delete once expires_at passes).
+    await db.auth_tokens.create_index("token_hash", unique=True)
+    await db.auth_tokens.create_index("expires_at", expireAfterSeconds=0)
+    # Phase 9: grandfather every pre-existing user (incl. the seeded admin) as already
+    # verified and credential-complete so the new email-verification / set-credentials flows
+    # never lock anyone out. Idempotent: only touches docs missing the field.
+    await db.users.update_many({"email_verified": {"$exists": False}}, {"$set": {"email_verified": True}})
+    await db.users.update_many({"credentials_set": {"$exists": False}}, {"$set": {"credentials_set": True}})
     # backfill admin_ids for legacy trips (root admin = owner)
     await db.trips.update_many(
         {"$or": [{"admin_ids": {"$exists": False}}, {"admin_ids": None}, {"admin_ids": []}]},
@@ -52,6 +61,7 @@ async def lifespan(app: FastAPI):
             "password_hash": hash_secret(admin_password),
             "pin_hash": hash_secret(admin_pin),
             "role": "admin", "created_at": now_utc().isoformat(),
+            "email_verified": True, "credentials_set": True,
         })
         logger.info("Seeded admin user")
 

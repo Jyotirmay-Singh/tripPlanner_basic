@@ -33,3 +33,21 @@ class ResetPinByPasswordIn(BaseModel):
 
 class GoogleAuthIn(BaseModel):
     id_token: str
+
+
+class VerifyEmailIn(BaseModel):
+    token: str
+
+
+class RequestPasswordResetIn(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordIn(BaseModel):
+    token: str
+    new_password: str = Field(min_length=1)  # length rule (>=9) enforced in route
+
+
+class SetCredentialsIn(BaseModel):
+    pin: str = Field(min_length=4, max_length=4)
+    password: str = Field(min_length=1)  # length rule (>=9) enforced in route

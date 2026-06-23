@@ -8,6 +8,7 @@ import { SPACING, RADIUS } from '../../src/theme';
 import T from '../../src/T';
 import { compositionLabel } from '../../src/composition';
 import { formatTripDates } from '../../src/date';
+import UnverifiedBanner from '../../src/UnverifiedBanner';
 import {
   Screen, Card, Button, StatCard, ListRow, EmptyState, AmountText, SkeletonCard,
 } from '../../src/ui';
@@ -57,6 +58,8 @@ export default function Dashboard() {
         <T variant="label" muted>Hello, {user?.name?.split(' ')[0] || 'traveller'}</T>
         <T variant="h1" style={{ marginTop: 2 }}>Dashboard</T>
       </View>
+
+      <UnverifiedBanner />
 
       {/* Bento: full-width net position card */}
       <Card variant="primary" padding="lg" radius={RADIUS.xl}>
