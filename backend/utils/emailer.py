@@ -2,7 +2,7 @@
 
 Mirrors the existing forgot-PIN behavior: send via Resend off the event loop, and if Resend
 isn't configured (or the send fails) log the link/token so local + free-tier flows still work.
-The legacy forgot-PIN endpoint keeps its own inline send untouched — this helper is only used
+The legacy forgot-PIN endpoint keeps its own inline send untouched -this helper is only used
 by the new flows.
 """
 import asyncio
@@ -11,6 +11,18 @@ from typing import Optional
 import resend
 
 from config import logger, RESEND_API_KEY, SENDER_EMAIL, APP_URL
+
+
+def sender_mode_summary() -> str:
+    """One-line, secret-free description of the active email delivery mode (for the startup log).
+    Pure detection from existing config - never prints the API key or any token."""
+    if not RESEND_API_KEY:
+        return ("EMAIL: no RESEND_API_KEY configured - verification/reset links are only LOGGED "
+                "(look for '[EMAIL] ... link='); no email is sent")
+    if SENDER_EMAIL.strip().lower() == "onboarding@resend.dev":
+        return ("EMAIL: Resend test sender (onboarding@resend.dev) - delivers ONLY to the Resend "
+                "account owner's inbox; all other recipients fall back to logged links")
+    return f"EMAIL: live sender {SENDER_EMAIL} - delivering to all recipients"
 
 
 def build_link(path: str, token: str) -> str:
@@ -29,11 +41,13 @@ async def send_email(to: str, subject: str, html: str, *, link_for_log: Optional
     if link_for_log:
         logger.info(f"[EMAIL] to={to} subject={subject!r} link={link_for_log}")
     if not RESEND_API_KEY:
+        logger.debug(f"[EMAIL] send skipped (no RESEND_API_KEY) - link logged only, to={to}")
         return
     try:
         await asyncio.to_thread(resend.Emails.send, {
             "from": SENDER_EMAIL, "to": [to], "subject": subject, "html": html,
         })
+        logger.debug(f"[EMAIL] dispatched via Resend (sender={SENDER_EMAIL}) to={to}")
     except Exception as e:  # never let an email failure surface to the caller
         logger.warning(f"Resend send failed: {e}")
 
