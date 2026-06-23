@@ -14,16 +14,16 @@
       "android": { "buildType": "apk" },
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://tripsplitter-api.onrender.com",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "<WEB_CLIENT_ID>.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "<ANDROID_CLIENT_ID>.apps.googleusercontent.com"
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "307368957277-58jdf9opq70e195gm5n1pcf4ucfd7rlt.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "307368957277-cc4k3o7or765v1g6tfi767stk23296nk.apps.googleusercontent.com"
       }
     },
     "production": {
       "android": { "buildType": "app-bundle" },
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://tripsplitter-api.onrender.com",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "<WEB_CLIENT_ID>.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "<ANDROID_CLIENT_ID>.apps.googleusercontent.com"
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "307368957277-58jdf9opq70e195gm5n1pcf4ucfd7rlt.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "307368957277-cc4k3o7or765v1g6tfi767stk23296nk.apps.googleusercontent.com"
       }
     }
   },
