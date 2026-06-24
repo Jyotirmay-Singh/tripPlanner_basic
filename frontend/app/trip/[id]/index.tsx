@@ -13,6 +13,7 @@ import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { canModifyExpense, roleOf, canEditTripSettings, canManageMembers, canDeleteTrip } from '../../../src/permissions';
 import { compositionLabel } from '../../../src/composition';
+import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displayNames';
 import { receiptExpenses, billLabel } from '../../../src/gallery';
 import { formatMoney } from '../../../src/format';
 import { formatTripDates } from '../../../src/date';
@@ -111,7 +112,8 @@ export default function TripDetail() {
     );
   }
 
-  const memberById = (mid: string) => trip.members.find((m) => m.id === mid);
+  // Derived, disambiguated display labels (rules a/b/c). Stored names/IDs are untouched.
+  const displayNames = memberDisplayNames(trip.members);
   const totalSpent = expenses.filter((e) => e.kind === 'expense').reduce((s, e) => s + e.amount, 0);
   const over = trip.budget ? totalSpent > trip.budget : false;
   // Role gating routes through the shared src/permissions.ts matrix (mirror of the backend).
@@ -198,10 +200,10 @@ export default function TripDetail() {
                       <T color={colors.primaryText} variant="label">You</T>
                     </View>
                     <View style={{ flex: 1, minWidth: 0 }}>
-                      <T variant="h4">{myMember.name}{myMember.kind === 'family' ? ' (Family)' : ''}</T>
+                      <T variant="h4">{displayNames[myMember.id]}{myMember.kind === 'family' ? ' (Family)' : ''}</T>
                       <T variant="caption" muted numberOfLines={1}>
                         {myMember.kind === 'family'
-                          ? `Your family of ${myMember.family_members.length}: ${myMember.family_members.join(', ')}`
+                          ? `Your family of ${myMember.family_members.length}: ${familyMemberDisplayNames(myMember).join(', ')}`
                           : 'Individual member'}
                       </T>
                     </View>
@@ -255,7 +257,7 @@ export default function TripDetail() {
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <T variant="h4" numberOfLines={1}>{e.description || e.category}</T>
                     <T muted variant="caption" numberOfLines={1}>
-                      {e.date}{e.time ? ` · ${formatTime12h(e.time)}` : ''} · {e.category} · by {memberById(e.paid_by_member_id)?.name || '?'}
+                      {e.date}{e.time ? ` · ${formatTime12h(e.time)}` : ''} · {e.category} · by {displayNames[e.paid_by_member_id] || '?'}
                     </T>
                     {e.has_receipt ? (
                       token ? (
@@ -285,7 +287,7 @@ export default function TripDetail() {
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
-                          <T variant="h4" numberOfLines={1}>{pp.member_name}</T>
+                          <T variant="h4" numberOfLines={1}>{displayNames[pp.member_id] || pp.member_name}</T>
                           {mine ? <Badge label="You" color={colors.textMuted} /> : null}
                         </View>
                         <T variant="caption" muted>
@@ -301,7 +303,7 @@ export default function TripDetail() {
                     </View>
                     {pp.kind === 'family' && pp.family_members.length > 0 && (
                       <View style={{ marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
-                        {pp.family_members.map((fname, fi) => (
+                        {familyMemberDisplayNames({ id: pp.member_id, name: pp.member_name, family_members: pp.family_members }).map((fname, fi) => (
                           <View key={fi} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
                             <T variant="caption" muted>↳ {fname}</T>
                             <T variant="caption" color={pp.net_per_person < 0 ? colors.danger : pp.net_per_person > 0 ? colors.success : colors.textMuted}>
@@ -324,9 +326,9 @@ export default function TripDetail() {
                       </View>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <T numberOfLines={1}>
-                          <T color={colors.danger} style={{ fontWeight: '700' }}>{memberById(tr.from_member_id)?.name}</T>
+                          <T color={colors.danger} style={{ fontWeight: '700' }}>{displayNames[tr.from_member_id]}</T>
                           <T muted>  pays  </T>
-                          <T color={colors.success} style={{ fontWeight: '700' }}>{memberById(tr.to_member_id)?.name}</T>
+                          <T color={colors.success} style={{ fontWeight: '700' }}>{displayNames[tr.to_member_id]}</T>
                         </T>
                       </View>
                       <AmountText value={tr.amount} />
@@ -359,19 +361,19 @@ export default function TripDetail() {
                     </View>
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm }}>
-                        <T variant="h4">{m.name}{m.kind === 'family' ? ` (${m.family_members.length})` : ''}</T>
+                        <T variant="h4">{displayNames[m.id]}{m.kind === 'family' ? ` (${m.family_members.length})` : ''}</T>
                         {role === 'owner' ? <Badge label="Owner" color={colors.primary} /> : null}
                         {role === 'admin' ? <Badge label="Admin" color={colors.success} /> : null}
                         {m.user_id === user?.id ? <Badge label="You" color={colors.textMuted} /> : null}
                       </View>
                       <T variant="caption" muted numberOfLines={1}>
-                        {m.kind === 'family' ? `Family: ${m.family_members.join(', ') || '—'}` : (m.user_id ? 'App user' : 'Individual')}
+                        {m.kind === 'family' ? `Family: ${familyMemberDisplayNames(m).join(', ') || '—'}` : (m.user_id ? 'App user' : 'Individual')}
                         {m.email ? ` · ${m.email}` : ''}
                       </T>
                     </View>
                     {meCanManageMembers && (
                       <IconButton name="more-vertical" onPress={() => router.push({ pathname: '/trip/[id]/manage-member', params: { id: id as string, mid: m.id } })}
-                        accessibilityLabel={`Manage ${m.name}`} testID={`member-manage-${m.id}`} size={20} color={colors.primary} />
+                        accessibilityLabel={`Manage ${displayNames[m.id]}`} testID={`member-manage-${m.id}`} size={20} color={colors.primary} />
                     )}
                   </Card>
                 );

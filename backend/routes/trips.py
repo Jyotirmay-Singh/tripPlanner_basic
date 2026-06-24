@@ -8,28 +8,11 @@ from utils.date_rules import assert_valid_range, ensure_date_range
 from utils.deps import get_current_user, _trip_or_404, _trip_admin_or_403, _trip_owner_or_403
 from utils.email_rules import assert_gmail, normalize_email
 from utils.members import (
-    name_exists,
     email_exists,
-    assert_unique_name,
     assert_unique_email,
 )
 
 router = APIRouter()
-
-
-def _unique_individual_name(members: list, name: str, email: str) -> str:
-    """Disambiguate a joiner's display name against existing members.
-
-    If the name is taken, append the email local-part; if that collides too,
-    append a short random suffix. Shared by the legacy and "individual" join paths.
-    """
-    if not name_exists(members, name):
-        return name
-    local_part = (email or "").split("@")[0]
-    candidate = f"{name} ({local_part})"
-    if name_exists(members, candidate):
-        candidate = f"{name} ({local_part}-{gen_id()[:4]})"
-    return candidate
 
 
 # ---------- Trips ----------
@@ -136,7 +119,7 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
             )
         else:
             new_member = {
-                "id": gen_id(), "name": _unique_individual_name(members, user["name"], user_email),
+                "id": gen_id(), "name": user["name"],
                 "kind": "individual", "family_members": [],
                 "email": user_email, "user_id": user["id"],
             }
@@ -148,7 +131,7 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
     elif mode == "individual":
         # Explicit individual — never auto-link, even if an email-matching family exists.
         new_member = {
-            "id": gen_id(), "name": _unique_individual_name(members, user["name"], user_email),
+            "id": gen_id(), "name": user["name"],
             "kind": "individual", "family_members": [],
             "email": user_email, "user_id": user["id"],
         }
@@ -180,7 +163,8 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
     elif mode == "new_family":
         if not body.family_name:
             raise HTTPException(400, "family_name is required to create a new family")
-        assert_unique_name(members, body.family_name)
+        # Duplicate family names are allowed (disambiguated at display time); only linked-email
+        # uniqueness is still enforced below.
         if user_email:
             assert_gmail(user_email)
             assert_unique_email(members, user_email)

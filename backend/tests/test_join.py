@@ -145,16 +145,19 @@ class TestJoin:
         assert me["kind"] == "individual"
         assert me["id"] != fam["id"]
 
-    def test_join_individual_duplicate_name_disambiguated(self, api_client, test_user):
+    def test_join_individual_duplicate_name_allowed(self, api_client, test_user):
+        # Duplicate names are accepted; the joiner keeps their plain name (no stored mutation).
+        # The two members share a name but have distinct ids — disambiguation is display-only.
         trip = self._create_trip(api_client, test_user["token"])
         owner_name = trip["members"][0]["name"]
         joiner = self._register(api_client, name=owner_name)  # collide with owner
         resp = self._join(api_client, joiner["token"], {"code": trip["code"], "mode": "individual"})
         assert resp.status_code == 200, resp.text
-        names = [m["name"] for m in resp.json()["members"]]
-        assert len(set(names)) == len(names)  # all distinct
-        local_part = joiner["email"].split("@")[0].lower()
-        assert any(local_part in n.lower() for n in names if n != owner_name)
+        members = resp.json()["members"]
+        names = [m["name"] for m in members]
+        assert names.count(owner_name) == 2  # both stored plain, identical
+        me = next(m for m in members if m.get("user_id") == joiner["id"])
+        assert me["name"] == owner_name
 
     # ===================== JOIN: new_family =====================
     def test_join_new_family_creates_family(self, api_client, test_user):
@@ -174,7 +177,9 @@ class TestJoin:
         assert fam["name"] == "TEST_The Smiths"
         assert fam["family_members"] == ["Pat", "Sam"]
 
-    def test_join_new_family_duplicate_name_400(self, api_client, test_user):
+    def test_join_new_family_duplicate_name_allowed(self, api_client, test_user):
+        # Duplicate family names are now accepted (disambiguated at display time); only linked-email
+        # uniqueness is still enforced in the new_family path.
         trip = self._create_trip(api_client, test_user["token"])
         self._add_member(api_client, test_user["token"], trip["id"],
                          "TEST_Clan", family_members=["Z"])
@@ -182,7 +187,9 @@ class TestJoin:
         resp = self._join(api_client, joiner["token"], {
             "code": trip["code"], "mode": "new_family", "family_name": "TEST_Clan",
         })
-        assert resp.status_code == 400, resp.text
+        assert resp.status_code == 200, resp.text
+        clans = [m for m in resp.json()["members"] if m["name"] == "TEST_Clan"]
+        assert len(clans) == 2
 
     def test_join_new_family_missing_name_400(self, api_client, test_user):
         trip = self._create_trip(api_client, test_user["token"])

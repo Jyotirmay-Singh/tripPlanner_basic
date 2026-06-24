@@ -11,6 +11,7 @@ import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, FONTS, CATEGORIES, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
 import SplitModeSelector, { SplitMode, splitPreviewLabel } from '../../../src/SplitModeSelector';
+import { memberDisplayNames } from '../../../src/displayNames';
 import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { formatDDMMYYYY, partsFromLocalDate, ddmmyyyyToDDMMYY } from '../../../src/date';
@@ -140,6 +141,7 @@ export default function AddExpense() {
   }
 
   const toggleSplit = (mid: string) => setSplitSel((s) => s.includes(mid) ? s.filter((x) => x !== mid) : [...s, mid]);
+  const displayNames = memberDisplayNames(trip.members);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
@@ -197,7 +199,7 @@ export default function AddExpense() {
                     <TouchableOpacity key={m.id} onPress={() => setPaidBy(m.id)} testID={`ae-paid-${m.id}`}
                       style={[styles.row, { backgroundColor: sel ? colors.surfaceMuted : colors.surface, borderColor: sel ? colors.primary : colors.border }]}>
                       <Icon name={sel ? 'radio-on' : 'radio-off'} size={20} color={sel ? colors.primary : colors.textMuted} />
-                      <T style={{ flex: 1 }}>{m.name}</T>
+                      <T style={{ flex: 1 }}>{displayNames[m.id]}</T>
                       <T variant="caption" muted>{m.kind}</T>
                     </TouchableOpacity>
                   );
@@ -229,7 +231,7 @@ export default function AddExpense() {
                       <TouchableOpacity onPress={() => toggleSplit(m.id)} testID={`ae-split-${m.id}`}
                         style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
                         <Icon name={active ? 'checkbox-on' : 'checkbox-off'} size={20} color={active ? colors.primary : colors.textMuted} />
-                        <T style={{ flex: 1 }}>{m.name}{isFamily ? ` (${fullSize})` : ''}</T>
+                        <T style={{ flex: 1 }}>{displayNames[m.id]}{isFamily ? ` (${fullSize})` : ''}</T>
                       </TouchableOpacity>
                       {active && isFamily && fullSize > 1 && splitMode === 'PER_CAPITA' && (
                         <View style={{ paddingLeft: 28, flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>

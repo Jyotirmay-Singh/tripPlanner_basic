@@ -6,6 +6,7 @@ import { RADIUS } from '../../../../src/theme';
 import { pluralize } from '../../../../src/format';
 import { formatTime12h } from '../../../../src/time';
 import T from '../../../../src/T';
+import { memberDisplayNames } from '../../../../src/displayNames';
 import { Screen, Card, ListRow, EmptyState, AmountText, SkeletonCard, useToast } from '../../../../src/ui';
 
 type Member = { id: string; name: string };
@@ -37,7 +38,8 @@ export default function CategoryDetail() {
 
   const filtered = expenses.filter((e) => e.kind === 'expense' && e.category === decoded);
   const total = filtered.reduce((s, e) => s + e.amount, 0);
-  const memberById = (mid: string) => trip?.members.find((m) => m.id === mid)?.name || '?';
+  const displayNames = memberDisplayNames(trip?.members);
+  const memberById = (mid: string) => displayNames[mid] || '?';
 
   return (
     <Screen edges={['bottom']} refreshing={refreshing} onRefresh={load}>
