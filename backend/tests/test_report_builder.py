@@ -196,6 +196,36 @@ class TestTransactions:
         assert rows[0]["split_mode"] == "PER_CAPITA"
 
 
+class TestOptionalTime:
+    """The optional expense time appends '· <12h>' to the date cell only when present; a time-less
+    row's date cell is byte-for-byte the bare date (unchanged from before this feature)."""
+
+    def test_timeless_row_date_cell_is_bare_date(self):
+        # No 'time' key at all (legacy rows) -> date cell unchanged.
+        pc = build_per_capita_rows([_exp("e1", 130.0, [], date="11-05-26")], _roster())
+        assert all(r["date"] == "11-05-26" for r in pc)
+        tx = build_transaction_rows([_exp("e1", 130.0, [], date="11-05-26")], _roster())
+        assert tx[0]["date"] == "11-05-26"
+
+    def test_explicit_none_time_is_treated_as_no_time(self):
+        e = _exp("e1", 120.0, [], mode="PER_FAMILY", date="11-05-26")
+        e["time"] = None
+        rows = build_per_family_rows([e], _roster())
+        assert all(r["date"] == "11-05-26" for r in rows)
+
+    def test_time_present_appends_12h_to_date_cell(self):
+        e = _exp("e1", 130.0, [], date="11-05-26")
+        e["time"] = "14:30"
+        pc = build_per_capita_rows([e], _roster())
+        assert all(r["date"] == "11-05-26 · 2:30 PM" for r in pc)
+        tx = build_transaction_rows([e], _roster())
+        assert tx[0]["date"] == "11-05-26 · 2:30 PM"
+        ef = _exp("e2", 120.0, [], mode="PER_FAMILY", date="11-05-26")
+        ef["time"] = "09:05"
+        pf = build_per_family_rows([ef], _roster())
+        assert all(r["date"] == "11-05-26 · 9:05 AM" for r in pf)
+
+
 class TestEmptyInputs:
 
     def test_no_expenses_yields_no_rows(self):

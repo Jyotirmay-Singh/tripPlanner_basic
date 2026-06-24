@@ -7,7 +7,7 @@ import {
   MoreVertical, ArrowLeftRight, Download, Camera, Mail, ArrowDown, ArrowUp,
   CircleAlert, Info, Receipt, Tag, Calendar, RefreshCw, Sparkles, Search,
   Circle, CircleDot, Square, SquareCheck, TrendingUp, TrendingDown,
-  Eye, EyeOff,
+  Eye, EyeOff, Clock,
   type LucideIcon,
 } from 'lucide-react-native';
 import { useTheme } from '../ThemeContext';
@@ -60,6 +60,7 @@ const GLYPHS = {
   receipt: Receipt,
   tag: Tag,
   calendar: Calendar,
+  clock: Clock,
   refresh: RefreshCw,
   sparkles: Sparkles,
   search: Search,

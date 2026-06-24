@@ -13,19 +13,14 @@ import T from '../../../src/T';
 import SplitModeSelector, { SplitMode, splitPreviewLabel } from '../../../src/SplitModeSelector';
 import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
+import { formatDDMMYYYY, partsFromLocalDate, ddmmyyyyToDDMMYY } from '../../../src/date';
 import {
   Card, Button, Input, Pill, SegmentedControl, Icon, ActionSheet, SkeletonCard, useToast,
+  DateField, TimeField,
 } from '../../../src/ui';
 
 type Member = { id: string; name: string; kind: string; family_members: string[] };
 type Trip = { id: string; name: string; currency: string; members: Member[] };
-
-function toDDMMYY(d: Date) {
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const yy = String(d.getFullYear()).slice(-2);
-  return `${dd}-${mm}-${yy}`;
-}
 
 export default function AddExpense() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -37,7 +32,10 @@ export default function AddExpense() {
   const [amount, setAmount] = useState('');
   const [desc, setDesc] = useState('');
   const [cat, setCat] = useState<string>('Food');
-  const [date, setDate] = useState(toDDMMYY(new Date()));
+  // Date is held in display form (dd/mm/yyyy) for the calendar picker; converted to the stored
+  // DD-MM-YY format only at submit. Time is optional ('HH:MM' or '' = none), empty by default.
+  const [dateDisplay, setDateDisplay] = useState(formatDDMMYYYY(partsFromLocalDate(new Date())));
+  const [time, setTime] = useState('');
   const [paidBy, setPaidBy] = useState<string | null>(null);
   const [splitSel, setSplitSel] = useState<string[]>([]);
   const [splitMode, setSplitMode] = useState<SplitMode>('PER_CAPITA');
@@ -92,7 +90,8 @@ export default function AddExpense() {
     if (!trip || !paidBy) return;
     const a = parseFloat(amount);
     if (!a || a <= 0) return toast.show('Amount must be greater than 0', 'error');
-    if (!date) return toast.show('Date is required', 'error');
+    const date = ddmmyyyyToDDMMYY(dateDisplay);  // -> stored DD-MM-YY (format unchanged)
+    if (!date) return toast.show('Enter a valid date as dd/mm/yyyy', 'error');
     setSaving(true);
     try {
       const allSelected = trip.members.length > 0 && splitSel.length === trip.members.length;
@@ -107,7 +106,7 @@ export default function AddExpense() {
         }
       }
       const body: any = {
-        kind, amount: a, category: cat, description: desc, date,
+        kind, amount: a, category: cat, description: desc, date, time: time || null,
         paid_by_member_id: paidBy,
         split_member_ids: allSelected ? [] : splitSel,
         split_mode: splitMode,
@@ -182,7 +181,11 @@ export default function AddExpense() {
               </ScrollView>
             </View>
 
-            <Input testID="ae-date" label="Date (DD-MM-YY) *" value={date} onChangeText={setDate} placeholder="15-12-26" icon="calendar" />
+            {/* Date (calendar picker) + optional time, side by side */}
+            <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
+              <DateField testID="ae-date" label="Date *" value={dateDisplay} onChangeText={setDateDisplay} containerStyle={{ flex: 1 }} />
+              <TimeField testID="ae-time" label="Time" value={time} onChange={setTime} containerStyle={{ flex: 1 }} />
+            </View>
 
             {/* Paid by */}
             <View>

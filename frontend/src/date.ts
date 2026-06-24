@@ -83,6 +83,28 @@ export function isRangeValid(startISO: string | null, endISO: string | null): bo
   return (endISO as string) >= (startISO as string);
 }
 
+/**
+ * Expense-date bridge: the expense API stores 'DD-MM-YY' (2-digit year), but the shared
+ * DateField speaks 'dd/mm/yyyy'. These keep the stored/transport format byte-for-byte 'DD-MM-YY'
+ * while letting the calendar picker reuse DateField. Both passthrough '' on bad input so partial
+ * typing is never silently mangled.
+ */
+
+/** 'DD-MM-YY' -> 'dd/mm/yyyy' (e.g. '15-12-26' -> '15/12/2026'; '' if unparseable). */
+export function ddmmyyToDDMMYYYY(value: string | null | undefined): string {
+  const m = (value || '').trim().match(/^(\d{1,2})-(\d{1,2})-(\d{2})$/);
+  if (!m) return '';
+  const parts = { d: Number(m[1]), m: Number(m[2]), y: 2000 + Number(m[3]) };
+  return isRealDate(parts) ? formatDDMMYYYY(parts) : '';
+}
+
+/** 'dd/mm/yyyy' -> 'DD-MM-YY' (e.g. '15/12/2026' -> '15-12-26'; '' if unparseable). */
+export function ddmmyyyyToDDMMYY(value: string | null | undefined): string {
+  const parts = parseDDMMYYYY(value || '');
+  if (!parts) return '';
+  return `${pad(parts.d)}-${pad(parts.m)}-${pad(parts.y % 100)}`;
+}
+
 /** Legacy single-date fallback: 'DD-MM-YY' -> 'YYYY-MM-DD' (null if unparseable). */
 function legacyToISO(value: string | null | undefined): string | null {
   const m = (value || '').trim().match(/^(\d{2})-(\d{2})-(\d{2})$/);

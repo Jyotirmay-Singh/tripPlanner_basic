@@ -4,12 +4,13 @@ import { api } from '../../../../src/api';
 import { useTheme } from '../../../../src/ThemeContext';
 import { RADIUS } from '../../../../src/theme';
 import { pluralize } from '../../../../src/format';
+import { formatTime12h } from '../../../../src/time';
 import T from '../../../../src/T';
 import { Screen, Card, ListRow, EmptyState, AmountText, SkeletonCard, useToast } from '../../../../src/ui';
 
 type Member = { id: string; name: string };
 type Trip = { id: string; name: string; currency: string; members: Member[] };
-type Expense = { id: string; kind: string; amount: number; category: string; description?: string; date: string; paid_by_member_id: string };
+type Expense = { id: string; kind: string; amount: number; category: string; description?: string; date: string; time?: string | null; paid_by_member_id: string };
 
 export default function CategoryDetail() {
   const { id, name } = useLocalSearchParams<{ id: string; name: string }>();
@@ -55,7 +56,7 @@ export default function CategoryDetail() {
           <ListRow
             key={e.id}
             title={e.description || decoded}
-            subtitle={`${e.date} · by ${memberById(e.paid_by_member_id)}`}
+            subtitle={`${e.date}${e.time ? ` · ${formatTime12h(e.time)}` : ''} · by ${memberById(e.paid_by_member_id)}`}
             right={<AmountText value={e.amount} />}
             onPress={() => router.push({ pathname: '/trip/[id]/edit-expense', params: { id: id as string, eid: e.id } })}
             showChevron={false}

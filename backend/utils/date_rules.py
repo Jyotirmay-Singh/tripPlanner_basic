@@ -54,6 +54,38 @@ def iso_to_display(value: Optional[str]) -> str:
         return value
 
 
+def normalize_time(value: Optional[str]) -> Optional[str]:
+    """Validate an optional wall-clock 'HH:MM' (24-hour) string.
+
+    None / blank -> None (no time). A valid 'HH:MM' (00-23 : 00-59) -> normalized 'HH:MM'.
+    Anything else raises ValueError so a Pydantic field_validator surfaces it as HTTP 422.
+    Time is stored/transported as a timezone-free wall-clock string (never a UTC datetime)."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("Time must be a string")
+    s = value.strip()
+    if not s:
+        return None
+    try:
+        parsed = datetime.strptime(s, "%H:%M")
+    except ValueError:
+        raise ValueError("Time must be a valid 24-hour HH:MM value")
+    return parsed.strftime("%H:%M")
+
+
+def to_12h(value: Optional[str]) -> str:
+    """'14:30' -> '2:30 PM' for human-facing output. Blank/invalid -> '' (passthrough)."""
+    if not value or not isinstance(value, str):
+        return ""
+    try:
+        parsed = datetime.strptime(value.strip(), "%H:%M")
+    except ValueError:
+        return ""
+    # strftime('%I') is zero-padded ('02'); strip the leading zero for '2:30 PM'.
+    return parsed.strftime("%I:%M %p").lstrip("0")
+
+
 def ensure_date_range(trip: Optional[dict]) -> Optional[dict]:
     """Read-time fallback (mirrors the Step 22 receipt_base64 pattern): if a trip lacks a
     start_date, derive it from the legacy travel_date, and default a missing end_date to the

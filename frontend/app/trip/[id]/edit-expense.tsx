@@ -15,15 +15,17 @@ import SplitModeSelector, { SplitMode, splitPreviewLabel } from '../../../src/Sp
 import { canModifyExpense } from '../../../src/permissions';
 import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
+import { ddmmyyToDDMMYYYY, ddmmyyyyToDDMMYY } from '../../../src/date';
 import {
   Card, Button, Input, Pill, SegmentedControl, Icon, ActionSheet, SkeletonCard, useToast,
+  DateField, TimeField,
 } from '../../../src/ui';
 
 type Member = { id: string; name: string; kind: string; family_members: string[] };
 type Trip = { id: string; name: string; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
 type Expense = {
   id: string; kind: 'expense' | 'income'; amount: number; category: string;
-  description?: string; date: string; paid_by_member_id: string;
+  description?: string; date: string; time?: string | null; paid_by_member_id: string;
   split_member_ids: string[]; split_mode?: SplitMode;
   weight_snapshots?: Record<string, number> | null; receipt_base64?: string | null;
   receipt_id?: string | null; has_receipt?: boolean;
@@ -42,7 +44,9 @@ export default function EditExpense() {
   const [amount, setAmount] = useState('');
   const [desc, setDesc] = useState('');
   const [cat, setCat] = useState<string>('Food');
-  const [date, setDate] = useState('');
+  // Date held in display form (dd/mm/yyyy) for the picker; converted to stored DD-MM-YY at save.
+  const [dateDisplay, setDateDisplay] = useState('');
+  const [time, setTime] = useState('');
   const [paidBy, setPaidBy] = useState<string | null>(null);
   const [splitSel, setSplitSel] = useState<string[]>([]);
   const [splitMode, setSplitMode] = useState<SplitMode>('PER_CAPITA');
@@ -64,7 +68,8 @@ export default function EditExpense() {
       if (!e) return;
       setCreatedBy(e.created_by ?? null);
       setKind(e.kind); setAmount(String(e.amount)); setDesc(e.description || '');
-      setCat(e.category); setDate(e.date); setPaidBy(e.paid_by_member_id);
+      setCat(e.category); setDateDisplay(ddmmyyToDDMMYYYY(e.date)); setTime(e.time || '');
+      setPaidBy(e.paid_by_member_id);
       const allIds = t.members.map((m) => m.id);
       setSplitSel(e.split_member_ids && e.split_member_ids.length ? e.split_member_ids : allIds);
       setSplitMode(e.split_mode || 'PER_CAPITA');
@@ -109,6 +114,8 @@ export default function EditExpense() {
     if (!trip || !paidBy) return;
     const a = parseFloat(amount);
     if (!a || a <= 0) return toast.show('Amount must be greater than 0', 'error');
+    const date = ddmmyyyyToDDMMYY(dateDisplay);  // -> stored DD-MM-YY (format unchanged)
+    if (!date) return toast.show('Enter a valid date as dd/mm/yyyy', 'error');
     setSaving(true);
     try {
       const allSelected = trip.members.length > 0 && splitSel.length === trip.members.length;
@@ -125,7 +132,7 @@ export default function EditExpense() {
       await api(`/trips/${id}/expenses/${eid}`, {
         method: 'PATCH',
         body: {
-          kind, amount: a, category: cat, description: desc, date,
+          kind, amount: a, category: cat, description: desc, date, time: time || null,
           paid_by_member_id: paidBy,
           split_member_ids: allSelected ? [] : splitSel,
           split_mode: splitMode,
@@ -204,7 +211,11 @@ export default function EditExpense() {
               </ScrollView>
             </View>
 
-            <Input testID="ee-date" label="Date (DD-MM-YY) *" value={date} onChangeText={setDate} icon="calendar" />
+            {/* Date (calendar picker) + optional time, side by side */}
+            <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
+              <DateField testID="ee-date" label="Date *" value={dateDisplay} onChangeText={canModify ? setDateDisplay : () => {}} containerStyle={{ flex: 1 }} />
+              <TimeField testID="ee-time" label="Time" value={time} onChange={setTime} editable={canModify} containerStyle={{ flex: 1 }} />
+            </View>
 
             <View>
               <T variant="label" muted style={{ marginBottom: SPACING.xs }}>Paid by *</T>

@@ -13,6 +13,30 @@ builders never compute `net`, so they add no rounding to the settlement path.
 from services.calculator import resolve_weights, split_per_capita, split_per_family
 
 
+def _to_12h(value) -> str:
+    """'14:30' -> '2:30 PM'; blank/invalid -> ''. Inlined here (no datetime needed) to keep this
+    module pure (it must import only `services.calculator`, never `utils`)."""
+    if not value or not isinstance(value, str):
+        return ""
+    parts = value.strip().split(":")
+    if len(parts) != 2 or not (parts[0].isdigit() and parts[1].isdigit()):
+        return ""
+    h, m = int(parts[0]), int(parts[1])
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        return ""
+    suffix = "AM" if h < 12 else "PM"
+    h12 = h % 12 or 12
+    return f"{h12}:{m:02d} {suffix}"
+
+
+def _date_cell(e: dict) -> str:
+    """Date cell for the report: the bare date when there's no time (unchanged for legacy rows),
+    or '<date> · <12h time>' when an optional time is present."""
+    date = e.get("date", "")
+    t = _to_12h(e.get("time"))
+    return f"{date} · {t}" if t else date
+
+
 def build_member_weight_map(members: list) -> dict:
     """member_id -> base human count (individual = 1, family = max(1, len(family_members))).
 
@@ -62,7 +86,7 @@ def build_per_capita_rows(expenses: list, members: list) -> list:
         per_human = e["amount"] / total_humans
         for mid, share in shares.items():
             rows.append({
-                "date": e.get("date", ""),
+                "date": _date_cell(e),
                 "category": e.get("category", ""),
                 "description": e.get("description", ""),
                 "amount": e["amount"],
@@ -98,7 +122,7 @@ def build_per_family_rows(expenses: list, members: list) -> list:
         per_entity = e["amount"] / total_entities
         for mid, share in shares.items():
             rows.append({
-                "date": e.get("date", ""),
+                "date": _date_cell(e),
                 "category": e.get("category", ""),
                 "description": e.get("description", ""),
                 "amount": e["amount"],
@@ -122,7 +146,7 @@ def build_transaction_rows(expenses: list, members: list) -> list:
         paid_by = names.get(e.get("paid_by_member_id"), "?")
         split_among = ", ".join(names.get(sid, "?") for sid in e.get("split_member_ids", []))
         rows.append({
-            "date": e.get("date", ""),
+            "date": _date_cell(e),
             "kind": e.get("kind", "expense"),
             "category": e.get("category", ""),
             "description": e.get("description", ""),
