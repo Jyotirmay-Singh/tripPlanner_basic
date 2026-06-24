@@ -6,6 +6,7 @@ import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING } from '../../../src/theme';
 import { canManageAdmins } from '../../../src/permissions';
+import { memberDisplayNames } from '../../../src/displayNames';
 import T from '../../../src/T';
 import Badge from '../../../src/Badge';
 import ConfirmModal from '../../../src/ConfirmModal';
@@ -42,6 +43,7 @@ export default function ManageMember() {
     return <Screen edges={['bottom']}><T muted style={{ padding: SPACING.lg }}>Loading…</T></Screen>;
   }
 
+  const memberLabel = memberDisplayNames(trip.members)[member.id] ?? member.name;
   const isOwner = !!member.user_id && member.user_id === trip.owner_id;
   const isMemberAdmin = !!member.user_id && adminIds.includes(member.user_id);
   const role: 'owner' | 'admin' | null = isOwner ? 'owner' : isMemberAdmin ? 'admin' : null;
@@ -87,7 +89,7 @@ export default function ManageMember() {
     <Screen edges={['bottom']}>
       <View>
         <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm }}>
-          <T variant="h1">{member.name}{member.kind === 'family' ? ` (${member.family_members.length})` : ''}</T>
+          <T variant="h1">{memberLabel}{member.kind === 'family' ? ` (${member.family_members.length})` : ''}</T>
           {role === 'owner' ? <Badge label="Owner" color={colors.primary} /> : null}
           {role === 'admin' ? <Badge label="Admin" color={colors.success} /> : null}
         </View>
@@ -169,7 +171,7 @@ export default function ManageMember() {
       <ConfirmModal
         visible={confirmTransfer}
         testID="mm-transfer-modal"
-        title={`Make ${member.name} the owner?`}
+        title={`Make ${memberLabel} the owner?`}
         message="You will become an admin. Only the owner can manage admins and delete the trip."
         onRequestClose={() => setConfirmTransfer(false)}
         actions={[

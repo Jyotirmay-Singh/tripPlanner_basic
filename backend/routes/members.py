@@ -6,7 +6,7 @@ from utils.common import gen_id
 from utils.deps import get_current_user, _trip_admin_or_403
 from utils.balances import _weight_of_member
 from utils.email_rules import assert_gmail, normalize_email
-from utils.members import assert_unique_email, assert_unique_name
+from utils.members import assert_unique_email
 from services.reallocation import run_member_update_with_reallocation
 
 router = APIRouter()
@@ -28,7 +28,8 @@ async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user
             if (m.get("email") or "").lower() == email and m.get("user_id") and m.get("kind") == "individual":
                 merge_target = m; break
     exclude_id = merge_target["id"] if merge_target else None
-    assert_unique_name(members, name, exclude_id=exclude_id)
+    # Duplicate names are allowed (disambiguated at display time via utils.display_names); only the
+    # linked-email uniqueness invariant (Step 3) is still enforced here.
     assert_unique_email(members, email, exclude_id=exclude_id)
     new_member = {
         "id": gen_id(), "name": name, "kind": body.kind,
@@ -62,7 +63,7 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
         raise HTTPException(404, "Member not found")
     updates: dict = {}
     if body.name is not None:
-        assert_unique_name(trip["members"], body.name, exclude_id=member_id)
+        # Duplicate names allowed (display-time disambiguation); no uniqueness check on rename.
         updates["members.$.name"] = body.name
     if body.kind is not None:
         updates["members.$.kind"] = body.kind

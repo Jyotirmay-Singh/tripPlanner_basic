@@ -5,6 +5,7 @@ import { api } from '../../../src/api';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING } from '../../../src/theme';
 import T from '../../../src/T';
+import { memberDisplayNames } from '../../../src/displayNames';
 import { Screen, Card, Button, Icon, EmptyState, AmountText, SkeletonCard, useToast } from '../../../src/ui';
 
 type Member = { id: string; name: string };
@@ -40,7 +41,8 @@ export default function SettleUp() {
     finally { setBusyIdx(null); }
   };
 
-  const nameOf = (mid: string) => bal?.members.find((m) => m.id === mid)?.name || '?';
+  const displayNames = memberDisplayNames(bal?.members);
+  const nameOf = (mid: string) => displayNames[mid] || '?';
 
   return (
     <Screen edges={['bottom']}>

@@ -196,6 +196,23 @@ class TestTransactions:
         assert rows[0]["split_mode"] == "PER_CAPITA"
 
 
+class TestDuplicateNameDisambiguation:
+    # Members can now share a stored name; the report must show the SAME disambiguated labels as the
+    # app (utils.display_names). Two individuals both "Ravi" -> "Ravi_1" / "Ravi_2".
+    def _dup_roster(self):
+        return [_ind("a", "Ravi"), _ind("b", "Ravi"), _ind("c", "Priya")]
+
+    def test_transaction_rows_show_disambiguated_paid_by_and_split_among(self):
+        rows = build_transaction_rows(
+            [_exp("e1", 30.0, ["a", "b", "c"], paid_by="a")], self._dup_roster())
+        assert rows[0]["paid_by"] == "Ravi_1"
+        assert rows[0]["split_among"] == "Ravi_1, Ravi_2, Priya"
+
+    def test_per_capita_rows_use_disambiguated_member_name(self):
+        rows = build_per_capita_rows([_exp("e1", 30.0, ["a", "b", "c"])], self._dup_roster())
+        assert {r["member_name"] for r in rows} == {"Ravi_1", "Ravi_2", "Priya"}
+
+
 class TestOptionalTime:
     """The optional expense time appends '· <12h>' to the date cell only when present; a time-less
     row's date cell is byte-for-byte the bare date (unchanged from before this feature)."""

@@ -4,13 +4,15 @@ Pure helpers that re-derive each expense's per-member allocation for the XLSX ex
 calculator functions the ledger uses (`services.calculator`) so the report can never drift from
 `utils.balances._compute_balances`.
 
-This module is intentionally pure (plain dicts/lists, no `async`, no `database`/`routes`/`utils`/
-FastAPI/Motor imports — only `services.calculator`) so it is unit-testable exactly like
-`test_per_capita.py` / `test_per_family.py`. Rounding here touches ONLY the displayed cells; these
-builders never compute `net`, so they add no rounding to the settlement path.
+This module is intentionally pure (plain dicts/lists, no `async`, no `database`/`routes`/
+FastAPI/Motor imports — only `services.calculator` and the pure `utils.display_names`) so it is
+unit-testable exactly like `test_per_capita.py` / `test_per_family.py`. Rounding here touches ONLY
+the displayed cells; these builders never compute `net`, so they add no rounding to the settlement
+path.
 """
 
 from services.calculator import resolve_weights, split_per_capita, split_per_family
+from utils.display_names import member_display_names
 
 
 def _to_12h(value) -> str:
@@ -53,8 +55,11 @@ def build_member_weight_map(members: list) -> dict:
 
 
 def _names(members: list) -> dict:
-    """member_id -> display name; unknown ids resolve to '?' at lookup time."""
-    return {m["id"]: m.get("name", "?") for m in members}
+    """member_id -> disambiguated display name; unknown ids resolve to '?' at lookup time.
+
+    Routes through `utils.display_names.member_display_names` so duplicate member names show the same
+    `name_1` / `name_2` labels here as on every app screen (single source of truth)."""
+    return member_display_names(members)
 
 
 def _all_ids(members: list) -> list:

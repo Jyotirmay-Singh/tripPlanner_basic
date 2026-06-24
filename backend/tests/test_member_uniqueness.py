@@ -1,5 +1,6 @@
-# Member uniqueness tests: duplicate names/emails within a trip, cross-kind
-# collisions, self-exclusion on update, and join-time name disambiguation.
+# Member name/email rules within a trip: duplicate NAMES are now allowed (disambiguated at display
+# time via utils.display_names); only linked-email uniqueness is still enforced. Also covers
+# self-exclusion on update and join-time duplicate-name handling.
 import pytest
 import requests
 import os
@@ -9,7 +10,7 @@ BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL', 'http://localhost:8000').rs
 
 
 class TestMemberUniqueness:
-    """Member name/email uniqueness within a trip"""
+    """Member name (duplicates allowed) + email (unique) rules within a trip"""
 
     def _create_trip(self, api_client, test_user, name="TEST_Uniqueness Trip"):
         resp = api_client.post(f"{BASE_URL}/api/trips", json={
@@ -20,7 +21,9 @@ class TestMemberUniqueness:
         assert resp.status_code == 200, resp.text
         return resp.json()["id"]
 
-    def test_duplicate_individual_name_rejected(self, api_client, test_user):
+    def test_duplicate_individual_name_allowed(self, api_client, test_user):
+        # Duplicate names are now accepted; both members are stored with the same name and
+        # disambiguated only at display time.
         trip_id = self._create_trip(api_client, test_user)
 
         resp1 = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/members", json={
@@ -33,9 +36,15 @@ class TestMemberUniqueness:
             "name": "TEST_Dup Name",
             "kind": "individual"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
-        assert resp2.status_code == 400
+        assert resp2.status_code == 200, resp2.text
+        assert resp2.json()["name"] == "TEST_Dup Name"
 
-    def test_duplicate_family_name_rejected(self, api_client, test_user):
+        trip = api_client.get(f"{BASE_URL}/api/trips/{trip_id}",
+                              headers={"Authorization": f"Bearer {test_user['token']}"}).json()
+        dup = [m for m in trip["members"] if m["name"] == "TEST_Dup Name"]
+        assert len(dup) == 2
+
+    def test_duplicate_family_name_allowed(self, api_client, test_user):
         trip_id = self._create_trip(api_client, test_user)
 
         resp1 = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/members", json={
@@ -50,9 +59,9 @@ class TestMemberUniqueness:
             "kind": "family",
             "family_members": ["Carol"]
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
-        assert resp2.status_code == 400
+        assert resp2.status_code == 200, resp2.text
 
-    def test_cross_kind_name_collision_rejected(self, api_client, test_user):
+    def test_cross_kind_name_collision_allowed(self, api_client, test_user):
         trip_id = self._create_trip(api_client, test_user)
 
         resp1 = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/members", json={
@@ -66,7 +75,7 @@ class TestMemberUniqueness:
             "kind": "family",
             "family_members": ["Dave"]
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
-        assert resp2.status_code == 400
+        assert resp2.status_code == 200, resp2.text
 
     def test_duplicate_linked_email_rejected(self, api_client, test_user):
         trip_id = self._create_trip(api_client, test_user)
@@ -103,7 +112,8 @@ class TestMemberUniqueness:
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
         assert response.status_code == 200, response.text
 
-    def test_update_member_name_collision_rejected(self, api_client, test_user):
+    def test_update_member_name_collision_allowed(self, api_client, test_user):
+        # Renaming a member onto an existing name is now accepted (display disambiguates).
         trip_id = self._create_trip(api_client, test_user)
 
         m1 = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/members", json={
@@ -119,11 +129,12 @@ class TestMemberUniqueness:
         response = api_client.patch(f"{BASE_URL}/api/trips/{trip_id}/members/{m2['id']}", json={
             "name": "TEST_Existing Name"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
-        assert response.status_code == 400
+        assert response.status_code == 200, response.text
+        assert response.json()["name"] == "TEST_Existing Name"
 
-    def test_join_trip_disambiguates_duplicate_name(self, api_client, test_user):
-        """If a joining user's name collides with an existing member, the new
-        member's display name is disambiguated rather than rejected."""
+    def test_join_trip_allows_duplicate_name(self, api_client, test_user):
+        """A joining user whose name collides with an existing member keeps their plain name
+        (no stored-name mutation); disambiguation is derived at display time."""
         # User1 (test_user) creates a trip; its owner member name == test_user["name"]
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
             "name": "TEST_Join Disambiguation Trip",
@@ -155,8 +166,7 @@ class TestMemberUniqueness:
         assert len(data["members"]) == 2
 
         names = [m["name"] for m in data["members"]]
-        # The two members must have distinct names, and the new one should be
-        # a disambiguated variant of the original (contains the local part of email2).
-        assert len(set(names)) == 2
-        local_part = email2.split("@")[0].lower()
-        assert any(local_part in n for n in names if n != owner_name)
+        # Both members now keep the SAME stored name (duplicate allowed); the join no longer
+        # rewrites the joiner's name. The two members are distinguished by their member id.
+        assert names == [owner_name, owner_name]
+        assert len({m["id"] for m in data["members"]}) == 2

@@ -9,6 +9,7 @@ from database import db
 from utils.deps import get_current_user, _trip_or_404
 from utils.date_rules import ensure_date_range, trip_date_label
 from utils.balances import _compute_balances
+from utils.display_names import member_display_names, family_member_display_names
 from utils.security import decode_token
 from services.report_builder import (
     build_per_capita_rows,
@@ -60,6 +61,8 @@ async def report_xlsx(trip_id: str, token: str,
     expenses = await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(5000)
     bal = await _compute_balances(trip_id)
     members_by_id = {m["id"]: m for m in trip["members"]}
+    # Disambiguated top-level labels (rule a + families) — one source of truth shared with the app.
+    display = member_display_names(trip["members"])
 
     wb = Workbook()
 
@@ -87,7 +90,7 @@ async def report_xlsx(trip_id: str, token: str,
     s3 = wb.create_sheet("Per Member")
     s3.append(["Member", "Type", "People", "Net Balance", "Per-Person"])
     for pp in bal["per_person"]:
-        s3.append([pp["member_name"], pp["kind"], pp["people_count"],
+        s3.append([display.get(pp["member_id"], pp["member_name"]), pp["kind"], pp["people_count"],
                    pp["net_total"], pp["net_per_person"]])
 
     # Sheet 3b – Family per-person breakdown
@@ -95,8 +98,10 @@ async def report_xlsx(trip_id: str, token: str,
     s3b.append(["Family", "Person", "Share of Net Balance"])
     for pp in bal["per_person"]:
         if pp["kind"] == "family" and pp["family_members"]:
-            for name in pp["family_members"]:
-                s3b.append([pp["member_name"], name, pp["net_per_person"]])
+            fam_label = display.get(pp["member_id"], pp["member_name"])
+            roster = family_member_display_names(members_by_id.get(pp["member_id"], {}))
+            for name in roster:
+                s3b.append([fam_label, name, pp["net_per_person"]])
 
     # Sheet 4 – Transactions (now carries the Split Mode of each line item)
     sorted_expenses = sorted(expenses, key=lambda x: x.get("date", ""))
