@@ -8,9 +8,11 @@ import { SPACING, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
 import { isGmail, GMAIL_ONLY_MESSAGE } from '../../../src/validation';
 import ConfirmModal from '../../../src/ConfirmModal';
+import FamilyMembersEditor from '../../../src/FamilyMembersEditor';
+import { FamilyRow, familyToRows, rowsToPayload } from '../../../src/familyParticipation';
 import { Input, Button, SegmentedControl, useToast } from '../../../src/ui';
 
-type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; email?: string | null; user_id?: string | null };
+type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; family_member_ids?: (string | null)[]; email?: string | null; user_id?: string | null };
 
 const effWeight = (kind: 'individual' | 'family', fm: string[]) => (kind === 'family' ? fm.length : 1);
 
@@ -23,7 +25,7 @@ export default function EditMember() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [kind, setKind] = useState<'individual' | 'family'>('individual');
-  const [familyText, setFamilyText] = useState('');
+  const [familyRows, setFamilyRows] = useState<FamilyRow[]>([]);
   const [originalFM, setOriginalFM] = useState<string[]>([]);
   const [originalKind, setOriginalKind] = useState<'individual' | 'family'>('individual');
   const [qualifiesForRecalc, setQualifiesForRecalc] = useState(false);
@@ -39,7 +41,7 @@ export default function EditMember() {
       const m = (trip.members as Member[]).find((x) => x.id === mid);
       if (!m) return;
       setMember(m); setName(m.name); setKind(m.kind); setEmail(m.email || '');
-      setFamilyText(m.family_members.join(', '));
+      setFamilyRows(familyToRows(m.family_members, m.family_member_ids));
       setOriginalFM(m.family_members);
       setOriginalKind(m.kind);
       const exps: any[] = await api(`/trips/${id}/expenses`);
@@ -54,12 +56,13 @@ export default function EditMember() {
 
   const save = async (reweightPast: boolean) => {
     if (!name.trim()) return toast.show('Name is required', 'error');
-    const family_members = kind === 'family' ? familyText.split(',').map((s) => s.trim()).filter(Boolean) : [];
+    const { family_members, family_member_ids } = kind === 'family'
+      ? rowsToPayload(familyRows) : { family_members: [], family_member_ids: [] };
     if (kind === 'family' && family_members.length === 0) return toast.show('Add at least one family member name', 'error');
     try {
       await api(`/trips/${id}/members/${mid}`, {
         method: 'PATCH',
-        body: { name: name.trim(), kind, family_members, email: email.trim() || null, reweight_past: reweightPast },
+        body: { name: name.trim(), kind, family_members, family_member_ids, email: email.trim() || null, reweight_past: reweightPast },
       });
       router.back();
     } catch (e: any) { toast.show(e.message || 'Could not save', 'error'); }
@@ -69,7 +72,7 @@ export default function EditMember() {
     if (!member) return;
     if (!name.trim()) return toast.show('Name is required', 'error');
     if (email.trim() && !isGmail(email)) return toast.show(GMAIL_ONLY_MESSAGE, 'error');
-    const newFM = kind === 'family' ? familyText.split(',').map((s) => s.trim()).filter(Boolean) : [];
+    const newFM = kind === 'family' ? rowsToPayload(familyRows).family_members : [];
     if (kind === 'family' && newFM.length === 0) return toast.show('Add at least one family member name', 'error');
     const oldW = effWeight(originalKind, originalFM);
     const newW = effWeight(kind, newFM);
@@ -113,7 +116,7 @@ export default function EditMember() {
             <Input testID="em-name" label={`${kind === 'family' ? 'Family name' : 'Name'} *`} value={name} onChangeText={setName} />
 
             {kind === 'family' && (
-              <Input testID="em-family" label="Family member names (comma separated) *" value={familyText} onChangeText={setFamilyText} />
+              <FamilyMembersEditor rows={familyRows} onChange={setFamilyRows} testIDPrefix="em-fam" />
             )}
 
             <Input

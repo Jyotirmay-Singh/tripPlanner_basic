@@ -9,7 +9,7 @@ from database import db
 from utils.deps import get_current_user, _trip_or_404
 from utils.date_rules import ensure_date_range, trip_date_label
 from utils.balances import _compute_balances
-from utils.display_names import member_display_names, family_member_display_names
+from utils.display_names import member_display_names
 from utils.security import decode_token
 from services.report_builder import (
     build_per_capita_rows,
@@ -60,7 +60,6 @@ async def report_xlsx(trip_id: str, token: str,
     trip = await _trip_or_404(trip_id, user["id"])
     expenses = await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(5000)
     bal = await _compute_balances(trip_id)
-    members_by_id = {m["id"]: m for m in trip["members"]}
     # Disambiguated top-level labels (rule a + families) — one source of truth shared with the app.
     display = member_display_names(trip["members"])
 
@@ -93,15 +92,15 @@ async def report_xlsx(trip_id: str, token: str,
         s3.append([display.get(pp["member_id"], pp["member_name"]), pp["kind"], pp["people_count"],
                    pp["net_total"], pp["net_per_person"]])
 
-    # Sheet 3b – Family per-person breakdown
+    # Sheet 3b – Family per-person breakdown. Uses the balances per-member breakdown so an excluded
+    # member shows 0 and participants split the family's share (matches the Balances tab).
     s3b = wb.create_sheet("Per Family Person")
     s3b.append(["Family", "Person", "Share of Net Balance"])
     for pp in bal["per_person"]:
-        if pp["kind"] == "family" and pp["family_members"]:
+        if pp["kind"] == "family" and pp.get("members"):
             fam_label = display.get(pp["member_id"], pp["member_name"])
-            roster = family_member_display_names(members_by_id.get(pp["member_id"], {}))
-            for name in roster:
-                s3b.append([fam_label, name, pp["net_per_person"]])
+            for row in pp["members"]:
+                s3b.append([fam_label, row["name"], row["net"]])
 
     # Sheet 4 – Transactions (now carries the Split Mode of each line item)
     sorted_expenses = sorted(expenses, key=lambda x: x.get("date", ""))

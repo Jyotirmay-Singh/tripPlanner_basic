@@ -52,6 +52,36 @@ def split_per_family(amount: float, member_ids: list) -> dict:
     return {mid: per_entity for mid in ids}
 
 
+def allocate_within_family(family_share: float, participant_ids: list, all_member_ids: list) -> dict:
+    """Intra-family per-member division (Model A) — DISPLAY-only, ledger-neutral.
+
+    Splits ONE family's already-computed `family_share` equally among the members who took part in
+    that expense; non-participants get exactly 0.0; the excluded portion is absorbed by the
+    participating members of the SAME family. The family's total `family_share` is never changed —
+    only its internal division — so the trip headcount, the ledger net, and every other entity stay
+    untouched.
+
+    participant_ids: the member ids that took part. None/empty, or a list that doesn't intersect the
+    current roster, means "everyone participates" (exact back-compat / robust to removed members).
+    all_member_ids: the family's current roster member ids.
+
+    Returns {member_id: share} over `all_member_ids`. No intermediate rounding
+    (sum(shares) == family_share within float epsilon); rounding happens once at the display layer.
+    Empty roster -> {} (caller renders nothing).
+    """
+    roster = list(dict.fromkeys(all_member_ids))  # de-dupe, preserve order
+    if not roster:
+        return {}
+    # Restrict to participants that still exist in the roster; fall back to "all" when the recorded
+    # participants are absent/empty or none survive (e.g. every recorded participant was removed).
+    chosen = [mid for mid in roster if mid in set(participant_ids or [])]
+    if not chosen:
+        chosen = roster
+    per = family_share / len(chosen)
+    chosen_set = set(chosen)
+    return {mid: (per if mid in chosen_set else 0.0) for mid in roster}
+
+
 def minimize_transfers(net: dict) -> list:
     """Greedy minimum-transaction settlement.
 

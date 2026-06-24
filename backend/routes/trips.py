@@ -10,6 +10,7 @@ from utils.email_rules import assert_gmail, normalize_email
 from utils.members import (
     email_exists,
     assert_unique_email,
+    assign_family_member_ids,
 )
 
 router = APIRouter()
@@ -170,7 +171,9 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
             assert_unique_email(members, user_email)
         new_member = {
             "id": gen_id(), "name": body.family_name, "kind": "family",
-            "family_members": body.family_members, "email": user_email, "user_id": user["id"],
+            "family_members": body.family_members,
+            "family_member_ids": assign_family_member_ids(body.family_members),
+            "email": user_email, "user_id": user["id"],
         }
         await db.trips.update_one(
             {"id": trip["id"]},
