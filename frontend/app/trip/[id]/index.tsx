@@ -16,6 +16,7 @@ import { compositionLabel } from '../../../src/composition';
 import { receiptExpenses, billLabel } from '../../../src/gallery';
 import { formatMoney } from '../../../src/format';
 import { formatTripDates } from '../../../src/date';
+import { formatTime12h } from '../../../src/time';
 import {
   Card, Button, IconButton, Icon, SegmentedControl, StatCard, ProgressBar,
   EmptyState, AmountText, SkeletonCard, useToast,
@@ -23,7 +24,7 @@ import {
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
 type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
-type Expense = { id: string; kind: 'expense' | 'income'; amount: number; category: string; description?: string; date: string; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string };
+type Expense = { id: string; kind: 'expense' | 'income'; amount: number; category: string; description?: string; date: string; time?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[] }[] };
 
 type TabKey = 'summary' | 'expenses' | 'balances' | 'members' | 'gallery';
@@ -254,7 +255,7 @@ export default function TripDetail() {
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <T variant="h4" numberOfLines={1}>{e.description || e.category}</T>
                     <T muted variant="caption" numberOfLines={1}>
-                      {e.date} · {e.category} · by {memberById(e.paid_by_member_id)?.name || '?'}
+                      {e.date}{e.time ? ` · ${formatTime12h(e.time)}` : ''} · {e.category} · by {memberById(e.paid_by_member_id)?.name || '?'}
                     </T>
                     {e.has_receipt ? (
                       token ? (

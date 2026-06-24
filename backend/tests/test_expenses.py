@@ -309,6 +309,97 @@ class TestExpenses:
         assert abs(individual_net - 300.0) < 0.01, f"Individual net should be ~300, got {individual_net}"
         assert abs(family_net - (-300.0)) < 0.01, f"Family net should be ~-300, got {family_net}"
 
+    def test_add_expense_with_time(self, api_client, test_user):
+        """Optional time is accepted, persisted, and echoed in the list."""
+        trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
+            "name": "TEST_Time Trip",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
+            "currency": "INR"
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        trip_id = trip_resp.json()["id"]
+        member_id = trip_resp.json()["members"][0]["id"]
+
+        response = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/expenses", json={
+            "kind": "expense", "amount": 120.0, "category": "Food",
+            "description": "Lunch with time", "date": "11-05-26", "time": "14:30",
+            "paid_by_member_id": member_id, "split_member_ids": []
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        assert response.status_code == 200
+        exp = response.json()["expense"]
+        assert exp["time"] == "14:30"
+        assert exp["date"] == "11-05-26"  # date format unchanged
+
+        listed = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/expenses", headers={
+            "Authorization": f"Bearer {test_user['token']}"
+        }).json()
+        match = next(e for e in listed if e["id"] == exp["id"])
+        assert match["time"] == "14:30"
+
+    def test_add_expense_without_time(self, api_client, test_user):
+        """Omitting time behaves exactly as today: time is null/absent, date unchanged."""
+        trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
+            "name": "TEST_No Time Trip",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
+            "currency": "INR"
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        trip_id = trip_resp.json()["id"]
+        member_id = trip_resp.json()["members"][0]["id"]
+
+        response = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/expenses", json={
+            "kind": "expense", "amount": 80.0, "category": "Food",
+            "description": "Lunch no time", "date": "11-05-26",
+            "paid_by_member_id": member_id, "split_member_ids": []
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        assert response.status_code == 200
+        exp = response.json()["expense"]
+        assert not exp.get("time")  # None / absent -> falsy
+
+    def test_update_expense_set_and_clear_time(self, api_client, test_user):
+        """PATCH can set a time, then clear it back to none via explicit null."""
+        trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
+            "name": "TEST_Time Edit Trip",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
+            "currency": "INR"
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        trip_id = trip_resp.json()["id"]
+        member_id = trip_resp.json()["members"][0]["id"]
+
+        exp_resp = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/expenses", json={
+            "kind": "expense", "amount": 50.0, "category": "Food",
+            "description": "Edit time", "date": "11-11-26",
+            "paid_by_member_id": member_id, "split_member_ids": []
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        expense_id = exp_resp.json()["expense"]["id"]
+
+        set_resp = api_client.patch(f"{BASE_URL}/api/trips/{trip_id}/expenses/{expense_id}", json={
+            "time": "09:05"
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        assert set_resp.status_code == 200
+        assert set_resp.json()["time"] == "09:05"
+
+        clear_resp = api_client.patch(f"{BASE_URL}/api/trips/{trip_id}/expenses/{expense_id}", json={
+            "time": None
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        assert clear_resp.status_code == 200
+        assert not clear_resp.json().get("time")
+
+    def test_add_expense_invalid_time_422(self, api_client, test_user):
+        """An impossible time is rejected with 422 (validation on the new field only)."""
+        trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
+            "name": "TEST_Bad Time Trip",
+            "start_date": "2026-01-10", "end_date": "2026-01-15",
+            "currency": "INR"
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        trip_id = trip_resp.json()["id"]
+        member_id = trip_resp.json()["members"][0]["id"]
+
+        response = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/expenses", json={
+            "kind": "expense", "amount": 10.0, "category": "Food",
+            "description": "Bad time", "date": "11-05-26", "time": "25:99",
+            "paid_by_member_id": member_id, "split_member_ids": []
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        assert response.status_code == 422
+
     def test_invalid_category(self, api_client, test_user):
         """Test expense with invalid category fails"""
         trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={

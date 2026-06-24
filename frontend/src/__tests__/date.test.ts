@@ -9,6 +9,8 @@ import {
   isoFromLocalDate,
   localDateFromISO,
   partsFromLocalDate,
+  ddmmyyToDDMMYYYY,
+  ddmmyyyyToDDMMYY,
   INVALID_DATE_MESSAGE,
   END_BEFORE_START_MESSAGE,
 } from '../date';
@@ -35,6 +37,31 @@ describe('parseDDMMYYYY', () => {
     expect(parseDDMMYYYY('11-12-2026')).toBeNull(); // dashes
     expect(parseDDMMYYYY('abc')).toBeNull();
     expect(parseDDMMYYYY('')).toBeNull();
+  });
+});
+
+describe('expense DD-MM-YY <-> dd/mm/yyyy bridge', () => {
+  it('ddmmyyToDDMMYYYY expands the 2-digit year (2000+yy)', () => {
+    expect(ddmmyyToDDMMYYYY('15-12-26')).toBe('15/12/2026');
+    expect(ddmmyyToDDMMYYYY('1-2-26')).toBe('01/02/2026');
+  });
+
+  it('ddmmyyyyToDDMMYY collapses to the 2-digit year', () => {
+    expect(ddmmyyyyToDDMMYY('15/12/2026')).toBe('15-12-26');
+    expect(ddmmyyyyToDDMMYY('1/2/2026')).toBe('01-02-26');
+  });
+
+  it('round-trips DD-MM-YY through the picker format unchanged', () => {
+    expect(ddmmyyyyToDDMMYY(ddmmyyToDDMMYYYY('15-12-26'))).toBe('15-12-26');
+    expect(ddmmyyyyToDDMMYY(ddmmyyToDDMMYYYY('09-06-27'))).toBe('09-06-27');
+  });
+
+  it('returns "" on bad/partial input (never mangles)', () => {
+    expect(ddmmyyToDDMMYYYY('')).toBe('');
+    expect(ddmmyyToDDMMYYYY('2026-12-15')).toBe(''); // ISO, not DD-MM-YY
+    expect(ddmmyyToDDMMYYYY('31-02-26')).toBe(''); // impossible date
+    expect(ddmmyyyyToDDMMYY('15/12/20')).toBe(''); // partial year
+    expect(ddmmyyyyToDDMMYY('garbage')).toBe('');
   });
 });
 
