@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "bundleIdentifier": "com.tripsplitter.app", 
+      "bundleIdentifier": "com.tripsplitter.app",
       "supportsTablet": true,
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Attach receipt photos to expenses",
@@ -66,6 +66,12 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "0a3b5a1c-5cbd-4eac-bff7-5b53ee4b6948"
+      }
+    },
+    "owner": "jyotirmay03"
   }
 }
