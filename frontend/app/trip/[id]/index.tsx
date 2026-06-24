@@ -26,7 +26,7 @@ import {
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
 type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
 type Expense = { id: string; kind: 'expense' | 'income'; amount: number; category: string; description?: string; date: string; time?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string };
-type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[] }[] };
+type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[]; members?: { id: string; name: string; net: number }[] }[] };
 
 type TabKey = 'summary' | 'expenses' | 'balances' | 'members' | 'gallery';
 const TABS: { value: TabKey; label: string }[] = [
@@ -303,11 +303,15 @@ export default function TripDetail() {
                     </View>
                     {pp.kind === 'family' && pp.family_members.length > 0 && (
                       <View style={{ marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
-                        {familyMemberDisplayNames({ id: pp.member_id, name: pp.member_name, family_members: pp.family_members }).map((fname, fi) => (
-                          <View key={fi} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
-                            <T variant="caption" muted>↳ {fname}</T>
-                            <T variant="caption" color={pp.net_per_person < 0 ? colors.danger : pp.net_per_person > 0 ? colors.success : colors.textMuted}>
-                              {formatMoney(pp.net_per_person, { signed: true })}
+                        {(pp.members && pp.members.length > 0
+                          ? pp.members
+                          : familyMemberDisplayNames({ id: pp.member_id, name: pp.member_name, family_members: pp.family_members })
+                              .map((fname, fi) => ({ id: `${pp.member_id}:${fi}`, name: fname, net: pp.net_per_person }))
+                        ).map((fm) => (
+                          <View key={fm.id} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
+                            <T variant="caption" muted>↳ {fm.name}</T>
+                            <T variant="caption" color={fm.net < 0 ? colors.danger : fm.net > 0 ? colors.success : colors.textMuted}>
+                              {formatMoney(fm.net, { signed: true })}
                             </T>
                           </View>
                         ))}

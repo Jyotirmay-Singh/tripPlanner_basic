@@ -7,6 +7,7 @@ from services.calculator import (
     split_per_capita,
     split_per_family,
 )
+from services.member_breakdown import family_member_breakdown
 
 
 def _weight_of_member(m: dict) -> int:
@@ -56,6 +57,11 @@ async def _compute_balances(trip_id: str) -> dict:
     for k in net:
         net[k] = round(net[k], 2)
 
+    # Intra-family per-member breakdown (DISPLAY-only; never mutates net/transfers). Honors each
+    # expense's family_participants — excluded members show 0 and the family's share is split only
+    # among participants. With no restriction it equals the uniform net_per_person below exactly.
+    breakdown = family_member_breakdown(members, expenses, settlements, net)
+
     # greedy settlement suggestion
     transfers = minimize_transfers(net)
     return {"net": net, "transfers": transfers, "members": members,
@@ -65,6 +71,8 @@ async def _compute_balances(trip_id: str) -> dict:
                  "people_count": _weight_of_member(m),
                  "net_total": net.get(m["id"], 0.0),
                  "net_per_person": round(net.get(m["id"], 0.0) / _weight_of_member(m), 2),
-                 "family_members": m.get("family_members", []) }
+                 "family_members": m.get("family_members", []),
+                 # Additive: per-member shares for families ([{id,name,net}]); [] for individuals.
+                 "members": breakdown.get(m["id"], []) }
                 for m in members
             ]}

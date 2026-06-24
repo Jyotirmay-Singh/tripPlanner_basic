@@ -7,6 +7,8 @@ import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
 import { isGmail, GMAIL_ONLY_MESSAGE } from '../../../src/validation';
+import FamilyMembersEditor from '../../../src/FamilyMembersEditor';
+import { FamilyRow, rowsToPayload } from '../../../src/familyParticipation';
 import { Input, Button, SegmentedControl, useToast } from '../../../src/ui';
 
 export default function AddMember() {
@@ -17,21 +19,22 @@ export default function AddMember() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [kind, setKind] = useState<'individual' | 'family'>('individual');
-  const [familyText, setFamilyText] = useState('');
+  const [familyRows, setFamilyRows] = useState<FamilyRow[]>([{ id: null, name: '' }]);
   const [saving, setSaving] = useState(false);
 
   const emailError = email.trim() && !isGmail(email) ? GMAIL_ONLY_MESSAGE : null;
 
   const submit = async () => {
     if (!name.trim()) return toast.show('Name is required', 'error');
-    const family_members = kind === 'family' ? familyText.split(',').map((s) => s.trim()).filter(Boolean) : [];
+    const { family_members, family_member_ids } = kind === 'family'
+      ? rowsToPayload(familyRows) : { family_members: [], family_member_ids: [] };
     if (kind === 'family' && family_members.length === 0) return toast.show('Add at least one family member name', 'error');
     if (email.trim() && !isGmail(email)) return toast.show(GMAIL_ONLY_MESSAGE, 'error');
     setSaving(true);
     try {
       await api(`/trips/${id}/members`, {
         method: 'POST',
-        body: { name: name.trim(), kind, family_members, email: email.trim() || null },
+        body: { name: name.trim(), kind, family_members, family_member_ids, email: email.trim() || null },
       });
       router.back();
     } catch (e: any) { toast.show(e.message || 'Could not add member', 'error'); }
@@ -61,14 +64,7 @@ export default function AddMember() {
             />
 
             {kind === 'family' && (
-              <Input
-                testID="mem-family"
-                label="Family member names (comma separated) *"
-                value={familyText}
-                onChangeText={setFamilyText}
-                placeholder="e.g. Arjun, Priya, Rohan"
-                helper="Expenses applied to this family will be split per family member."
-              />
+              <FamilyMembersEditor rows={familyRows} onChange={setFamilyRows} testIDPrefix="mem-fam" />
             )}
 
             <Input

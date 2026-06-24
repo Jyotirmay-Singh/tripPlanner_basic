@@ -13,7 +13,9 @@ import { SPACING, RADIUS, FONTS, CATEGORIES, CONTENT_MAX_WIDTH } from '../../../
 import T from '../../../src/T';
 import SplitModeSelector, { SplitMode, splitPreviewLabel } from '../../../src/SplitModeSelector';
 import { canModifyExpense } from '../../../src/permissions';
-import { memberDisplayNames } from '../../../src/displayNames';
+import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displayNames';
+import { buildFamilyParticipants, excludedFromParticipants, familyMemberIds, familyShareEach } from '../../../src/familyParticipation';
+import { formatMoney } from '../../../src/format';
 import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { ddmmyyToDDMMYYYY, ddmmyyyyToDDMMYY } from '../../../src/date';
@@ -22,13 +24,14 @@ import {
   DateField, TimeField,
 } from '../../../src/ui';
 
-type Member = { id: string; name: string; kind: string; family_members: string[] };
+type Member = { id: string; name: string; kind: string; family_members: string[]; family_member_ids?: string[] };
 type Trip = { id: string; name: string; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
 type Expense = {
   id: string; kind: 'expense' | 'income'; amount: number; category: string;
   description?: string; date: string; time?: string | null; paid_by_member_id: string;
   split_member_ids: string[]; split_mode?: SplitMode;
   weight_snapshots?: Record<string, number> | null; receipt_base64?: string | null;
+  family_participants?: Record<string, string[]> | null;
   receipt_id?: string | null; has_receipt?: boolean;
   created_by?: string | null;
 };
@@ -52,6 +55,8 @@ export default function EditExpense() {
   const [splitSel, setSplitSel] = useState<string[]>([]);
   const [splitMode, setSplitMode] = useState<SplitMode>('PER_CAPITA');
   const [weightOverrides, setWeightOverrides] = useState<Record<string, number>>({});
+  // famId -> excluded member ids (default empty = everyone participates).
+  const [familyExcluded, setFamilyExcluded] = useState<Record<string, string[]>>({});
   const [receiptUri, setReceiptUri] = useState<string | null>(null);
   const [newAsset, setNewAsset] = useState<{ uri: string; mimeType?: string; fileName?: string } | null>(null);
   const [hadReceipt, setHadReceipt] = useState(false);
@@ -75,6 +80,7 @@ export default function EditExpense() {
       setSplitSel(e.split_member_ids && e.split_member_ids.length ? e.split_member_ids : allIds);
       setSplitMode(e.split_mode || 'PER_CAPITA');
       setWeightOverrides(e.weight_snapshots || {});
+      setFamilyExcluded(excludedFromParticipants(t.members, e.family_participants));
       const has = !!(e.has_receipt || e.receipt_id || e.receipt_base64);
       setHadReceipt(has);
       if (has) {
@@ -128,6 +134,14 @@ export default function EditExpense() {
             const fullSize = Math.max(1, m.family_members.length);
             if (weightOverrides[sid] !== fullSize) snapshots[sid] = weightOverrides[sid];
           }
+          if (m && m.kind === 'family') {
+            const fam = familyMemberIds(m);
+            const excl = familyExcluded[sid] || [];
+            if (fam.length > 1 && fam.every((rid) => excl.includes(rid))) {
+              setSaving(false);
+              return toast.show(`At least one member of ${m.name} must take part.`, 'error');
+            }
+          }
         }
       }
       await api(`/trips/${id}/expenses/${eid}`, {
@@ -138,6 +152,7 @@ export default function EditExpense() {
           split_member_ids: allSelected ? [] : splitSel,
           split_mode: splitMode,
           weight_snapshots: Object.keys(snapshots).length ? snapshots : null,
+          family_participants: buildFamilyParticipants(trip.members, splitSel, splitMode, familyExcluded),
         },
       });
       if (newAsset) {
@@ -166,6 +181,12 @@ export default function EditExpense() {
 
   const canModify = canModifyExpense({ created_by: createdBy }, user?.id, trip);
   const toggleSplit = (mid: string) => setSplitSel((s) => s.includes(mid) ? s.filter((x) => x !== mid) : [...s, mid]);
+  const toggleFamMember = (famId: string, memberId: string) =>
+    setFamilyExcluded((s) => {
+      const cur = s[famId] || [];
+      const next = cur.includes(memberId) ? cur.filter((x) => x !== memberId) : [...cur, memberId];
+      return { ...s, [famId]: next };
+    });
   const displayNames = memberDisplayNames(trip.members);
 
   return (
@@ -254,6 +275,10 @@ export default function EditExpense() {
                   const isFamily = m.kind === 'family';
                   const fullSize = Math.max(1, m.family_members.length);
                   const currentCount = weightOverrides[m.id] ?? fullSize;
+                  const roster = isFamily ? familyMemberIds(m) : [];
+                  const rosterNames = isFamily ? familyMemberDisplayNames(m) : [];
+                  const excluded = familyExcluded[m.id] || [];
+                  const includedCount = roster.filter((rid) => !excluded.includes(rid)).length;
                   return (
                     <View key={m.id} style={[styles.row, { backgroundColor: active ? colors.surfaceMuted : colors.surface, borderColor: active ? colors.primary : colors.border, flexDirection: 'column', alignItems: 'stretch', gap: 8 }]}>
                       <TouchableOpacity onPress={() => toggleSplit(m.id)} testID={`ee-split-${m.id}`}
@@ -262,16 +287,39 @@ export default function EditExpense() {
                         <T style={{ flex: 1 }}>{displayNames[m.id]}{isFamily ? ` (${fullSize})` : ''}</T>
                       </TouchableOpacity>
                       {active && isFamily && fullSize > 1 && splitMode === 'PER_CAPITA' && (
-                        <View style={{ paddingLeft: 28, flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                          <T variant="caption" muted>Split among</T>
-                          {Array.from({ length: fullSize }, (_, i) => i + 1).map((n) => (
-                            <TouchableOpacity key={n} testID={`ee-fam-${m.id}-${n}`}
-                              onPress={() => setWeightOverrides((w) => ({ ...w, [m.id]: n }))}
-                              style={[styles.numChip, { backgroundColor: currentCount === n ? colors.primary : colors.surface, borderColor: currentCount === n ? colors.primary : colors.border }]}>
-                              <T variant="caption" style={{ fontWeight: '700' }} color={currentCount === n ? colors.primaryText : colors.textMain}>{n}</T>
-                            </TouchableOpacity>
-                          ))}
-                          <T variant="caption" muted>of {fullSize}</T>
+                        <View style={{ paddingLeft: 28, gap: 8 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <T variant="caption" muted>Pays for</T>
+                            {Array.from({ length: fullSize }, (_, i) => i + 1).map((n) => (
+                              <TouchableOpacity key={n} testID={`ee-fam-${m.id}-${n}`}
+                                onPress={() => setWeightOverrides((w) => ({ ...w, [m.id]: n }))}
+                                style={[styles.numChip, { backgroundColor: currentCount === n ? colors.primary : colors.surface, borderColor: currentCount === n ? colors.primary : colors.border }]}>
+                                <T variant="caption" style={{ fontWeight: '700' }} color={currentCount === n ? colors.primaryText : colors.textMain}>{n}</T>
+                              </TouchableOpacity>
+                            ))}
+                            <T variant="caption" muted>of {fullSize} people</T>
+                          </View>
+                          <T variant="caption" muted>Who took part?</T>
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                            {roster.map((rid, i) => {
+                              const inc = !excluded.includes(rid);
+                              return (
+                                <TouchableOpacity key={rid} testID={`ee-fammem-${m.id}-${i}`}
+                                  onPress={() => toggleFamMember(m.id, rid)}
+                                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                  <Icon name={inc ? 'checkbox-on' : 'checkbox-off'} size={18} color={inc ? colors.primary : colors.textMuted} />
+                                  <T variant="caption" color={inc ? colors.textMain : colors.textMuted}>{rosterNames[i]}</T>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                          {includedCount === 0 ? (
+                            <T variant="caption" color={colors.danger}>At least one member must take part.</T>
+                          ) : includedCount < roster.length ? (
+                            <T variant="caption" muted testID={`ee-fam-preview-${m.id}`}>
+                              {includedCount} of {roster.length} sharing · {trip.currency} {formatMoney(familyShareEach(parseFloat(amount), trip.members, splitSel, weightOverrides, m.id, includedCount))} each (excluded owe 0)
+                            </T>
+                          ) : null}
                         </View>
                       )}
                     </View>

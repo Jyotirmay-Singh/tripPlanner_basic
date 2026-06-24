@@ -49,6 +49,25 @@ async def lifespan(app: FastAPI):
                 {"id": t["id"]},
                 {"$set": {"start_date": iso_date, "end_date": iso_date}},
             )
+    # Intra-family per-member ids: backfill stable ids parallel to each family's family_members so
+    # per-expense member participation survives roster edits. Idempotent — a trip is rewritten only
+    # when a family member is missing ids or the parallel array length drifted.
+    async for t in db.trips.find({"members.kind": "family"}, {"id": 1, "members": 1}):
+        members_list = t.get("members", [])
+        changed = False
+        for m in members_list:
+            if m.get("kind") != "family":
+                continue
+            names = m.get("family_members", []) or []
+            ids = m.get("family_member_ids") or []
+            if len(ids) != len(names):
+                m["family_member_ids"] = [
+                    ids[i] if i < len(ids) and ids[i] else gen_id() for i in range(len(names))
+                ]
+                changed = True
+        if changed:
+            await db.trips.update_one({"id": t["id"]}, {"$set": {"members": members_list}})
+
     # seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@gmail.com").lower().strip()
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")

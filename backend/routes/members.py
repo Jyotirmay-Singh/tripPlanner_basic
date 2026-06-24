@@ -6,7 +6,7 @@ from utils.common import gen_id
 from utils.deps import get_current_user, _trip_admin_or_403
 from utils.balances import _weight_of_member
 from utils.email_rules import assert_gmail, normalize_email
-from utils.members import assert_unique_email
+from utils.members import assert_unique_email, assign_family_member_ids
 from services.reallocation import run_member_update_with_reallocation
 
 router = APIRouter()
@@ -31,9 +31,12 @@ async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user
     # Duplicate names are allowed (disambiguated at display time via utils.display_names); only the
     # linked-email uniqueness invariant (Step 3) is still enforced here.
     assert_unique_email(members, email, exclude_id=exclude_id)
+    fam_names = body.family_members if body.kind == "family" else []
     new_member = {
         "id": gen_id(), "name": name, "kind": body.kind,
-        "family_members": body.family_members if body.kind == "family" else [],
+        "family_members": fam_names,
+        # Stable ids parallel to family_members (used by per-expense family_participants).
+        "family_member_ids": assign_family_member_ids(fam_names, body.family_member_ids) if body.kind == "family" else [],
         "email": email, "user_id": None,
     }
     # If a user already in the trip has this email AND currently exists as an individual,
@@ -46,6 +49,10 @@ async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user
                 "members.$.name": name,
                 "members.$.kind": "family",
                 "members.$.family_members": body.family_members,
+                "members.$.family_member_ids": assign_family_member_ids(
+                    body.family_members, body.family_member_ids,
+                    merge_target.get("family_member_ids"),
+                ),
                 "members.$.email": email,
             }},
         )
@@ -73,6 +80,12 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
         new_fm = []
     if body.family_members is not None or body.kind is not None:
         updates["members.$.family_members"] = new_fm
+        # Keep stable ids parallel to the roster: preserve ids for retained rows (the editor sends
+        # them), mint for new rows, and clear ids when this stops being a family.
+        updates["members.$.family_member_ids"] = (
+            assign_family_member_ids(new_fm, body.family_member_ids, target.get("family_member_ids"))
+            if new_kind == "family" else []
+        )
     if body.email is not None:
         em = normalize_email(body.email)
         if em:
