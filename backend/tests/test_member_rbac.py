@@ -119,6 +119,34 @@ class TestMemberRBAC:
         del_resp = self._delete_member(api_client, admin_token, trip["id"], new_id)
         assert del_resp.status_code == 200, del_resp.text
 
+    # ---------- the owner's member row cannot be removed ----------
+    def test_admin_cannot_remove_owner_member(self, api_client, test_user):
+        # The owner's member row is the trip root: neither a promoted admin nor the owner
+        # themselves can delete it (mirrors remove_admin's root-admin protection). The owner
+        # stays on the roster either way.
+        owner_token = test_user["token"]
+        owner_uid = test_user["user"]["id"]
+        trip = self._create_trip(api_client, owner_token)
+        tid = trip["id"]
+        owner_member = next(m for m in trip["members"] if m.get("user_id") == owner_uid)
+
+        admin_token, admin_uid = self._register_user(api_client, "Owner-Remover Admin")
+        self._join_trip(api_client, admin_token, trip["code"])
+        self._promote_admin(api_client, owner_token, tid, admin_uid)
+
+        # promoted admin -> 403
+        resp = self._delete_member(api_client, admin_token, tid, owner_member["id"])
+        assert resp.status_code == 403, resp.text
+        assert resp.json()["detail"] == "Cannot remove the trip owner"
+
+        # the owner cannot delete their own root member row either -> 403
+        resp = self._delete_member(api_client, owner_token, tid, owner_member["id"])
+        assert resp.status_code == 403, resp.text
+
+        # owner still on the roster
+        members = self._get_members(api_client, owner_token, tid)
+        assert any(m["id"] == owner_member["id"] for m in members)
+
     # ---------- non-admin member is blocked ----------
     def test_non_admin_member_add_forbidden(self, api_client, test_user):
         trip = self._create_trip(api_client, test_user["token"])

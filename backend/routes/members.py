@@ -111,6 +111,13 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
 @router.delete("/trips/{trip_id}/members/{member_id}")
 async def delete_member(trip_id: str, member_id: str, user=Depends(get_current_user)):
     trip = await _trip_admin_or_403(trip_id, user["id"])
+    # The owner's member row is the trip root and cannot be removed by anyone — not a
+    # promoted admin, nor the owner themselves (mirrors remove_admin's "Cannot remove the
+    # root admin" guard). A missing member id still falls through to the idempotent no-op
+    # below, preserving the existing DELETE contract.
+    target = next((m for m in trip.get("members", []) if m["id"] == member_id), None)
+    if target and target.get("user_id") and target["user_id"] == trip.get("owner_id"):
+        raise HTTPException(403, "Cannot remove the trip owner")
     # cannot remove if member appears in any expense
     exists = await db.expenses.find_one({"trip_id": trip_id,
                                          "$or": [{"paid_by_member_id": member_id},
