@@ -1,5 +1,5 @@
 // Pure logic for the show/hide ("eye") affordance on password & PIN fields. Kept dependency-free so
-// the toggle contract is unit-testable without rendering (matches src/permissions.ts, src/gallery.ts).
+// the toggle contract is unit-testable without rendering (matches src/permissions.ts, src/bill.ts).
 // Components hold a local `visible` boolean (default false = masked) and lean on these helpers.
 
 export type EyeIcon = 'eye' | 'eye-off';

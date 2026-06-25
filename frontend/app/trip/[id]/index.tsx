@@ -14,7 +14,7 @@ import ConfirmModal from '../../../src/ConfirmModal';
 import { canModifyExpense, roleOf, canEditTripSettings, canManageMembers, canDeleteTrip } from '../../../src/permissions';
 import { compositionLabel } from '../../../src/composition';
 import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displayNames';
-import { receiptExpenses, billLabel } from '../../../src/gallery';
+import { billLabel } from '../../../src/bill';
 import { formatMoney } from '../../../src/format';
 import { formatTripDates } from '../../../src/date';
 import { formatTime12h } from '../../../src/time';
@@ -28,13 +28,12 @@ type Trip = { id: string; name: string; code: string; start_date?: string; end_d
 type Expense = { id: string; kind: 'expense' | 'income'; amount: number; category: string; description?: string; date: string; time?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[]; members?: { id: string; name: string; net: number }[] }[] };
 
-type TabKey = 'summary' | 'expenses' | 'balances' | 'members' | 'gallery';
+type TabKey = 'summary' | 'expenses' | 'balances' | 'members';
 const TABS: { value: TabKey; label: string }[] = [
   { value: 'summary', label: 'Summary' },
   { value: 'expenses', label: 'Expenses' },
   { value: 'balances', label: 'Balances' },
   { value: 'members', label: 'Members' },
-  { value: 'gallery', label: 'Gallery' },
 ];
 
 export default function TripDetail() {
@@ -384,27 +383,6 @@ export default function TripDetail() {
               })}
             </View>
           )}
-
-          {tab === 'gallery' && (() => {
-            const withBills = receiptExpenses(expenses);
-            return (
-              <View style={{ gap: SPACING.sm }}>
-                {withBills.length === 0 ? (
-                  <EmptyState icon="image" title="No bills attached yet" body="Attach a receipt photo when adding or editing an expense and it'll show up here." testID="gallery-empty" />
-                ) : (
-                  <View style={styles.galleryGrid}>
-                    {withBills.map((e) => (
-                      <TouchableOpacity key={e.id} testID={`gallery-item-${e.id}`} disabled={!token} accessibilityLabel="View bill"
-                        onPress={() => token && setViewerUri(receiptUrl(id as string, e.id, token))}
-                        style={[styles.galleryCell, { borderColor: colors.border, backgroundColor: colors.surfaceMuted }]}>
-                        {token ? <Image source={{ uri: receiptUrl(id as string, e.id, token) }} style={styles.galleryImage} resizeMode="cover" /> : null}
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-              </View>
-            );
-          })()}
         </View>
       </ScrollView>
 
@@ -432,12 +410,6 @@ const styles = StyleSheet.create({
   rowCard: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
   catDot: { width: 10, height: 10, borderRadius: 5 },
   billThumb: { width: 44, height: 44, borderRadius: RADIUS.md, borderWidth: 1 },
-  galleryGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
-  galleryCell: {
-    width: '31.5%', aspectRatio: 1, borderRadius: RADIUS.lg, borderWidth: 1,
-    overflow: 'hidden', marginBottom: SPACING.sm,
-  },
-  galleryImage: { width: '100%', height: '100%' },
   memberIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   transferIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   youCard: {
