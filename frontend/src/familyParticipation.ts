@@ -61,14 +61,16 @@ export function perCapitaHumans(
 }
 
 /** family_participants payload: family id -> participating ids, ONLY for genuine proper-subset
- *  restrictions; null when nothing is restricted (=> backend default "all participate"). */
+ *  restrictions; null when nothing is restricted (=> backend default "all participate"). Built for
+ *  both PER_CAPITA and PER_FAMILY (in either mode it only redistributes a family's share among its
+ *  participants; the family's entity total is unchanged). */
 export function buildFamilyParticipants(
   members: FPMember[],
   splitSel: string[],
   splitMode: string,
   familyExcluded: Record<string, string[]>,
 ): Record<string, string[]> | null {
-  if (splitMode !== 'PER_CAPITA') return null;
+  if (splitMode !== 'PER_CAPITA' && splitMode !== 'PER_FAMILY') return null;
   const out: Record<string, string[]> = {};
   for (const sid of splitSel) {
     const m = members.find((x) => x.id === sid);
@@ -99,7 +101,9 @@ export function excludedFromParticipants(
   return out;
 }
 
-/** Per-participant share of one family for the live preview (display only; matches Model A). */
+/** Per-participant share of one family for the live preview (display only; matches Model A).
+ *  PER_FAMILY: the family's flat per-entity share (amount / entities) split among participants.
+ *  PER_CAPITA: the family's per-human share (per_human * size) split among participants. */
 export function familyShareEach(
   amount: number,
   members: FPMember[],
@@ -107,10 +111,17 @@ export function familyShareEach(
   weightOverrides: Record<string, number>,
   famId: string,
   includedCount: number,
+  splitMode: string,
 ): number {
-  const H = perCapitaHumans(members, splitSel, weightOverrides);
   const m = members.find((x) => x.id === famId);
-  if (!m || !Number.isFinite(amount) || amount <= 0 || H <= 0 || includedCount <= 0) return 0;
+  if (!m || !Number.isFinite(amount) || amount <= 0 || includedCount <= 0) return 0;
+  if (splitMode === 'PER_FAMILY') {
+    const E = splitSel.length; // each selected member (family or individual) is one entity
+    if (E <= 0) return 0;
+    return amount / E / includedCount;
+  }
+  const H = perCapitaHumans(members, splitSel, weightOverrides);
+  if (H <= 0) return 0;
   const famWeight = weightOverrides[famId] ?? Math.max(1, (m.family_members || []).length);
   return ((amount / H) * famWeight) / includedCount;
 }

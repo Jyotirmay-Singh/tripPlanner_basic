@@ -48,8 +48,11 @@ describe('buildFamilyParticipants', () => {
   it('returns null when all members are excluded (no genuine restriction)', () => {
     expect(buildFamilyParticipants(members, ['S'], 'PER_CAPITA', { S: ['a', 'v', 's', 'r'] })).toBeNull();
   });
-  it('ignores non-family members and PER_FAMILY mode', () => {
-    expect(buildFamilyParticipants(members, ['S', 'I'], 'PER_FAMILY', { S: ['r'] })).toBeNull();
+  it('builds a proper-subset restriction in PER_FAMILY mode too', () => {
+    expect(buildFamilyParticipants(members, ['S', 'I'], 'PER_FAMILY', { S: ['r'] })).toEqual({ S: ['a', 'v', 's'] });
+  });
+  it('returns null for an unknown split mode', () => {
+    expect(buildFamilyParticipants(members, ['S', 'I'], 'WHATEVER', { S: ['r'] })).toBeNull();
   });
   it('only includes families that are actually in the split', () => {
     expect(buildFamilyParticipants(members, ['I'], 'PER_CAPITA', { S: ['r'] })).toBeNull();
@@ -66,14 +69,22 @@ describe('excludedFromParticipants', () => {
 });
 
 describe('familyShareEach', () => {
-  it('splits the family share among only the participating members', () => {
+  it('PER_CAPITA: splits the family share among only the participating members', () => {
     // $50 / 5 humans = $10/head; Sharma (weight 4) owes $40; 3 sharing -> ~13.33 each.
-    const each = familyShareEach(50, members, ['S', 'I'], {}, 'S', 3);
+    const each = familyShareEach(50, members, ['S', 'I'], {}, 'S', 3, 'PER_CAPITA');
     expect(Math.abs(each - 40 / 3)).toBeLessThan(0.01);
   });
+  it('PER_FAMILY: splits the flat per-entity share among only the participants', () => {
+    // $1000 / 2 entities = $500 per family; family-1 with 3 sharing -> 500/3 each.
+    const each1 = familyShareEach(1000, members, ['S', 'G'], {}, 'S', 3, 'PER_FAMILY');
+    expect(Math.abs(each1 - 500 / 3)).toBeLessThan(1e-9);
+    // family-2 with 2 sharing -> 250 each (size-independent, ignores weight overrides).
+    const each2 = familyShareEach(1000, members, ['S', 'G'], {}, 'G', 2, 'PER_FAMILY');
+    expect(each2).toBe(250);
+  });
   it('returns 0 for invalid input', () => {
-    expect(familyShareEach(0, members, ['S', 'I'], {}, 'S', 3)).toBe(0);
-    expect(familyShareEach(50, members, ['S', 'I'], {}, 'S', 0)).toBe(0);
+    expect(familyShareEach(0, members, ['S', 'I'], {}, 'S', 3, 'PER_CAPITA')).toBe(0);
+    expect(familyShareEach(50, members, ['S', 'I'], {}, 'S', 0, 'PER_CAPITA')).toBe(0);
   });
 });
 

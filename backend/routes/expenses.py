@@ -13,11 +13,13 @@ router = APIRouter()
 def _clean_family_participants(raw, split_mode, split_ids, members):
     """Normalize the incoming family_participants map to genuine intra-family restrictions.
 
-    Keeps an entry only when: PER_CAPITA, the family is in the split, and the recorded participant
-    ids are a proper, non-empty subset of that family's current roster ids. Anything else (all
-    members, unknown families/ids, PER_FAMILY) collapses to None => all participate (back-compat).
+    Keeps an entry only when: a known split mode (PER_CAPITA or PER_FAMILY), the family is in the
+    split, and the recorded participant ids are a proper, non-empty subset of that family's current
+    roster ids. Anything else (all members, unknown families/ids) collapses to None => all participate
+    (back-compat). In both modes only the family's INTERNAL per-member display split is affected; the
+    family's entity total and every other entity are untouched.
     """
-    if not raw or split_mode != "PER_CAPITA":
+    if not raw or split_mode not in ("PER_CAPITA", "PER_FAMILY"):
         return None
     member_by_id = {m["id"]: m for m in members}
     split_set = set(split_ids)
@@ -51,9 +53,9 @@ async def add_expense(trip_id: str, body: ExpenseIn, force: bool = False,
         if sid not in member_ids:
             raise HTTPException(400, f"split member {sid} invalid")
 
-    # Intra-family participation (PER_CAPITA only): keep only genuine restrictions — a family that is
-    # in the split, and a proper non-empty subset of its current roster ids. Everything else collapses
-    # to None (=> all members participate), preserving exact back-compat.
+    # Intra-family participation (PER_CAPITA and PER_FAMILY): keep only genuine restrictions — a family
+    # that is in the split, and a proper non-empty subset of its current roster ids. Everything else
+    # collapses to None (=> all members participate), preserving exact back-compat.
     family_participants = _clean_family_participants(body.family_participants, body.split_mode,
                                                      split_ids, trip["members"])
 

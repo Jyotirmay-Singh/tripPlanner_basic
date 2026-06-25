@@ -81,7 +81,7 @@ export function splitPreviewLabel(opts: {
     // §5B: divide equally across entities; family size is ignored.
     const E = splitSel.length;
     const per = amount / E;
-    return `${currency} ${per.toFixed(2)} per group · ${E} ${E === 1 ? 'group' : 'groups'}`;
+    return `${currency} ${per.toFixed(2)} per group`;
   }
 
   // §5A: divide across total humans (individual = 1, family = override ?? size).
@@ -97,7 +97,7 @@ export function splitPreviewLabel(opts: {
   }
   if (H <= 0) return HINT;
   const per = amount / H;
-  return `${currency} ${per.toFixed(2)} per person · ${H} ${H === 1 ? 'person' : 'people'}`;
+  return `${currency} ${per.toFixed(2)} per person`;
 }
 
 const styles = StyleSheet.create({
