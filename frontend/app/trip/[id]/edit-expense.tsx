@@ -126,6 +126,8 @@ export default function EditExpense() {
     setSaving(true);
     try {
       const allSelected = trip.members.length > 0 && splitSel.length === trip.members.length;
+      // Legacy weight_snapshots back-compat: the headcount picker UI is gone, but preserve any
+      // per-family weight this expense already carried so editing doesn't silently wipe it.
       const snapshots: Record<string, number> = {};
       if (splitMode === 'PER_CAPITA') {
         for (const sid of splitSel) {
@@ -134,13 +136,17 @@ export default function EditExpense() {
             const fullSize = Math.max(1, m.family_members.length);
             if (weightOverrides[sid] !== fullSize) snapshots[sid] = weightOverrides[sid];
           }
-          if (m && m.kind === 'family') {
-            const fam = familyMemberIds(m);
-            const excl = familyExcluded[sid] || [];
-            if (fam.length > 1 && fam.every((rid) => excl.includes(rid))) {
-              setSaving(false);
-              return toast.show(`At least one member of ${m.name} must take part.`, 'error');
-            }
+        }
+      }
+      // At least one member of every ticked family must take part (both split modes).
+      for (const sid of splitSel) {
+        const m = trip.members.find((x) => x.id === sid);
+        if (m && m.kind === 'family') {
+          const fam = familyMemberIds(m);
+          const excl = familyExcluded[sid] || [];
+          if (fam.length > 1 && fam.every((rid) => excl.includes(rid))) {
+            setSaving(false);
+            return toast.show(`At least one member of ${m.name} must take part.`, 'error');
           }
         }
       }
@@ -259,7 +265,7 @@ export default function EditExpense() {
 
             <View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <T variant="label" muted>Split among ({splitSel.length}/{trip.members.length})</T>
+                <T variant="label" muted>Split among</T>
                 <View style={{ flexDirection: 'row', gap: 12 }}>
                   <TouchableOpacity onPress={() => setSplitSel(trip.members.map((m) => m.id))}>
                     <T color={colors.primary} style={{ fontWeight: '700' }}>Select all</T>
@@ -274,7 +280,6 @@ export default function EditExpense() {
                   const active = splitSel.includes(m.id);
                   const isFamily = m.kind === 'family';
                   const fullSize = Math.max(1, m.family_members.length);
-                  const currentCount = weightOverrides[m.id] ?? fullSize;
                   const roster = isFamily ? familyMemberIds(m) : [];
                   const rosterNames = isFamily ? familyMemberDisplayNames(m) : [];
                   const excluded = familyExcluded[m.id] || [];
@@ -284,21 +289,13 @@ export default function EditExpense() {
                       <TouchableOpacity onPress={() => toggleSplit(m.id)} testID={`ee-split-${m.id}`}
                         style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
                         <Icon name={active ? 'checkbox-on' : 'checkbox-off'} size={20} color={active ? colors.primary : colors.textMuted} />
-                        <T style={{ flex: 1 }}>{displayNames[m.id]}{isFamily ? ` (${fullSize})` : ''}</T>
+                        <T style={{ flex: 1 }}>{displayNames[m.id]}</T>
                       </TouchableOpacity>
-                      {active && isFamily && fullSize > 1 && splitMode === 'PER_CAPITA' && (
+                      {active && isFamily && fullSize > 1 && (
                         <View style={{ paddingLeft: 28, gap: 8 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <T variant="caption" muted>Pays for</T>
-                            {Array.from({ length: fullSize }, (_, i) => i + 1).map((n) => (
-                              <TouchableOpacity key={n} testID={`ee-fam-${m.id}-${n}`}
-                                onPress={() => setWeightOverrides((w) => ({ ...w, [m.id]: n }))}
-                                style={[styles.numChip, { backgroundColor: currentCount === n ? colors.primary : colors.surface, borderColor: currentCount === n ? colors.primary : colors.border }]}>
-                                <T variant="caption" style={{ fontWeight: '700' }} color={currentCount === n ? colors.primaryText : colors.textMain}>{n}</T>
-                              </TouchableOpacity>
-                            ))}
-                            <T variant="caption" muted>of {fullSize} people</T>
-                          </View>
+                          {/* Who took part (Model A): unchecked members owe 0; the family's share is
+                              split only among those who shared — the family/entity TOTAL is unchanged.
+                              Applies to both Per-Person and Per-Family modes. */}
                           <T variant="caption" muted>Who took part?</T>
                           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                             {roster.map((rid, i) => {
@@ -317,7 +314,7 @@ export default function EditExpense() {
                             <T variant="caption" color={colors.danger}>At least one member must take part.</T>
                           ) : includedCount < roster.length ? (
                             <T variant="caption" muted testID={`ee-fam-preview-${m.id}`}>
-                              {includedCount} of {roster.length} sharing · {trip.currency} {formatMoney(familyShareEach(parseFloat(amount), trip.members, splitSel, weightOverrides, m.id, includedCount))} each (excluded owe 0)
+                              {trip.currency} {formatMoney(familyShareEach(parseFloat(amount), trip.members, splitSel, weightOverrides, m.id, includedCount, splitMode))} each (excluded owe 0)
                             </T>
                           ) : null}
                         </View>
@@ -406,7 +403,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row', gap: 8, padding: SPACING.md, borderRadius: RADIUS.md,
     borderWidth: 1, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center',
   },
-  numChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: RADIUS.pill, borderWidth: 1 },
   readonlyNote: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
     padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1,

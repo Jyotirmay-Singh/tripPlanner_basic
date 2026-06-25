@@ -18,10 +18,11 @@ class ExpenseIn(BaseModel):
     split_member_ids: List[str] = []  # if empty, split among all
     split_mode: SplitMode = "PER_CAPITA"
     weight_snapshots: Optional[dict] = None  # member_id -> custom weight (e.g. partial family)
-    # Intra-family participation (PER_CAPITA only): family entity id -> list of participating
-    # family_member_ids. Absent / family not a key / empty list => ALL members participate (exact
-    # back-compat). Only the family's INTERNAL per-member display split changes; the family's total,
-    # the trip headcount, the ledger net, and every other entity are untouched.
+    # Intra-family participation (PER_CAPITA and PER_FAMILY): family entity id -> list of
+    # participating family_member_ids. Absent / family not a key / empty list => ALL members
+    # participate (exact back-compat). Only the family's INTERNAL per-member display split changes;
+    # the family's entity total, the trip headcount, the ledger net, and every other entity are
+    # untouched.
     family_participants: Optional[Dict[str, List[str]]] = None
     receipt_id: Optional[str] = None  # GridFS receipt id (Step 22); set via the upload endpoint
     receipt_base64: Optional[str] = None  # legacy/read-only inline receipt (superseded by receipt_id)
@@ -43,7 +44,7 @@ class ExpenseUpdate(BaseModel):
     split_member_ids: Optional[List[str]] = None
     split_mode: Optional[SplitMode] = None
     weight_snapshots: Optional[dict] = None
-    family_participants: Optional[Dict[str, List[str]]] = None  # see ExpenseIn (PER_CAPITA intra-family)
+    family_participants: Optional[Dict[str, List[str]]] = None  # see ExpenseIn (intra-family, both modes)
     receipt_id: Optional[str] = None  # GridFS receipt id (Step 22); set via the upload endpoint
     receipt_base64: Optional[str] = None  # legacy/read-only inline receipt (superseded by receipt_id)
     force: Optional[bool] = False

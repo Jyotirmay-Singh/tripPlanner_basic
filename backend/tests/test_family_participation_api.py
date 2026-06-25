@@ -82,3 +82,53 @@ class TestFamilyParticipationAPI:
         bal = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/balances", headers=h).json()
         fam_pp = next(pp for pp in bal["per_person"] if pp["member_id"] == fam_id)
         assert all(row["net"] == fam_pp["net_per_person"] for row in fam_pp["members"])
+
+    def test_per_family_redistributes_within_each_family(self, api_client, test_user):
+        # PER_FAMILY participation: the flat per-entity share (1000 / 2 = 500) is unchanged, but each
+        # family's 500 is split only among its participants — the $1000 / 2-family worked example.
+        h = self._h(test_user["token"])
+        trip = api_client.post(f"{BASE_URL}/api/trips", json={
+            "name": "TEST_FamPerFamily",
+            "start_date": "2026-01-10", "end_date": "2026-01-15", "currency": "INR",
+        }, headers=h).json()
+        trip_id = trip["id"]
+        owner_id = trip["members"][0]["id"]  # individual payer (not in the split)
+
+        f1 = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/members", json={
+            "name": "TEST_Fam1", "kind": "family", "family_members": ["A", "B", "C", "D"],
+            "family_member_ids": [None, None, None, None],
+        }, headers=h).json()
+        f2 = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/members", json={
+            "name": "TEST_Fam2", "kind": "family", "family_members": ["W", "X", "Y", "Z"],
+            "family_member_ids": [None, None, None, None],
+        }, headers=h).json()
+        f1_id, f1_ids = f1["id"], f1["family_member_ids"]
+        f2_id, f2_ids = f2["id"], f2["family_member_ids"]
+
+        # PER_FAMILY $1000 across the 2 families only -> each owes a flat 500; owner pays 1000.
+        # F1: A,B,C take part (D excluded); F2: W,X take part (Y,Z excluded).
+        api_client.post(f"{BASE_URL}/api/trips/{trip_id}/expenses", json={
+            "kind": "expense", "amount": 1000.0, "category": "Accommodation", "description": "Hotel",
+            "date": "11-01-26", "paid_by_member_id": owner_id,
+            "split_member_ids": [f1_id, f2_id], "split_mode": "PER_FAMILY",
+            "family_participants": {f1_id: f1_ids[:3], f2_id: f2_ids[:2]},
+        }, headers=h)
+
+        bal = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/balances", headers=h).json()
+        # Entity totals unchanged: each family owes a flat 500, owner is owed 1000.
+        assert abs(bal["net"][f1_id] - (-500.0)) < 0.01
+        assert abs(bal["net"][f2_id] - (-500.0)) < 0.01
+        assert abs(bal["net"][owner_id] - 1000.0) < 0.01
+
+        f1_members = {row["id"]: row["net"]
+                      for row in next(pp for pp in bal["per_person"] if pp["member_id"] == f1_id)["members"]}
+        assert f1_members[f1_ids[3]] == 0.0                       # excluded D owes nothing
+        assert round(sum(f1_members.values()), 2) == -500.0
+        for mid in f1_ids[:3]:
+            assert abs(f1_members[mid] - (-500.0 / 3)) < 0.01     # ~ -166.67 each
+
+        f2_members = {row["id"]: row["net"]
+                      for row in next(pp for pp in bal["per_person"] if pp["member_id"] == f2_id)["members"]}
+        assert f2_members[f2_ids[2]] == 0.0 and f2_members[f2_ids[3]] == 0.0  # Y, Z excluded
+        assert f2_members[f2_ids[0]] == -250.0 and f2_members[f2_ids[1]] == -250.0  # 500 / 2
+        assert round(sum(f2_members.values()), 2) == -500.0

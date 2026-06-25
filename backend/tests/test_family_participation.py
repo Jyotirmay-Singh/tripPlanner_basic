@@ -170,17 +170,61 @@ class TestFamilyMemberBreakdown:
         assert all(row["net"] == round(net["S"] / 2, 2) for row in bd["S"])
 
 
-class TestPerFamilyUnaffected:
+class TestPerFamilyParticipation:
+    """PER_FAMILY now redistributes a family's FLAT per-entity share among its participants (Model A):
+    the entity-level split (amount / entities) and the ledger are unchanged — only the internal
+    per-member display split honors participation."""
 
-    def test_per_family_ignores_participation(self):
-        # PER_FAMILY divides flat per entity and is size/participation independent.
-        members = _members()
-        exp = [{"id": "e1", "kind": "expense", "amount": 90.0, "category": "Food",
-                "split_member_ids": ["S", "G", "I"], "split_mode": "PER_FAMILY",
-                "paid_by_member_id": "I", "family_participants": {"S": ["a"]}}]
+    @staticmethod
+    def _two_families():
+        # Two families of 4 + an individual payer — the $1000 / 2-family worked example.
+        return [
+            {"id": "F1", "name": "Fam1", "kind": "family",
+             "family_members": ["A", "B", "C", "D"], "family_member_ids": ["a", "b", "c", "d"]},
+            {"id": "F2", "name": "Fam2", "kind": "family",
+             "family_members": ["W", "X", "Y", "Z"], "family_member_ids": ["w", "x", "y", "z"]},
+            {"id": "P", "name": "Payer", "kind": "individual", "family_members": []},
+        ]
+
+    @staticmethod
+    def _expense(family_participants=None):
+        return {"id": "e1", "kind": "expense", "amount": 1000.0, "category": "Stay",
+                "split_member_ids": ["F1", "F2"], "split_mode": "PER_FAMILY",
+                "paid_by_member_id": "P", "family_participants": family_participants}
+
+    def test_each_family_pays_half_split_among_its_participants(self):
+        members = self._two_families()
+        fp = {"F1": ["a", "b", "c"], "F2": ["w", "x"]}  # F1: 3 of 4 took part; F2: 2 of 4
+        net_no = _compute_net(members, [self._expense(None)], [])
+        net_yes = _compute_net(members, [self._expense(fp)], [])
+        # Entity ledger identical with/without participation: each family owes a flat 500 (1000 / 2).
+        assert net_yes == net_no
+        assert net_yes["F1"] == -500.0 and net_yes["F2"] == -500.0 and net_yes["P"] == 1000.0
+
+        bd = family_member_breakdown(members, [self._expense(fp)], [], net_yes)
+        f1 = {row["id"]: row["net"] for row in bd["F1"]}
+        f2 = {row["id"]: row["net"] for row in bd["F2"]}
+        # F1: 500 split among 3 -> ~166.67 each, excluded D owes 0, members sum EXACTLY to -500.
+        assert f1["d"] == 0.0
+        for mid in ("a", "b", "c"):
+            assert abs(f1[mid] - (-500.0 / 3)) < 0.01
+        assert round(sum(f1.values()), 2) == -500.0
+        # F2: 500 split among 2 -> exactly 250 each; Y/Z owe 0.
+        assert f2["w"] == -250.0 and f2["x"] == -250.0
+        assert f2["y"] == 0.0 and f2["z"] == 0.0
+        assert round(sum(f2.values()), 2) == -500.0
+
+    def test_unrestricted_per_family_is_byte_identical_to_net_per_person(self):
+        members = self._two_families()
+        exp = [self._expense(None)]
         net = _compute_net(members, exp, [])
-        # Each entity owes 30 flat (size-independent); participation map is irrelevant to PER_FAMILY.
-        assert net["S"] == -30.0 and net["G"] == -30.0
         bd = family_member_breakdown(members, exp, [], net)
-        # Uniform within the family (PER_FAMILY is never redistributed by participation): -30/4 each.
-        assert all(row["net"] == -7.5 for row in bd["S"])
+        for fam in ("F1", "F2"):
+            uniform = round(net[fam] / 4, 2)  # legacy net_per_person (family size 4)
+            assert all(row["net"] == uniform for row in bd[fam])
+
+    def test_participation_map_never_changes_the_ledger(self):
+        members = self._two_families()
+        base = _compute_net(members, [self._expense(None)], [])
+        for fp in (None, {"F1": ["a"]}, {"F1": ["a", "b"], "F2": ["w", "x", "y"]}):
+            assert _compute_net(members, [self._expense(fp)], []) == base
