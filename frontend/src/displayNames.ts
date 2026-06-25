@@ -3,7 +3,7 @@
 // Exact client-side mirror of backend/utils/display_names.py: the single source of truth lives
 // server-side and is re-derived here so labels match the XLSX report and every screen. Stored member
 // names/IDs and all splitting/balance/settlement values stay untouched — only the displayed label
-// changes. Follows the existing permissions.ts / composition.ts / gallery.ts pure-helper pattern.
+// changes. Follows the existing permissions.ts / composition.ts / bill.ts pure-helper pattern.
 //
 // Rules (CLAUDE.md §5 context):
 //   (a) Standalone individuals sharing a name -> name_1, name_2 ... (all duplicates suffixed).
