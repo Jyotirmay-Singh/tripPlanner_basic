@@ -15,6 +15,7 @@ import { canModifyExpense, roleOf, canEditTripSettings, canManageMembers, canDel
 import { compositionLabel } from '../../../src/composition';
 import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displayNames';
 import { billLabel } from '../../../src/bill';
+import { isTripSettled } from '../../../src/tripSettled';
 import { formatMoney } from '../../../src/format';
 import { formatTripDates } from '../../../src/date';
 import { formatTime12h } from '../../../src/time';
@@ -115,6 +116,10 @@ export default function TripDetail() {
   const displayNames = memberDisplayNames(trip.members);
   const totalSpent = expenses.filter((e) => e.kind === 'expense').reduce((s, e) => s + e.amount, 0);
   const over = trip.budget ? totalSpent > trip.budget : false;
+  // Trip-level "Settled" badge signal — reuses the SAME empty-transfers value the settle-up screen
+  // uses for "All square!" (display-only; never recomputed). All expense cards show the badge once
+  // the whole trip squares up; income rows never do.
+  const tripSettled = isTripSettled(balances);
   // Role gating routes through the shared src/permissions.ts matrix (mirror of the backend).
   const meCanEditSettings = canEditTripSettings(trip, user?.id);
   const meCanManageMembers = canManageMembers(trip, user?.id);
@@ -268,7 +273,10 @@ export default function TripDetail() {
                       <T variant="caption" color={colors.textMuted} style={{ marginTop: 4 }}>{billLabel(e)}</T>
                     )}
                   </View>
-                  <AmountText value={e.amount} signed={e.kind === 'income'} color={e.kind === 'income' ? colors.success : colors.textMain} />
+                  <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                    {tripSettled && e.kind === 'expense' ? <Badge label="Settled" color={colors.success} /> : null}
+                    <AmountText value={e.amount} signed={e.kind === 'income'} color={e.kind === 'income' ? colors.success : colors.textMain} />
+                  </View>
                   {canModifyExpense(e, user?.id, trip) && (
                     <IconButton name="trash" onPress={() => deleteExpense(e)} accessibilityLabel="Delete transaction" testID={`expense-del-${e.id}`} size={18} color={colors.danger} />
                   )}
