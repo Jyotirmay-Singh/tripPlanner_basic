@@ -6,6 +6,7 @@ import {
   canManageAdmins,
   canTransferOwnership,
   canDeleteTrip,
+  canRemoveMemberRow,
 } from '../permissions';
 
 describe('canModifyExpense', () => {
@@ -97,5 +98,29 @@ describe('owner-only capabilities', () => {
     expect(fn(TRIP, 'admin')).toBe(false);
     expect(fn(TRIP, 'member')).toBe(false);
     expect(fn(TRIP, undefined)).toBe(false);
+  });
+});
+
+describe('canRemoveMemberRow', () => {
+  it('lets an admin/owner remove a non-app-user member row', () => {
+    const m = { user_id: null };
+    expect(canRemoveMemberRow(TRIP, m, 'owner')).toBe(true);
+    expect(canRemoveMemberRow(TRIP, m, 'admin')).toBe(true);
+  });
+
+  it('lets an admin remove an app-user member that is NOT the owner', () => {
+    expect(canRemoveMemberRow(TRIP, { user_id: 'admin' }, 'admin')).toBe(true);
+    expect(canRemoveMemberRow(TRIP, { user_id: 'member' }, 'owner')).toBe(true);
+  });
+
+  it('never lets anyone remove the owner row', () => {
+    expect(canRemoveMemberRow(TRIP, { user_id: 'owner' }, 'owner')).toBe(false);
+    expect(canRemoveMemberRow(TRIP, { user_id: 'owner' }, 'admin')).toBe(false);
+  });
+
+  it('blocks plain members and strangers', () => {
+    expect(canRemoveMemberRow(TRIP, { user_id: null }, 'member')).toBe(false);
+    expect(canRemoveMemberRow(TRIP, { user_id: null }, 'stranger')).toBe(false);
+    expect(canRemoveMemberRow(TRIP, { user_id: null }, undefined)).toBe(false);
   });
 });

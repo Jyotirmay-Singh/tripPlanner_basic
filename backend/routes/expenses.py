@@ -124,6 +124,20 @@ async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
     updates = {k: v for k, v in body.model_dump(exclude_unset=True).items() if k != "force"}
     if not updates:
         return expense
+    # P4 — preserve backend-managed size-freeze pins across a client edit. When a member is removed
+    # from the trip, its per-capita weight is pinned onto this expense's `weight_snapshots` (recorded
+    # in `weight_frozen`) so balances stay neutral. The edit screen rebuilds `weight_snapshots` from
+    # the LIVE roster, which no longer contains the removed id, and would drop the pin — re-injecting
+    # any frozen weight the client omitted keeps the removed entity's weight (and every balance)
+    # stable. User-set partial-family overrides (never in `weight_frozen`) stay fully editable.
+    if "weight_snapshots" in updates:
+        frozen = expense.get("weight_frozen") or []
+        old_snaps = expense.get("weight_snapshots") or {}
+        new_snaps = dict(updates["weight_snapshots"] or {})
+        for fid in frozen:
+            if fid in old_snaps and fid not in new_snaps:
+                new_snaps[fid] = old_snaps[fid]
+        updates["weight_snapshots"] = new_snaps or None
     await db.expenses.update_one({"id": expense_id, "trip_id": trip_id}, {"$set": updates})
     return await db.expenses.find_one({"id": expense_id}, {"_id": 0})
 
