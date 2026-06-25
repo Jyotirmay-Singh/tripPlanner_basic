@@ -31,7 +31,6 @@ export default function EditMember() {
   const [qualifiesForRecalc, setQualifiesForRecalc] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [delta, setDelta] = useState<{ from: number; to: number }>({ from: 0, to: 0 });
-  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const emailError = email.trim() && !isGmail(email) ? GMAIL_ONLY_MESSAGE : null;
 
@@ -84,17 +83,6 @@ export default function EditMember() {
     }
   };
 
-  const onDelete = () => {
-    if (!member || member.user_id) return toast.show('App-user members cannot be removed.', 'error');
-    setConfirmDelete(true);
-  };
-
-  const doDelete = async () => {
-    setConfirmDelete(false);
-    try { await api(`/trips/${id}/members/${mid}`, { method: 'DELETE' }); router.back(); }
-    catch (e: any) { toast.show(e.message || 'Delete failed', 'error'); }
-  };
-
   if (!member) {
     return <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}><T style={{ padding: SPACING.lg }}>Loading…</T></SafeAreaView>;
   }
@@ -132,10 +120,6 @@ export default function EditMember() {
             />
 
             <Button label="Save" icon="check" onPress={submit} fullWidth size="lg" testID="em-save" style={{ marginTop: SPACING.sm }} />
-
-            {!member.user_id && (
-              <Button label="Delete member" icon="trash" variant="destructive" onPress={onDelete} fullWidth testID="em-delete" />
-            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -150,17 +134,6 @@ export default function EditMember() {
           { label: 'Apply retroactively', variant: 'primary', testID: 'recalc-retro', onPress: () => { setModalVisible(false); save(true); } },
           { label: 'Future items only', variant: 'default', testID: 'recalc-future', onPress: () => { setModalVisible(false); save(false); } },
           { label: 'Cancel', variant: 'cancel', testID: 'recalc-cancel', onPress: () => setModalVisible(false) },
-        ]}
-      />
-
-      <ConfirmModal
-        visible={confirmDelete}
-        title="Delete member?"
-        message="This removes the member from the trip."
-        onRequestClose={() => setConfirmDelete(false)}
-        actions={[
-          { label: 'Cancel', variant: 'cancel', onPress: () => setConfirmDelete(false) },
-          { label: 'Delete', variant: 'destructive', onPress: doDelete, testID: 'em-delete-confirm' },
         ]}
       />
     </SafeAreaView>

@@ -198,3 +198,68 @@ async def run_member_update_with_reallocation(trip_id: str, member_id: str, memb
 
     await _do(None)
     return {"set_count": plan["set_count"], "unset_count": plan["unset_count"]}
+
+
+async def freeze_and_remove_member(trip_id: str, member_id: str, weight: int,
+                                   user_id: str = None, verify=None) -> dict:
+    """Remove an entity (individual OR whole family) while keeping every other balance identical.
+
+    Removing a member id from the trip's ``members`` while its id is still referenced by past
+    expenses is only balance-neutral when the member's per-capita *weight* survives the removal.
+    ``resolve_weights`` defaults an unknown id to 1, so:
+      - weight == 1 (individual / family of one): the default already equals the real weight -> no
+        expense writes are needed; we simply ``$pull`` the member.
+      - weight  > 1 (family of N): we first PIN ``weight`` onto the member's past PER_CAPITA
+        expenses (the exact Step-8 freeze, ``reweight_past=False``) so H is preserved, then ``$pull``.
+
+    ``user_id`` (P2): when the removed member is an app user, the SAME atomic ``$pull`` also evicts
+    them from the trip's ``user_ids`` (revokes access) and ``admin_ids`` (revokes admin rights), so
+    they are not left as a ghost with lingering access — and ``join_trip`` will let them rejoin fresh.
+
+    ``verify`` (P5): an optional async callable run as the FIRST step inside the write (before any
+    freeze pin is written). It recomputes the settlement gate against the freshest committed state and
+    raises ``HTTPException(409)`` if a concurrent expense un-settled the target between the upfront
+    check and the write — aborting the transaction with nothing written (closes the TOCTOU window).
+
+    This reuses the Step-8 pins, which are balance-neutral by construction (they reproduce the
+    weights ``_compute_balances`` already used). PER_FAMILY expenses are size-independent and never
+    touched. The freeze + ``$pull`` are applied atomically (transaction with a sequential idempotent
+    fallback), mirroring ``run_member_update_with_reallocation``.
+    """
+    from database import db, client
+
+    if weight > 1:
+        expenses = await _load_candidate_expenses(trip_id, member_id)
+        # new_weight=0 is a sentinel that only forces old != new; reweight_past=False uses old_weight.
+        plan = plan_reallocation(member_id, weight, 0, reweight_past=False, expenses=expenses)
+    else:
+        plan = {"updates": [], "set_count": 0, "unset_count": 0}
+    ops = _build_ops(trip_id, plan)
+
+    pull: dict = {"members": {"id": member_id}}
+    if user_id:
+        # P2: evict an app-user member from trip access + admin rights in the same write.
+        pull["user_ids"] = user_id
+        pull["admin_ids"] = user_id
+
+    async def _do(session):
+        if verify is not None:
+            # P5: re-assert the settlement gate at write time; raises 409 to roll back on a race.
+            await verify()
+        if ops:
+            await db.expenses.bulk_write(ops, session=session)
+        await db.trips.update_one(
+            {"id": trip_id}, {"$pull": pull}, session=session,
+        )
+
+    if await _transactions_supported():
+        try:
+            async with await client.start_session() as s:
+                async with s.start_transaction():
+                    await _do(s)
+            return {"set_count": plan["set_count"], "unset_count": plan["unset_count"]}
+        except (OperationFailure, PyMongoError):
+            pass
+
+    await _do(None)
+    return {"set_count": plan["set_count"], "unset_count": plan["unset_count"]}

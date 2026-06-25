@@ -56,6 +56,21 @@ export function canEditTripSettings(trip: RoleTrip, userId: string | undefined):
   return r === 'owner' || r === 'admin';
 }
 
+/**
+ * True iff the viewer may remove this member row (UX gate). Removal is an admin/owner power, but the
+ * owner's own member row (the trip root) is never removable — mirrors the backend, which protects the
+ * owner row and otherwise lets admins remove any *settled* member. Settled-ness is data-driven (from
+ * the balance engine), so it lives in src/removal.ts, not here.
+ */
+export function canRemoveMemberRow(
+  trip: RoleTrip,
+  member: { user_id?: string | null },
+  userId: string | undefined,
+): boolean {
+  if (!canManageMembers(trip, userId)) return false;
+  return !(member.user_id && trip.owner_id && member.user_id === trip.owner_id);
+}
+
 // Owner only
 export function canManageAdmins(trip: RoleTrip, userId: string | undefined): boolean {
   return roleOf(trip, userId) === 'owner';

@@ -4,10 +4,14 @@ from database import db
 from models.member import MemberIn, MemberUpdate
 from utils.common import gen_id
 from utils.deps import get_current_user, _trip_admin_or_403
-from utils.balances import _weight_of_member
+from utils.balances import _weight_of_member, _compute_balances
 from utils.email_rules import assert_gmail, normalize_email
 from utils.members import assert_unique_email, assign_family_member_ids
-from services.reallocation import run_member_update_with_reallocation
+from utils.settlement_gate import (
+    is_settled, entity_net, family_member_net, unsettled_family_members,
+)
+from services.member_breakdown import family_member_ids
+from services.reallocation import run_member_update_with_reallocation, freeze_and_remove_member
 
 router = APIRouter()
 
@@ -78,6 +82,12 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
     new_fm = body.family_members if body.family_members is not None else target.get("family_members", [])
     if new_kind != "family":
         new_fm = []
+    # P3 — HARD INVARIANT mirror: a family must always have >=1 member. The bulk editor only
+    # soft-blocks this client-side (edit-member.tsx); enforce it server-side too so a crafted PATCH
+    # (or an individual->family conversion with no members) can't create a zero-member family.
+    # Family->individual conversion is unaffected (the guard only fires when the RESULT is a family).
+    if new_kind == "family" and not new_fm:
+        raise HTTPException(400, "A family must have at least one member.")
     if body.family_members is not None or body.kind is not None:
         updates["members.$.family_members"] = new_fm
         # Keep stable ids parallel to the roster: preserve ids for retained rows (the editor sends
@@ -108,21 +118,111 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
     return next((m for m in t["members"] if m["id"] == member_id), None)
 
 
+async def _settlement_block_reason(trip_id: str, target: dict):
+    """Return a 409 message if ``target`` is NOT fully settled, else None (re-reads balances).
+
+    Single source of truth for the entity-removal gate, used both for the upfront fast-fail and for
+    the write-time re-check (P5). "Fully settled" == net rounds to 0.00 in the EXISTING engine. For a
+    family the gate is strict: EVERY family member's displayed net AND the family entity net must be
+    settled. This only READS balances; it never changes them.
+    """
+    bal = await _compute_balances(trip_id)
+    member_id = target["id"]
+    name = target.get("name") or "This member"
+    if target.get("kind") == "family":
+        unsettled = unsettled_family_members(bal, member_id)
+        if unsettled or not is_settled(entity_net(bal, member_id)):
+            who = ", ".join(r["name"] for r in unsettled) or name
+            return f"Cannot remove {name}: outstanding balance for {who}. Settle up first."
+    elif not is_settled(entity_net(bal, member_id)):
+        return f"{name} has an outstanding balance. Settle up before removing."
+    return None
+
+
 @router.delete("/trips/{trip_id}/members/{member_id}")
 async def delete_member(trip_id: str, member_id: str, user=Depends(get_current_user)):
+    """Remove an individual OR a whole family (a family is a single member doc), gated by settlement.
+
+    A target may be removed only when fully settled (net rounds to 0.00) in the EXISTING balance
+    engine — removal is gated by balances and never changes them. Past expense records are kept; the
+    family's weight is pinned onto its past PER_CAPITA expenses so every other balance stays
+    byte-identical (see ``freeze_and_remove_member``). An app-user member is also evicted from trip
+    access + admin rights (P2), and the gate is re-checked at write time to close the TOCTOU window
+    (P5).
+    """
     trip = await _trip_admin_or_403(trip_id, user["id"])
-    # The owner's member row is the trip root and cannot be removed by anyone — not a
-    # promoted admin, nor the owner themselves (mirrors remove_admin's "Cannot remove the
-    # root admin" guard). A missing member id still falls through to the idempotent no-op
-    # below, preserving the existing DELETE contract.
     target = next((m for m in trip.get("members", []) if m["id"] == member_id), None)
-    if target and target.get("user_id") and target["user_id"] == trip.get("owner_id"):
+    # A missing member id stays an idempotent no-op (preserves the historical DELETE contract).
+    if not target:
+        return {"ok": True}
+    # The owner's member row is the trip root and cannot be removed by anyone — not a promoted
+    # admin, nor the owner themselves (mirrors remove_admin's "Cannot remove the root admin").
+    if target.get("user_id") and target["user_id"] == trip.get("owner_id"):
         raise HTTPException(403, "Cannot remove the trip owner")
-    # cannot remove if member appears in any expense
-    exists = await db.expenses.find_one({"trip_id": trip_id,
-                                         "$or": [{"paid_by_member_id": member_id},
-                                                 {"split_member_ids": member_id}]})
-    if exists:
-        raise HTTPException(400, "Member has expenses; cannot delete")
-    await db.trips.update_one({"id": trip_id}, {"$pull": {"members": {"id": member_id}}})
+
+    reason = await _settlement_block_reason(trip_id, target)
+    if reason:
+        raise HTTPException(409, reason)
+
+    async def _verify():
+        # P5: recompute the gate at write time so a concurrent expense added between the check above
+        # and the write below can't slip a now-unsettled member through (rolls back, raises 409).
+        again = await _settlement_block_reason(trip_id, target)
+        if again:
+            raise HTTPException(409, again)
+
+    await freeze_and_remove_member(
+        trip_id, member_id, _weight_of_member(target),
+        user_id=target.get("user_id"), verify=_verify,
+    )
     return {"ok": True}
+
+
+@router.delete("/trips/{trip_id}/members/{family_id}/family-members/{fm_id}")
+async def delete_family_member(trip_id: str, family_id: str, fm_id: str,
+                               user=Depends(get_current_user)):
+    """Remove ONE member from inside a family, gated by settlement + the no-empty-family invariant.
+
+    Allowed only when (1) the targeted family member's displayed net rounds to 0.00 and (2) at least
+    one member remains afterward — the LAST member must be removed via whole-family removal
+    (``DELETE /trips/{id}/members/{family_id}``), never by emptying the roster. The surviving rows
+    keep their stable ids; ``reweight_past=False`` pins the family's OLD weight onto past PER_CAPITA
+    expenses so the family's net — and every other balance — is unchanged.
+    """
+    trip = await _trip_admin_or_403(trip_id, user["id"])
+    family = next((m for m in trip.get("members", []) if m["id"] == family_id), None)
+    if not family or family.get("kind") != "family":
+        raise HTTPException(404, "Family not found")
+    names = family.get("family_members", []) or []
+    ids = family_member_ids(family)  # padded, parallel to names (tolerates legacy rows w/o ids)
+    if fm_id not in ids:
+        raise HTTPException(404, "Family member not found")
+    # HARD INVARIANT: never leave a family with zero members.
+    if len(names) <= 1:
+        raise HTTPException(
+            409, "Cannot remove the last member of a family. Remove the family instead.",
+        )
+    idx = ids.index(fm_id)
+
+    bal = await _compute_balances(trip_id)
+    n = family_member_net(bal, family_id, fm_id)
+    if n is None or not is_settled(n):
+        who = names[idx] if idx < len(names) else "This member"
+        raise HTTPException(409, f"{who} has an outstanding balance. Settle up before removing.")
+
+    new_names = [nm for i, nm in enumerate(names) if i != idx]
+    surviving_ids = [iid for i, iid in enumerate(ids) if i != idx]
+    new_ids = assign_family_member_ids(new_names, surviving_ids)
+    old_weight = _weight_of_member(family)
+    new_weight = _weight_of_member({**family, "family_members": new_names})
+    updates = {
+        "members.$.family_members": new_names,
+        "members.$.family_member_ids": new_ids,
+    }
+    await run_member_update_with_reallocation(
+        trip_id, family_id, updates, old_weight, new_weight, reweight_past=False,
+    )
+    t = await db.trips.find_one({"id": trip_id}, {"_id": 0})
+    updated = next((m for m in t["members"] if m["id"] == family_id), None)
+    # P5: consistent shape with delete_member ({"ok": True}); the family survives, so also return it.
+    return {"ok": True, "member": updated}
