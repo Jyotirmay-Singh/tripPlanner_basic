@@ -6,6 +6,7 @@ from models.expense import ExpenseIn, ExpenseUpdate
 from utils.common import gen_id, now_utc
 from utils.deps import get_current_user, _trip_or_404, _expense_modify_or_403
 from services.receipts import delete_receipts_for_expense
+from services.expense_shares import expense_share_breakdown
 
 router = APIRouter()
 
@@ -95,7 +96,7 @@ async def add_expense(trip_id: str, body: ExpenseIn, force: bool = False,
 
 @router.get("/trips/{trip_id}/expenses")
 async def list_expenses(trip_id: str, user=Depends(get_current_user)):
-    await _trip_or_404(trip_id, user["id"])
+    trip = await _trip_or_404(trip_id, user["id"])
     # Step 22: never return the heavy receipt bytes in the list. Expose a lightweight
     # `has_receipt` flag (true for a GridFS receipt_id OR a legacy inline blob) so the client
     # can render a thumbnail via the streamed GET endpoint without downloading bytes here.
@@ -112,6 +113,10 @@ async def list_expenses(trip_id: str, user=Depends(get_current_user)):
     for e in expenses:
         e["split_mode"] = e.get("split_mode", "PER_CAPITA")
         e["has_receipt"] = bool(e.get("has_receipt"))
+        # Additive, DISPLAY-only: per-expense participant share breakdown, re-derived from the SAME
+        # calculator the ledger uses (services.expense_shares). Read-time only — never persisted,
+        # never feeds balances/settle-up. No existing field is removed or changed.
+        e["shares"] = expense_share_breakdown(e, trip["members"])
     return expenses
 
 

@@ -15,6 +15,7 @@ import { canModifyExpense, roleOf, canEditTripSettings, canManageMembers, canDel
 import { compositionLabel } from '../../../src/composition';
 import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displayNames';
 import { billLabel } from '../../../src/bill';
+import { hasShareBreakdown, shareVerbs, type ExpenseShares } from '../../../src/expenseShares';
 import { isTripSettled } from '../../../src/tripSettled';
 import { formatMoney } from '../../../src/format';
 import { formatTripDates } from '../../../src/date';
@@ -26,7 +27,7 @@ import {
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
 type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
-type Expense = { id: string; kind: 'expense' | 'income'; amount: number; category: string; description?: string; date: string; time?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string };
+type Expense = { id: string; kind: 'expense' | 'income'; amount: number; category: string; description?: string; date: string; time?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string; shares?: ExpenseShares };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[]; members?: { id: string; name: string; net: number }[] }[] };
 
 type TabKey = 'summary' | 'expenses' | 'balances' | 'members';
@@ -50,6 +51,8 @@ export default function TripDetail() {
   const [tab, setTab] = useState<TabKey>('summary');
   const [token, setToken] = useState<string | null>(null);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
+  // Per-expense "Split details" disclosure state (collapsed by default), keyed by expense id.
+  const [expandedShares, setExpandedShares] = useState<Record<string, boolean>>({});
   // One themed confirm dialog drives both trip-delete and per-expense-delete.
   const [confirm, setConfirm] = useState<null | { title: string; message?: string; onYes: () => void; yesId?: string }>(null);
 
@@ -256,30 +259,81 @@ export default function TripDetail() {
                 <EmptyState icon="receipt" title="No transactions yet" body="Add an expense or income to start tracking this trip." ctaLabel="Add transaction" ctaIcon="plus" onCta={() => router.push(`/trip/${id}/add-expense`)} testID="expenses-empty" />
               ) : expenses.map((e) => (
                 <Card key={e.id} onPress={() => router.push({ pathname: '/trip/[id]/edit-expense', params: { id: id as string, eid: e.id } })}
-                  testID={`expense-item-${e.id}`} style={styles.rowCard}>
-                  <View style={[styles.catDot, { backgroundColor: e.kind === 'income' ? colors.success : colors.primary }]} />
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <T variant="h4" numberOfLines={1}>{e.description || e.category}</T>
-                    <T muted variant="caption" numberOfLines={1}>
-                      {e.date}{e.time ? ` · ${formatTime12h(e.time)}` : ''} · {e.category} · by {displayNames[e.paid_by_member_id] || '?'}
-                    </T>
-                    {e.has_receipt ? (
-                      token ? (
-                        <TouchableOpacity testID={`expense-bill-${e.id}`} onPress={() => setViewerUri(receiptUrl(id as string, e.id, token))} style={{ marginTop: 6 }} accessibilityLabel="View bill">
-                          <Image source={{ uri: receiptUrl(id as string, e.id, token) }} style={[styles.billThumb, { borderColor: colors.border }]} />
-                        </TouchableOpacity>
-                      ) : null
-                    ) : (
-                      <T variant="caption" color={colors.textMuted} style={{ marginTop: 4 }}>{billLabel(e)}</T>
+                  testID={`expense-item-${e.id}`}>
+                  <View style={styles.rowCard}>
+                    <View style={[styles.catDot, { backgroundColor: e.kind === 'income' ? colors.success : colors.primary }]} />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <T variant="h4" numberOfLines={1}>{e.description || e.category}</T>
+                      <T muted variant="caption" numberOfLines={1}>
+                        {e.date}{e.time ? ` · ${formatTime12h(e.time)}` : ''} · {e.category} · by {displayNames[e.paid_by_member_id] || '?'}
+                      </T>
+                      {e.has_receipt ? (
+                        token ? (
+                          <TouchableOpacity testID={`expense-bill-${e.id}`} onPress={() => setViewerUri(receiptUrl(id as string, e.id, token))} style={{ marginTop: 6 }} accessibilityLabel="View bill">
+                            <Image source={{ uri: receiptUrl(id as string, e.id, token) }} style={[styles.billThumb, { borderColor: colors.border }]} />
+                          </TouchableOpacity>
+                        ) : null
+                      ) : (
+                        <T variant="caption" color={colors.textMuted} style={{ marginTop: 4 }}>{billLabel(e)}</T>
+                      )}
+                    </View>
+                    <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                      {tripSettled && e.kind === 'expense' ? <Badge label="Settled" color={colors.success} /> : null}
+                      <AmountText value={e.amount} signed={e.kind === 'income'} color={e.kind === 'income' ? colors.success : colors.textMain} />
+                    </View>
+                    {canModifyExpense(e, user?.id, trip) && (
+                      <IconButton name="trash" onPress={() => deleteExpense(e)} accessibilityLabel="Delete transaction" testID={`expense-del-${e.id}`} size={18} color={colors.danger} />
                     )}
                   </View>
-                  <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                    {tripSettled && e.kind === 'expense' ? <Badge label="Settled" color={colors.success} /> : null}
-                    <AmountText value={e.amount} signed={e.kind === 'income'} color={e.kind === 'income' ? colors.success : colors.textMain} />
-                  </View>
-                  {canModifyExpense(e, user?.id, trip) && (
-                    <IconButton name="trash" onPress={() => deleteExpense(e)} accessibilityLabel="Delete transaction" testID={`expense-del-${e.id}`} size={18} color={colors.danger} />
-                  )}
+                  {/* DISPLAY-only "Split details": payer fronted the money; participants owe computed
+                      shares (income shows received/share + a doesn't-affect-balances note). Its own
+                      touchable so tapping it toggles instead of navigating to the edit screen. */}
+                  {hasShareBreakdown(e.shares) && (() => {
+                    const sh = e.shares as ExpenseShares;
+                    const verbs = shareVerbs(sh.kind);
+                    const open = !!expandedShares[e.id];
+                    return (
+                      <View style={{ marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+                        <TouchableOpacity
+                          testID={`expense-split-toggle-${e.id}`}
+                          onPress={() => setExpandedShares((s) => ({ ...s, [e.id]: !s[e.id] }))}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${open ? 'Hide' : 'Show'} split details`}
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                        >
+                          <Icon name={open ? 'chevron-down' : 'chevron-right'} size={14} color={colors.primary} />
+                          <T variant="caption" color={colors.primary} style={{ fontWeight: '700' }}>Split details</T>
+                        </TouchableOpacity>
+                        {open && (
+                          <View style={{ marginTop: SPACING.sm, gap: 4 }}>
+                            <T variant="caption" muted>
+                              {displayNames[sh.payer_id] || '?'} {verbs.payerVerb} {formatMoney(sh.amount, { currency: trip.currency })}
+                            </T>
+                            {sh.entities.map((ent) => (
+                              <View key={ent.id} style={{ gap: 2 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.sm }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+                                    <T variant="caption" numberOfLines={1}>{ent.name}</T>
+                                    {ent.is_payer ? <Badge label={verbs.payerVerb} color={colors.textMuted} /> : null}
+                                  </View>
+                                  <T variant="caption" muted>{verbs.participantVerb} {formatMoney(ent.share)}</T>
+                                </View>
+                                {ent.members.map((sub) => (
+                                  <View key={sub.id} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: SPACING.sm, paddingLeft: SPACING.md }}>
+                                    <T variant="caption" muted numberOfLines={1} style={{ flex: 1, minWidth: 0 }}>↳ {sub.name}</T>
+                                    <T variant="caption" muted>{formatMoney(sub.share)}</T>
+                                  </View>
+                                ))}
+                              </View>
+                            ))}
+                            {verbs.note ? (
+                              <T variant="caption" muted style={{ fontStyle: 'italic', marginTop: 2 }}>{verbs.note}</T>
+                            ) : null}
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })()}
                 </Card>
               ))}
             </View>
