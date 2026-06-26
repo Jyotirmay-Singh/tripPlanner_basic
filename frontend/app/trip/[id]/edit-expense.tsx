@@ -16,18 +16,19 @@ import { canModifyExpense } from '../../../src/permissions';
 import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displayNames';
 import { buildFamilyParticipants, excludedFromParticipants, familyMemberIds, familyShareEach } from '../../../src/familyParticipation';
 import { formatMoney } from '../../../src/format';
+import { parseAmount, isValidAmount, refundExceedsSpend, REFUND_WARNING } from '../../../src/signedAmount';
 import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { ddmmyyToDDMMYYYY, ddmmyyyyToDDMMYY } from '../../../src/date';
 import {
-  Card, Button, Input, Pill, SegmentedControl, Icon, ActionSheet, SkeletonCard, useToast,
+  Card, Button, Input, Pill, Icon, ActionSheet, SkeletonCard, useToast,
   DateField, TimeField,
 } from '../../../src/ui';
 
 type Member = { id: string; name: string; kind: string; family_members: string[]; family_member_ids?: string[] };
 type Trip = { id: string; name: string; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
 type Expense = {
-  id: string; kind: 'expense' | 'income'; amount: number; category: string;
+  id: string; amount: number; category: string;
   description?: string; date: string; time?: string | null; paid_by_member_id: string;
   split_member_ids: string[]; split_mode?: SplitMode;
   weight_snapshots?: Record<string, number> | null; receipt_base64?: string | null;
@@ -44,8 +45,9 @@ export default function EditExpense() {
   const toast = useToast();
   const [trip, setTrip] = useState<Trip | null>(null);
   const [createdBy, setCreatedBy] = useState<string | null | undefined>(undefined);
-  const [kind, setKind] = useState<'expense' | 'income'>('expense');
   const [amount, setAmount] = useState('');
+  // Net of every OTHER transaction's signed amount — drives the soft "refund > spend" warning only.
+  const [tripNetSpendExcl, setTripNetSpendExcl] = useState(0);
   const [desc, setDesc] = useState('');
   const [cat, setCat] = useState<string>('Food');
   // Date held in display form (dd/mm/yyyy) for the picker; converted to stored DD-MM-YY at save.
@@ -72,8 +74,9 @@ export default function EditExpense() {
       const exps = await api<Expense[]>(`/trips/${id}/expenses`);
       const e = exps.find((x) => x.id === eid);
       if (!e) return;
+      setTripNetSpendExcl(exps.filter((x) => x.id !== eid).reduce((s, x) => s + x.amount, 0));
       setCreatedBy(e.created_by ?? null);
-      setKind(e.kind); setAmount(String(e.amount)); setDesc(e.description || '');
+      setAmount(String(e.amount)); setDesc(e.description || '');
       setCat(e.category); setDateDisplay(ddmmyyToDDMMYYYY(e.date)); setTime(e.time || '');
       setPaidBy(e.paid_by_member_id);
       const allIds = t.members.map((m) => m.id);
@@ -119,8 +122,8 @@ export default function EditExpense() {
 
   const save = async () => {
     if (!trip || !paidBy) return;
-    const a = parseFloat(amount);
-    if (!a || a <= 0) return toast.show('Amount must be greater than 0', 'error');
+    const a = parseAmount(amount);
+    if (!isValidAmount(a)) return toast.show('Enter a non-zero amount', 'error');
     const date = ddmmyyyyToDDMMYY(dateDisplay);  // -> stored DD-MM-YY (format unchanged)
     if (!date) return toast.show('Enter a valid date as dd/mm/yyyy', 'error');
     setSaving(true);
@@ -153,7 +156,7 @@ export default function EditExpense() {
       await api(`/trips/${id}/expenses/${eid}`, {
         method: 'PATCH',
         body: {
-          kind, amount: a, category: cat, description: desc, date, time: time || null,
+          amount: a, category: cat, description: desc, date, time: time || null,
           paid_by_member_id: paidBy,
           split_member_ids: allSelected ? [] : splitSel,
           split_mode: splitMode,
@@ -211,20 +214,17 @@ export default function EditExpense() {
               </View>
             )}
 
-            <SegmentedControl
-              segments={[{ value: 'expense', label: 'Expense', icon: 'trending-down' }, { value: 'income', label: 'Income', icon: 'trending-up' }]}
-              value={kind}
-              onChange={setKind}
-              testIDPrefix="ee-kind"
-            />
-
             <Card padding="lg" radius={RADIUS.xl}>
-              <T variant="label" muted>{trip.currency} amount *</T>
+              <T variant="label" muted>{trip.currency} amount * (use a minus for money back)</T>
               <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: SPACING.sm, marginTop: 6 }}>
                 <T style={{ fontFamily: FONTS.number, fontSize: 28, color: colors.textMuted }}>{trip.currency}</T>
-                <TextInput testID="ee-amount" value={amount} onChangeText={setAmount} keyboardType="decimal-pad"
+                <TextInput testID="ee-amount" value={amount} onChangeText={setAmount} keyboardType="numbers-and-punctuation"
+                  editable={canModify}
                   style={[styles.amountInput, { color: colors.textMain }]} />
               </View>
+              {refundExceedsSpend(parseAmount(amount), tripNetSpendExcl) ? (
+                <T testID="ee-refund-warn" variant="caption" color={colors.warning} style={{ marginTop: 6 }}>{REFUND_WARNING}</T>
+              ) : null}
             </Card>
 
             <Input testID="ee-desc" label="Description" value={desc} onChangeText={setDesc} />

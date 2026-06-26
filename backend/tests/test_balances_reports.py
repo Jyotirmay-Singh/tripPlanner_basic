@@ -162,7 +162,7 @@ class TestReports:
         data = response.json()
         assert "trip" in data
         assert "total_expense" in data
-        assert "total_income" in data
+        assert "total_income" not in data  # income concept removed (signed-amount model)
         assert "budget" in data
         assert "by_category" in data
         assert "by_date" in data

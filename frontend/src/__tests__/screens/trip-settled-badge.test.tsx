@@ -3,9 +3,9 @@
 // both are idiomatic for jest and intentionally exempted here (mirrors unverified-banner.test.tsx).
 //
 // Render test for the trip-level "Settled" badge on the Expenses tab
-// (frontend/app/trip/[id]/index.tsx). The badge is shown only when the WHOLE trip is settled
-// (balances.transfers === []) and only on kind:"expense" rows — never on income. `Badge` and the
-// real `isTripSettled` helper are intentionally NOT mocked so the wiring is genuinely exercised;
+// (frontend/app/trip/[id]/index.tsx). The badge is shown on EVERY transaction row (positive expenses
+// and negative money-back rows alike) when the WHOLE trip is settled (balances.transfers === []).
+// `Badge` and the real `isTripSettled` helper are intentionally NOT mocked so the wiring is exercised;
 // the badge is located by its `label === 'Settled'` prop. Everything peripheral (display/permission
 // helpers, theme, heavy UI components) is stubbed so the test stays focused and deterministic.
 import React from 'react';
@@ -100,8 +100,8 @@ const TRIP = {
   members: [{ id: 'm1', name: 'A', kind: 'individual', family_members: [] }],
 };
 const EXPENSES = [
-  { id: 'e1', kind: 'expense', amount: 100, category: 'Food', date: '01-01-25', paid_by_member_id: 'm1', split_member_ids: ['m1'] },
-  { id: 'i1', kind: 'income', amount: 50, category: 'Refund', date: '01-01-25', paid_by_member_id: 'm1', split_member_ids: ['m1'] },
+  { id: 'e1', amount: 100, category: 'Food', date: '01-01-25', paid_by_member_id: 'm1', split_member_ids: ['m1'] },
+  { id: 'i1', amount: -50, category: 'Refund', date: '01-01-25', paid_by_member_id: 'm1', split_member_ids: ['m1'] },
 ];
 const balances = (transfers: any[]) => ({
   net: { m1: transfers.length ? -10 : 0 }, transfers, members: TRIP.members, currency: 'INR', per_person: [],
@@ -130,9 +130,9 @@ beforeEach(() => {
 });
 
 describe('Expenses tab — trip-level "Settled" badge', () => {
-  it('shows the badge only on the expense row (not income) when the trip is fully settled', async () => {
+  it('shows the badge on every transaction row (incl. money-back) when the trip is fully settled', async () => {
     const r = await openExpenses([]); // no suggested transfers => trip settled
-    expect(settledBadges(r).length).toBe(1); // exactly one expense row; income row excluded
+    expect(settledBadges(r).length).toBe(2); // both rows (positive + negative) show the badge
   });
 
   it('shows no badge when any balance is outstanding', async () => {

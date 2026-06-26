@@ -11,7 +11,7 @@ import { Screen, Card, ListRow, EmptyState, AmountText, SkeletonCard, useToast }
 
 type Member = { id: string; name: string };
 type Trip = { id: string; name: string; currency: string; members: Member[] };
-type Expense = { id: string; kind: string; amount: number; category: string; description?: string; date: string; time?: string | null; paid_by_member_id: string };
+type Expense = { id: string; amount: number; category: string; description?: string; date: string; time?: string | null; paid_by_member_id: string };
 
 export default function CategoryDetail() {
   const { id, name } = useLocalSearchParams<{ id: string; name: string }>();
@@ -36,7 +36,7 @@ export default function CategoryDetail() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const filtered = expenses.filter((e) => e.kind === 'expense' && e.category === decoded);
+  const filtered = expenses.filter((e) => e.category === decoded);
   const total = filtered.reduce((s, e) => s + e.amount, 0);
   const displayNames = memberDisplayNames(trip?.members);
   const memberById = (mid: string) => displayNames[mid] || '?';

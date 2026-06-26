@@ -2,7 +2,6 @@ import { hasShareBreakdown, shareVerbs, type ExpenseShares } from '../expenseSha
 
 const sample: ExpenseShares = {
   mode: 'PER_CAPITA',
-  kind: 'expense',
   payer_id: 'i1',
   amount: 130,
   entities: [
@@ -27,17 +26,9 @@ describe('hasShareBreakdown', () => {
 });
 
 describe('shareVerbs', () => {
-  it('expense: paid / owes, no note', () => {
-    const v = shareVerbs('expense');
+  it('unified paid / owes wording (negatives read as credits via the minus sign)', () => {
+    const v = shareVerbs();
     expect(v.payerVerb).toBe('paid');
     expect(v.participantVerb).toBe('owes');
-    expect(v.note).toBeNull();
-  });
-
-  it('income: received / share, with a "not split into balances" note', () => {
-    const v = shareVerbs('income');
-    expect(v.payerVerb).toBe('received');
-    expect(v.participantVerb).toBe('share');
-    expect(v.note).toMatch(/balances/i);
   });
 });

@@ -114,7 +114,8 @@ export function familyShareEach(
   splitMode: string,
 ): number {
   const m = members.find((x) => x.id === famId);
-  if (!m || !Number.isFinite(amount) || amount <= 0 || includedCount <= 0) return 0;
+  // amount may be negative (money back) -> the per-share preview is correspondingly negative.
+  if (!m || !Number.isFinite(amount) || amount === 0 || includedCount <= 0) return 0;
   if (splitMode === 'PER_FAMILY') {
     const E = splitSel.length; // each selected member (family or individual) is one entity
     if (E <= 0) return 0;

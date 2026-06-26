@@ -60,11 +60,12 @@ async def add_expense(trip_id: str, body: ExpenseIn, force: bool = False,
     family_participants = _clean_family_participants(body.family_participants, body.split_mode,
                                                      split_ids, trip["members"])
 
-    # budget over-check (category vs overall)
+    # budget over-check (net spend vs budget). Sums ALL rows; a negative amount (money back) nets the
+    # running total down and never trips the warning.
     warning = None
-    if body.kind == "expense" and trip.get("budget"):
+    if trip.get("budget"):
         cur = await db.expenses.aggregate([
-            {"$match": {"trip_id": trip_id, "kind": "expense"}},
+            {"$match": {"trip_id": trip_id}},
             {"$group": {"_id": None, "sum": {"$sum": "$amount"}}},
         ]).to_list(1)
         current = cur[0]["sum"] if cur else 0
@@ -75,7 +76,7 @@ async def add_expense(trip_id: str, body: ExpenseIn, force: bool = False,
 
     eid = gen_id()
     doc = {
-        "id": eid, "trip_id": trip_id, "kind": body.kind,
+        "id": eid, "trip_id": trip_id,
         "amount": float(body.amount), "category": body.category,
         "description": body.description or "",
         "date": body.date,

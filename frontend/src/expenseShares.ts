@@ -1,10 +1,11 @@
 // Pure display helpers for the per-expense "Split details" breakdown.
 //
 // The numbers come from the backend (`shares`, derived via the SAME calculator the ledger uses — see
-// backend/services/expense_shares.py); these helpers only gate rendering and pick the truthful
-// wording for expense vs income. Keeping the logic here makes it unit-testable without a component
-// render (mirrors src/bill.ts / src/displayNames.ts). DISPLAY-only: nothing here computes or alters a
-// balance.
+// backend/services/expense_shares.py); these helpers only gate rendering and supply the wording.
+// Keeping the logic here makes it unit-testable without a component render (mirrors src/bill.ts /
+// src/displayNames.ts). DISPLAY-only: nothing here computes or alters a balance. A negative `amount`
+// (money back) carries its sign through to the numbers; the wording stays "paid / owes" since the
+// minus sign itself conveys the credited direction.
 
 export type ShareMember = { id: string; name: string; share: number };
 export type ShareEntity = {
@@ -16,7 +17,6 @@ export type ShareEntity = {
 };
 export type ExpenseShares = {
   mode: 'PER_CAPITA' | 'PER_FAMILY';
-  kind: 'expense' | 'income';
   payer_id: string;
   amount: number;
   entities: ShareEntity[];
@@ -28,26 +28,17 @@ export function hasShareBreakdown(shares?: ExpenseShares | null): boolean {
 }
 
 export type ShareVerbs = {
-  /** what the payer did with the full amount: "paid" (expense) / "received" (income). */
+  /** what the payer did with the full amount. */
   payerVerb: string;
-  /** how a participant relates to their share: "owes" (expense) / "share" (income). */
+  /** how a participant relates to their share. */
   participantVerb: string;
-  /** optional display-only caveat — income is not split into balances. */
-  note: string | null;
 };
 
 /**
- * Truthful wording for the breakdown. Expenses: the payer "paid" the bill, each participant "owes"
- * their computed share. Income: the payer "received" the money; participant "share" values are shown
- * for reference only and do NOT move balances (the ledger ignores income), hence the note.
+ * Wording for the breakdown: the payer "paid" the bill, each participant "owes" their computed share.
+ * For a negative amount (money back) the figures are negative, which reads as a credit — no separate
+ * wording or "doesn't affect balances" note is needed, because every transaction now moves balances.
  */
-export function shareVerbs(kind: 'expense' | 'income'): ShareVerbs {
-  if (kind === 'income') {
-    return {
-      payerVerb: 'received',
-      participantVerb: 'share',
-      note: "Income isn't split into balances — shares shown for reference.",
-    };
-  }
-  return { payerVerb: 'paid', participantVerb: 'owes', note: null };
+export function shareVerbs(): ShareVerbs {
+  return { payerVerb: 'paid', participantVerb: 'owes' };
 }

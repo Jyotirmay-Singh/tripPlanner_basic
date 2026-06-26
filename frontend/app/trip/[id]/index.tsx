@@ -27,7 +27,7 @@ import {
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
 type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
-type Expense = { id: string; kind: 'expense' | 'income'; amount: number; category: string; description?: string; date: string; time?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string; shares?: ExpenseShares };
+type Expense = { id: string; amount: number; category: string; description?: string; date: string; time?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string; shares?: ExpenseShares };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[]; members?: { id: string; name: string; net: number }[] }[] };
 
 type TabKey = 'summary' | 'expenses' | 'balances' | 'members';
@@ -117,11 +117,12 @@ export default function TripDetail() {
 
   // Derived, disambiguated display labels (rules a/b/c). Stored names/IDs are untouched.
   const displayNames = memberDisplayNames(trip.members);
-  const totalSpent = expenses.filter((e) => e.kind === 'expense').reduce((s, e) => s + e.amount, 0);
+  // Signed totals: a negative transaction (money back) nets the total down.
+  const totalSpent = expenses.reduce((s, e) => s + e.amount, 0);
   const over = trip.budget ? totalSpent > trip.budget : false;
   // Trip-level "Settled" badge signal — reuses the SAME empty-transfers value the settle-up screen
-  // uses for "All square!" (display-only; never recomputed). All expense cards show the badge once
-  // the whole trip squares up; income rows never do.
+  // uses for "All square!" (display-only; never recomputed). Every transaction card shows the badge
+  // once the whole trip squares up.
   const tripSettled = isTripSettled(balances);
   // Role gating routes through the shared src/permissions.ts matrix (mirror of the backend).
   const meCanEditSettings = canEditTripSettings(trip, user?.id);
@@ -191,11 +192,13 @@ export default function TripDetail() {
           {tab === 'summary' && (() => {
             const myMember = trip.members.find((m) => m.user_id === user?.id);
             const myNet = myMember && balances ? balances.net[myMember.id] || 0 : 0;
-            const expenseCount = expenses.filter((e) => e.kind === 'expense').length;
-            const incomeTotal = expenses.filter((e) => e.kind === 'income').reduce((s, e) => s + e.amount, 0);
+            const expenseCount = expenses.length;
+            // Money returned to the group (sum of negative transactions), shown as a positive figure.
+            const refundsTotal = expenses.filter((e) => e.amount < 0).reduce((s, e) => s - e.amount, 0);
             const byCat: Record<string, number> = {};
-            expenses.filter((e) => e.kind === 'expense').forEach((e) => { byCat[e.category] = (byCat[e.category] || 0) + e.amount; });
-            const sortedCats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+            expenses.forEach((e) => { byCat[e.category] = (byCat[e.category] || 0) + e.amount; });
+            // Only positive net categories make sense as donut slices (a fully-refunded category nets <= 0).
+            const sortedCats = Object.entries(byCat).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
             const palette = paletteForMode(mode);
             const slices = sortedCats.map(([k, v], i) => ({ key: k, label: k, value: v, color: palette[i % palette.length] }));
             const budgetPct = trip.budget ? totalSpent / trip.budget : 0;
@@ -232,7 +235,7 @@ export default function TripDetail() {
 
                 <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
                   <StatCard label="Transactions" value={String(expenseCount)} icon="receipt" />
-                  <StatCard label="Income" value={formatMoney(incomeTotal, { signed: true })} valueColor={colors.success} icon="arrow-down" />
+                  <StatCard label="Refunds" value={formatMoney(refundsTotal)} valueColor={colors.success} icon="arrow-down" />
                 </View>
 
                 {slices.length > 0 && (
@@ -256,12 +259,12 @@ export default function TripDetail() {
           {tab === 'expenses' && (
             <View style={{ gap: SPACING.sm }}>
               {expenses.length === 0 ? (
-                <EmptyState icon="receipt" title="No transactions yet" body="Add an expense or income to start tracking this trip." ctaLabel="Add transaction" ctaIcon="plus" onCta={() => router.push(`/trip/${id}/add-expense`)} testID="expenses-empty" />
+                <EmptyState icon="receipt" title="No transactions yet" body="Add an expense (or a negative amount for money back) to start tracking this trip." ctaLabel="Add transaction" ctaIcon="plus" onCta={() => router.push(`/trip/${id}/add-expense`)} testID="expenses-empty" />
               ) : expenses.map((e) => (
                 <Card key={e.id} onPress={() => router.push({ pathname: '/trip/[id]/edit-expense', params: { id: id as string, eid: e.id } })}
                   testID={`expense-item-${e.id}`}>
                   <View style={styles.rowCard}>
-                    <View style={[styles.catDot, { backgroundColor: e.kind === 'income' ? colors.success : colors.primary }]} />
+                    <View style={[styles.catDot, { backgroundColor: e.amount < 0 ? colors.success : colors.primary }]} />
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <T variant="h4" numberOfLines={1}>{e.description || e.category}</T>
                       <T muted variant="caption" numberOfLines={1}>
@@ -278,19 +281,19 @@ export default function TripDetail() {
                       )}
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                      {tripSettled && e.kind === 'expense' ? <Badge label="Settled" color={colors.success} /> : null}
-                      <AmountText value={e.amount} signed={e.kind === 'income'} color={e.kind === 'income' ? colors.success : colors.textMain} />
+                      {tripSettled ? <Badge label="Settled" color={colors.success} /> : null}
+                      <AmountText value={e.amount} color={e.amount < 0 ? colors.success : colors.textMain} />
                     </View>
                     {canModifyExpense(e, user?.id, trip) && (
                       <IconButton name="trash" onPress={() => deleteExpense(e)} accessibilityLabel="Delete transaction" testID={`expense-del-${e.id}`} size={18} color={colors.danger} />
                     )}
                   </View>
                   {/* DISPLAY-only "Split details": payer fronted the money; participants owe computed
-                      shares (income shows received/share + a doesn't-affect-balances note). Its own
-                      touchable so tapping it toggles instead of navigating to the edit screen. */}
+                      shares (negative amounts read as credits via the minus sign). Its own touchable
+                      so tapping it toggles instead of navigating to the edit screen. */}
                   {hasShareBreakdown(e.shares) && (() => {
                     const sh = e.shares as ExpenseShares;
-                    const verbs = shareVerbs(sh.kind);
+                    const verbs = shareVerbs();
                     const open = !!expandedShares[e.id];
                     return (
                       <View style={{ marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
@@ -326,9 +329,6 @@ export default function TripDetail() {
                                 ))}
                               </View>
                             ))}
-                            {verbs.note ? (
-                              <T variant="caption" muted style={{ fontStyle: 'italic', marginTop: 2 }}>{verbs.note}</T>
-                            ) : null}
                           </View>
                         )}
                       </View>

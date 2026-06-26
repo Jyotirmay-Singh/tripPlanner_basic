@@ -86,8 +86,8 @@ def _weight_map(members: list) -> dict:
 def family_member_breakdown(members: list, expenses: list, settlements: list, net: dict) -> dict:
     """family entity id -> [{"id", "name", "net"}] (one row per roster member, in roster order).
 
-    ``expenses`` must be the same kind=="expense" rows and ``net``/``settlements`` the same data
-    ``_compute_balances`` used, so the no-restriction path reproduces ``net_per_person`` exactly.
+    ``expenses``/``net``/``settlements`` must be the same data ``_compute_balances`` used (all of the
+    trip's expense rows, signed), so the no-restriction path reproduces ``net_per_person`` exactly.
     """
     weight_map = _weight_map(members)
     all_ids = [m["id"] for m in members]
@@ -110,8 +110,6 @@ def family_member_breakdown(members: list, expenses: list, settlements: list, ne
         restricted = False
 
         for e in expenses:
-            if e.get("kind", "expense") != "expense":
-                continue
             split_ids = e.get("split_member_ids") or all_ids
             in_split = fid in split_ids
             mode = e.get("split_mode") or "PER_CAPITA"
