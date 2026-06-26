@@ -1,3 +1,4 @@
+import math
 from typing import Dict, List, Optional, Literal
 
 from pydantic import BaseModel, field_validator
@@ -7,8 +8,18 @@ from utils.date_rules import normalize_time
 SplitMode = Literal["PER_CAPITA", "PER_FAMILY"]
 
 
+def _validate_amount(v):
+    """Signed amount rule: any finite non-zero real. Positive = an expense, negative = money
+    coming back to the group (refund/reimbursement/cancellation). Rejects 0 and NaN/inf. Used by
+    both ExpenseIn (required) and ExpenseUpdate (optional -> None passes through)."""
+    if v is None:
+        return v
+    if not math.isfinite(v) or v == 0:
+        raise ValueError("amount must be a non-zero number")
+    return v
+
+
 class ExpenseIn(BaseModel):
-    kind: Literal["expense", "income"] = "expense"
     amount: float
     category: str
     description: Optional[str] = ""
@@ -32,9 +43,13 @@ class ExpenseIn(BaseModel):
     def _validate_time(cls, v):
         return normalize_time(v)
 
+    @field_validator("amount")
+    @classmethod
+    def _check_amount(cls, v):
+        return _validate_amount(v)
+
 
 class ExpenseUpdate(BaseModel):
-    kind: Optional[Literal["expense", "income"]] = None
     amount: Optional[float] = None
     category: Optional[str] = None
     description: Optional[str] = None
@@ -53,3 +68,8 @@ class ExpenseUpdate(BaseModel):
     @classmethod
     def _validate_time(cls, v):
         return normalize_time(v)
+
+    @field_validator("amount")
+    @classmethod
+    def _check_amount(cls, v):
+        return _validate_amount(v)

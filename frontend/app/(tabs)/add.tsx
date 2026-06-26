@@ -24,7 +24,7 @@ export default function AddTab() {
   return (
     <Screen refreshing={refreshing} onRefresh={load}>
       <T variant="h1">Add transaction</T>
-      <T muted>Pick a trip to add an expense or income.</T>
+      <T muted>Pick a trip to add an expense (or a negative amount for money back).</T>
 
       {!loaded ? (
         <SkeletonCard count={3} />

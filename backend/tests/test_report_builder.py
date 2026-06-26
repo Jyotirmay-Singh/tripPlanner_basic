@@ -18,10 +18,10 @@ def _ind(mid, name=None):
     return {"id": mid, "name": name or mid, "kind": "individual", "family_members": []}
 
 
-def _exp(eid, amount, split_ids, mode="PER_CAPITA", kind="expense", snaps=None,
+def _exp(eid, amount, split_ids, mode="PER_CAPITA", snaps=None,
          paid_by="f1", date="11-05-26", category="Food", description="x"):
     e = {"id": eid, "amount": amount, "split_member_ids": split_ids, "split_mode": mode,
-         "kind": kind, "paid_by_member_id": paid_by, "date": date, "category": category,
+         "paid_by_member_id": paid_by, "date": date, "category": category,
          "description": description}
     if snaps is not None:
         e["weight_snapshots"] = snaps
@@ -87,10 +87,12 @@ class TestPerCapita:
         rows = build_per_capita_rows([e], _roster())
         assert len(rows) == 2 and all(r["member_share"] == 10.0 for r in rows)
 
-    def test_income_excluded(self):
-        rows = build_per_capita_rows(
-            [_exp("e1", 100.0, [], kind="income")], _roster())
-        assert rows == []
+    def test_negative_amount_included_with_mirrored_shares(self):
+        # Money-back rows are real expenses now; they appear with negative shares summing to -100.
+        rows = build_per_capita_rows([_exp("e1", -100.0, [])], _roster())
+        assert rows  # not excluded
+        assert all(r["member_share"] <= 0 for r in rows)
+        assert abs(sum(r["member_share"] for r in rows) + 100.0) <= 0.005 * len(rows) + 1e-9
 
     def test_split_among_all_includes_everyone(self):
         rows = build_per_capita_rows([_exp("e1", 130.0, [])], _roster())
@@ -141,10 +143,11 @@ class TestPerFamily:
             [_exp("e1", 120.0, ["f1", "i1"], mode="PER_CAPITA")], _roster())
         assert rows == []
 
-    def test_income_excluded(self):
+    def test_negative_amount_included_with_mirrored_shares(self):
         rows = build_per_family_rows(
-            [_exp("e1", 120.0, [], mode="PER_FAMILY", kind="income")], _roster())
-        assert rows == []
+            [_exp("e1", -120.0, [], mode="PER_FAMILY")], _roster())
+        assert len(rows) == 6
+        assert all(r["member_share"] == -20.0 for r in rows)
 
     def test_duplicate_ids_are_deduped(self):
         # split [f1, f1, i1] -> 2 distinct entities -> 60 each, 2 rows.
@@ -168,16 +171,17 @@ class TestPerFamily:
 
 class TestTransactions:
 
-    def test_every_row_has_split_mode_and_both_kinds_present(self):
+    def test_every_row_has_split_mode_and_signed_amount(self):
         exps = [
             _exp("e1", 130.0, [], mode="PER_CAPITA"),
             _exp("e2", 120.0, ["f1", "i1"], mode="PER_FAMILY"),
-            _exp("e3", 50.0, [], mode="PER_CAPITA", kind="income"),
+            _exp("e3", -50.0, [], mode="PER_CAPITA"),  # money back, negative
         ]
         rows = build_transaction_rows(exps, _roster())
         assert len(rows) == 3
         assert [r["split_mode"] for r in rows] == ["PER_CAPITA", "PER_FAMILY", "PER_CAPITA"]
-        assert {r["kind"] for r in rows} == {"expense", "income"}
+        assert "kind" not in rows[0]  # the income/kind concept is gone
+        assert [r["amount"] for r in rows] == [130.0, 120.0, -50.0]
 
     def test_split_among_names_and_unknown_payer(self):
         rows = build_transaction_rows(

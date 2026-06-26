@@ -37,7 +37,7 @@ def _members_5a():
 
 
 def _expense(**over):
-    e = {"id": "e1", "kind": "expense", "amount": 130.0, "category": "Food",
+    e = {"id": "e1", "amount": 130.0, "category": "Food",
          "split_member_ids": [], "split_mode": "PER_CAPITA", "paid_by_member_id": "i1",
          "weight_snapshots": None, "family_participants": None}
     e.update(over)
@@ -176,12 +176,14 @@ class TestBreakdownShape:
         f1 = next(ent for ent in bd["entities"] if ent["id"] == "f1")
         assert [s["name"] for s in f1["members"]] == ["A", "B", "C", "D"]
 
-    def test_income_kind_is_carried_through(self):
+    def test_negative_amount_mirrors_into_negative_shares(self):
+        # A negative amount (money back) is split by the SAME calculator into negative display shares
+        # that sum exactly to the negative total. The `kind` concept is gone (no such output key).
         members = _members_5a()
-        bd = expense_share_breakdown(_expense(kind="income"), members)
-        assert bd["kind"] == "income"
-        # income is still split for display; the ledger ignores it (not tested here — display only).
-        assert round(sum(ent["share"] for ent in bd["entities"]), 2) == 130.0
+        bd = expense_share_breakdown(_expense(amount=-130.0), members)
+        assert "kind" not in bd
+        assert round(sum(ent["share"] for ent in bd["entities"]), 2) == -130.0
+        assert all(ent["share"] <= 0 for ent in bd["entities"])
 
     def test_mode_carried_through(self):
         members = _members_5a()

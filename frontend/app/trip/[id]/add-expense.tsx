@@ -14,11 +14,12 @@ import SplitModeSelector, { SplitMode, splitPreviewLabel } from '../../../src/Sp
 import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displayNames';
 import { buildFamilyParticipants, familyMemberIds, familyShareEach } from '../../../src/familyParticipation';
 import { formatMoney } from '../../../src/format';
+import { parseAmount, isValidAmount, refundExceedsSpend, REFUND_WARNING } from '../../../src/signedAmount';
 import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { formatDDMMYYYY, partsFromLocalDate, ddmmyyyyToDDMMYY } from '../../../src/date';
 import {
-  Card, Button, Input, Pill, SegmentedControl, Icon, ActionSheet, SkeletonCard, useToast,
+  Card, Button, Input, Pill, Icon, ActionSheet, SkeletonCard, useToast,
   DateField, TimeField,
 } from '../../../src/ui';
 
@@ -31,8 +32,9 @@ export default function AddExpense() {
   const router = useRouter();
   const toast = useToast();
   const [trip, setTrip] = useState<Trip | null>(null);
-  const [kind, setKind] = useState<'expense' | 'income'>('expense');
   const [amount, setAmount] = useState('');
+  // Net of every existing transaction's signed amount — drives the soft "refund > spend" warning only.
+  const [tripNetSpend, setTripNetSpend] = useState(0);
   const [desc, setDesc] = useState('');
   const [cat, setCat] = useState<string>('Food');
   // Date is held in display form (dd/mm/yyyy) for the calendar picker; converted to the stored
@@ -64,6 +66,9 @@ export default function AddExpense() {
         setAllInited(true);
       }
     }).catch((e) => toast.show(e.message || 'Could not load trip', 'error'));
+    api<{ amount: number }[]>(`/trips/${id}/expenses`)
+      .then((es) => setTripNetSpend(es.reduce((s, e) => s + e.amount, 0)))
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -96,8 +101,8 @@ export default function AddExpense() {
 
   const submit = async (force = false) => {
     if (!trip || !paidBy) return;
-    const a = parseFloat(amount);
-    if (!a || a <= 0) return toast.show('Amount must be greater than 0', 'error');
+    const a = parseAmount(amount);
+    if (!isValidAmount(a)) return toast.show('Enter a non-zero amount', 'error');
     const date = ddmmyyyyToDDMMYY(dateDisplay);  // -> stored DD-MM-YY (format unchanged)
     if (!date) return toast.show('Enter a valid date as dd/mm/yyyy', 'error');
     setSaving(true);
@@ -116,7 +121,7 @@ export default function AddExpense() {
         }
       }
       const body: any = {
-        kind, amount: a, category: cat, description: desc, date, time: time || null,
+        amount: a, category: cat, description: desc, date, time: time || null,
         paid_by_member_id: paidBy,
         split_member_ids: allSelected ? [] : splitSel,
         split_mode: splitMode,
@@ -166,23 +171,18 @@ export default function AddExpense() {
           <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
             <T variant="h1">New transaction</T>
 
-            {/* Kind toggle */}
-            <SegmentedControl
-              segments={[{ value: 'expense', label: 'Expense', icon: 'trending-down' }, { value: 'income', label: 'Income', icon: 'trending-up' }]}
-              value={kind}
-              onChange={setKind}
-              testIDPrefix="ae-kind"
-            />
-
-            {/* Amount — prominent, currency-prefixed */}
+            {/* Amount — prominent, currency-prefixed. Enter a leading minus for money coming back. */}
             <Card padding="lg" radius={RADIUS.xl}>
-              <T variant="label" muted>{trip.currency} amount *</T>
+              <T variant="label" muted>{trip.currency} amount * (use a minus for money back)</T>
               <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: SPACING.sm, marginTop: 6 }}>
                 <T style={{ fontFamily: FONTS.number, fontSize: 28, color: colors.textMuted }}>{trip.currency}</T>
                 <TextInput testID="ae-amount" value={amount} onChangeText={setAmount}
-                  keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={colors.textMuted}
+                  keyboardType="numbers-and-punctuation" placeholder="0.00" placeholderTextColor={colors.textMuted}
                   style={[styles.amountInput, { color: colors.textMain }]} />
               </View>
+              {refundExceedsSpend(parseAmount(amount), tripNetSpend) ? (
+                <T testID="ae-refund-warn" variant="caption" color={colors.warning} style={{ marginTop: 6 }}>{REFUND_WARNING}</T>
+              ) : null}
             </Card>
 
             <Input testID="ae-desc" label="Description" value={desc} onChangeText={setDesc} placeholder="e.g. Dinner at The Leela" />

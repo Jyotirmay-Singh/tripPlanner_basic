@@ -71,15 +71,14 @@ def build_per_capita_rows(expenses: list, members: list) -> list:
 
     Shows H (total humans = sum of effective weights), per-person cost, each member's weight, and that
     member's share. Honors `weight_snapshots` via `resolve_weights` (partial-family overrides and the
-    Step-8 size-freeze pins), identical to the ledger. Income rows are excluded.
+    Step-8 size-freeze pins), identical to the ledger. A negative `amount` (money back) yields the
+    mirrored negative shares.
     """
     weight_map = build_member_weight_map(members)
     names = _names(members)
     all_ids = _all_ids(members)
     rows: list = []
     for e in expenses:
-        if e.get("kind", "expense") != "expense":
-            continue
         if (e.get("split_mode") or "PER_CAPITA") != "PER_CAPITA":
             continue
         split_ids = e.get("split_member_ids") or all_ids
@@ -109,14 +108,12 @@ def build_per_family_rows(expenses: list, members: list) -> list:
 
     Shows E (total entities) and the flat per-entity cost — every selected family/individual owes
     `amount / E` regardless of family size. Size and `weight_snapshots` are intentionally ignored.
-    Income rows are excluded.
+    A negative `amount` (money back) yields the mirrored negative shares.
     """
     names = _names(members)
     all_ids = _all_ids(members)
     rows: list = []
     for e in expenses:
-        if e.get("kind", "expense") != "expense":
-            continue
         if (e.get("split_mode") or "PER_CAPITA") != "PER_FAMILY":
             continue
         split_ids = e.get("split_member_ids") or all_ids
@@ -140,10 +137,11 @@ def build_per_family_rows(expenses: list, members: list) -> list:
 
 
 def build_transaction_rows(expenses: list, members: list) -> list:
-    """One row per expense (both kinds), with the existing columns plus `split_mode`.
+    """One row per expense, with the existing columns plus `split_mode`.
 
     Preserves the existing Transactions-sheet semantics: `split_among` joins the participant names in
-    `split_member_ids` order (empty when split-among-all). Unknown ids resolve to '?'.
+    `split_member_ids` order (empty when split-among-all). Unknown ids resolve to '?'. A negative
+    `amount` simply carries its sign through to the Amount cell.
     """
     names = _names(members)
     rows: list = []
@@ -152,7 +150,6 @@ def build_transaction_rows(expenses: list, members: list) -> list:
         split_among = ", ".join(names.get(sid, "?") for sid in e.get("split_member_ids", []))
         rows.append({
             "date": _date_cell(e),
-            "kind": e.get("kind", "expense"),
             "category": e.get("category", ""),
             "description": e.get("description", ""),
             "amount": e["amount"],

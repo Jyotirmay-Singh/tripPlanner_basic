@@ -24,7 +24,11 @@ async def _compute_balances(trip_id: str) -> dict:
     net = {m["id"]: 0.0 for m in members}
     weight_map = {m["id"]: _weight_of_member(m) for m in members}
 
-    expenses = await db.expenses.find({"trip_id": trip_id, "kind": "expense"}, {"_id": 0}).to_list(5000)
+    # Signed-amount model: ALL expense rows count. A positive `amount` is an expense (payer is the
+    # creditor, participants owe their share); a negative `amount` is money coming back to the group —
+    # the exact mirror through the same split engine (payer is debited, participants are credited),
+    # with no abs() anywhere below. There is no longer a separate "income" kind to exclude.
+    expenses = await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(5000)
     for e in expenses:
         split_ids = e["split_member_ids"] or [m["id"] for m in members]
         mode = e.get("split_mode", "PER_CAPITA")

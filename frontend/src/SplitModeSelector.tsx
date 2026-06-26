@@ -75,7 +75,8 @@ export function splitPreviewLabel(opts: {
 }): string {
   const { amount, mode, members, splitSel, weightOverrides, currency } = opts;
   const HINT = "Enter an amount and pick who's splitting";
-  if (!Number.isFinite(amount) || amount <= 0 || splitSel.length === 0) return HINT;
+  // amount may be negative (money back); only 0 / blank falls back to the hint.
+  if (!Number.isFinite(amount) || amount === 0 || splitSel.length === 0) return HINT;
 
   if (mode === 'PER_FAMILY') {
     // §5B: divide equally across entities; family size is ignored.

@@ -15,10 +15,8 @@ EXACTLY to the rounded amount, and each family's member sub-shares sum EXACTLY t
 entity share), exactly like the Balances intra-family breakdown — it adds no rounding to the
 settlement path.
 
-``income`` rows are processed too (the entity split is computed the same way) purely for display; the
-ledger ignores income, so the frontend labels income shares as "received / share" with a
-"doesn't affect balances" note. Only ``shares`` (a new key) is added to the list response — no
-existing field is changed.
+A negative ``amount`` (money coming back to the group) is handled by the same calculator and yields
+mirrored negative shares for display; ``shares`` is the only key added to the list response.
 """
 
 import math
@@ -96,15 +94,14 @@ def entity_shares_raw(expense: dict, members: list) -> dict:
 
 
 def expense_share_breakdown(expense: dict, members: list) -> dict:
-    """DISPLAY breakdown of one expense for the Expenses tab (both ``expense`` and ``income`` kinds).
+    """DISPLAY breakdown of one expense for the Expenses tab.
 
     Shape::
 
         {
           "mode": "PER_CAPITA" | "PER_FAMILY",
-          "kind": "expense" | "income",
           "payer_id": <member id who fronted / received the money>,
-          "amount": <expense amount>,
+          "amount": <signed expense amount>,
           "entities": [
             {"id", "name", "share", "is_payer",      # entity's owed/received share, 2dp
              "members": [{"id","name","share"}, ...]} # families only; [] for individuals
@@ -121,7 +118,6 @@ def expense_share_breakdown(expense: dict, members: list) -> dict:
     raw = entity_shares_raw(expense, members)
     out = {
         "mode": expense.get("split_mode") or "PER_CAPITA",
-        "kind": expense.get("kind", "expense"),
         "payer_id": expense.get("paid_by_member_id"),
         "amount": expense.get("amount", 0.0),
         "entities": [],

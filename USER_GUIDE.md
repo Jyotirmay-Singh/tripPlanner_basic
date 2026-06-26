@@ -91,10 +91,9 @@ If you're already a member of the trip (because you created it or joined it) and
 
 ## 5. Adding & Managing Transactions
 
-### 5.1 Add an expense (or income)
+### 5.1 Add an expense (or money back)
 1. Trip page → **Expense (+)** button (or bottom-tab **Add → pick trip**).
-2. Toggle **Expense / Income** at the top.
-3. Enter the **amount** in the trip's currency.
+2. Enter the **amount** in the trip's currency. **Use a leading minus** (e.g. `-500`) for *money coming back to the group* — a refund, reimbursement, cancellation, or offer. A negative amount is the exact mirror of an expense: the person who **received** the money is debited, and everyone it's split among is credited their share. If the money-back is larger than the trip's spend so far, a non-blocking note appears (you can still save).
 4. Write a short **description** (e.g. *Dinner at Leela*).
 5. Pick from the horizontal **Travel / Accommodation / Local Transportation / Local Sightseeing / Food / Shopping / Other** chips.
 6. Set the **date** (DD-MM-YY).
@@ -118,7 +117,7 @@ Open any trip and look at the **Summary** tab (default tab):
 
 - **You card** — your member entry + your current net balance (always so you know *who you are* in this trip).
 - **Budget bar** — green if under, red if over. Shows used / total.
-- **Mini-stats** — number of transactions, total income.
+- **Mini-stats** — number of transactions, total refunds (money back to the group).
 - **Donut chart** — spend by category, with % in the legend. **Tap any slice or legend row** to drill down to all transactions in that category.
 
 ---

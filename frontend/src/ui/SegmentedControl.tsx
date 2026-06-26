@@ -17,8 +17,8 @@ type Props<V extends string> = {
 };
 
 /**
- * Pill segmented control — the single implementation behind the kind toggles
- * (expense/income, individual/family) and the trip-detail tab bar. Track is a muted
+ * Pill segmented control — the single implementation behind the member kind toggle
+ * (individual/family), the split-mode selector, and the trip-detail tab bar. Track is a muted
  * rounded container; the active segment is a solid primary pill.
  */
 export default function SegmentedControl<V extends string>({

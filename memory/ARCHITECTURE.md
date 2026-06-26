@@ -8,8 +8,9 @@ behavior see `../USER_GUIDE.md`. For product scope see `PRD.md`.
 Trip Splitter is a mobile app (Expo/React Native, file-based routing via `expo-router`) backed by a
 single-file FastAPI service (`backend/server.py`) and MongoDB (via Motor). Users register with an
 email + 4-digit PIN, create "trips" (each with a unique 6-character join code), add "members" who can
-be individuals or families, log expenses/income against those members, and the app computes per-member
-net balances and a minimum-transaction settlement plan. It can export an XLSX report per trip.
+be individuals or families, log expenses (a signed amount — positive is spending, negative is money
+coming back to the group) against those members, and the app computes per-member net balances and a
+minimum-transaction settlement plan. It can export an XLSX report per trip.
 
 ## 2. Backend structure (`backend/server.py`)
 
@@ -84,8 +85,8 @@ Everything lives in one file, organized into `# ---------- Name ----------` sect
 | field | notes |
 |---|---|
 | `id`, `trip_id` | |
-| `kind` | `"expense"` \| `"income"` |
-| `amount`, `category` (must be in `CATEGORIES`), `description`, `date` (DD-MM-YY) | |
+| `amount` | signed real (non-zero); **positive = expense, negative = money back to the group** (mirror split) |
+| `category` (must be in `CATEGORIES`), `description`, `date` (DD-MM-YY) | |
 | `paid_by_member_id` | member id who paid |
 | `split_member_ids` | member ids to split among; **empty = split among ALL current trip members** |
 | `weight_snapshots` | optional `{member_id: weight}` override — used for (a) partial-family splits and (b) preserving historical weights after a family's size changes (see §4) |
