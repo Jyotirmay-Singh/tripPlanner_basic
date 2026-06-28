@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, Depends
 
 from database import db
@@ -10,10 +12,14 @@ from utils.email_rules import assert_gmail, normalize_email
 from utils.members import (
     email_exists,
     assert_unique_email,
+    assert_unique_email_in_trip,
     assign_family_member_ids,
+    find_own_stubs,
+    member_has_financial_history,
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # ---------- Trips ----------
@@ -200,12 +206,37 @@ async def join_preview(body: JoinPreviewRequest, user=Depends(get_current_user))
          "linked": bool(m.get("user_id"))}
         for m in members if m.get("kind") == "family"
     ]
-    matched = next(
-        (m for m in members
-         if m.get("kind") == "family"
-         and normalize_email(m.get("email")) == user_email
-         and not m.get("user_id")),
-        None,
+    # Phase 11: match an unclaimed stub carrying the caller's OWN email — an individual OR a
+    # whole family (linked_email lives on the entity). The wizard uses `match` to offer
+    # claim-vs-join-new and to gate join-new on financial history.
+    stubs = find_own_stubs(members, user_email)
+    match = None
+    if stubs:
+        stub = stubs[0]
+        is_family = stub.get("kind") == "family"
+        match = {
+            "member_id": stub["id"],
+            "member_type": "family" if is_family else "individual",
+            "member_name": stub["name"],
+            "family_id": stub["id"] if is_family else None,
+            "family_name": stub["name"] if is_family else None,
+            "has_financial_history": await member_has_financial_history(trip["id"], stub["id"]),
+        }
+        if len(stubs) > 1:
+            # Legacy duplicate-email data: surface every match, never auto-destroy.
+            logger.warning(
+                "join/preview: %d duplicate-email stubs for %s in trip %s; surfacing all, not deleting",
+                len(stubs), user_email, trip["id"],
+            )
+    match_conflicts = [
+        {"member_id": m["id"], "member_name": m["name"],
+         "member_type": "family" if m.get("kind") == "family" else "individual"}
+        for m in stubs[1:]
+    ] or None
+    # Back-compat: matched_family stays populated only when the (first) match is a family entity.
+    matched_family = (
+        {"id": stubs[0]["id"], "name": stubs[0]["name"]}
+        if stubs and stubs[0].get("kind") == "family" else None
     )
     return {
         "trip": {
@@ -215,8 +246,10 @@ async def join_preview(body: JoinPreviewRequest, user=Depends(get_current_user))
             "member_count": len(members),
         },
         "already_member": user["id"] in trip.get("user_ids", []),
-        "matched_family": {"id": matched["id"], "name": matched["name"]} if matched else None,
+        "matched_family": matched_family,
         "families": families,
+        "match": match,
+        "match_conflicts": match_conflicts,
     }
 
 
