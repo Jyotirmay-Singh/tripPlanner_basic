@@ -356,3 +356,74 @@ class TestJoinNew(_Base):
         with_email = [m for m in data["members"]
                       if (m.get("email") or "").lower() == joiner["email"].lower()]
         assert len(with_email) == 1
+
+
+# ==================== Step 46 — creation-time uniqueness ====================
+class TestCreationUniqueness(_Base):
+    def _add_member_raw(self, api_client, token, trip_id, name, kind="individual",
+                        family_members=None, email=None):
+        body = {"name": name, "kind": kind, "family_members": family_members or []}
+        if email is not None:
+            body["email"] = email
+        return api_client.post(f"{BASE_URL}/api/trips/{trip_id}/members", json=body,
+                               headers=_auth(token))
+
+    def test_duplicate_individual_email_400(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        email = f"dup_{uuid.uuid4().hex[:8]}@gmail.com"
+        self._add_member(api_client, test_user["token"], trip["id"], "TEST_A",
+                         kind="individual", email=email)
+        resp = self._add_member_raw(api_client, test_user["token"], trip["id"], "TEST_B",
+                                    kind="individual", email=email)
+        assert resp.status_code == 400, resp.text
+
+    def test_individual_vs_family_entity_email_400(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        email = f"dup_{uuid.uuid4().hex[:8]}@gmail.com"
+        self._add_member(api_client, test_user["token"], trip["id"], "TEST_Fam",
+                         kind="family", family_members=["K"], email=email)
+        resp = self._add_member_raw(api_client, test_user["token"], trip["id"], "TEST_Solo",
+                                    kind="individual", email=email)
+        assert resp.status_code == 400, resp.text
+
+    def test_rejects_claimed_account_email_not_on_member_row(self, api_client, test_user):
+        # The Phase 11 core fix: an email that belongs to a CLAIMED app user but is NOT stamped
+        # on any member.email (joined a family that already had a different email) must still be
+        # rejected. The legacy member-doc-only check missed this.
+        trip = self._create_trip(api_client, test_user["token"])
+        joiner = self._register(api_client)
+        ghost = f"ghost_{uuid.uuid4().hex[:8]}@gmail.com"
+        fam = self._add_member(api_client, test_user["token"], trip["id"], "TEST_Ghost Fam",
+                               kind="family", family_members=["G"], email=ghost)
+        # joiner links into the family; mode=family does NOT stamp (family already has `ghost`)
+        link = self._join(api_client, joiner["token"],
+                          {"code": trip["code"], "mode": "family", "family_id": fam["id"]})
+        assert link.status_code == 200, link.text
+        linked = next(m for m in link.json()["members"] if m["id"] == fam["id"])
+        assert (linked.get("email") or "").lower() == ghost  # account email NOT stamped
+        # now an admin cannot create a member with the joiner's account email
+        resp = self._add_member_raw(api_client, test_user["token"], trip["id"], "TEST_Clash",
+                                    kind="individual", email=joiner["email"])
+        assert resp.status_code == 400, resp.text
+
+    def test_update_member_duplicate_email_400_but_self_ok(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        email = f"dup_{uuid.uuid4().hex[:8]}@gmail.com"
+        a = self._add_member(api_client, test_user["token"], trip["id"], "TEST_HasEmail",
+                             kind="individual", email=email)
+        b = self._add_member(api_client, test_user["token"], trip["id"], "TEST_NoEmail",
+                             kind="individual")
+        # B cannot take A's email
+        clash = api_client.patch(f"{BASE_URL}/api/trips/{trip['id']}/members/{b['id']}",
+                                 json={"email": email}, headers=_auth(test_user["token"]))
+        assert clash.status_code == 400, clash.text
+        # A can re-save its own email (self-exclusion)
+        same = api_client.patch(f"{BASE_URL}/api/trips/{trip['id']}/members/{a['id']}",
+                                json={"email": email}, headers=_auth(test_user["token"]))
+        assert same.status_code == 200, same.text
+
+    def test_non_gmail_rejected_before_uniqueness(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        resp = self._add_member_raw(api_client, test_user["token"], trip["id"], "TEST_NonGmail",
+                                    kind="individual", email="someone@yahoo.com")
+        assert resp.status_code == 400, resp.text

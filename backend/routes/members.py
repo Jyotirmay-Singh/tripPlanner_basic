@@ -6,7 +6,7 @@ from utils.common import gen_id
 from utils.deps import get_current_user, _trip_admin_or_403
 from utils.balances import _weight_of_member, _compute_balances
 from utils.email_rules import assert_gmail, normalize_email
-from utils.members import assert_unique_email, assign_family_member_ids
+from utils.members import assert_unique_email_in_trip, assign_family_member_ids
 from utils.settlement_gate import (
     is_settled, entity_net, family_member_net, unsettled_family_members,
 )
@@ -33,8 +33,9 @@ async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user
                 merge_target = m; break
     exclude_id = merge_target["id"] if merge_target else None
     # Duplicate names are allowed (disambiguated at display time via utils.display_names); only the
-    # linked-email uniqueness invariant (Step 3) is still enforced here.
-    assert_unique_email(members, email, exclude_id=exclude_id)
+    # one-email invariant is enforced. Phase 11 widens this beyond member-doc emails to also reject
+    # an email already owned by a CLAIMED app user (their account email) anywhere in the trip.
+    await assert_unique_email_in_trip(trip, email, exclude_id=exclude_id)
     fam_names = body.family_members if body.kind == "family" else []
     new_member = {
         "id": gen_id(), "name": name, "kind": body.kind,
@@ -100,7 +101,7 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
         em = normalize_email(body.email)
         if em:
             assert_gmail(em)
-            assert_unique_email(trip["members"], em, exclude_id=member_id)
+            await assert_unique_email_in_trip(trip, em, exclude_id=member_id)
         updates["members.$.email"] = em
 
     # Step 8: a family size change re-allocates past PER_CAPITA expenses. reweight_past defaults to
