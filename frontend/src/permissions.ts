@@ -71,6 +71,26 @@ export function canRemoveMemberRow(
   return !(member.user_id && trip.owner_id && member.user_id === trip.owner_id);
 }
 
+/**
+ * UX mirror of backend can_mark_settlement_paid (Phase 10): a pending settlement may be flipped to
+ * paid only by a trip admin/owner OR by the LENDER — the app user linked to the creditor member
+ * (settlement.to_member_id). This stops a borrower from self-marking their own debt paid. An
+ * undefined user or an unmatched/unlinked creditor member resolves to false. The server stays
+ * authoritative; hiding the button is a nicety only.
+ */
+export function canMarkSettlementPaid(
+  trip: RoleTrip,
+  settlement: { to_member_id: string },
+  userId: string | undefined,
+  members: { id: string; user_id?: string | null }[],
+): boolean {
+  if (!userId) return false;
+  const r = roleOf(trip, userId);
+  if (r === 'owner' || r === 'admin') return true;
+  const lender = members.find((m) => m.id === settlement.to_member_id);
+  return !!(lender && lender.user_id && lender.user_id === userId);
+}
+
 // Owner only
 export function canManageAdmins(trip: RoleTrip, userId: string | undefined): boolean {
   return roleOf(trip, userId) === 'owner';

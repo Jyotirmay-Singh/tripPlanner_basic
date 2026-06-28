@@ -23,6 +23,8 @@ async def lifespan(app: FastAPI):
     await db.users.create_index("email", unique=True)
     await db.trips.create_index("code", unique=True)
     await db.expenses.create_index([("trip_id", 1), ("created_at", -1)])
+    # Phase 10: settlement history list (newest-first) per trip.
+    await db.settlements.create_index([("trip_id", 1), ("created_at", -1)])
     # Step 22: index GridFS receipt lookup/cleanup by the owning expense.
     await db["receipts.files"].create_index("metadata.expense_id")
     # Phase 9: hashed/typed email tokens (verify-email + reset-password). Unique by hash;
@@ -38,6 +40,13 @@ async def lifespan(app: FastAPI):
     await db.trips.update_many(
         {"$or": [{"admin_ids": {"$exists": False}}, {"admin_ids": None}, {"admin_ids": []}]},
         [{"$set": {"admin_ids": ["$owner_id"]}}],
+    )
+    # Phase 10: legacy settlements (from the old offset-always /settle) carry no `status`.
+    # Stamp them paid (paid_at = created_at) so they keep offsetting and render in history.
+    # Idempotent — only touches rows missing the field.
+    await db.settlements.update_many(
+        {"status": {"$exists": False}},
+        [{"$set": {"status": "paid", "paid_at": "$created_at"}}],
     )
     # backfill start_date/end_date for legacy single-date trips: parse the old DD-MM-YY
     # travel_date into YYYY-MM-DD and set both endpoints to it (idempotent — only un-migrated

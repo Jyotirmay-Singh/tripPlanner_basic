@@ -131,10 +131,17 @@ Inside a trip, the **Balances** tab shows:
 - **Suggested settlements** — the minimum number of payments to zero everyone out.
 
 ### 7.2 Settle Up screen
-Open via the trip's **Settle Up** button.
-- Each suggested settlement is its own card: *From → To, amount*.
-- Tap **Mark paid** to record the settlement — balances re-compute instantly.
-- When everyone is zeroed out, the screen shows a green **All square!** ✅.
+Open via the trip's **Settle Up** button. The screen has two parts:
+
+**Suggested settlements** — the live, minimum set of *From → To, amount* transfers that zero everyone out.
+- Tap **Record** on a suggestion to log it as a **pending** payment (a durable to-do). Recording moves no money and does **not** change anyone's balance yet, so the suggestion stays on the list.
+- Once a transfer is recorded, its card shows a muted **Recorded** chip instead of the button (so the same transfer can't be recorded twice).
+- When every debt has been paid off, this section shows a green **All square!** ✅.
+
+**Settlement history** — every recorded payment, pending and paid, newest first. Nothing is ever deleted, so you always have a full log.
+- A **pending** item shows a **Mark paid** button in the top-right — but only to the **lender** (the person receiving the money) or a **trip admin/owner**. Everyone else just sees a muted **Pending** badge.
+- Tapping **Mark paid** opens a confirmation: *"Has the borrower actually paid this in full?"* Only on **confirm** is the payment recorded — the item flips to a green **Paid** badge (with the date) and **everyone's balance updates** (the debt is now offset, and the matching suggestion disappears).
+- Tap **Cancel** to back out; the item stays pending and balances are unchanged.
 
 ---
 
@@ -161,7 +168,7 @@ The download opens in your phone's browser; share or save it from there.
 3. You add **Sharma family** (3 people) as a Member.
 4. You pay for dinner ₹2,000 → category *Food*, paid-by *You*, split among all → you'll get ₹1,600 back (you owe ₹400 of the ₹2,000), Riddhi owes ₹400, Sharma family owes ₹1,200 (or ₹400 per Sharma).
 5. Someone wants only 2 Sharmas to share the cab ride → on the cab expense, uncheck none, but on the Sharma row pick "Split among 2 of 3" — the math now treats the family as 2 people for that expense only.
-6. At the end of the trip, hit **Settle Up** → tap **Mark paid** as each transfer happens.
+6. At the end of the trip, hit **Settle Up** → tap **Record** on each suggested transfer to log it, then **Mark paid** (and confirm) once the money actually changes hands.
 7. Bottom-tab **Reports → XLSX** to keep a permanent record.
 
 ---

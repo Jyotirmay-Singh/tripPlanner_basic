@@ -7,6 +7,7 @@ import {
   canTransferOwnership,
   canDeleteTrip,
   canRemoveMemberRow,
+  canMarkSettlementPaid,
 } from '../permissions';
 
 describe('canModifyExpense', () => {
@@ -98,6 +99,37 @@ describe('owner-only capabilities', () => {
     expect(fn(TRIP, 'admin')).toBe(false);
     expect(fn(TRIP, 'member')).toBe(false);
     expect(fn(TRIP, undefined)).toBe(false);
+  });
+});
+
+describe('canMarkSettlementPaid', () => {
+  // m-lender is the creditor (to_member_id), linked to the app user 'member'.
+  const MEMBERS = [
+    { id: 'm-owner', user_id: 'owner' },
+    { id: 'm-admin', user_id: 'admin' },
+    { id: 'm-lender', user_id: 'member' },
+    { id: 'm-detached', user_id: null },
+  ];
+  const S = { to_member_id: 'm-lender' };
+
+  it('allows the lender (app user linked to the creditor member)', () => {
+    expect(canMarkSettlementPaid(TRIP, S, 'member', MEMBERS)).toBe(true);
+  });
+
+  it('allows any trip admin or the owner regardless of who the lender is', () => {
+    expect(canMarkSettlementPaid(TRIP, S, 'admin', MEMBERS)).toBe(true);
+    expect(canMarkSettlementPaid(TRIP, S, 'owner', MEMBERS)).toBe(true);
+  });
+
+  it('denies an unrelated member who is neither the lender nor an admin', () => {
+    const s = { to_member_id: 'm-owner' };
+    expect(canMarkSettlementPaid(TRIP, s, 'member', MEMBERS)).toBe(false);
+  });
+
+  it('denies an undefined user and an unmatched/unlinked creditor member', () => {
+    expect(canMarkSettlementPaid(TRIP, S, undefined, MEMBERS)).toBe(false);
+    expect(canMarkSettlementPaid(TRIP, { to_member_id: 'ghost' }, 'member', MEMBERS)).toBe(false);
+    expect(canMarkSettlementPaid(TRIP, { to_member_id: 'm-detached' }, 'member', MEMBERS)).toBe(false);
   });
 });
 

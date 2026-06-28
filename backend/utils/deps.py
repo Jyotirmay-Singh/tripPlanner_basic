@@ -65,3 +65,24 @@ async def _expense_modify_or_403(trip_id: str, expense_id: str, user_id: str) ->
     if not can_modify_expense(trip, expense, user_id):
         raise HTTPException(403, "Only the expense creator or a trip admin can modify this expense")
     return trip, expense
+
+
+def can_mark_settlement_paid(trip: dict, settlement: dict, user_id: str) -> bool:
+    # Phase 10: a settlement may be flipped pending->paid only by a trip admin (owner is always
+    # seeded into admin_ids) or by the LENDER — the app user linked to the creditor member
+    # (to_member_id). The lender is who actually knows the money arrived; this stops a borrower
+    # from self-marking their own debt paid. Returns False for unmatched/missing ids.
+    if is_trip_admin(trip, user_id):
+        return True
+    lender = next((m for m in trip.get("members", []) if m["id"] == settlement.get("to_member_id")), None)
+    return bool(lender and lender.get("user_id") == user_id)
+
+
+async def _settlement_mark_paid_or_403(trip_id: str, settlement_id: str, user_id: str) -> tuple[dict, dict]:
+    trip = await _trip_or_404(trip_id, user_id)
+    settlement = await db.settlements.find_one({"id": settlement_id, "trip_id": trip_id}, {"_id": 0})
+    if not settlement:
+        raise HTTPException(404, "Settlement not found")
+    if not can_mark_settlement_paid(trip, settlement, user_id):
+        raise HTTPException(403, "Only the lender or a trip admin can mark this settlement paid")
+    return trip, settlement
