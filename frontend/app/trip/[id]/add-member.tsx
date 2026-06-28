@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -6,7 +6,7 @@ import { api } from '../../../src/api';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
-import { isGmail, GMAIL_ONLY_MESSAGE } from '../../../src/validation';
+import { isGmail, GMAIL_ONLY_MESSAGE, isEmailTaken, DUPLICATE_EMAIL_MESSAGE } from '../../../src/validation';
 import FamilyMembersEditor from '../../../src/FamilyMembersEditor';
 import { FamilyRow, rowsToPayload } from '../../../src/familyParticipation';
 import { Input, Button, SegmentedControl, useToast } from '../../../src/ui';
@@ -21,8 +21,21 @@ export default function AddMember() {
   const [kind, setKind] = useState<'individual' | 'family'>('individual');
   const [familyRows, setFamilyRows] = useState<FamilyRow[]>([{ id: null, name: '' }]);
   const [saving, setSaving] = useState(false);
+  // Existing trip linked-emails, to mirror the server's one-email-per-trip rule (UX only).
+  const [takenEmails, setTakenEmails] = useState<(string | null | undefined)[]>([]);
 
-  const emailError = email.trim() && !isGmail(email) ? GMAIL_ONLY_MESSAGE : null;
+  useEffect(() => {
+    (async () => {
+      try {
+        const trip: any = await api(`/trips/${id}`);
+        setTakenEmails((trip.members || []).map((m: any) => m.email));
+      } catch { /* the server still enforces uniqueness on submit */ }
+    })();
+  }, [id]);
+
+  const emailError = email.trim() && !isGmail(email)
+    ? GMAIL_ONLY_MESSAGE
+    : isEmailTaken(email, takenEmails) ? DUPLICATE_EMAIL_MESSAGE : null;
 
   const submit = async () => {
     if (!name.trim()) return toast.show('Name is required', 'error');
@@ -30,6 +43,7 @@ export default function AddMember() {
       ? rowsToPayload(familyRows) : { family_members: [], family_member_ids: [] };
     if (kind === 'family' && family_members.length === 0) return toast.show('Add at least one family member name', 'error');
     if (email.trim() && !isGmail(email)) return toast.show(GMAIL_ONLY_MESSAGE, 'error');
+    if (isEmailTaken(email, takenEmails)) return toast.show(DUPLICATE_EMAIL_MESSAGE, 'error');
     setSaving(true);
     try {
       await api(`/trips/${id}/members`, {

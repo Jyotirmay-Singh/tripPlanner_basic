@@ -6,7 +6,7 @@ import { api } from '../../../src/api';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
-import { isGmail, GMAIL_ONLY_MESSAGE } from '../../../src/validation';
+import { isGmail, GMAIL_ONLY_MESSAGE, isEmailTaken, DUPLICATE_EMAIL_MESSAGE } from '../../../src/validation';
 import ConfirmModal from '../../../src/ConfirmModal';
 import FamilyMembersEditor from '../../../src/FamilyMembersEditor';
 import { FamilyRow, familyToRows, rowsToPayload } from '../../../src/familyParticipation';
@@ -31,14 +31,19 @@ export default function EditMember() {
   const [qualifiesForRecalc, setQualifiesForRecalc] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [delta, setDelta] = useState<{ from: number; to: number }>({ from: 0, to: 0 });
+  // Other members' linked emails (excluding this row), to mirror the server's one-email rule.
+  const [takenEmails, setTakenEmails] = useState<(string | null | undefined)[]>([]);
 
-  const emailError = email.trim() && !isGmail(email) ? GMAIL_ONLY_MESSAGE : null;
+  const emailError = email.trim() && !isGmail(email)
+    ? GMAIL_ONLY_MESSAGE
+    : isEmailTaken(email, takenEmails) ? DUPLICATE_EMAIL_MESSAGE : null;
 
   useEffect(() => {
     (async () => {
       const trip: any = await api(`/trips/${id}`);
       const m = (trip.members as Member[]).find((x) => x.id === mid);
       if (!m) return;
+      setTakenEmails((trip.members as Member[]).filter((x) => x.id !== mid).map((x) => x.email));
       setMember(m); setName(m.name); setKind(m.kind); setEmail(m.email || '');
       setFamilyRows(familyToRows(m.family_members, m.family_member_ids));
       setOriginalFM(m.family_members);
@@ -71,6 +76,7 @@ export default function EditMember() {
     if (!member) return;
     if (!name.trim()) return toast.show('Name is required', 'error');
     if (email.trim() && !isGmail(email)) return toast.show(GMAIL_ONLY_MESSAGE, 'error');
+    if (isEmailTaken(email, takenEmails)) return toast.show(DUPLICATE_EMAIL_MESSAGE, 'error');
     const newFM = kind === 'family' ? rowsToPayload(familyRows).family_members : [];
     if (kind === 'family' && newFM.length === 0) return toast.show('Add at least one family member name', 'error');
     const oldW = effWeight(originalKind, originalFM);

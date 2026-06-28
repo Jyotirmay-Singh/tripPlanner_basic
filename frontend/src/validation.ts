@@ -19,3 +19,16 @@ export const PASSWORD_MISMATCH_MESSAGE = 'Passwords do not match';
 export function isValidPassword(password: string): boolean {
   return password.length >= MIN_PASSWORD_LENGTH;
 }
+
+// Per-trip email uniqueness mirror — keep in sync with backend
+// utils/members.py::assert_unique_email_in_trip (one gmail == at most one person per trip). The
+// server is authoritative; this only gives inline UX feedback on the member create/edit forms.
+// `taken` is the set of emails already on the trip (member linked emails), excluding the row being
+// edited. Empty input is deferred to the required/format checks.
+export const DUPLICATE_EMAIL_MESSAGE = 'This email is already used by someone on this trip';
+
+export function isEmailTaken(email: string, taken: (string | null | undefined)[]): boolean {
+  const e = email.trim().toLowerCase();
+  if (!e) return false;
+  return taken.some((t) => (t ?? '').trim().toLowerCase() === e);
+}
