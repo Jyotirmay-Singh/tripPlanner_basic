@@ -51,8 +51,12 @@ async def _compute_balances(trip_id: str) -> dict:
                 net[sid] = net.get(sid, 0) - share
             net[e["paid_by_member_id"]] = net.get(e["paid_by_member_id"], 0) + e["amount"]
 
-    # apply settlements
-    settlements = await db.settlements.find({"trip_id": trip_id}, {"_id": 0}).to_list(5000)
+    # apply settlements (Phase 10): only PAID settlements are real recorded payments that offset
+    # the net. Pending records are durable to-dos and must NOT reduce balances. `$ne:"pending"`
+    # also matches legacy rows that predate the `status` field (Mongo $ne matches missing fields),
+    # so this stays back-compat even before the startup backfill runs.
+    settlements = await db.settlements.find(
+        {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}).to_list(5000)
     for s in settlements:
         net[s["from_member_id"]] = net.get(s["from_member_id"], 0) + s["amount"]
         net[s["to_member_id"]] = net.get(s["to_member_id"], 0) - s["amount"]
