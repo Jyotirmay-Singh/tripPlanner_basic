@@ -15,6 +15,14 @@ class JoinRequest(BaseModel):
     family_id: Optional[str] = None  # required when mode == "family"
     family_name: Optional[str] = None  # required when mode == "new_family"
     family_members: List[str] = []  # extra human names, only honored for "new_family"
+    # Phase 11 — discriminated join-commit. action=None keeps the legacy contract (hardened to
+    # never create a same-email duplicate). action="claim" links the caller to an existing stub
+    # carrying their OWN email (member_id). action="join_new" creates a new identity per `mode`,
+    # removing the caller's own CLEAN stub first (replace_member_id is an advisory hint; the
+    # server re-resolves and enforces the financial-history guard regardless).
+    action: Optional[Literal["claim", "join_new"]] = None
+    member_id: Optional[str] = None  # required when action == "claim"
+    replace_member_id: Optional[str] = None  # advisory hint when action == "join_new"
 
     @field_validator("family_name")
     @classmethod

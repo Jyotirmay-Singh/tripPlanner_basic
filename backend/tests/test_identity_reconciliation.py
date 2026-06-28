@@ -137,3 +137,222 @@ class TestPreviewMatch(_Base):
         data = self._preview(api_client, joiner["token"], trip["code"]).json()
         assert data["match"] is None
         assert data.get("match_conflicts") in (None, [])
+
+
+def _financials(bal):
+    """The money-bearing slice of a balances response (excludes member docs whose user_id
+    flips on claim — claiming must not change any of these)."""
+    return {"net": bal["net"], "transfers": bal["transfers"], "per_person": bal["per_person"]}
+
+
+# ============================ Step 45 — CLAIM ============================
+class TestClaim(_Base):
+    def test_claim_individual_keeps_id(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        joiner = self._register(api_client)
+        stub = self._add_member(api_client, test_user["token"], trip["id"],
+                                "TEST_Claim Solo", kind="individual", email=joiner["email"])
+        before = len(self._get_trip(api_client, test_user["token"], trip["id"])["members"])
+        resp = self._join(api_client, joiner["token"],
+                          {"code": trip["code"], "action": "claim", "member_id": stub["id"]})
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        claimed = next(m for m in data["members"] if m["id"] == stub["id"])
+        assert claimed["user_id"] == joiner["id"]  # id unchanged, now linked
+        assert joiner["id"] in data["user_ids"]
+        assert len(data["members"]) == before  # no new member created
+
+    def test_claim_family_size_and_balances_unchanged(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        joiner = self._register(api_client)
+        owner_id = trip["members"][0]["id"]
+        fam = self._add_member(api_client, test_user["token"], trip["id"],
+                               "TEST_Claim Fam", kind="family",
+                               family_members=["A", "B", "C"], email=joiner["email"])
+        # give the family a real balance so "no recalc" is meaningful
+        self._add_expense(api_client, test_user["token"], trip["id"],
+                          paid_by=owner_id, split=[owner_id, fam["id"]])
+        before_bal = _financials(self._balances(api_client, test_user["token"], trip["id"]))
+        resp = self._join(api_client, joiner["token"],
+                          {"code": trip["code"], "action": "claim", "member_id": fam["id"]})
+        assert resp.status_code == 200, resp.text
+        claimed = next(m for m in resp.json()["members"] if m["id"] == fam["id"])
+        assert claimed["user_id"] == joiner["id"]
+        assert claimed["family_members"] == ["A", "B", "C"]  # size unchanged
+        after_bal = _financials(self._balances(api_client, test_user["token"], trip["id"]))
+        assert after_bal == before_bal  # no retroactive recalculation
+
+    def test_claim_history_stub_allowed(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        joiner = self._register(api_client)
+        owner_id = trip["members"][0]["id"]
+        stub = self._add_member(api_client, test_user["token"], trip["id"],
+                                "TEST_Claim Hist", kind="individual", email=joiner["email"])
+        exp = self._add_expense(api_client, test_user["token"], trip["id"],
+                                paid_by=owner_id, split=[owner_id, stub["id"]])
+        resp = self._join(api_client, joiner["token"],
+                          {"code": trip["code"], "action": "claim", "member_id": stub["id"]})
+        assert resp.status_code == 200, resp.text
+        # the expense reference is preserved (id unchanged)
+        listed = api_client.get(f"{BASE_URL}/api/trips/{trip['id']}/expenses",
+                                headers=_auth(test_user["token"])).json()
+        stored = next(e for e in listed if e["id"] == exp["id"])
+        assert stub["id"] in stored["split_member_ids"]
+
+    def test_claim_idempotent(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        joiner = self._register(api_client)
+        stub = self._add_member(api_client, test_user["token"], trip["id"],
+                                "TEST_Claim Idem", kind="individual", email=joiner["email"])
+        first = self._join(api_client, joiner["token"],
+                           {"code": trip["code"], "action": "claim", "member_id": stub["id"]})
+        assert first.status_code == 200, first.text
+        second = self._join(api_client, joiner["token"],
+                            {"code": trip["code"], "action": "claim", "member_id": stub["id"]})
+        assert second.status_code == 200, second.text
+        assert second.json()["user_ids"].count(joiner["id"]) == 1
+
+    def test_claim_other_persons_stub_403(self, api_client, test_user):
+        # A joiner may only claim the stub carrying their OWN email.
+        trip = self._create_trip(api_client, test_user["token"])
+        other = self._register(api_client, name="Other")
+        joiner = self._register(api_client, name="Me")
+        others_stub = self._add_member(api_client, test_user["token"], trip["id"],
+                                       "TEST_Not Mine", kind="individual", email=other["email"])
+        resp = self._join(api_client, joiner["token"],
+                          {"code": trip["code"], "action": "claim", "member_id": others_stub["id"]})
+        assert resp.status_code == 403, resp.text
+
+    def test_claim_unknown_member_404(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        joiner = self._register(api_client)
+        resp = self._join(api_client, joiner["token"],
+                          {"code": trip["code"], "action": "claim",
+                           "member_id": f"missing-{uuid.uuid4().hex}"})
+        assert resp.status_code == 404, resp.text
+
+    def test_claim_missing_member_id_400(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        joiner = self._register(api_client)
+        resp = self._join(api_client, joiner["token"], {"code": trip["code"], "action": "claim"})
+        assert resp.status_code == 400, resp.text
+
+
+# ============================ Step 45 — JOIN_NEW ============================
+class TestJoinNew(_Base):
+    def test_removes_clean_individual_stub(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        joiner = self._register(api_client)
+        stub = self._add_member(api_client, test_user["token"], trip["id"],
+                                "TEST_JN Solo", kind="individual", email=joiner["email"])
+        resp = self._join(api_client, joiner["token"],
+                          {"code": trip["code"], "action": "join_new", "mode": "individual"})
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert stub["id"] not in {m["id"] for m in data["members"]}  # clean stub removed
+        with_email = [m for m in data["members"]
+                      if (m.get("email") or "").lower() == joiner["email"].lower()]
+        assert len(with_email) == 1  # exactly one identity, no duplicate
+
+    def test_new_family_removes_clean_stub(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        joiner = self._register(api_client)
+        stub = self._add_member(api_client, test_user["token"], trip["id"],
+                                "TEST_JN NF", kind="individual", email=joiner["email"])
+        resp = self._join(api_client, joiner["token"], {
+            "code": trip["code"], "action": "join_new", "mode": "new_family",
+            "family_name": "TEST_JN The Group", "family_members": ["P", "Q"],
+        })
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert stub["id"] not in {m["id"] for m in data["members"]}
+        fam = next(m for m in data["members"] if m.get("user_id") == joiner["id"])
+        assert fam["kind"] == "family" and fam["family_members"] == ["P", "Q"]
+
+    def test_existing_family_removes_clean_stub(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        joiner = self._register(api_client)
+        stub = self._add_member(api_client, test_user["token"], trip["id"],
+                                "TEST_JN EF", kind="individual", email=joiner["email"])
+        openfam = self._add_member(api_client, test_user["token"], trip["id"],
+                                   "TEST_JN OpenFam", kind="family", family_members=["Z"])
+        resp = self._join(api_client, joiner["token"], {
+            "code": trip["code"], "action": "join_new", "mode": "family",
+            "family_id": openfam["id"],
+        })
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert stub["id"] not in {m["id"] for m in data["members"]}
+        linked = next(m for m in data["members"] if m["id"] == openfam["id"])
+        assert linked["user_id"] == joiner["id"]
+
+    def test_history_stub_blocked_even_with_replace_hint(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        joiner = self._register(api_client)
+        owner_id = trip["members"][0]["id"]
+        stub = self._add_member(api_client, test_user["token"], trip["id"],
+                                "TEST_JN Hist", kind="individual", email=joiner["email"])
+        self._add_expense(api_client, test_user["token"], trip["id"],
+                          paid_by=owner_id, split=[owner_id, stub["id"]])
+        resp = self._join(api_client, joiner["token"], {
+            "code": trip["code"], "action": "join_new", "mode": "individual",
+            "replace_member_id": stub["id"],
+        })
+        assert resp.status_code == 409, resp.text
+        # the stub survives untouched
+        members = self._get_trip(api_client, test_user["token"], trip["id"])["members"]
+        assert stub["id"] in {m["id"] for m in members}
+
+    def test_family_history_forces_claim(self, api_client, test_user):
+        # A stub whose FAMILY entity is referenced by an expense also forces claim.
+        trip = self._create_trip(api_client, test_user["token"])
+        joiner = self._register(api_client)
+        owner_id = trip["members"][0]["id"]
+        fam = self._add_member(api_client, test_user["token"], trip["id"],
+                               "TEST_JN FamHist", kind="family", family_members=["A", "B"],
+                               email=joiner["email"])
+        self._add_expense(api_client, test_user["token"], trip["id"],
+                          paid_by=owner_id, split=[owner_id, fam["id"]])
+        resp = self._join(api_client, joiner["token"],
+                          {"code": trip["code"], "action": "join_new", "mode": "individual"})
+        assert resp.status_code == 409, resp.text
+
+    def test_settlement_only_history_forces_claim(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        joiner = self._register(api_client)
+        owner_id = trip["members"][0]["id"]
+        stub = self._add_member(api_client, test_user["token"], trip["id"],
+                                "TEST_JN SettHist", kind="individual", email=joiner["email"])
+        self._add_settlement(api_client, test_user["token"], trip["id"],
+                             frm=stub["id"], to=owner_id, amount=7.0)
+        resp = self._join(api_client, joiner["token"],
+                          {"code": trip["code"], "action": "join_new", "mode": "individual"})
+        assert resp.status_code == 409, resp.text
+
+    def test_replace_non_own_stub_403(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        other = self._register(api_client, name="Other")
+        joiner = self._register(api_client, name="Me")
+        others_stub = self._add_member(api_client, test_user["token"], trip["id"],
+                                       "TEST_JN NotMine", kind="individual", email=other["email"])
+        resp = self._join(api_client, joiner["token"], {
+            "code": trip["code"], "action": "join_new", "mode": "individual",
+            "replace_member_id": others_stub["id"],
+        })
+        assert resp.status_code == 403, resp.text
+        members = self._get_trip(api_client, test_user["token"], trip["id"])["members"]
+        assert others_stub["id"] in {m["id"] for m in members}  # untouched
+
+    def test_replace_hint_omitted_still_removes_clean_stub(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        joiner = self._register(api_client)
+        stub = self._add_member(api_client, test_user["token"], trip["id"],
+                                "TEST_JN NoHint", kind="individual", email=joiner["email"])
+        resp = self._join(api_client, joiner["token"],
+                          {"code": trip["code"], "action": "join_new", "mode": "individual"})
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert stub["id"] not in {m["id"] for m in data["members"]}
+        with_email = [m for m in data["members"]
+                      if (m.get("email") or "").lower() == joiner["email"].lower()]
+        assert len(with_email) == 1

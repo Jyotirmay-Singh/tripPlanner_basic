@@ -130,20 +130,35 @@ class TestJoin:
         assert me["kind"] == "individual"
         assert me["name"] == "Solo Traveler"
 
-    def test_join_individual_does_not_autolink(self, api_client, test_user):
+    def test_join_individual_blocked_when_own_stub_exists(self, api_client, test_user):
+        # Phase 11: the one-email invariant is enforced on every path. An explicit
+        # mode=individual that would create a SECOND member with the joiner's own email is
+        # rejected (409) and steered to claim / join-as-new — it no longer silently
+        # produces a duplicate (the previous test_join_individual_does_not_autolink behavior).
         trip = self._create_trip(api_client, test_user["token"])
         joiner = self._register(api_client, name="Independent")
         fam = self._add_member(api_client, test_user["token"], trip["id"],
                                "TEST_Fam Tempting", family_members=["K"], email=joiner["email"])
         resp = self._join(api_client, joiner["token"], {"code": trip["code"], "mode": "individual"})
-        assert resp.status_code == 200, resp.text
-        data = resp.json()
-        # The email-matching family slot must stay OPEN; joiner is a standalone individual.
-        target_fam = next(m for m in data["members"] if m["id"] == fam["id"])
+        assert resp.status_code == 409, resp.text
+        # Nothing changed: the stub is untouched and the joiner was not added.
+        trip_now = api_client.get(f"{BASE_URL}/api/trips/{trip['id']}",
+                                  headers=_auth(test_user["token"])).json()
+        target_fam = next(m for m in trip_now["members"] if m["id"] == fam["id"])
         assert target_fam.get("user_id") is None
+        assert joiner["id"] not in trip_now["user_ids"]
+        # The joiner can then explicitly join as a new individual, which removes the clean stub.
+        retry = self._join(api_client, joiner["token"],
+                           {"code": trip["code"], "mode": "individual", "action": "join_new"})
+        assert retry.status_code == 200, retry.text
+        data = retry.json()
         me = next(m for m in data["members"] if m.get("user_id") == joiner["id"])
         assert me["kind"] == "individual"
-        assert me["id"] != fam["id"]
+        # exactly one member now carries the joiner's email (no duplicate)
+        with_email = [m for m in data["members"]
+                      if (m.get("email") or "").lower() == joiner["email"].lower()]
+        assert len(with_email) == 1
+        assert fam["id"] not in {m["id"] for m in data["members"]}
 
     def test_join_individual_duplicate_name_allowed(self, api_client, test_user):
         # Duplicate names are accepted; the joiner keeps their plain name (no stored mutation).
