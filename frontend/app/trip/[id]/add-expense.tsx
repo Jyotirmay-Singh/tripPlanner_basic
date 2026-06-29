@@ -254,9 +254,10 @@ export default function AddExpense() {
                       </TouchableOpacity>
                       {active && isFamily && fullSize > 1 && (
                         <View style={{ paddingLeft: 28, gap: 8 }}>
-                          {/* Who took part (Model A): unchecked members owe 0; the family's share is
-                              split only among those who shared — the family/entity TOTAL is unchanged.
-                              Applies to both Per-Person and Per-Family modes. */}
+                          {/* Who took part: unchecked members owe 0. Per-Person (PER_CAPITA) counts the
+                              family by its INVOLVED members, so its total shrinks and each sharer owes the
+                              per-human cost (§5-A). Per-Family keeps the flat entity total and only splits
+                              it among those who shared. */}
                           <T variant="caption" muted>Who took part?</T>
                           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                             {roster.map((rid, i) => {
@@ -275,7 +276,7 @@ export default function AddExpense() {
                             <T variant="caption" color={colors.danger}>At least one member must take part.</T>
                           ) : includedCount < roster.length ? (
                             <T variant="caption" muted testID={`ae-fam-preview-${m.id}`}>
-                              {trip.currency} {formatMoney(familyShareEach(parseFloat(amount), trip.members, splitSel, weightOverrides, m.id, includedCount, splitMode))} each (excluded owe 0)
+                              {trip.currency} {formatMoney(familyShareEach(parseFloat(amount), trip.members, splitSel, weightOverrides, m.id, includedCount, splitMode, familyExcluded))} each (excluded owe 0)
                             </T>
                           ) : null}
                         </View>
@@ -295,7 +296,7 @@ export default function AddExpense() {
               value={splitMode}
               onChange={setSplitMode}
               subLabel={splitPreviewLabel({
-                amount: parseFloat(amount), mode: splitMode, members: trip.members, splitSel, weightOverrides, currency: trip.currency,
+                amount: parseFloat(amount), mode: splitMode, members: trip.members, splitSel, weightOverrides, currency: trip.currency, familyExcluded,
               })}
             />
 

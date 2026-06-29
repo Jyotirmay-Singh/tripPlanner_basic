@@ -7,7 +7,7 @@ from services.calculator import (
     split_per_capita,
     split_per_family,
 )
-from services.member_breakdown import family_member_breakdown
+from services.member_breakdown import family_member_breakdown, family_member_ids
 
 
 def _weight_of_member(m: dict) -> int:
@@ -23,6 +23,10 @@ async def _compute_balances(trip_id: str) -> dict:
     members = trip["members"]
     net = {m["id"]: 0.0 for m in members}
     weight_map = {m["id"]: _weight_of_member(m) for m in members}
+    # Stable roster ids per family, so a PER_CAPITA family restricted to a proper subset of its
+    # members (via `family_participants`) counts as its INVOLVED-member count (CLAUDE.md §5-A), not
+    # its full size — the same involved count that divides the share among members downstream.
+    rosters = {m["id"]: family_member_ids(m) for m in members if m.get("kind") == "family"}
 
     # Signed-amount model: ALL expense rows count. A positive `amount` is an expense (payer is the
     # creditor, participants owe their share); a negative `amount` is money coming back to the group —
@@ -33,7 +37,8 @@ async def _compute_balances(trip_id: str) -> dict:
         split_ids = e["split_member_ids"] or [m["id"] for m in members]
         mode = e.get("split_mode", "PER_CAPITA")
         if mode == "PER_CAPITA":
-            weights = resolve_weights(split_ids, weight_map, e.get("weight_snapshots"))
+            weights = resolve_weights(split_ids, weight_map, e.get("weight_snapshots"),
+                                      e.get("family_participants"), rosters)
             shares = split_per_capita(e["amount"], weights)
             if not shares:
                 continue  # H <= 0; nothing to split (matches old `if total_weight == 0: continue`)

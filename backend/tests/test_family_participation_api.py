@@ -12,7 +12,7 @@ class TestFamilyParticipationAPI:
     def _h(self, token):
         return {"Authorization": f"Bearer {token}"}
 
-    def test_excluded_member_zero_family_total_and_individual_unchanged(self, api_client, test_user):
+    def test_excluded_member_zero_and_involved_count_weight(self, api_client, test_user):
         h = self._h(test_user["token"])
 
         trip = api_client.post(f"{BASE_URL}/api/trips", json={
@@ -32,8 +32,8 @@ class TestFamilyParticipationAPI:
         assert len(fam_ids) == 4 and len(set(fam_ids)) == 4  # stable ids minted, parallel + unique
         assert all(isinstance(x, str) and x for x in fam_ids)
 
-        # PER_CAPITA $50 across 5 humans (owner=1, family=4) -> per_human 10; family owes 40.
-        # Exclude the 4th family member (D).
+        # PER_CAPITA $50, exclude the 4th family member (D) -> the family counts as its INVOLVED
+        # count (3), not full size (CLAUDE.md §5-A): H = 3 + 1 = 4, per_human 12.5; family owes 37.5.
         api_client.post(f"{BASE_URL}/api/trips/{trip_id}/expenses", json={
             "kind": "expense", "amount": 50.0, "category": "Food", "description": "Dinner",
             "date": "11-01-26", "paid_by_member_id": owner_id, "split_member_ids": [],
@@ -43,21 +43,62 @@ class TestFamilyParticipationAPI:
 
         bal = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/balances", headers=h).json()
 
-        # Model A: family total unchanged (counts as 4 -> owes 40), individual unaffected (+40).
-        assert abs(bal["net"][fam_id] - (-40.0)) < 0.01
-        assert abs(bal["net"][owner_id] - 40.0) < 0.01
+        # Involved-count weight: family owes 37.5 (3 * 12.5); owner is owed 37.5 (50 - its own 12.5).
+        assert abs(bal["net"][fam_id] - (-37.5)) < 0.01
+        assert abs(bal["net"][owner_id] - 37.5) < 0.01
 
         fam_pp = next(pp for pp in bal["per_person"] if pp["member_id"] == fam_id)
         members = {row["id"]: row["net"] for row in fam_pp["members"]}
         assert len(members) == 4
         assert members[fam_ids[3]] == 0.0                       # excluded member owes nothing
-        assert round(sum(members.values()), 2) == -40.0         # sums EXACTLY to the family total
+        assert round(sum(members.values()), 2) == -37.5         # sums EXACTLY to the family total
         for mid in fam_ids[:3]:
-            assert abs(members[mid] - (-40.0 / 3)) < 0.01       # ~ -13.33 each
+            assert abs(members[mid] - (-12.5)) < 0.01           # 37.5 / 3 each
 
         # Individuals carry an empty per-member breakdown.
         owner_pp = next(pp for pp in bal["per_person"] if pp["member_id"] == owner_id)
         assert owner_pp["members"] == []
+
+    def test_breakdown_shows_remainder_after_paid_settlement_no_blowup(self, api_client, test_user):
+        # BUG 1: a family fronts a large bill and consumes (restricted to one member), then is paid
+        # back via a PAID settlement that nets it down to a small remainder. The per-member rows must
+        # show that small remainder (no millions, no opposite-sign blow-ups) and sum EXACTLY to it.
+        h = self._h(test_user["token"])
+        trip = api_client.post(f"{BASE_URL}/api/trips", json={
+            "name": "TEST_FamRemainder",
+            "start_date": "2026-01-10", "end_date": "2026-01-15", "currency": "INR",
+        }, headers=h).json()
+        trip_id = trip["id"]
+        owner_id = trip["members"][0]["id"]
+        fam = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/members", json={
+            "name": "TEST_FamR", "kind": "family", "family_members": ["A", "B"],
+            "family_member_ids": [None, None],
+        }, headers=h).json()
+        fam_id, fam_ids = fam["id"], fam["family_member_ids"]
+
+        # Family pays 90000, split PER_CAPITA with owner; only member A took part for the family.
+        # F involved = 1 -> H = 2, per-human 45000: F owes 45000, owner owes 45000, F net = +45000.
+        api_client.post(f"{BASE_URL}/api/trips/{trip_id}/expenses", json={
+            "kind": "expense", "amount": 90000.0, "category": "Accommodation", "description": "Villa",
+            "date": "11-01-26", "paid_by_member_id": fam_id, "split_member_ids": [fam_id, owner_id],
+            "split_mode": "PER_CAPITA", "family_participants": {fam_id: [fam_ids[0]]},
+        }, headers=h)
+
+        # Owner pays the family back 44990 (PAID) -> family net drops to +10.
+        sid = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/settlements", json={
+            "from_member_id": owner_id, "to_member_id": fam_id, "amount": 44990.0,
+        }, headers=h).json()["id"]
+        mark = api_client.patch(f"{BASE_URL}/api/trips/{trip_id}/settlements/{sid}",
+                                json={"status": "paid"}, headers=h)
+        assert mark.status_code == 200, mark.text
+
+        bal = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/balances", headers=h).json()
+        assert abs(bal["net"][fam_id] - 10.0) < 0.01
+        fam_pp = next(pp for pp in bal["per_person"] if pp["member_id"] == fam_id)
+        rows = {row["id"]: row["net"] for row in fam_pp["members"]}
+        assert round(sum(rows.values()), 2) == round(bal["net"][fam_id], 2)  # rows sum to family net
+        assert all(abs(v) < 1000.0 for v in rows.values())                   # NO millions blow-up
+        assert rows[fam_ids[1]] == 0.0                                       # B never took part -> 0
 
     def test_no_participation_is_uniform(self, api_client, test_user):
         h = self._h(test_user["token"])

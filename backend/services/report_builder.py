@@ -12,6 +12,7 @@ path.
 """
 
 from services.calculator import resolve_weights, split_per_capita, split_per_family
+from services.member_breakdown import family_member_ids
 from utils.display_names import member_display_names
 
 
@@ -77,12 +78,17 @@ def build_per_capita_rows(expenses: list, members: list) -> list:
     weight_map = build_member_weight_map(members)
     names = _names(members)
     all_ids = _all_ids(members)
+    # A PER_CAPITA family restricted to a subset of its roster (via `family_participants`) counts as
+    # its INVOLVED-member count (CLAUDE.md §5-A), identical to the ledger, so the exported H /
+    # per-person / family share never drift from the app's Balances.
+    rosters = {m["id"]: family_member_ids(m) for m in members if m.get("kind") == "family"}
     rows: list = []
     for e in expenses:
         if (e.get("split_mode") or "PER_CAPITA") != "PER_CAPITA":
             continue
         split_ids = e.get("split_member_ids") or all_ids
-        weights = resolve_weights(split_ids, weight_map, e.get("weight_snapshots"))
+        weights = resolve_weights(split_ids, weight_map, e.get("weight_snapshots"),
+                                  e.get("family_participants"), rosters)
         shares = split_per_capita(e["amount"], weights)
         if not shares:
             continue  # H <= 0; nothing to split (matches _compute_balances)

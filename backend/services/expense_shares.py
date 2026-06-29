@@ -78,17 +78,23 @@ def entity_shares_raw(expense: dict, members: list) -> dict:
     """Exact per-entity share for ONE expense — byte-identical to what the ledger allocates.
 
     Uses the SAME calculator call ``_compute_balances`` uses for this expense: PER_CAPITA divides the
-    amount across total humans (honoring ``weight_snapshots`` via ``resolve_weights``); PER_FAMILY
-    divides flat per entity (size/snapshots ignored). No rounding (sum == amount within float
-    epsilon). Returns ``{}`` when there is nothing to split (H<=0 / E<=0), exactly like the ledger,
-    which skips such an expense.
+    amount across total INVOLVED humans (honoring ``weight_snapshots`` AND ``family_participants`` via
+    ``resolve_weights`` — a restricted family counts as its involved-member count, CLAUDE.md §5-A);
+    PER_FAMILY divides flat per entity (size/snapshots/participants ignored). No rounding (sum ==
+    amount within float epsilon). Returns ``{}`` when there is nothing to split (H<=0 / E<=0), exactly
+    like the ledger, which skips such an expense.
     """
     all_ids = [m["id"] for m in members]
     split_ids = expense.get("split_member_ids") or all_ids
     mode = expense.get("split_mode") or "PER_CAPITA"
     amount = expense.get("amount", 0.0)
     if mode == "PER_CAPITA":
-        weights = resolve_weights(split_ids, _weight_map(members), expense.get("weight_snapshots"))
+        # A PER_CAPITA family restricted to a subset of its roster (via `family_participants`) counts
+        # as its INVOLVED-member count (CLAUDE.md §5-A) — the same count the member sub-split divides
+        # by below, so the entity share and its member rows stay consistent.
+        rosters = {m["id"]: family_member_ids(m) for m in members if m.get("kind") == "family"}
+        weights = resolve_weights(split_ids, _weight_map(members), expense.get("weight_snapshots"),
+                                  expense.get("family_participants"), rosters)
         return split_per_capita(amount, weights)
     return split_per_family(amount, split_ids)
 
