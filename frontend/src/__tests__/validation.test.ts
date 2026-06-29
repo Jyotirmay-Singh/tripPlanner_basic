@@ -4,6 +4,7 @@ import {
   PASSWORD_TOO_SHORT_MESSAGE,
   PASSWORD_MISMATCH_MESSAGE,
   isGmail,
+  isEmailTaken,
 } from '../validation';
 
 describe('isValidPassword', () => {
@@ -39,5 +40,22 @@ describe('isGmail (unchanged behavior)', () => {
 
   it('rejects non-gmail domains', () => {
     expect(isGmail('a@yahoo.com')).toBe(false);
+  });
+});
+
+describe('isEmailTaken', () => {
+  it('matches case-insensitively and ignores surrounding whitespace', () => {
+    expect(isEmailTaken('Alice@Gmail.com', ['alice@gmail.com'])).toBe(true);
+    expect(isEmailTaken('  alice@gmail.com ', ['alice@gmail.com'])).toBe(true);
+  });
+
+  it('returns false for an empty input or no overlap', () => {
+    expect(isEmailTaken('', ['alice@gmail.com'])).toBe(false);
+    expect(isEmailTaken('bob@gmail.com', ['alice@gmail.com'])).toBe(false);
+  });
+
+  it('tolerates null/undefined entries in the taken list', () => {
+    expect(isEmailTaken('alice@gmail.com', [null, undefined, 'alice@gmail.com'])).toBe(true);
+    expect(isEmailTaken('alice@gmail.com', [null, undefined])).toBe(false);
   });
 });

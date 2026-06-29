@@ -49,6 +49,17 @@ export async function api<T = any>(
   return data as T;
 }
 
+// Phase 11 — thin wrappers over api() for the join-identity flow. previewJoin returns the
+// match/families context; joinTrip posts the discriminated commit (legacy {mode} OR Phase 11
+// {action:'claim'|'join_new'}). Callers build the body via src/joinIdentity.ts.
+export function previewJoin<T = any>(code: string): Promise<T> {
+  return api<T>('/trips/join/preview', { method: 'POST', body: { code } });
+}
+
+export function joinTrip<T = any>(body: Record<string, unknown>): Promise<T> {
+  return api<T>('/trips/join', { method: 'POST', body });
+}
+
 export function xlsxUrl(tripId: string, token: string) {
   return `${BASE}/api/trips/${tripId}/report.xlsx?token=${encodeURIComponent(token)}`;
 }

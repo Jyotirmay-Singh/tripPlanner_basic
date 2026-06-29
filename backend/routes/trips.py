@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, HTTPException, Depends
 
 from database import db
@@ -9,11 +11,14 @@ from utils.deps import get_current_user, _trip_or_404, _trip_admin_or_403, _trip
 from utils.email_rules import assert_gmail, normalize_email
 from utils.members import (
     email_exists,
-    assert_unique_email,
+    assert_unique_email_in_trip,
     assign_family_member_ids,
+    find_own_stubs,
+    member_has_financial_history,
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # ---------- Trips ----------
@@ -86,35 +91,78 @@ async def delete_trip(trip_id: str, user=Depends(get_current_user)):
     return {"ok": True}
 
 
-@router.post("/trips/join")
-async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
-    # Step 12: join is self-service — possession of the valid trip code is the
-    # authorization. The joiner may only create/link their OWN membership; every
-    # other member mutation stays behind _trip_admin_or_403. The joiner's explicit
-    # `mode` decides how they enter; a missing mode preserves the legacy auto-behavior.
-    code = (body.code or "").upper().strip()
-    trip = await db.trips.find_one({"code": code}, {"_id": 0})
-    if not trip:
-        raise HTTPException(404, "Trip not found")
-    if user["id"] in trip.get("user_ids", []):
-        return trip  # idempotent — already a member, regardless of mode
+async def _claim_member(trip, members, user, user_email, body):
+    """action='claim': self-serve link of the caller to an existing member carrying the
+    caller's OWN verified email. Keeps the member id (preserving every expense/settlement
+    reference) and never recalculates a family's split (matches the §5 "App User Identity
+    Mapping" rule). Idempotent; atomic against a concurrent claim of the same row.
 
-    members = trip.get("members", [])
-    user_email = normalize_email(user["email"])
+    RBAC note: unlike admin-only member creation, claim is self-serve — but strictly limited
+    to the stub carrying the caller's OWN email, so no one can hijack another person's profile.
+    """
+    if not body.member_id:
+        raise HTTPException(400, "member_id is required to claim")
+    target = next((m for m in members if m["id"] == body.member_id), None)
+    if not target:
+        raise HTTPException(404, "Member not found")
+    if target.get("user_id") == user["id"]:
+        return trip  # idempotent: same account re-claiming its own profile
+    if normalize_email(target.get("email")) != user_email:
+        raise HTTPException(403, "You can only claim the profile matching your email")
+    # Atomic claim: succeeds only while the row is still unclaimed (closes the TOCTOU race).
+    res = await db.trips.update_one(
+        {"id": trip["id"], "members": {"$elemMatch": {"id": target["id"], "user_id": None}}},
+        {"$addToSet": {"user_ids": user["id"]}, "$set": {"members.$.user_id": user["id"]}},
+    )
+    if res.modified_count == 0:
+        # Lost the race (or already linked): succeed only if it ended up linked to US.
+        fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+        cur = next((m for m in fresh.get("members", []) if m["id"] == target["id"]), None)
+        if cur and cur.get("user_id") == user["id"]:
+            return fresh
+        raise HTTPException(409, "This profile is already linked to another account")
+    return await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+
+
+async def _resolve_clean_stub_for_join_new(trip, own_stubs, user_email, body):
+    """Before a join-as-new, remove the caller's OWN clean stub so no duplicate remains.
+
+    SERVER-AUTHORITATIVE: resolves the stub itself (not the client's hint), so the
+    financial-history guard fires regardless of what the client sends — even when
+    replace_member_id is omitted or wrong. Never deletes a stub with financial history
+    (forces a claim), and never deletes someone else's profile.
+    """
+    own_ids = {s["id"] for s in own_stubs}
+    if body.replace_member_id and body.replace_member_id not in own_ids:
+        raise HTTPException(403, "You can only replace your own profile")
+    if not own_stubs:
+        return
+    if len(own_stubs) > 1:
+        # Legacy duplicate-email data: surface + warn, never auto-destroy.
+        logger.warning("join_new: %d duplicate-email stubs for %s in trip %s; not auto-removing",
+                       len(own_stubs), user_email, trip["id"])
+        return
+    stub = own_stubs[0]
+    if await member_has_financial_history(trip["id"], stub["id"]):
+        raise HTTPException(409, "This profile has expense history — claim it instead of joining as new")
+    # Clean stub => zero expense/settlement references => a plain $pull is balance-neutral.
+    await db.trips.update_one({"id": trip["id"]}, {"$pull": {"members": {"id": stub["id"]}}})
+
+
+async def _apply_mode(trip, members, user, user_email, body):
+    """Create or link the joiner's OWN membership per body.mode. Shared by the legacy
+    (action=None) and join_new flows; callers must have already resolved any conflicting clean
+    stub. mode=None => legacy auto-claim a matching own-email stub (EITHER kind), else a new
+    individual.
+    """
     mode = body.mode
-
     if mode is None:
-        # ---- Legacy auto-behavior: email auto-link, else new individual ----
-        linked_family = next(
-            (m for m in members
-             if m.get("kind") == "family"
-             and normalize_email(m.get("email")) == user_email
-             and not m.get("user_id")),
-            None,
-        )
-        if linked_family:
+        # ---- Legacy auto: auto-claim a matching own-email stub (individual OR family) ----
+        stubs = find_own_stubs(members, user_email)
+        stub = stubs[0] if stubs else None
+        if stub:
             await db.trips.update_one(
-                {"id": trip["id"], "members.id": linked_family["id"]},
+                {"id": trip["id"], "members.id": stub["id"]},
                 {"$push": {"user_ids": user["id"]},
                  "$set": {"members.$.user_id": user["id"]}},
             )
@@ -130,7 +178,6 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
             )
 
     elif mode == "individual":
-        # Explicit individual — never auto-link, even if an email-matching family exists.
         new_member = {
             "id": gen_id(), "name": user["name"],
             "kind": "individual", "family_members": [],
@@ -164,11 +211,11 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
     elif mode == "new_family":
         if not body.family_name:
             raise HTTPException(400, "family_name is required to create a new family")
-        # Duplicate family names are allowed (disambiguated at display time); only linked-email
-        # uniqueness is still enforced below.
+        # Duplicate family names are allowed (disambiguated at display time); only the
+        # one-email invariant is enforced (members + claimed users' account emails).
         if user_email:
             assert_gmail(user_email)
-            assert_unique_email(members, user_email)
+            await assert_unique_email_in_trip(trip, user_email)
         new_member = {
             "id": gen_id(), "name": body.family_name, "kind": "family",
             "family_members": body.family_members,
@@ -180,6 +227,62 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
             {"$push": {"user_ids": user["id"], "members": new_member}},
         )
 
+
+@router.post("/trips/join")
+async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
+    # Step 12 + Phase 11: join is self-service (the trip code is the authorization); the joiner
+    # may only create/link their OWN membership — every other member mutation stays behind
+    # _trip_admin_or_403. Phase 11 enforces "one gmail == at most one person per trip" on EVERY
+    # path: when the caller's own email already has a profile they must CLAIM it (or explicitly
+    # join-as-new, which removes a CLEAN stub) — the server never silently creates a second
+    # same-email identity. action=claim/join_new drive the wizard; action=None keeps the legacy
+    # contract, hardened the same way.
+    code = (body.code or "").upper().strip()
+    trip = await db.trips.find_one({"code": code}, {"_id": 0})
+    if not trip:
+        raise HTTPException(404, "Trip not found")
+    if user["id"] in trip.get("user_ids", []):
+        return trip  # idempotent — already a member, regardless of action/mode
+
+    members = trip.get("members", [])
+    user_email = normalize_email(user["email"])
+
+    if body.action == "claim":
+        return await _claim_member(trip, members, user, user_email, body)
+
+    own_stubs = find_own_stubs(members, user_email)
+
+    if body.action == "join_new":
+        if body.mode not in ("individual", "family", "new_family"):
+            raise HTTPException(400, "mode is required for join_new")
+        await _resolve_clean_stub_for_join_new(trip, own_stubs, user_email, body)
+        trip = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})  # fresh after any $pull
+        members = trip.get("members", [])
+        await _apply_mode(trip, members, user, user_email, body)
+        return await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+
+    # ---- No explicit action: legacy contract, hardened to never create a duplicate. ----
+    if body.mode is None:
+        # _apply_mode auto-claims a matching own-email stub (either kind), so no dup is possible.
+        await _apply_mode(trip, members, user, user_email, body)
+        return await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+
+    # Explicit mode without action. Linking the caller's OWN family slot via mode='family' is
+    # fine (it claims, not duplicates); any path that would CREATE a new identity while the
+    # caller's email already has a profile is rejected and steered to claim / join_new.
+    creates_duplicate = bool(own_stubs) and not (
+        body.mode == "family" and body.family_id in {s["id"] for s in own_stubs}
+    )
+    if creates_duplicate:
+        if len(own_stubs) > 1:
+            logger.warning("join: %d duplicate-email stubs for %s in trip %s",
+                           len(own_stubs), user_email, trip["id"])
+        raise HTTPException(
+            409,
+            "Your email already has a profile on this trip. Claim it, or choose "
+            "'join as someone new' to replace it.",
+        )
+    await _apply_mode(trip, members, user, user_email, body)
     return await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
 
 
@@ -200,12 +303,37 @@ async def join_preview(body: JoinPreviewRequest, user=Depends(get_current_user))
          "linked": bool(m.get("user_id"))}
         for m in members if m.get("kind") == "family"
     ]
-    matched = next(
-        (m for m in members
-         if m.get("kind") == "family"
-         and normalize_email(m.get("email")) == user_email
-         and not m.get("user_id")),
-        None,
+    # Phase 11: match an unclaimed stub carrying the caller's OWN email — an individual OR a
+    # whole family (linked_email lives on the entity). The wizard uses `match` to offer
+    # claim-vs-join-new and to gate join-new on financial history.
+    stubs = find_own_stubs(members, user_email)
+    match = None
+    if stubs:
+        stub = stubs[0]
+        is_family = stub.get("kind") == "family"
+        match = {
+            "member_id": stub["id"],
+            "member_type": "family" if is_family else "individual",
+            "member_name": stub["name"],
+            "family_id": stub["id"] if is_family else None,
+            "family_name": stub["name"] if is_family else None,
+            "has_financial_history": await member_has_financial_history(trip["id"], stub["id"]),
+        }
+        if len(stubs) > 1:
+            # Legacy duplicate-email data: surface every match, never auto-destroy.
+            logger.warning(
+                "join/preview: %d duplicate-email stubs for %s in trip %s; surfacing all, not deleting",
+                len(stubs), user_email, trip["id"],
+            )
+    match_conflicts = [
+        {"member_id": m["id"], "member_name": m["name"],
+         "member_type": "family" if m.get("kind") == "family" else "individual"}
+        for m in stubs[1:]
+    ] or None
+    # Back-compat: matched_family stays populated only when the (first) match is a family entity.
+    matched_family = (
+        {"id": stubs[0]["id"], "name": stubs[0]["name"]}
+        if stubs and stubs[0].get("kind") == "family" else None
     )
     return {
         "trip": {
@@ -215,8 +343,10 @@ async def join_preview(body: JoinPreviewRequest, user=Depends(get_current_user))
             "member_count": len(members),
         },
         "already_member": user["id"] in trip.get("user_ids", []),
-        "matched_family": {"id": matched["id"], "name": matched["name"]} if matched else None,
+        "matched_family": matched_family,
         "families": families,
+        "match": match,
+        "match_conflicts": match_conflicts,
     }
 
 
