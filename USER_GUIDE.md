@@ -144,7 +144,7 @@ Open any trip and look at the **Summary** tab (default tab):
 ### 7.1 Balances tab
 Inside a trip, the **Balances** tab shows:
 - Each member's **net balance** (positive = others owe them; negative = they owe).
-- For each family: the per-person share is shown right under the family total, and the names are listed individually (e.g. *Arjun -100.00, Priya -100.00, Rohan -100.00*). When members took part unevenly (or a settlement has been paid), each name shows **what's left to settle** — the family's remaining balance split in proportion to how much each member actually consumed; a member who never took part shows 0. These rows always add up exactly to the family total.
+- For each family: the per-person share is shown right under the family total, and the names are listed individually (e.g. *Arjun -100.00, Priya -100.00, Rohan -100.00*). When members took part unevenly, each name reflects **only the expenses that member actually took part in** — a member left out of an expense (unchecked under "Who took part?") owes nothing for it, and the credit from a bill the family paid lands only on the members who shared it. A paid settlement offsets the members who hold the balance. These rows always add up exactly to the family total.
 - **Suggested settlements** — the minimum number of payments to zero everyone out.
 
 ### 7.2 Settle Up screen
