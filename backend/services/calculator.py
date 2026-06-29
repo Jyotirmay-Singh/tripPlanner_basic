@@ -54,43 +54,51 @@ def resolve_weights(split_ids: list, base_weights: dict, snapshots: dict = None,
     return out
 
 
-def distribute_per_expense_net(per_expense: list, settlement_net: float, roster: list) -> dict:
-    """Per-EXPENSE isolation: distribute a family's net across its members so that each expense only
-    touches the members who took part in THAT expense. DISPLAY-only — the family's ledger net is never
-    changed, only its internal division.
+def distribute_chronological(events: list, roster: list) -> dict:
+    """Replay a family's expenses and settlements in CHRONOLOGICAL order to get each member's
+    outstanding position. DISPLAY-only — the family's ledger net is never changed, only its internal
+    division; this is the per-member view of "what's left UNSETTLED".
 
-    per_expense: list of ``(net_e, chosen_ids)`` — one entry per expense touching the family, where
-        ``net_e`` is the family's net for that expense ((amount if the family paid else 0) minus its
-        consumption share) and ``chosen_ids`` are the family members who took part. ``net_e`` is split
-        EVENLY among ``chosen_ids``; a member NOT in ``chosen_ids`` gets exactly 0 from that expense
-        (the core "excluded ⇒ 0 for what you skipped" guarantee). An empty ``chosen_ids`` contributes
-        nothing.
-    settlement_net: the family's net from non-pending settlements (Σ from==family − Σ to==family,
-        matching ``_compute_balances``' sign). Settlements carry no per-member participation, so this
-        term is split EVENLY among the members who hold an expense position (a nonzero per-expense
-        share) — so it offsets the actual position-holders and leaves fully-excluded members at 0 —
-        falling back to the whole ``roster`` only when nobody has a position (settlements but no
-        expenses).
-    roster: the family's member ids (iteration order of the result; also the fallback divisor).
+    events: a chronologically-ordered list of ``(kind, value, chosen)``:
+      * ``("exp", net_e, chosen_ids)`` — the family's net for that expense
+        (``(amount if the family paid else 0) − its share``) split EVENLY among only the members who
+        took part (``chosen_ids``); a member NOT in ``chosen_ids`` gets exactly 0 from that expense.
+      * ``("settle", delta, None)`` — a non-pending settlement's effect on the family net (same sign
+        as ``_compute_balances``: ``+amount`` when the family is the payer, ``−amount`` when it
+        receives). It SCALES the running positions proportionally toward 0, so a FULL settlement
+        zeroes every member (settled money disappears) and only later expenses remain; a partial
+        settlement shrinks each open position proportionally. When the running positions already net
+        to 0 the delta is split evenly across the roster (rare).
 
-    Returns RAW (unrounded) shares over ``roster`` summing to ``Σ net_e + settlement_net`` within
-    float epsilon; the caller apportions to an exact 2dp sum. Never ÷0 (empty ``chosen``/``roster``
-    are guarded). Empty ``roster`` -> {} (caller renders nothing).
+    roster: the family's member ids (result keys + the even-split fallback divisor).
+
+    Returns RAW (unrounded) positions over ``roster`` summing to the family's post-settlement net
+    within float epsilon; the caller apportions to an exact 2dp sum. Never ÷0. Empty ``roster`` -> {}.
     """
-    out = {mid: 0.0 for mid in roster}
-    for net_e, chosen in per_expense:
-        chosen = [m for m in (chosen or []) if m in out]
-        if not chosen:
-            continue
-        share = net_e / len(chosen)
-        for mid in chosen:
-            out[mid] += share
-    if roster and settlement_net:
-        targets = [mid for mid in roster if abs(out[mid]) > 1e-9] or list(roster)
-        per = settlement_net / len(targets)
-        for mid in targets:
-            out[mid] += per
-    return out
+    pos = {mid: 0.0 for mid in roster}
+    if not roster:
+        return pos
+    for kind, value, chosen in events:
+        if kind == "exp":
+            chosen = [m for m in (chosen or []) if m in pos]
+            if not chosen or not value:
+                continue
+            share = value / len(chosen)
+            for mid in chosen:
+                pos[mid] += share
+        else:  # "settle": scale open positions toward 0 by the settlement delta
+            if not value:
+                continue
+            total = sum(pos.values())
+            if abs(total) > 1e-9:
+                scale = (total + value) / total
+                for mid in pos:
+                    pos[mid] *= scale
+            else:
+                per = value / len(roster)
+                for mid in roster:
+                    pos[mid] += per
+    return pos
 
 
 def split_per_capita(amount: float, weights: dict) -> dict:
