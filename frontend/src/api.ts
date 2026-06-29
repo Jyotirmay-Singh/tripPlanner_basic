@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import type { SpendSummary } from './spend';
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
 const TOKEN_KEY = 'auth_token';
@@ -58,6 +59,11 @@ export function previewJoin<T = any>(code: string): Promise<T> {
 
 export function joinTrip<T = any>(body: Record<string, unknown>): Promise<T> {
   return api<T>('/trips/join', { method: 'POST', body });
+}
+
+// Phase 12 — read-only gross-spend ranking for a trip (GET /trips/{id}/spend-summary).
+export function spendSummary(tripId: string): Promise<SpendSummary> {
+  return api<SpendSummary>(`/trips/${tripId}/spend-summary`);
 }
 
 export function xlsxUrl(tripId: string, token: string) {

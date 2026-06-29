@@ -180,5 +180,5 @@ AGENT DIRECTIVE: You must update this file by changing `[ ]` to `[x]` as you suc
 - [x] Step 51: Additive read-only `GET /trips/{id}/spend-summary` in new `routes/spend.py` (RBAC via `_trip_or_404`), registered in `server.py`; live API + RBAC tests (`TestSpendSummaryAPI`).
 - [x] Step 52: Pure `src/spend.ts::rankSpend` + types + `src/__tests__/spend.test.ts` (desc order, ties, family/individual, empty/zero/single, fraction scaling).
 - [x] Step 53: `SpendBarChart.tsx` (react-native-svg, theme-driven single-hue intensity ramp, family/individual marker, min bar width, compact header, empty state).
-- [ ] Step 54: Wire into the trip detail Summary tab (fetch in `load()` via `api.ts::spendSummary`, render near the donut).
+- [x] Step 54: Wire into the trip detail Summary tab (fetch in `load()` via `api.ts::spendSummary`, render near the donut).
 - [ ] Step 55: Docs (USER_GUIDE §6) + full verification gate; commit.
