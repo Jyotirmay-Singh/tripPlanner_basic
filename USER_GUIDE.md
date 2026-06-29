@@ -51,6 +51,12 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
 ### 3.2 Share & let others join
 - Tap the trip-code chip on the trip header to share the code (WhatsApp / iMessage / email).
 - The other person registers in the app, then **Home → Join Trip → enter the code**.
+- **If the trip already has a spot for your email** (an admin added you ahead of time — see §4.4),
+  the wizard shows a **"We found you on this trip"** step first:
+  - If that spot already has expenses or settlements, you can only **take over this profile** —
+    a profile with history can't be duplicated.
+  - Otherwise you can **take over the profile** (recommended) **or** **join as someone new**;
+    joining as new asks you to confirm, then removes the empty placeholder so there's no duplicate.
 
 ### 3.3 Edit / delete a trip
 - Inside the trip page, the row of action buttons under the header has:
@@ -80,12 +86,21 @@ A "member" can be **one individual** or **a family group** (the family is split 
   - **"Re-split with new members"** → past expenses are recomputed with the new family size.
 
 ### 4.3 Avoiding double-counting yourself
-If you're already a member of the trip (because you created it or joined it) and a family is later added with **your email**, the app **converts your existing individual entry into the family in place** — same ID, no duplicate. The trip page's **Summary** tab shows a **"You" card** confirming which member you are.
+**One gmail = one person per trip.** A given email can belong to at most one person on a trip —
+across standalone individuals, family entries, and joined app users.
+- If you're already a member of the trip and a family is later added with **your email**, the app
+  **converts your existing individual entry into the family in place** — same ID, no duplicate. The
+  trip page's **Summary** tab shows a **"You" card** confirming which member you are.
+- If an admin added a placeholder for your email **before** you join, the Join wizard's identity
+  step (§3.2) reconciles it: you **take over** that profile (keeping its expenses) or, when it's
+  empty, **join as someone new** and the placeholder is removed. Either way you never end up listed
+  twice.
 
 ### 4.4 Delete a member
 - Tap the **🗑 trash** on the member row.
 - Only members **without any transactions linked to them** can be deleted. App-user-linked members cannot be deleted (sign-out and let the owner delete the trip if needed).
-- The app prevents creating two members with the same name or the same email in one trip.
+- Duplicate **names** are allowed (the app disambiguates them on screen), but a given **email** can
+  be used by only one person in the trip — including emails of people who have already joined.
 
 ---
 
