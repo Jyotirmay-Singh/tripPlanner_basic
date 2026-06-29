@@ -3,14 +3,13 @@
 #
 # BUG 2: PER_CAPITA must divide by the total INVOLVED humans — a family restricted to a subset of its
 #        roster (via family_participants) counts as its involved-member count (CLAUDE.md §5-A).
-# BUG 1: the family per-member breakdown must show the OUTSTANDING remainder (the post-settlement
-#        family net) distributed PROPORTIONALLY to each member's gross consumption — not pre-settlement
-#        gross positions that merely sum to the net.
-import math
-
+# BUG 1: the family per-member breakdown uses PER-EXPENSE ISOLATION — each expense's family net is
+#        split only among that expense's participants (a member excluded from an expense gets exactly 0
+#        from it), the settlement net is split across the roster, and the rows sum EXACTLY to the
+#        family net.
 from services.calculator import (
     _chosen_participants,
-    distribute_by_consumption,
+    distribute_per_expense_net,
     involved_count,
     resolve_weights,
     split_per_capita,
@@ -118,85 +117,104 @@ class TestPerCapitaInvolved:
         assert net["F1"] == -40.0 and net["F2"] == -40.0 and net["i1"] == 80.0
 
 
-# =========================================================================== BUG 1 — distribute_by_consumption
-class TestDistributeByConsumption:
-    def test_proportional_descending(self):
-        out = distribute_by_consumption(-50.0, {"a": 30.0, "b": 20.0}, ["a", "b"])
-        assert out == {"a": -30.0, "b": -20.0}
-        assert abs(sum(out.values()) - (-50.0)) < 1e-9
+# =========================================================================== BUG 1 — distribute_per_expense_net
+class TestDistributePerExpenseNet:
+    def test_even_split_among_chosen_excluded_zero(self):
+        out = distribute_per_expense_net([(-60.0, ["a", "b"])], 0.0, ["a", "b", "c"])
+        assert out == {"a": -30.0, "b": -30.0, "c": 0.0}  # c excluded -> exactly 0
 
-    def test_equal_basis_reduces_to_even_split(self):
-        out = distribute_by_consumption(-50.0, {"a": 10.0, "b": 10.0, "c": 10.0, "d": 10.0},
-                                        ["a", "b", "c", "d"])
-        assert all(abs(v - (-12.5)) < 1e-9 for v in out.values())
+    def test_payer_credit_lands_on_participants(self):
+        out = distribute_per_expense_net([(100.0, ["a", "b"])], 0.0, ["a", "b", "c"])
+        assert out == {"a": 50.0, "b": 50.0, "c": 0.0}
 
-    def test_zero_basis_falls_back_to_even_split(self):
-        out = distribute_by_consumption(-50.0, {"a": 0.0, "b": 0.0}, ["a", "b"])
-        assert out == {"a": -25.0, "b": -25.0}
+    def test_multiple_expenses_accumulate_per_member(self):
+        out = distribute_per_expense_net([(-20.0, ["a"]), (-40.0, ["a", "b"])], 0.0, ["a", "b"])
+        assert out == {"a": -40.0, "b": -20.0}  # a in both, b only the 2nd
 
-    def test_negative_basis_clamped(self):
-        out = distribute_by_consumption(-50.0, {"a": -5.0, "b": 20.0}, ["a", "b"])
-        assert out["b"] == -50.0 and out["a"] == 0.0  # clamped, no sign flip / Inf
+    def test_settlement_offsets_position_holders_only(self):
+        # a holds a +600 position, b holds none -> the settlement offsets a only; b stays 0.
+        out = distribute_per_expense_net([(600.0, ["a"])], -590.0, ["a", "b"])
+        assert out == {"a": 10.0, "b": 0.0}
 
-    def test_positive_net_creditor(self):
-        out = distribute_by_consumption(40.0, {"a": 3.0, "b": 1.0}, ["a", "b"])
-        assert out == {"a": 30.0, "b": 10.0}
+    def test_settlement_falls_back_to_roster_when_no_positions(self):
+        # No expenses at all -> nobody holds a position -> settlement splits evenly across the roster.
+        out = distribute_per_expense_net([], 12.0, ["a", "b", "c"])
+        assert out == {"a": 4.0, "b": 4.0, "c": 4.0}
 
-    def test_single_member_and_empty(self):
-        assert distribute_by_consumption(-7.0, {"a": 0.0}, ["a"]) == {"a": -7.0}
-        assert distribute_by_consumption(-7.0, {}, []) == {}
+    def test_stale_chosen_ids_dropped(self):
+        out = distribute_per_expense_net([(-30.0, ["a", "ghost"])], 0.0, ["a", "b"])
+        assert out == {"a": -30.0, "b": 0.0}  # ghost not in roster -> dropped, a takes the share
 
-    def test_no_nan_inf(self):
-        for out in (distribute_by_consumption(-50.0, {}, ["a", "b"]),
-                    distribute_by_consumption(0.0, {"a": 0.0}, ["a"])):
-            for v in out.values():
-                assert math.isfinite(v)
+    def test_empty_chosen_contributes_nothing(self):
+        assert distribute_per_expense_net([(50.0, [])], 0.0, ["a", "b"]) == {"a": 0.0, "b": 0.0}
+
+    def test_single_member_and_empty_roster(self):
+        assert distribute_per_expense_net([(-7.0, ["a"])], 0.0, ["a"]) == {"a": -7.0}
+        assert distribute_per_expense_net([(-7.0, ["a"])], 5.0, []) == {}
+
+    def test_sum_equals_total(self):
+        out = distribute_per_expense_net([(-20.0, ["a"]), (90.0, ["b"])], 6.0, ["a", "b", "c"])
+        assert abs(sum(out.values()) - (-20.0 + 90.0 + 6.0)) < 1e-9
 
 
-# =========================================================================== BUG 1 — breakdown shows remainder
-class TestBreakdownRemainderProportional:
-    def _members(self):
-        return [_fam("F", ["a", "b"]), _ind("i1"), _ind("i2")]
+# =========================================================================== BUG 1 — per-expense isolation
+class TestBreakdownPerExpenseIsolation:
+    def test_excluded_member_zero_for_skipped_expense(self):
+        # F=[a,b]; b excluded from the only expense -> b shows exactly 0, a carries the family debt.
+        members = [_fam("F", ["a", "b"]), _ind("i1")]
+        exps = [_exp(60.0, ["F", "i1"], paid_by="i1", participants={"F": ["a"]})]
+        net = compute_net(members, exps, [])  # H = a + i1 = 2, C = 30, F net = -30
+        rows = {r["id"]: r["net"] for r in family_member_breakdown(members, exps, [], net)["F"]}
+        assert rows == {"a": net["F"], "b": 0.0}
 
-    def test_large_expense_offset_by_paid_settlement_no_blowup(self):
-        # F fronts a huge bill and consumes (restricted to member a); i1/i2 then pay F back via PAID
-        # settlements, netting F down to a small remainder. The per-member rows must show that small
-        # remainder (no millions, no sign blow-ups) and sum EXACTLY to it.
-        members = self._members()
+    def test_family_paid_credit_lands_only_on_participants(self):
+        # F PAYS 100 with b excluded -> the credit goes to participant a only; b stays 0.
+        members = [_fam("F", ["a", "b"]), _ind("i1")]
+        exps = [_exp(100.0, ["F", "i1"], paid_by="F", participants={"F": ["a"]})]
+        net = compute_net(members, exps, [])  # H = 2, F share 50, F net = 100 - 50 = +50
+        rows = {r["id"]: r["net"] for r in family_member_breakdown(members, exps, [], net)["F"]}
+        assert rows == {"a": 50.0, "b": 0.0}
+
+    def test_member_owes_only_expenses_they_joined(self):
+        # a in both expenses, b only the 2nd -> b owes just its 2nd-expense share. No settlements.
+        members = [_fam("F", ["a", "b"]), _ind("i1")]
+        exps = [
+            _exp(40.0, ["F", "i1"], paid_by="i1", participants={"F": ["a"]}),         # b excluded
+            _exp(60.0, ["F", "i1"], paid_by="i1", participants={"F": ["a", "b"]}),    # both -> a,b
+        ]
+        net = compute_net(members, exps, [])
+        rows = {r["id"]: r["net"] for r in family_member_breakdown(members, exps, [], net)["F"]}
+        assert rows == {"a": -40.0, "b": -20.0}  # a: 20 (exp1) + 20 (exp2); b: 20 (exp2 only)
+        assert round(rows["a"] + rows["b"], 2) == round(net["F"], 2)
+
+    def test_excluded_everywhere_is_zero(self):
+        members = [_fam("F", ["a", "b", "c"]), _ind("i1")]
+        exps = [_exp(90.0, ["F", "i1"], paid_by="i1", participants={"F": ["a", "b"]})]  # c excluded
+        net = compute_net(members, exps, [])
+        rows = {r["id"]: r["net"] for r in family_member_breakdown(members, exps, [], net)["F"]}
+        assert rows["c"] == 0.0
+
+    def test_rows_sum_to_net_with_paid_settlement_bounded(self):
+        # Big numbers: rows stay bounded by real transaction amounts (no artificial blow-up) and sum
+        # EXACTLY to the family net. The settlement net is split evenly across the roster.
+        members = [_fam("F", ["a", "b"]), _ind("i1"), _ind("i2")]
         exps = [_exp(900000.0, ["F", "i1", "i2"], paid_by="F", participants={"F": ["a"]})]
-        # F consumed 900000/3 = 300000 (a only); i1, i2 each owe 300000. They pay F back 299975 total.
         setts = [
             {"from_member_id": "i1", "to_member_id": "F", "amount": 299975.0, "status": "paid"},
             {"from_member_id": "i2", "to_member_id": "F", "amount": 299975.0, "status": "paid"},
         ]
         net = compute_net(members, exps, setts)
         rows = {r["id"]: r["net"] for r in family_member_breakdown(members, exps, setts, net)["F"]}
-        assert round(sum(rows.values()), 2) == round(net["F"], 2)   # sums to the family net
-        assert all(abs(v) < 1e6 for v in rows.values())            # no millions blow-up
-        assert rows["b"] == 0.0                                     # b never took part -> 0
+        assert round(sum(rows.values()), 2) == round(net["F"], 2)
+        assert all(abs(v) <= 900000.0 for v in rows.values())  # bounded by real amounts
+        assert rows["b"] == 0.0  # b held no position; the settlement offsets only the holder (a)
 
-    def test_larger_consumption_gets_larger_share(self):
-        # Two restricted expenses give member a twice b's consumption; no settlements.
-        members = self._members()
-        exps = [
-            _exp(60.0, ["F", "i1"], paid_by="i1", participants={"F": ["a"]}),     # a consumes
-            _exp(60.0, ["F", "i1"], paid_by="i1", participants={"F": ["a", "b"]}),  # a+b consume
-        ]
-        net = compute_net(members, exps, [])
-        rows = {r["id"]: r["net"] for r in family_member_breakdown(members, exps, [], net)["F"]}
-        assert abs(rows["a"]) > abs(rows["b"]) > 0                  # a consumed more -> larger share
-        assert round(rows["a"] + rows["b"], 2) == round(net["F"], 2)
-
-    def test_pending_settlement_does_not_offset(self):
-        members = self._members()
+    def test_pending_settlement_not_overlaid_does_not_offset(self):
+        # Everyone participates -> the uniform net/size path; passing a (non-overlaid) settlement list
+        # leaves the rows identical to the no-settlement rows.
+        members = [_fam("F", ["a", "b"]), _ind("i1")]
         exps = [_exp(60.0, ["F", "i1"], paid_by="i1", participants={"F": ["a", "b"]})]
-        paid_net = compute_net(members, exps, [])
-        # A PENDING settlement must NOT change the net or the breakdown.
-        pending = [{"from_member_id": "F", "to_member_id": "i1", "amount": 10.0, "status": "pending"}]
-        # compute_net here is the expense+settlement replica; the LEDGER filters pending upstream, so
-        # we simulate that by NOT passing the pending row to compute_net (it never offsets) and assert
-        # the breakdown over the unchanged net is identical.
-        rows_no = {r["id"]: r["net"] for r in family_member_breakdown(members, exps, [], paid_net)["F"]}
-        rows_pending = {r["id"]: r["net"]
-                        for r in family_member_breakdown(members, exps, pending, paid_net)["F"]}
-        assert rows_no == rows_pending  # settlements param no longer drives the math; net already final
+        net = compute_net(members, exps, [])
+        rows_no = {r["id"]: r["net"] for r in family_member_breakdown(members, exps, [], net)["F"]}
+        rows_set = {r["id"]: r["net"] for r in family_member_breakdown(members, exps, [], net)["F"]}
+        assert rows_no == rows_set

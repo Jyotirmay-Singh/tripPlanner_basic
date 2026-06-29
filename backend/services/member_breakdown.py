@@ -10,14 +10,15 @@ Two paths, chosen per family:
   * **No participation restriction on any expense** -> every member's share is exactly
     ``round(net / size, 2)``, byte-identical to the legacy uniform ``net_per_person`` shown for each
     roster member.
-  * **>=1 expense restricts participation** -> the family's post-(non-pending)-settlement ``net`` is
-    distributed across members PROPORTIONALLY to each member's gross consumption (sum of allocated
-    shares over positive-amount expenses) via ``distribute_by_consumption``: members who consumed more
-    of the family's cost carry more of the outstanding remainder; excluded-everywhere members get 0;
-    equal consumption reduces to the even split; a zero basis falls back to an even split among
-    participants. A deterministic largest-remainder pass makes the rounded member shares sum EXACTLY
-    to the family's rounded ledger net. (This replaced an older owed+credit decomposition that could
-    show huge opposite per-member values that merely summed to a small net.)
+  * **>=1 expense restricts participation** -> PER-EXPENSE ISOLATION via ``distribute_per_expense_net``:
+    each expense's family net ((amount if the family paid else 0) minus its consumption share) is split
+    EVENLY among only the members who took part in THAT expense, so a member excluded from an expense
+    gets exactly 0 from it (the credit of a family-paid expense lands only on its participants too).
+    The family's non-pending settlement net is split evenly across the roster. A deterministic
+    largest-remainder pass makes the rounded member shares sum EXACTLY to the family's rounded ledger
+    net. When everyone participates in everything this reduces to the same uniform ``net/size``, so the
+    two paths agree. (This replaced an earlier proportional-by-total-consumption decomposition that let
+    a member excluded from one expense still absorb a scaled slice via consumption elsewhere.)
 
 Note on participation and the family TOTAL: in **PER_CAPITA**, ``family_participants`` reduces a
 family's involved headcount, so its entity total is already smaller upstream (CLAUDE.md §5-A); in
@@ -28,8 +29,8 @@ participation. Either way this module distributes whatever ``net`` it is given.
 import math
 
 from services.calculator import (
-    allocate_within_family,
-    distribute_by_consumption,
+    _chosen_participants,
+    distribute_per_expense_net,
     resolve_weights,
     split_per_capita,
     split_per_family,
@@ -90,13 +91,13 @@ def family_member_breakdown(members: list, expenses: list, settlements: list, ne
 
     ``expenses``/``net`` must be the same data ``_compute_balances`` used (all of the trip's expense
     rows, signed; ``net`` already post-(non-pending)-settlement), so the no-restriction path
-    reproduces ``net_per_person`` exactly. The restricted path distributes the family's
-    post-settlement net across members PROPORTIONALLY to each member's gross consumption (see
-    ``distribute_by_consumption``), summing EXACTLY to that net.
+    reproduces ``net_per_person`` exactly. The restricted path uses PER-EXPENSE ISOLATION
+    (``distribute_per_expense_net``): each expense's family net is split only among that expense's
+    participants and the settlement net is split across the roster, apportioned to sum EXACTLY to the
+    family's ledger ``net``.
 
-    ``settlements`` is retained for signature stability but no longer drives the math: the family's
-    net (which already encodes every non-pending settlement) is the single source the breakdown
-    distributes, which is precisely what keeps the per-member rows from diverging from the aggregate.
+    ``settlements`` are the SAME non-pending rows ``_compute_balances`` overlaid; their per-family net
+    is split evenly across the roster (settlements carry no per-member participation).
     """
     weight_map = _weight_map(members)
     all_ids = [m["id"] for m in members]
@@ -117,51 +118,50 @@ def family_member_breakdown(members: list, expenses: list, settlements: list, ne
             continue
         id_set = set(ids)
 
-        # Each member's GROSS cost (consumption) — the proportional basis for the family's
-        # post-settlement net. Built from positive-amount expenses only (refunds reduce the net, not
-        # the consumption basis). `participated` is every member who took part in >=1 expense, so the
-        # even-split fallback (zero basis) never credits an excluded-everywhere member.
-        consumption = {mid: 0.0 for mid in ids}
-        participated: set = set()
+        # Per-EXPENSE family net + the members who took part in EACH expense. Every expense the family
+        # is in OR paid for contributes (net_e, chosen); a member outside `chosen` gets exactly 0 from
+        # that expense. `restricted` flags any proper-subset participation -> use the isolation path.
+        per_expense: list = []
         restricted = False
 
         for e in expenses:
             split_ids = e.get("split_member_ids") or all_ids
-            if fid not in split_ids:
+            in_split = fid in split_ids
+            is_payer = e.get("paid_by_member_id") == fid
+            if not in_split and not is_payer:
                 continue
             mode = e.get("split_mode") or "PER_CAPITA"
             # The family's already-computed entity share for this expense — exactly what the ledger
-            # uses. PER_CAPITA divides by total humans (involved-count aware); PER_FAMILY is flat.
-            if mode == "PER_CAPITA":
+            # uses (PER_CAPITA involved-count aware; PER_FAMILY flat). 0 when the family only paid.
+            if not in_split:
+                fam_share = 0.0
+            elif mode == "PER_CAPITA":
                 weights = resolve_weights(split_ids, weight_map, e.get("weight_snapshots"),
                                           e.get("family_participants"), rosters)
                 fam_share = split_per_capita(e["amount"], weights).get(fid, 0.0)
             else:  # PER_FAMILY: flat per-entity, redistributed within the family by participation
                 fam_share = split_per_family(e["amount"], split_ids).get(fid, 0.0)
-            if not fam_share:
-                continue
+            # The family's net for THIS expense: credited the full amount when it paid, debited its
+            # consumption share. Split evenly among the members who took part (full roster when the
+            # family only paid / nobody is restricted).
+            net_e = (e["amount"] if is_payer else 0.0) - fam_share
             participants = (e.get("family_participants") or {}).get(fid)
             present = [p for p in (participants or []) if p in id_set]
             if present and len(present) < len(ids):
                 restricted = True
-            alloc = allocate_within_family(fam_share, participants, ids)
-            for mid, s in alloc.items():
-                if s != 0.0:
-                    participated.add(mid)
-                if e["amount"] > 0:  # gross cost only; refunds aren't "consumption"
-                    consumption[mid] += s
+            chosen = _chosen_participants(participants, ids)
+            if net_e:
+                per_expense.append((net_e, chosen))
 
         if not restricted:
             npp = round(net.get(fid, 0.0) / size, 2)  # byte-identical to legacy net_per_person
             rows = [{"id": ids[i], "name": names[i], "net": npp} for i in range(len(ids))]
         else:
-            # Distribute the family's post-(non-pending)-settlement net (already in `net`)
-            # PROPORTIONALLY to each member's consumption; excluded-everywhere members get exactly 0.
-            # Equal consumption -> even split; zero total basis -> even split among participants.
-            part_ids = [mid for mid in ids if mid in participated] or list(ids)
-            basis = {mid: consumption[mid] for mid in part_ids}
-            dist = distribute_by_consumption(net.get(fid, 0.0), basis, part_ids)
-            raw = {mid: dist.get(mid, 0.0) for mid in ids}
+            # PER-EXPENSE ISOLATION: each expense's net touches only its participants; the family's
+            # non-pending settlement net (same sign as _compute_balances) is split across the roster.
+            settlement_net = sum(s["amount"] for s in settlements if s.get("from_member_id") == fid) \
+                - sum(s["amount"] for s in settlements if s.get("to_member_id") == fid)
+            raw = distribute_per_expense_net(per_expense, settlement_net, ids)
             apport = _apportion(raw, ids, net.get(fid, 0.0))
             rows = [{"id": ids[i], "name": names[i], "net": apport[ids[i]]} for i in range(len(ids))]
 

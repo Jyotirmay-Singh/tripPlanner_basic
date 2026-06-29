@@ -54,29 +54,43 @@ def resolve_weights(split_ids: list, base_weights: dict, snapshots: dict = None,
     return out
 
 
-def distribute_by_consumption(family_net: float, basis: dict, order: list) -> dict:
-    """Distribute a family's (already post-settlement) net across its members PROPORTIONALLY to each
-    member's gross-cost basis (consumption). DISPLAY-only — the family's `family_net` is never changed,
-    only its internal division.
+def distribute_per_expense_net(per_expense: list, settlement_net: float, roster: list) -> dict:
+    """Per-EXPENSE isolation: distribute a family's net across its members so that each expense only
+    touches the members who took part in THAT expense. DISPLAY-only — the family's ledger net is never
+    changed, only its internal division.
 
-    family_net: the family's rounded ledger net (settlements already applied upstream).
-    basis: member_id -> gross cost (consumption); negatives are clamped to 0.
-    order: member ids to distribute over (and the iteration order).
+    per_expense: list of ``(net_e, chosen_ids)`` — one entry per expense touching the family, where
+        ``net_e`` is the family's net for that expense ((amount if the family paid else 0) minus its
+        consumption share) and ``chosen_ids`` are the family members who took part. ``net_e`` is split
+        EVENLY among ``chosen_ids``; a member NOT in ``chosen_ids`` gets exactly 0 from that expense
+        (the core "excluded ⇒ 0 for what you skipped" guarantee). An empty ``chosen_ids`` contributes
+        nothing.
+    settlement_net: the family's net from non-pending settlements (Σ from==family − Σ to==family,
+        matching ``_compute_balances``' sign). Settlements carry no per-member participation, so this
+        term is split EVENLY among the members who hold an expense position (a nonzero per-expense
+        share) — so it offsets the actual position-holders and leaves fully-excluded members at 0 —
+        falling back to the whole ``roster`` only when nobody has a position (settlements but no
+        expenses).
+    roster: the family's member ids (iteration order of the result; also the fallback divisor).
 
-    Returns RAW (unrounded) shares over `order` summing to `family_net` within float epsilon; the
-    caller apportions to an exact 2dp sum. Guards (never ÷0, NaN, Inf, or sign flips):
-      * total basis <= 0 (no underlying cost / brand-new family) -> EVEN split (family_net / n).
-      * EQUAL basis reduces to that same even split automatically (proportional with equal weights).
-    Empty `order` -> {} (caller renders nothing).
+    Returns RAW (unrounded) shares over ``roster`` summing to ``Σ net_e + settlement_net`` within
+    float epsilon; the caller apportions to an exact 2dp sum. Never ÷0 (empty ``chosen``/``roster``
+    are guarded). Empty ``roster`` -> {} (caller renders nothing).
     """
-    n = len(order)
-    if n == 0:
-        return {}
-    weights = {m: max(0.0, basis.get(m, 0.0)) for m in order}
-    total = sum(weights.values())
-    if total <= 1e-9:
-        return {m: family_net / n for m in order}
-    return {m: family_net * (weights[m] / total) for m in order}
+    out = {mid: 0.0 for mid in roster}
+    for net_e, chosen in per_expense:
+        chosen = [m for m in (chosen or []) if m in out]
+        if not chosen:
+            continue
+        share = net_e / len(chosen)
+        for mid in chosen:
+            out[mid] += share
+    if roster and settlement_net:
+        targets = [mid for mid in roster if abs(out[mid]) > 1e-9] or list(roster)
+        per = settlement_net / len(targets)
+        for mid in targets:
+            out[mid] += per
+    return out
 
 
 def split_per_capita(amount: float, weights: dict) -> dict:
