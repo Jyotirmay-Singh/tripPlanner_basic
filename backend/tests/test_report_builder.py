@@ -1,6 +1,7 @@
 # Pure unit tests for services.report_builder (Step 9 — Synchronize XLSX Export Report).
 # No HTTP, no server, no conftest fixtures - operates only on plain dicts/lists, exactly like
 # test_per_capita.py / test_per_family.py.
+from services.member_breakdown import family_member_ids
 from services.report_builder import (
     build_member_weight_map,
     build_per_capita_rows,
@@ -74,6 +75,19 @@ class TestPerCapita:
         assert by["f1"]["per_human"] == 60.0
         assert by["f1"]["member_share"] == 60.0
         assert by["i1"]["member_share"] == 60.0
+
+    def test_family_participants_counts_as_involved(self):
+        # CLAUDE.md §5-A: f1 restricted to 3 of its 4 members counts as 3 humans, identical to the
+        # ledger — so the exported report never drifts from the app's Balances. H = 3+4+2+1+1+1 = 12.
+        members = _roster()
+        e = _exp("e1", 120.0, [])
+        e["family_participants"] = {"f1": family_member_ids(members[0])[:3]}
+        rows = build_per_capita_rows([e], members)
+        assert all(r["total_humans"] == 12 for r in rows)
+        assert all(r["per_human"] == 10.0 for r in rows)   # 120 / 12
+        by = _by_member(rows)
+        assert by["f1"]["member_weight"] == 3              # involved count, not full size (4)
+        assert by["f1"]["member_share"] == 30.0            # 3 * 10
 
     def test_per_family_expense_never_in_per_capita_rows(self):
         rows = build_per_capita_rows(

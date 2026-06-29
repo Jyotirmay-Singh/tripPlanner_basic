@@ -83,8 +83,8 @@ class TestSharesSumToSignedTotal:
 
 
 class TestNegativeWithFamilyParticipants:
-    # family_participants is DISPLAY-only and must keep working under negation: excluded members show
-    # 0, participants split the family's (negative) share, summing exactly to it.
+    # PER_CAPITA family_participants reduces the family's INVOLVED headcount under negation too:
+    # excluded members show 0, participants split the family's (negative) share, summing exactly to it.
     def _members(self):
         return [
             {"id": "F", "name": "Fam", "kind": "family",
@@ -94,14 +94,15 @@ class TestNegativeWithFamilyParticipants:
 
     def test_breakdown_credits_only_participants(self):
         members = self._members()
-        # -100 PER_CAPITA, H = 4 + 1 = 5, per-human -20 -> F share -80, i1 -20.
-        e = _exp(-100.0, ["F", "i1"], paid_by="i1", participants={"F": ["fa", "fb"]})
+        # -90 PER_CAPITA; F counts as its INVOLVED count (2 of 4), so H = 2 + 1 = 3, per-human -30
+        # -> F share -60 (not -80), i1 -30. The -60 splits between the 2 participants; fc/fd show 0.
+        e = _exp(-90.0, ["F", "i1"], paid_by="i1", participants={"F": ["fa", "fb"]})
         bd = expense_share_breakdown(e, members)
         fam = next(ent for ent in bd["entities"] if ent["id"] == "F")
-        assert round(fam["share"], 2) == -80.0
+        assert round(fam["share"], 2) == -60.0
         by_id = {m["id"]: m["share"] for m in fam["members"]}
-        assert by_id == {"fa": -40.0, "fb": -40.0, "fc": 0.0, "fd": 0.0}
-        assert round(sum(m["share"] for m in fam["members"]), 2) == -80.0
+        assert by_id == {"fa": -30.0, "fb": -30.0, "fc": 0.0, "fd": 0.0}
+        assert round(sum(m["share"] for m in fam["members"]), 2) == -60.0
 
     def test_family_member_breakdown_sums_to_family_net(self):
         members = self._members()

@@ -1,21 +1,82 @@
-def resolve_weights(split_ids: list, base_weights: dict, snapshots: dict = None) -> dict:
-    """Effective per-member human-count weights for one expense.
+def _chosen_participants(participant_ids: list, roster_ids: list) -> list:
+    """The family members who actually took part — `participant_ids` ∩ roster (in roster order),
+    falling back to the FULL roster when that intersection is empty (no recorded participants, or
+    every recorded one was since removed). Single source of truth for "who is in"; both
+    ``involved_count`` (the PER_CAPITA share-sizing weight) and ``allocate_within_family`` (the
+    intra-family divisor) read it, so the count used to SIZE a family's share and the count used to
+    DIVIDE it are provably identical.
+    """
+    roster = list(dict.fromkeys(roster_ids))  # de-dupe, preserve order
+    if not roster:
+        return []
+    chosen = [mid for mid in roster if mid in set(participant_ids or [])]
+    return chosen if chosen else roster
+
+
+def involved_count(participant_ids: list, roster_ids: list) -> int:
+    """Number of involved family members (CLAUDE.md §5-A "involved humans") — exactly the count
+    ``allocate_within_family`` divides by. Empty roster -> 0 (caller falls back to the base weight).
+    """
+    return len(_chosen_participants(participant_ids, roster_ids))
+
+
+def resolve_weights(split_ids: list, base_weights: dict, snapshots: dict = None,
+                    family_participants: dict = None, rosters: dict = None) -> dict:
+    """Effective per-member human-count weights for one PER_CAPITA expense.
 
     split_ids: member ids participating in the split.
     base_weights: member_id -> base human count (individual=1, family=size).
-    snapshots: optional per-transaction overrides (partial family / Step 8 snapshots).
+    snapshots: optional per-transaction weight overrides (the `split_family_count` concept / Step 8
+        size-freeze pins).
+    family_participants: optional {family_id -> [participating member ids]} (CLAUDE.md §5-A). When a
+        family is restricted to a proper subset of its roster, the family counts as its INVOLVED
+        member count, not its full size — so the same involved count both sizes the family's share
+        (here) and divides it among members (``allocate_within_family``).
+    rosters: optional {family_id -> [roster member ids]}, needed to resolve the involved count.
 
-    A snapshot override wins; otherwise the member's base weight; unknown/stale ids
-    default to 1 (matches the previous inline wt() behavior).
+    Precedence per id: an explicit ``snapshots`` override wins; else, for a family with a recorded
+    participant restriction, its ``involved_count``; else the member's base weight; unknown/stale ids
+    default to 1 (matches the previous inline wt() behavior). With ``family_participants``/``rosters``
+    omitted (the default) the result is byte-identical to the original snapshot-or-base behavior, so
+    callers that don't pass them (and direct unit tests) are unaffected.
     """
     snapshots = snapshots or {}
+    family_participants = family_participants or {}
+    rosters = rosters or {}
     out = {}
     for sid in split_ids:
         if sid in snapshots:
             out[sid] = int(snapshots[sid])
+        elif sid in family_participants and sid in rosters:
+            out[sid] = involved_count(family_participants[sid], rosters[sid])
         else:
             out[sid] = base_weights.get(sid, 1)
     return out
+
+
+def distribute_by_consumption(family_net: float, basis: dict, order: list) -> dict:
+    """Distribute a family's (already post-settlement) net across its members PROPORTIONALLY to each
+    member's gross-cost basis (consumption). DISPLAY-only — the family's `family_net` is never changed,
+    only its internal division.
+
+    family_net: the family's rounded ledger net (settlements already applied upstream).
+    basis: member_id -> gross cost (consumption); negatives are clamped to 0.
+    order: member ids to distribute over (and the iteration order).
+
+    Returns RAW (unrounded) shares over `order` summing to `family_net` within float epsilon; the
+    caller apportions to an exact 2dp sum. Guards (never ÷0, NaN, Inf, or sign flips):
+      * total basis <= 0 (no underlying cost / brand-new family) -> EVEN split (family_net / n).
+      * EQUAL basis reduces to that same even split automatically (proportional with equal weights).
+    Empty `order` -> {} (caller renders nothing).
+    """
+    n = len(order)
+    if n == 0:
+        return {}
+    weights = {m: max(0.0, basis.get(m, 0.0)) for m in order}
+    total = sum(weights.values())
+    if total <= 1e-9:
+        return {m: family_net / n for m in order}
+    return {m: family_net * (weights[m] / total) for m in order}
 
 
 def split_per_capita(amount: float, weights: dict) -> dict:
@@ -74,9 +135,10 @@ def allocate_within_family(family_share: float, participant_ids: list, all_membe
         return {}
     # Restrict to participants that still exist in the roster; fall back to "all" when the recorded
     # participants are absent/empty or none survive (e.g. every recorded participant was removed).
-    chosen = [mid for mid in roster if mid in set(participant_ids or [])]
-    if not chosen:
-        chosen = roster
+    # Shared with ``involved_count`` so the divisor here equals the share-sizing weight in
+    # ``resolve_weights`` (the count that sizes a family's PER_CAPITA share == the count that divides
+    # it among members).
+    chosen = _chosen_participants(participant_ids, roster)
     per = family_share / len(chosen)
     chosen_set = set(chosen)
     return {mid: (per if mid in chosen_set else 0.0) for mid in roster}

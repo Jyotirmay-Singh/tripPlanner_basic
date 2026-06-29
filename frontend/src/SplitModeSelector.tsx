@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from './ThemeContext';
 import { SPACING, RADIUS } from './theme';
 import T from './T';
+import { perCapitaHumans } from './familyParticipation';
 
 export type SplitMode = 'PER_CAPITA' | 'PER_FAMILY';
 
@@ -72,8 +73,9 @@ export function splitPreviewLabel(opts: {
   splitSel: string[];
   weightOverrides: Record<string, number>;
   currency: string;
+  familyExcluded?: Record<string, string[]>;
 }): string {
-  const { amount, mode, members, splitSel, weightOverrides, currency } = opts;
+  const { amount, mode, members, splitSel, weightOverrides, currency, familyExcluded } = opts;
   const HINT = "Enter an amount and pick who's splitting";
   // amount may be negative (money back); only 0 / blank falls back to the hint.
   if (!Number.isFinite(amount) || amount === 0 || splitSel.length === 0) return HINT;
@@ -85,17 +87,9 @@ export function splitPreviewLabel(opts: {
     return `${currency} ${per.toFixed(2)} per group`;
   }
 
-  // §5A: divide across total humans (individual = 1, family = override ?? size).
-  let H = 0;
-  for (const sid of splitSel) {
-    const m = members.find((x) => x.id === sid);
-    if (m && m.kind === 'family') {
-      const fullSize = Math.max(1, (m.family_members || []).length);
-      H += weightOverrides[sid] ?? fullSize;
-    } else {
-      H += 1; // individuals, and unknown/stale ids, weigh 1 (matches backend)
-    }
-  }
+  // §5A: divide across total INVOLVED humans (individual = 1, family = override ?? involved count ??
+  // size). Mirrors backend resolve_weights; familyExcluded lets a partial family count correctly.
+  const H = perCapitaHumans(members, splitSel, weightOverrides, familyExcluded ?? {});
   if (H <= 0) return HINT;
   const per = amount / H;
   return `${currency} ${per.toFixed(2)} per person`;

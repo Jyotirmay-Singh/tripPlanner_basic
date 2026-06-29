@@ -1,5 +1,6 @@
 import {
   familyMemberIds,
+  familyInvolvedWeight,
   perCapitaHumans,
   buildFamilyParticipants,
   excludedFromParticipants,
@@ -28,12 +29,32 @@ describe('familyMemberIds', () => {
   });
 });
 
+describe('familyInvolvedWeight', () => {
+  it('full size when there is no restriction', () => {
+    expect(familyInvolvedWeight(sharma)).toBe(4);
+  });
+  it('involved count for a proper, non-empty restriction (§5-A)', () => {
+    expect(familyInvolvedWeight(sharma, undefined, ['r'])).toBe(3);
+  });
+  it('numeric override wins over participation', () => {
+    expect(familyInvolvedWeight(sharma, 2, ['r'])).toBe(2);
+  });
+  it('falls back to full size when all/none are excluded', () => {
+    expect(familyInvolvedWeight(sharma, undefined, ['a', 'v', 's', 'r'])).toBe(4);
+    expect(familyInvolvedWeight(sharma, undefined, [])).toBe(4);
+  });
+});
+
 describe('perCapitaHumans', () => {
   it('counts family by size + individuals as 1', () => {
     expect(perCapitaHumans(members, ['S', 'G', 'I'], {})).toBe(7);
   });
   it('honors a weight override (count chips)', () => {
     expect(perCapitaHumans(members, ['S', 'I'], { S: 3 })).toBe(4);
+  });
+  it('counts a partially-attending family by its involved members (§5-A)', () => {
+    // Sharma 3 of 4 involved -> 3; + individual 1 = 4.
+    expect(perCapitaHumans(members, ['S', 'I'], {}, { S: ['r'] })).toBe(4);
   });
 });
 
@@ -69,10 +90,10 @@ describe('excludedFromParticipants', () => {
 });
 
 describe('familyShareEach', () => {
-  it('PER_CAPITA: splits the family share among only the participating members', () => {
-    // $50 / 5 humans = $10/head; Sharma (weight 4) owes $40; 3 sharing -> ~13.33 each.
-    const each = familyShareEach(50, members, ['S', 'I'], {}, 'S', 3, 'PER_CAPITA');
-    expect(Math.abs(each - 40 / 3)).toBeLessThan(0.01);
+  it('PER_CAPITA: each involved member owes the per-human cost (involved count drives H)', () => {
+    // §5-A: Sharma 3 of 4 involved -> H = 3 + 1 = 4, C = 12.5; each involved member owes 12.5.
+    const each = familyShareEach(50, members, ['S', 'I'], {}, 'S', 3, 'PER_CAPITA', { S: ['r'] });
+    expect(Math.abs(each - 12.5)).toBeLessThan(1e-9);
   });
   it('PER_FAMILY: splits the flat per-entity share among only the participants', () => {
     // $1000 / 2 entities = $500 per family; family-1 with 3 sharing -> 500/3 each.

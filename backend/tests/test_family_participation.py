@@ -7,7 +7,7 @@ from services.calculator import (
     split_per_capita,
     split_per_family,
 )
-from services.member_breakdown import family_member_breakdown
+from services.member_breakdown import family_member_breakdown, family_member_ids
 
 
 def _weight(m):
@@ -16,9 +16,11 @@ def _weight(m):
 
 def _compute_net(members, expenses, settlements):
     """Faithful local mirror of utils.balances._compute_balances' net loop (the part that builds the
-    entity ledger). Used to PROVE the ledger never reads family_participants."""
+    entity ledger). PER_CAPITA honors family_participants (a restricted family counts as its involved
+    member count), exactly like the real ledger; PER_FAMILY ignores it."""
     net = {m["id"]: 0.0 for m in members}
     weight_map = {m["id"]: _weight(m) for m in members}
+    rosters = {m["id"]: family_member_ids(m) for m in members if m.get("kind") == "family"}
     all_ids = [m["id"] for m in members]
     for e in expenses:
         if e.get("kind", "expense") != "expense":
@@ -26,7 +28,8 @@ def _compute_net(members, expenses, settlements):
         split_ids = e["split_member_ids"] or all_ids
         mode = e.get("split_mode", "PER_CAPITA")
         if mode == "PER_CAPITA":
-            weights = resolve_weights(split_ids, weight_map, e.get("weight_snapshots"))
+            weights = resolve_weights(split_ids, weight_map, e.get("weight_snapshots"),
+                                      e.get("family_participants"), rosters)
             shares = split_per_capita(e["amount"], weights)
         else:
             shares = split_per_family(e["amount"], split_ids)
@@ -100,25 +103,32 @@ def _expense(family_participants=None):
 
 class TestFamilyMemberBreakdown:
 
-    def test_section5_example_excluded_member_owes_zero_and_family_total_preserved(self):
+    def test_section5_example_excluded_member_reduces_family_headcount(self):
+        # CLAUDE.md §5-A: excluding Rahul makes Sharma count as its INVOLVED count (3), not full size
+        # (4). $70 dinner, H = 3 (Sharma) + 2 (Gupta) + 1 (Indie) = 6 -> per-human 70/6. The family
+        # ENTITY total now changes vs. no exclusion (the old "ledger ignores participants" is gone).
         members = _members()
         exp_no = [_expense(None)]
         exp_yes = [_expense({"S": ["a", "v", "s"]})]  # exclude Rahul (r)
 
         net_no = _compute_net(members, exp_no, [])
         net_yes = _compute_net(members, exp_yes, [])
-        # Ledger is identical with/without the exclusion: family total + EVERY other entity unchanged.
-        assert net_yes == net_no
-        assert net_yes["S"] == -40.0 and net_yes["G"] == -20.0 and net_yes["I"] == 60.0
+        assert net_no["S"] == -40.0 and net_no["G"] == -20.0 and net_no["I"] == 60.0  # full size
+        assert net_yes != net_no                               # involved count now drives the ledger
+        assert net_yes["S"] == -35.0                           # 3 * 70/6 exactly
+        assert abs(net_yes["G"] - (-2 * 70 / 6)) < 0.01        # Gupta unrestricted -> 2 humans
+        assert abs(net_yes["I"] - (70 - 70 / 6)) < 0.01        # payer credited net of its own share
+        assert round(sum(net_yes.values()), 2) == 0.0          # conservation
 
         bd = family_member_breakdown(members, exp_yes, [], net_yes)
         sharma = {row["id"]: row["net"] for row in bd["S"]}
-        assert sharma["r"] == 0.0                       # excluded member owes nothing
-        assert round(sum(sharma.values()), 2) == -40.0  # members sum EXACTLY to the family total
+        assert sharma["r"] == 0.0                              # excluded member owes nothing
+        assert round(sum(sharma.values()), 2) == -35.0         # members sum EXACTLY to the family total
         for mid in ("a", "v", "s"):
-            assert abs(sharma[mid] - (-40.0 / 3)) < 0.01  # ~ -13.33 each
+            assert abs(sharma[mid] - (-35.0 / 3)) < 0.01       # ~ -11.67 each
         # Gupta (no restriction) stays uniform; individual has no per-member breakdown.
-        assert all(row["net"] == -10.0 for row in bd["G"])
+        uniform = round(net_yes["G"] / 2, 2)
+        assert all(row["net"] == uniform for row in bd["G"])
         assert "I" not in bd
 
     def test_no_restriction_is_byte_identical_to_net_per_person(self):

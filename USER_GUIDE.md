@@ -114,7 +114,7 @@ across standalone individuals, family entries, and joined app users.
 6. Set the **date** (DD-MM-YY).
 7. **Paid by** — radio-pick the member who paid.
 8. **Split among** — **all members are pre-selected by default**. Uncheck any member you don't want to include.
-9. **Partial-family split**: for any **family** you have checked, a chip row appears: *"Split among `1` `2` `3` of 3"*. Tap a number to split only among that many family members for this expense (default = full family).
+9. **Who took part (partial family)**: for any **family** you have checked, a *"Who took part?"* row lists its members — uncheck anyone who didn't share this expense (default = everyone). In **Per Person** mode this reduces the family's headcount for that expense: the cost is divided by the total *involved* people and each sharer owes that per-person amount (the unchecked members owe 0, and the family's total shrinks accordingly). In **Per Family** mode the family's flat share is unchanged and is simply split among those who took part.
 10. **Receipt (optional)** — *Attach image* picks a photo; it's stored as base64 with the transaction.
 11. Tap **Save transaction**.
 12. If the running total now exceeds the trip budget, a warning dialog asks you to **Cancel** or **Save anyway**.
@@ -144,7 +144,7 @@ Open any trip and look at the **Summary** tab (default tab):
 ### 7.1 Balances tab
 Inside a trip, the **Balances** tab shows:
 - Each member's **net balance** (positive = others owe them; negative = they owe).
-- For each family: the per-person share is shown right under the family total, and the names are listed individually (e.g. *Arjun -100.00, Priya -100.00, Rohan -100.00*).
+- For each family: the per-person share is shown right under the family total, and the names are listed individually (e.g. *Arjun -100.00, Priya -100.00, Rohan -100.00*). When members took part unevenly (or a settlement has been paid), each name shows **what's left to settle** — the family's remaining balance split in proportion to how much each member actually consumed; a member who never took part shows 0. These rows always add up exactly to the family total.
 - **Suggested settlements** — the minimum number of payments to zero everyone out.
 
 ### 7.2 Settle Up screen
@@ -184,7 +184,7 @@ The download opens in your phone's browser; share or save it from there.
 2. Share the code with Riddhi. She registers and joins → she shows up as an individual member.
 3. You add **Sharma family** (3 people) as a Member.
 4. You pay for dinner ₹2,000 → category *Food*, paid-by *You*, split among all → you'll get ₹1,600 back (you owe ₹400 of the ₹2,000), Riddhi owes ₹400, Sharma family owes ₹1,200 (or ₹400 per Sharma).
-5. Someone wants only 2 Sharmas to share the cab ride → on the cab expense, uncheck none, but on the Sharma row pick "Split among 2 of 3" — the math now treats the family as 2 people for that expense only.
+5. Someone wants only 2 Sharmas to share the cab ride → on the cab expense, under the Sharma family's *"Who took part?"* row uncheck the 1 Sharma who skipped it. In **Per Person** mode the family is now counted as 2 people for that expense only: the cab is divided by the total involved people, those 2 Sharmas each owe the per-person amount, and the third owes 0.
 6. At the end of the trip, hit **Settle Up** → tap **Record** on each suggested transfer to log it, then **Mark paid** (and confirm) once the money actually changes hands.
 7. Bottom-tab **Reports → XLSX** to keep a permanent record.
 

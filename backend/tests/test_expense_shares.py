@@ -122,19 +122,19 @@ class TestDisplaySumsExactly:
 
 class TestFamilyParticipantsRedistribution:
 
-    def test_excluded_member_owes_zero_entity_total_preserved(self):
+    def test_excluded_member_owes_zero_involved_count_weight(self):
         members = _members_5a()
-        # f1: only 2 of its 4 members took part. Entity still owes 40 (PER_CAPITA unchanged);
-        # the 40 is split between the 2 participants (20 each); the other 2 show exactly 0.
-        e = _expense(family_participants={"f1": ["f1a", "f1b"]})
-        # entity-level share unchanged vs. no restriction
-        assert entity_shares_raw(e, members)["f1"] == 40.0
+        # f1: only 2 of its 4 members took part. PER_CAPITA now counts f1 as its INVOLVED count (2)
+        # per CLAUDE.md §5-A, so H = 2 + 4 + 2 + 1 + 1 + 1 = 11. With $110 -> per-human 10, f1 owes
+        # 20 (not 40); the 20 is split between the 2 participants (10 each); the other 2 show 0.
+        e = _expense(amount=110.0, family_participants={"f1": ["f1a", "f1b"]})
+        assert entity_shares_raw(e, members)["f1"] == 20.0   # involved count 2 * per-human 10
         bd = expense_share_breakdown(e, members)
         f1 = next(ent for ent in bd["entities"] if ent["id"] == "f1")
         sub = {s["id"]: s["share"] for s in f1["members"]}
-        assert sub["f1a"] == 20.0 and sub["f1b"] == 20.0
+        assert sub["f1a"] == 10.0 and sub["f1b"] == 10.0
         assert sub["f1c"] == 0.0 and sub["f1d"] == 0.0
-        assert round(sum(sub.values()), 2) == f1["share"] == 40.0
+        assert round(sum(sub.values()), 2) == f1["share"] == 20.0
 
     def test_no_restriction_splits_evenly(self):
         members = _members_5a()

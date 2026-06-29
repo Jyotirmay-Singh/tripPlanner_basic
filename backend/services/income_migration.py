@@ -11,6 +11,7 @@ compute exactly which trips/members change so a human can sign off before any wr
 """
 
 from services.calculator import resolve_weights, split_per_capita, split_per_family
+from services.member_breakdown import family_member_ids
 from utils.settlement_gate import is_settled
 
 
@@ -24,15 +25,21 @@ def compute_net(members: list, expenses: list, settlements: list) -> dict:
     """member_id -> rounded net. Faithful replica of ``utils.balances._compute_balances`` net loop:
     signed amounts, PER_CAPITA via resolve_weights+split_per_capita / PER_FAMILY via split_per_family,
     then settlements, then a single round(2). Every row passed in is treated as a signed expense (no
-    ``kind`` filtering happens here — the caller decides which rows to include)."""
+    ``kind`` filtering happens here — the caller decides which rows to include).
+
+    PER_CAPITA honors ``family_participants`` exactly like the ledger: a family restricted to a subset
+    of its roster counts as its involved-member count. The migration uses this symmetrically (before
+    and after both go through here), so the income->negative deltas are unaffected by it."""
     net = {m["id"]: 0.0 for m in members}
     weight_map = {m["id"]: _weight_of_member(m) for m in members}
+    rosters = {m["id"]: family_member_ids(m) for m in members if m.get("kind") == "family"}
     all_ids = [m["id"] for m in members]
     for e in expenses:
         split_ids = e.get("split_member_ids") or all_ids
         mode = e.get("split_mode", "PER_CAPITA")
         if mode == "PER_CAPITA":
-            weights = resolve_weights(split_ids, weight_map, e.get("weight_snapshots"))
+            weights = resolve_weights(split_ids, weight_map, e.get("weight_snapshots"),
+                                      e.get("family_participants"), rosters)
             shares = split_per_capita(e["amount"], weights)
         else:
             shares = split_per_family(e["amount"], split_ids)

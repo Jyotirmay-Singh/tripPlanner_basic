@@ -1,9 +1,12 @@
-// Intra-family member participation (Model A) — pure, display/payload helpers shared by the
-// add/edit expense screens and unit-tested in src/__tests__/familyParticipation.test.ts.
+// Intra-family member participation — pure, display/payload helpers shared by the add/edit expense
+// screens and unit-tested in src/__tests__/familyParticipation.test.ts.
 //
-// A family's TOTAL share is unchanged; only the INTERNAL per-member division changes. Unchecking a
-// member sends a `family_participants` entry (family id -> participating member ids). Absent / all
-// checked => nothing sent => backend default "everyone participates" (exact back-compat).
+// Unchecking a member sends a `family_participants` entry (family id -> participating member ids).
+// Absent / all checked => nothing sent => backend default "everyone participates" (exact back-compat).
+// PER_CAPITA: a restricted family counts as its INVOLVED-member count, so its share IS reduced and
+// each involved member owes the per-human cost (CLAUDE.md §5-A) — mirrored by perCapitaHumans /
+// familyInvolvedWeight / familyShareEach. PER_FAMILY: the family's flat per-entity TOTAL is unchanged;
+// only its internal per-member division honors participation.
 
 export type FPMember = {
   id: string;
@@ -45,16 +48,36 @@ export function familyMemberIds(m: FPMember): string[] {
   return names.map((_, i) => ids[i] ?? `${m.id}:${i}`);
 }
 
-/** Total humans for PER_CAPITA (mirrors backend resolve_weights + split_per_capita denominator). */
+/** A family's PER_CAPITA human-count weight — mirrors backend `resolve_weights` precedence: an
+ *  explicit numeric override wins; else the INVOLVED-member count when participation is a proper,
+ *  non-empty restriction (CLAUDE.md §5-A: the same count that divides the share among members); else
+ *  the full registered size. */
+export function familyInvolvedWeight(
+  m: FPMember,
+  override?: number,
+  excluded?: string[],
+): number {
+  const size = Math.max(1, (m.family_members || []).length);
+  if (override != null) return override;
+  const ids = familyMemberIds(m);
+  const excl = new Set(excluded || []);
+  const included = ids.filter((id) => !excl.has(id)).length;
+  return included > 0 && included < ids.length ? included : size;
+}
+
+/** Total humans for PER_CAPITA (mirrors backend resolve_weights + split_per_capita denominator).
+ *  `familyExcluded` (family id -> excluded member ids) lets a partially-attending family count as its
+ *  involved-member count, exactly like the ledger. */
 export function perCapitaHumans(
   members: FPMember[],
   splitSel: string[],
   weightOverrides: Record<string, number>,
+  familyExcluded: Record<string, string[]> = {},
 ): number {
   let H = 0;
   for (const sid of splitSel) {
     const m = members.find((x) => x.id === sid);
-    if (m && m.kind === 'family') H += weightOverrides[sid] ?? Math.max(1, (m.family_members || []).length);
+    if (m && m.kind === 'family') H += familyInvolvedWeight(m, weightOverrides[sid], familyExcluded[sid]);
     else H += 1;
   }
   return H;
@@ -101,9 +124,12 @@ export function excludedFromParticipants(
   return out;
 }
 
-/** Per-participant share of one family for the live preview (display only; matches Model A).
- *  PER_FAMILY: the family's flat per-entity share (amount / entities) split among participants.
- *  PER_CAPITA: the family's per-human share (per_human * size) split among participants. */
+/** Per-participant share of one family for the live preview (display only).
+ *  PER_FAMILY: the family's flat per-entity share (amount / entities) split among participants
+ *  (display-only — the family's entity total is unchanged).
+ *  PER_CAPITA: each involved member owes the per-human cost C = amount / H, because the family is now
+ *  sized by its INVOLVED count (CLAUDE.md §5-A) — the same count it is divided by. `familyExcluded`
+ *  (family id -> excluded member ids) feeds H so every partially-attending family counts correctly. */
 export function familyShareEach(
   amount: number,
   members: FPMember[],
@@ -112,6 +138,7 @@ export function familyShareEach(
   famId: string,
   includedCount: number,
   splitMode: string,
+  familyExcluded: Record<string, string[]> = {},
 ): number {
   const m = members.find((x) => x.id === famId);
   // amount may be negative (money back) -> the per-share preview is correspondingly negative.
@@ -121,8 +148,9 @@ export function familyShareEach(
     if (E <= 0) return 0;
     return amount / E / includedCount;
   }
-  const H = perCapitaHumans(members, splitSel, weightOverrides);
+  const H = perCapitaHumans(members, splitSel, weightOverrides, familyExcluded);
   if (H <= 0) return 0;
-  const famWeight = weightOverrides[famId] ?? Math.max(1, (m.family_members || []).length);
+  // Involved count sizes the family share AND divides it -> each participant owes exactly amount / H.
+  const famWeight = weightOverrides[famId] ?? includedCount;
   return ((amount / H) * famWeight) / includedCount;
 }
