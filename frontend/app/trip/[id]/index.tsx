@@ -2,13 +2,15 @@ import React, { useCallback, useState } from 'react';
 import { View, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Share, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { api, getToken, receiptUrl } from '../../../src/api';
+import { api, getToken, receiptUrl, spendSummary } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, LAYOUT, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
 import Badge from '../../../src/Badge';
 import DonutChart, { paletteForMode } from '../../../src/DonutChart';
+import SpendBarChart from '../../../src/SpendBarChart';
+import { type SpendSummary } from '../../../src/spend';
 import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { canModifyExpense, roleOf, canEditTripSettings, canManageMembers, canDeleteTrip } from '../../../src/permissions';
@@ -47,6 +49,7 @@ export default function TripDetail() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [balances, setBalances] = useState<Balances | null>(null);
+  const [spend, setSpend] = useState<SpendSummary | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [tab, setTab] = useState<TabKey>('summary');
   const [token, setToken] = useState<string | null>(null);
@@ -60,13 +63,14 @@ export default function TripDetail() {
     if (!id) return;
     setRefreshing(true);
     try {
-      const [t, e, b, tok] = await Promise.all([
+      const [t, e, b, s, tok] = await Promise.all([
         api<Trip>(`/trips/${id}`),
         api<Expense[]>(`/trips/${id}/expenses`),
         api<Balances>(`/trips/${id}/balances`),
+        spendSummary(id),
         getToken(),
       ]);
-      setTrip(t); setExpenses(e); setBalances(b); setToken(tok);
+      setTrip(t); setExpenses(e); setBalances(b); setSpend(s); setToken(tok);
     } catch (err: any) { toast.show(err.message || 'Could not load this trip', 'error'); }
     setRefreshing(false);
   }, [id, toast]);
@@ -250,6 +254,12 @@ export default function TripDetail() {
                         params: { id: id as string, name: encodeURIComponent(s.key) },
                       })}
                     />
+                  </Card>
+                )}
+
+                {expenseCount > 0 && (
+                  <Card>
+                    <SpendBarChart summary={spend} displayNames={displayNames} currency={trip.currency} />
                   </Card>
                 )}
               </View>

@@ -12,7 +12,10 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 
 // --- contexts / router / native shells ---
-jest.mock('../../api', () => ({ api: jest.fn(), getToken: jest.fn(), receiptUrl: jest.fn(() => 'receipt://x') }));
+jest.mock('../../api', () => ({
+  api: jest.fn(), getToken: jest.fn(), receiptUrl: jest.fn(() => 'receipt://x'),
+  spendSummary: jest.fn(() => Promise.resolve({ total: 0, count: 0, entities: [] })),
+}));
 jest.mock('../../AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
 jest.mock('../../ThemeContext', () => ({
   useTheme: () => ({ colors: new Proxy({}, { get: () => '#123456' }), mode: 'light' }),
@@ -39,6 +42,7 @@ jest.mock('../../T', () => {
   return { __esModule: true, default: (p: any) => R.createElement(Text, null, p.children) };
 });
 jest.mock('../../DonutChart', () => ({ __esModule: true, default: () => null, paletteForMode: () => ['#000'] }));
+jest.mock('../../SpendBarChart', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../ReceiptViewer', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../ConfirmModal', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../ui', () => {

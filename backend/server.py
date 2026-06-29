@@ -12,7 +12,7 @@ from utils.date_rules import legacy_to_iso
 from utils.email_rules import is_allowed_email
 from utils.security import hash_secret
 from utils.emailer import sender_mode_summary
-from routes import auth, trips, members, expenses, balances, reports, meta, receipts
+from routes import auth, trips, members, expenses, balances, reports, meta, receipts, spend
 
 
 # ---------- Startup / Shutdown ----------
@@ -105,7 +105,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Trip Splitter", lifespan=lifespan)
 api = APIRouter(prefix="/api")
 
-for module in (auth, trips, members, expenses, balances, reports, meta, receipts):
+for module in (auth, trips, members, expenses, balances, reports, meta, receipts, spend):
     api.include_router(module.router)
 
 
