@@ -181,4 +181,4 @@ AGENT DIRECTIVE: You must update this file by changing `[ ]` to `[x]` as you suc
 - [x] Step 52: Pure `src/spend.ts::rankSpend` + types + `src/__tests__/spend.test.ts` (desc order, ties, family/individual, empty/zero/single, fraction scaling).
 - [x] Step 53: `SpendBarChart.tsx` (react-native-svg, theme-driven single-hue intensity ramp, family/individual marker, min bar width, compact header, empty state).
 - [x] Step 54: Wire into the trip detail Summary tab (fetch in `load()` via `api.ts::spendSummary`, render near the donut).
-- [ ] Step 55: Docs (USER_GUIDE §6) + full verification gate; commit.
+- [x] Step 55: Docs (USER_GUIDE §6) + full verification gate; commit. USER_GUIDE §6 gains the "Top spenders" subsection. Verified gate green: backend `pytest` **495 passed / 1 skipped** (single fresh-DB run, 481 Phase 11 + 14 new; the skip is the pre-existing reset-PIN env case); frontend **202 jest passed (25 suites)**, `tsc --noEmit` clean, `eslint .` clean (lone pre-existing `.expo/types/router.d.ts` warning), `expo export -p web` builds all routes incl. `/trip/[id]`. Branch `feature/spend-bar-chart`.
