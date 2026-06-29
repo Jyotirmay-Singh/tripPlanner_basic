@@ -9,7 +9,7 @@
 #        family net.
 from services.calculator import (
     _chosen_participants,
-    distribute_per_expense_net,
+    distribute_chronological,
     involved_count,
     resolve_weights,
     split_per_capita,
@@ -117,43 +117,54 @@ class TestPerCapitaInvolved:
         assert net["F1"] == -40.0 and net["F2"] == -40.0 and net["i1"] == 80.0
 
 
-# =========================================================================== BUG 1 — distribute_per_expense_net
-class TestDistributePerExpenseNet:
+# =========================================================================== BUG 1 — distribute_chronological
+class TestDistributeChronological:
     def test_even_split_among_chosen_excluded_zero(self):
-        out = distribute_per_expense_net([(-60.0, ["a", "b"])], 0.0, ["a", "b", "c"])
+        out = distribute_chronological([("exp", -60.0, ["a", "b"])], ["a", "b", "c"])
         assert out == {"a": -30.0, "b": -30.0, "c": 0.0}  # c excluded -> exactly 0
 
     def test_payer_credit_lands_on_participants(self):
-        out = distribute_per_expense_net([(100.0, ["a", "b"])], 0.0, ["a", "b", "c"])
+        out = distribute_chronological([("exp", 100.0, ["a", "b"])], ["a", "b", "c"])
         assert out == {"a": 50.0, "b": 50.0, "c": 0.0}
 
     def test_multiple_expenses_accumulate_per_member(self):
-        out = distribute_per_expense_net([(-20.0, ["a"]), (-40.0, ["a", "b"])], 0.0, ["a", "b"])
+        out = distribute_chronological([("exp", -20.0, ["a"]), ("exp", -40.0, ["a", "b"])], ["a", "b"])
         assert out == {"a": -40.0, "b": -20.0}  # a in both, b only the 2nd
 
-    def test_settlement_offsets_position_holders_only(self):
-        # a holds a +600 position, b holds none -> the settlement offsets a only; b stays 0.
-        out = distribute_per_expense_net([(600.0, ["a"])], -590.0, ["a", "b"])
-        assert out == {"a": 10.0, "b": 0.0}
+    def test_full_settlement_zeroes_everyone_then_new_expense_shows_fresh(self):
+        # a/b owe from old expenses, a FULL settlement clears them, then a new expense (b only).
+        events = [
+            ("exp", -100.0, ["a"]), ("exp", -100.0, ["b"]),  # a -100, b -100 (net -200)
+            ("settle", 200.0, None),                          # family pays back 200 -> both -> 0
+            ("exp", -50.0, ["b"]),                            # new unsettled expense, b only
+        ]
+        out = distribute_chronological(events, ["a", "b"])
+        assert out == {"a": 0.0, "b": -50.0}  # settled money gone; only the new expense remains
 
-    def test_settlement_falls_back_to_roster_when_no_positions(self):
-        # No expenses at all -> nobody holds a position -> settlement splits evenly across the roster.
-        out = distribute_per_expense_net([], 12.0, ["a", "b", "c"])
+    def test_partial_settlement_shrinks_open_positions_proportionally(self):
+        # a -60, b -40 (net -100); a partial settlement of 50 halves both.
+        out = distribute_chronological([("exp", -60.0, ["a"]), ("exp", -40.0, ["b"]),
+                                        ("settle", 50.0, None)], ["a", "b"])
+        assert out == {"a": -30.0, "b": -20.0}
+
+    def test_settlement_on_zero_positions_splits_evenly(self):
+        out = distribute_chronological([("settle", 12.0, None)], ["a", "b", "c"])
         assert out == {"a": 4.0, "b": 4.0, "c": 4.0}
 
     def test_stale_chosen_ids_dropped(self):
-        out = distribute_per_expense_net([(-30.0, ["a", "ghost"])], 0.0, ["a", "b"])
+        out = distribute_chronological([("exp", -30.0, ["a", "ghost"])], ["a", "b"])
         assert out == {"a": -30.0, "b": 0.0}  # ghost not in roster -> dropped, a takes the share
 
     def test_empty_chosen_contributes_nothing(self):
-        assert distribute_per_expense_net([(50.0, [])], 0.0, ["a", "b"]) == {"a": 0.0, "b": 0.0}
+        assert distribute_chronological([("exp", 50.0, [])], ["a", "b"]) == {"a": 0.0, "b": 0.0}
 
     def test_single_member_and_empty_roster(self):
-        assert distribute_per_expense_net([(-7.0, ["a"])], 0.0, ["a"]) == {"a": -7.0}
-        assert distribute_per_expense_net([(-7.0, ["a"])], 5.0, []) == {}
+        assert distribute_chronological([("exp", -7.0, ["a"])], ["a"]) == {"a": -7.0}
+        assert distribute_chronological([("exp", -7.0, ["a"]), ("settle", 5.0, None)], []) == {}
 
-    def test_sum_equals_total(self):
-        out = distribute_per_expense_net([(-20.0, ["a"]), (90.0, ["b"])], 6.0, ["a", "b", "c"])
+    def test_sum_equals_post_settlement_net(self):
+        out = distribute_chronological([("exp", -20.0, ["a"]), ("exp", 90.0, ["b"]),
+                                        ("settle", 6.0, None)], ["a", "b", "c"])
         assert abs(sum(out.values()) - (-20.0 + 90.0 + 6.0)) < 1e-9
 
 
