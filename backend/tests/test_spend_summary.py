@@ -140,9 +140,8 @@ def _make_trip(api_client, owner_token):
     owner_member_id = trip["members"][0]["id"]
     fam = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/members", json={
         "name": "The Family", "kind": "family", "family_members": ["X", "Y", "Z"],
-    }, headers=_auth(owner_token)).json()
-    fam_member_id = next(m["id"] for m in fam["members"] if m.get("kind") == "family")
-    return trip_id, owner_member_id, fam_member_id
+    }, headers=_auth(owner_token)).json()  # add_member returns the created member doc
+    return trip_id, owner_member_id, fam["id"]
 
 
 def _add_expense(api_client, token, trip_id, paid_by, amount):
