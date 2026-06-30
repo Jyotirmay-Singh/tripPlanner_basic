@@ -5,6 +5,7 @@ import { useTheme } from '../ThemeContext';
 import { SPACING, RADIUS, SHADOW, MOTION } from '../theme';
 import T from '../T';
 import Icon, { IconName } from './Icon';
+import IconButton from './IconButton';
 
 export type ToastType = 'success' | 'error' | 'info';
 type ToastState = { message: string; type: ToastType } | null;
@@ -42,6 +43,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     timer.current = setTimeout(hide, durationMs);
   }, [hide, translateY, opacity]);
 
+  // Manual close: cancel the pending auto-dismiss so it can't fire a redundant late hide(),
+  // then run the same exit animation. Additive path — `show`'s auto-dismiss timer is untouched.
+  const dismiss = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    hide();
+  }, [hide]);
+
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const accent = toast
@@ -64,6 +72,16 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               <Icon name={ICONS[toast.type]} size={18} color={accent} />
             </View>
             <T style={{ flex: 1 }} numberOfLines={3}>{toast.message}</T>
+            <IconButton
+              name="close"
+              onPress={dismiss}
+              accessibilityLabel="Dismiss notification"
+              variant="plain"
+              size={18}
+              color={colors.textMuted}
+              testID="toast-dismiss"
+              style={styles.close}
+            />
           </Animated.View>
         </View>
       ) : null}
@@ -78,4 +96,7 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.md, borderWidth: 1,
   },
   dot: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  // The reused IconButton keeps a full 44px touch target; negative margins let that box overlap
+  // the toast's padding so the ✕ aligns to the right edge without growing the toast's height.
+  close: { marginVertical: -SPACING.sm, marginRight: -SPACING.xs },
 });
