@@ -1,0 +1,4 @@
+env: load .env
+env: export EXPO_PUBLIC_BACKEND_URL EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID
+Starting project at D:\projects\tripPlanner\frontend
+Starting Metro Bundler
