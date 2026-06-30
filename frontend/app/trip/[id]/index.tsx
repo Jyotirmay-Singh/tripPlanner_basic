@@ -17,6 +17,7 @@ import { canModifyExpense, roleOf, canEditTripSettings, canManageMembers, canDel
 import { compositionLabel } from '../../../src/composition';
 import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displayNames';
 import { billLabel } from '../../../src/bill';
+import { sortExpensesDesc } from '../../../src/expenseSort';
 import { hasShareBreakdown, shareVerbs, type ExpenseShares } from '../../../src/expenseShares';
 import { isTripSettled } from '../../../src/tripSettled';
 import { formatMoney } from '../../../src/format';
@@ -29,7 +30,7 @@ import {
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
 type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
-type Expense = { id: string; amount: number; category: string; description?: string; date: string; time?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string; shares?: ExpenseShares };
+type Expense = { id: string; amount: number; category: string; description?: string; date: string; time?: string | null; created_at?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string; shares?: ExpenseShares };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[]; members?: { id: string; name: string; net: number }[] }[] };
 
 type TabKey = 'summary' | 'expenses' | 'balances' | 'members';
@@ -270,7 +271,7 @@ export default function TripDetail() {
             <View style={{ gap: SPACING.sm }}>
               {expenses.length === 0 ? (
                 <EmptyState icon="receipt" title="No transactions yet" body="Add an expense (or a negative amount for money back) to start tracking this trip." ctaLabel="Add transaction" ctaIcon="plus" onCta={() => router.push(`/trip/${id}/add-expense`)} testID="expenses-empty" />
-              ) : expenses.map((e) => (
+              ) : sortExpensesDesc(expenses).map((e) => (
                 <Card key={e.id} onPress={() => router.push({ pathname: '/trip/[id]/edit-expense', params: { id: id as string, eid: e.id } })}
                   testID={`expense-item-${e.id}`}>
                   <View style={styles.rowCard}>
