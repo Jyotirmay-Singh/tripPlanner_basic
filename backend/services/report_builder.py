@@ -12,7 +12,9 @@ path.
 """
 
 from services.calculator import resolve_weights, split_per_capita, split_per_family
+from services.expense_shares import entity_shares_raw
 from services.member_breakdown import family_member_ids
+from services.spend_summary import aggregate_spend
 from utils.display_names import member_display_names
 
 
@@ -164,3 +166,230 @@ def build_transaction_rows(expenses: list, members: list) -> list:
             "split_mode": e.get("split_mode", "PER_CAPITA"),
         })
     return rows
+
+
+# ---------- Phase 16: report restructure (concise, professional, CA-reviewable) ----------
+# Everything below is additive and PURE (plain dicts/lists). It only RESHAPES the engine's outputs
+# for the workbook — no new split/balance math. It reuses the SAME helpers the ledger uses
+# (`services.expense_shares.entity_shares_raw`, `services.spend_summary.aggregate_spend`, and the
+# `build_*_rows` builders above), so every displayed figure can never drift from
+# `utils.balances._compute_balances`.
+
+_MODE_LABELS = {"PER_CAPITA": "Per-Person", "PER_FAMILY": "Per-Family"}
+
+
+def mode_label(mode) -> str:
+    """Split-mode label for display: 'PER_CAPITA' -> 'Per-Person', 'PER_FAMILY' -> 'Per-Family'.
+    Unknown/blank defaults to 'Per-Person' (the ledger's PER_CAPITA default)."""
+    return _MODE_LABELS.get(mode or "PER_CAPITA", "Per-Person")
+
+
+def trip_composition(members: list) -> tuple:
+    """(individuals, families, singles) — backend mirror of frontend ``composition.ts::tripComposition``.
+    A family contributes max(1, roster size) humans and one family; an individual one human + one single.
+    """
+    individuals = families = singles = 0
+    for m in members or []:
+        if not m:
+            continue
+        if m.get("kind") == "family":
+            families += 1
+            individuals += max(1, len(m.get("family_members") or []))
+        else:
+            singles += 1
+            individuals += 1
+    return individuals, families, singles
+
+
+def composition_label(members: list) -> str:
+    """'X Individuals across Y Families & Z Singles' — mirror of ``composition.ts::compositionLabel``
+    (omits empty segments; with no families shows just the human count)."""
+    individuals, families, singles = trip_composition(members)
+
+    def plural(n, one, many):
+        return f"{n} {one if n == 1 else many}"
+
+    if families == 0:
+        return plural(individuals, "Individual", "Individuals")
+    parts = [plural(families, "Family", "Families")]
+    if singles > 0:
+        parts.append(plural(singles, "Single", "Singles"))
+    return f"{plural(individuals, 'Individual', 'Individuals')} across {' & '.join(parts)}"
+
+
+def entity_ledger_components(expenses: list, members: list) -> tuple:
+    """(paid, share) maps keyed by member id, accumulated EXACTLY as ``_compute_balances`` does.
+
+    For each expense the ledger skips rows that split to nothing (H<=0 / E<=0); ``entity_shares_raw``
+    returns ``{}`` for exactly those, so we skip crediting the payer too — keeping these maps in
+    lockstep with the ledger. ``paid`` is the SIGNED amount fronted (a money-back row reduces it);
+    ``share`` is the sum of each entity's allocations (the quantity the ledger subtracts from net).
+    Both are UNROUNDED (callers round for display). By construction, per entity::
+
+        net (from _compute_balances) == paid - share + settlement_adjustment.
+    """
+    paid = {m["id"]: 0.0 for m in members}
+    share = {m["id"]: 0.0 for m in members}
+    for e in expenses:
+        raw = entity_shares_raw(e, members)
+        if not raw:
+            continue  # H<=0 / E<=0: the ledger skips this row (no payer credit, no shares)
+        pid = e.get("paid_by_member_id")
+        if pid in paid:
+            paid[pid] += e.get("amount", 0.0)
+        for eid, sh in raw.items():
+            if eid in share:
+                share[eid] += sh
+    return paid, share
+
+
+def settle_adj_by_entity(settlements: list) -> dict:
+    """member id -> settlement adjustment (Σ amount paid OUT − Σ amount received), the SAME overlay
+    ``_compute_balances`` applies (``net[from] += amount``, ``net[to] -= amount``). Pass the
+    non-pending settlement rows only (the set the ledger overlays)."""
+    out: dict = {}
+    for s in settlements or []:
+        amt = s.get("amount", 0.0)
+        f = s.get("from_member_id")
+        t = s.get("to_member_id")
+        if f is not None:
+            out[f] = out.get(f, 0.0) + amt
+        if t is not None:
+            out[t] = out.get(t, 0.0) - amt
+    return out
+
+
+def build_summary_spend_rows(members: list, expenses: list) -> dict:
+    """'Spend by entity' table for the Summary tab: gross amount PAID per entity, DESCENDING.
+
+    Wraps ``services.spend_summary.aggregate_spend`` (positive-only gross — the same figure the in-app
+    SpendBarChart shows), relabeled with disambiguated display names. Ties broken by name for a stable
+    order. Returns ``{"rows": [{"name","type","paid"}...], "total": <Σ rounded paids>}``.
+    """
+    agg = aggregate_spend(members, expenses)
+    names = _names(members)
+    rows = [
+        {"name": names.get(en["entity_id"], en.get("name", "?")),
+         "type": "Family" if en["entity_type"] == "family" else "Individual",
+         "paid": en["paid"]}
+        for en in agg["entities"]
+    ]
+    rows.sort(key=lambda r: (-r["paid"], r["name"]))
+    return {"rows": rows, "total": agg["total"]}
+
+
+def build_members_families_rows(per_person: list, paid: dict, settle: dict, display: dict) -> list:
+    """Hierarchical 'Members & Families' rows: each family as a subtotal with its member rows beneath,
+    then standalone individuals, then a grand TOTAL.
+
+    Money is presented so every entity row reconciles EXACTLY: ``Net = Paid - Share + Settlements``.
+    Paid & Settlements are exact 2dp sums and Net is the authoritative post-settlement ledger figure
+    (the in-app +/-); Share is shown as ``Paid + Settlements - Net``, which is ALGEBRAICALLY the
+    engine's own Σ share (``net == paid - share + settle`` ⇒ ``share == paid + settle - net``) — so it
+    equals the independently-summed allocation (``entity_ledger_components``'s ``share``, cross-checked
+    in tests) yet foots to the cent on every row and column (Σ Paid = Σ Share = grand total;
+    Σ Settlements = Σ Net = 0). Family-member rows carry only Net (the post-settlement chronological
+    breakdown from ``_compute_balances``, which sums to the family's Net); they are sub-rows EXCLUDED
+    from the TOTAL (no double count).
+
+    ``per_person`` is ``bal["per_person"]``; ``paid``/``settle`` are the unrounded maps from
+    ``entity_ledger_components`` / ``settle_adj_by_entity``; ``display`` is member id -> label.
+    """
+    fams = [pp for pp in per_person if pp["kind"] == "family"]
+    inds = [pp for pp in per_person if pp["kind"] != "family"]
+    rows: list = []
+    tot_paid = tot_share = tot_settle = tot_net = 0.0
+
+    def entity_money(mid, net_total):
+        paid_d = round(paid.get(mid, 0.0), 2)
+        settle_d = round(settle.get(mid, 0.0), 2)
+        net_d = round(net_total, 2)
+        # Share as the engine identity Paid + Settlements - Net (== Σ share). All operands are 2dp,
+        # so the row foots exactly: paid_d - share_d + settle_d == net_d.
+        share_d = round(paid_d + settle_d - net_d, 2)
+        return paid_d, share_d, settle_d, net_d
+
+    for pp in fams:
+        mid = pp["member_id"]
+        label = display.get(mid, pp["member_name"])
+        paid_d, share_d, settle_d, net_d = entity_money(mid, pp["net_total"])
+        rows.append({"kind": "family_subtotal", "name": label, "type": "Family", "family": "",
+                     "paid": paid_d, "share": share_d, "settle": settle_d, "net": net_d})
+        tot_paid += paid_d
+        tot_share += share_d
+        tot_settle += settle_d
+        tot_net += net_d
+        for mrow in pp.get("members", []):
+            rows.append({"kind": "family_member", "name": mrow["name"], "type": "Family member",
+                         "family": label, "paid": None, "share": None, "settle": None,
+                         "net": round(mrow["net"], 2)})
+
+    for pp in inds:
+        mid = pp["member_id"]
+        label = display.get(mid, pp["member_name"])
+        paid_d, share_d, settle_d, net_d = entity_money(mid, pp["net_total"])
+        rows.append({"kind": "individual", "name": label, "type": "Individual", "family": "",
+                     "paid": paid_d, "share": share_d, "settle": settle_d, "net": net_d})
+        tot_paid += paid_d
+        tot_share += share_d
+        tot_settle += settle_d
+        tot_net += net_d
+
+    rows.append({"kind": "total", "name": "TOTAL", "type": "", "family": "",
+                 "paid": round(tot_paid, 2), "share": round(tot_share, 2),
+                 "settle": round(tot_settle, 2), "net": round(tot_net, 2)})
+    return rows
+
+
+def build_split_math_rows(expenses: list, members: list) -> list:
+    """Flagship 'Split Math' blocks — one block per expense (date order), reusing the existing
+    calculator-faithful builders so allocations can never drift from the ledger.
+
+    Each block::
+
+        {expense, date, category, amount, mode, divisor,
+         participants: [{participant, ptype, units, per_unit, allocated}, ...],
+         subtotal_units, subtotal_allocated}
+
+    Per-Person reuses ``build_per_capita_rows`` (``units`` = involved-human weight, ``per_unit`` =
+    amount / total involved humans); Per-Family reuses ``build_per_family_rows`` (``units`` = 1,
+    ``per_unit`` = amount / total entities). ``allocated = units × per_unit``, and Σ allocated ==
+    amount, Σ units == divisor. An expense that splits to nothing (H<=0 / E<=0) is skipped, exactly
+    like the ledger.
+    """
+    names = _names(members)
+    kind_by_label = {names[m["id"]]: ("Family" if m.get("kind") == "family" else "Individual")
+                     for m in members}
+    sorted_expenses = sorted(expenses, key=lambda x: x.get("date", ""))
+    blocks: list = []
+    for e in sorted_expenses:
+        mode = e.get("split_mode") or "PER_CAPITA"
+        if mode == "PER_FAMILY":
+            prows = build_per_family_rows([e], members)
+            parts = [{"participant": r["member_name"],
+                      "ptype": kind_by_label.get(r["member_name"], "Individual"),
+                      "units": 1, "per_unit": r["per_entity"], "allocated": r["member_share"]}
+                     for r in prows]
+            divisor = prows[0]["total_entities"] if prows else 0
+        else:
+            prows = build_per_capita_rows([e], members)
+            parts = [{"participant": r["member_name"],
+                      "ptype": kind_by_label.get(r["member_name"], "Individual"),
+                      "units": r["member_weight"], "per_unit": r["per_human"],
+                      "allocated": r["member_share"]}
+                     for r in prows]
+            divisor = prows[0]["total_humans"] if prows else 0
+        if not parts:
+            continue  # H<=0 / E<=0: skipped, exactly like the ledger
+        blocks.append({
+            "expense": e.get("description", "") or e.get("category", ""),
+            "date": _date_cell(e),
+            "category": e.get("category", ""),
+            "amount": e.get("amount", 0.0),
+            "mode": mode_label(mode),
+            "divisor": divisor,
+            "participants": parts,
+            "subtotal_units": sum(p["units"] for p in parts),
+            "subtotal_allocated": round(sum(p["allocated"] for p in parts), 2),
+        })
+    return blocks

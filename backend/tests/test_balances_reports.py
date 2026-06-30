@@ -225,12 +225,47 @@ class TestReports:
         # Verify it's a valid XLSX file (starts with PK zip signature)
         assert response.content[:2] == b'PK'
 
-        # Step 9: the workbook now carries split-mode validation tabs and a Split Mode column.
+        # Phase 16: the workbook is restructured into 4 professional tabs (in order).
         wb = load_workbook(io.BytesIO(response.content))
-        assert "Per-Capita Math" in wb.sheetnames
-        assert "Per-Family Math" in wb.sheetnames
+        assert wb.sheetnames == ["Summary", "Members & Families", "Split Math", "Transactions"]
+
+        # Summary carries the trip header, the per-entity Gross Spent block, and By category.
+        summary_vals = [str(c.value) for rowcells in wb["Summary"].iter_rows() for c in rowcells]
+        assert any("Gross Spent" in v for v in summary_vals)
+        assert any(v == "Total Spent" for v in summary_vals)
+        assert any(v == "By category" for v in summary_vals)
+
+        # Members & Families header has the four reconciling money columns.
+        mf = wb["Members & Families"]
+        mf_header = [c.value for c in mf[1]]
+        assert mf_header[0] == "Name" and mf_header[1] == "Type" and mf_header[2] == "Family"
+        assert "Gross Spent" in mf_header[3] and "Share of Expenses" in mf_header[4]
+        assert "Settlements" in mf_header[5] and "Net Balance" in mf_header[6]
+        # Every numeric entity/total row reconciles: Net = Paid - Share + Settlements (to the cent).
+        recon_rows = 0
+        for name, typ, fam, paid, share, settle, net in mf.iter_rows(min_row=2, values_only=True):
+            if all(isinstance(x, (int, float)) for x in (paid, share, settle, net)):
+                assert abs(round(paid - share + settle, 2) - net) <= 0.011
+                recon_rows += 1
+        assert recon_rows >= 2  # at least the individual entity + the TOTAL row
+
+        # Split Math is the combined per-(expense x participant) tab with subtotals.
+        sm = wb["Split Math"]
+        sm_header = [c.value for c in sm[1]]
+        assert sm_header[:6] == ["Expense", "Date", "Total Amount", "Split Mode",
+                                 "Participant", "Participant Type"]
+        assert sm_header[6] == "Units" and "Per-Unit Cost" in sm_header[7] and "Allocated" in sm_header[8]
+        # At least one expense subtotal whose Allocated equals the expense Total Amount.
+        subtotal_checks = 0
+        for expense, date, total_amt, mode, participant, ptype, units, per_unit, allocated in \
+                sm.iter_rows(min_row=2, values_only=True):
+            if isinstance(expense, str) and expense.endswith("Subtotal"):
+                assert abs(allocated - total_amt) <= 0.011
+                subtotal_checks += 1
+        assert subtotal_checks >= 2  # one per expense (PER_CAPITA + PER_FAMILY line items)
+
+        # Transactions journal keeps the Split Mode column, now humanized.
         tx_header = [c.value for c in wb["Transactions"][1]]
-        assert "Split Mode" in tx_header
-        # Each math tab has its header row plus at least one data row.
-        assert wb["Per-Capita Math"].max_row >= 2
-        assert wb["Per-Family Math"].max_row >= 2
+        assert tx_header[-1] == "Split Mode"
+        tx_modes = {row[-1] for row in wb["Transactions"].iter_rows(min_row=2, values_only=True)}
+        assert tx_modes <= {"Per-Person", "Per-Family"}

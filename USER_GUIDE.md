@@ -165,12 +165,25 @@ Open via the trip's **Settle Up** button. The screen has two parts:
 ## 8. Reports & XLSX Export
 
 - Bottom-tab **Reports** lists all your trips.
-- Tap **XLSX** to download an Excel file with four sheets:
-  1. **Summary** — trip metadata + totals
-  2. **By Category** — every category and its total
-  3. **Per Member** — net balance per member, with per-person breakdown
-  4. **Per Family Person** — every individual family member with their share
-  5. **Transactions** — full log: date, kind, category, description, amount, who paid, who was split among
+- Tap **XLSX** to download a professionally-formatted Excel workbook (bold frozen headers, currency
+  number format, right-aligned figures) with **four sheets**:
+  1. **Summary** — trip header (name, dates, share code, currency, member composition, budget,
+     **Total Spent**), a **Spend by entity** block ranking who paid the most (**Gross Spent**,
+     descending), and the **By category** totals.
+  2. **Members & Families** — one auditable table: each individual and each family member grouped
+     under its family with a **family subtotal**, then standalone individuals, then a grand **TOTAL**.
+     Money columns reconcile exactly: **Net Balance = Gross Spent − Share of Expenses + Settlements**.
+     (Family-member rows show only their share of the family's **Net Balance**, which sums to the
+     family total.)
+  3. **Split Math** — the full split breakdown, one block per expense: every participant row shows
+     **Units** (people counted; an entity counts as 1 in Per-Family), **Per-Unit Cost**, and
+     **Allocated** amount, with a per-expense **Subtotal**. Per-Person divides by the total involved
+     people; Per-Family divides by the number of entities.
+  4. **Transactions** — full journal: date, category, description, amount, who paid, who it was split
+     among, and the split mode.
+
+"Gross Spent" (a.k.a. Total Spent) is the amount an entity actually fronted — not net of their own
+share — the same figure the trip card's **SPENT** total shows.
 
 The download opens in your phone's browser; share or save it from there.
 
