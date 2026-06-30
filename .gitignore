@@ -69,6 +69,7 @@ chainlit.md
 .ipynb_checkpoints/
 .ac
 .playwright-mcp/
+.tokensave/
 
 # Deployment
 .vercel
