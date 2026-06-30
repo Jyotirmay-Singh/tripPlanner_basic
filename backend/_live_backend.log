@@ -1,0 +1,5 @@
+INFO:     Started server process [18164]
+INFO:     Waiting for application startup.
+2026-06-30 14:40:36,863 INFO EMAIL: no RESEND_API_KEY configured - verification/reset links are only LOGGED (look for '[EMAIL] ... link='); no email is sent
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
