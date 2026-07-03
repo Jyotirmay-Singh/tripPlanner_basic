@@ -51,3 +51,8 @@ class ResetPasswordIn(BaseModel):
 class SetCredentialsIn(BaseModel):
     pin: str = Field(min_length=4, max_length=4)
     password: str = Field(min_length=1)  # length rule (>=9) enforced in route
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=1)  # length rule (>=9) enforced in route

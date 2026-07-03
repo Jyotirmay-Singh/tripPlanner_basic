@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, StyleSheet, Switch } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/AuthContext';
 import { useTheme } from '../../src/ThemeContext';
 import { useLogout } from '../../src/useLogout';
@@ -12,6 +13,7 @@ export default function Profile() {
   const { user } = useAuth();
   const { colors, mode, toggle } = useTheme();
   const { confirmAndSignOut } = useLogout();
+  const router = useRouter();
 
   return (
     <Screen scroll={false}>
@@ -37,6 +39,17 @@ export default function Profile() {
           trackColor={{ false: colors.border, true: colors.primary }}
           thumbColor={colors.surface}
         />
+      </Card>
+
+      <Card
+        onPress={() => router.push('/change-password')}
+        testID="profile-change-password"
+        accessibilityLabel="Change password"
+        style={styles.row}
+      >
+        <Icon name="lock" size={20} color={colors.primary} />
+        <T style={{ flex: 1 }}>Change password</T>
+        <Icon name="chevron-right" size={18} color={colors.textMuted} />
       </Card>
 
       <Card onPress={confirmAndSignOut} testID="profile-logout" accessibilityLabel="Sign out" style={styles.row}>

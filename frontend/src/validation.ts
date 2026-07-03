@@ -15,6 +15,8 @@ export const MIN_PASSWORD_LENGTH = 9;
 
 export const PASSWORD_TOO_SHORT_MESSAGE = `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
 export const PASSWORD_MISMATCH_MESSAGE = 'Passwords do not match';
+// Soft, persistent helper hint (vs the hard error message above) shown under new-password fields.
+export const PASSWORD_HINT_MESSAGE = `Use at least ${MIN_PASSWORD_LENGTH} characters`;
 
 export function isValidPassword(password: string): boolean {
   return password.length >= MIN_PASSWORD_LENGTH;

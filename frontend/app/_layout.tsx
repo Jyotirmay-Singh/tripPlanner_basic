@@ -60,6 +60,7 @@ function Inner() {
         <Stack.Screen name="trip/[id]/category/[name]" options={{ title: 'Category' }} />
         <Stack.Screen name="create-trip" options={{ title: 'Create Trip', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="join-trip" options={{ title: 'Join Trip', presentation: 'modal', headerRight: undefined }} />
+        <Stack.Screen name="change-password" options={{ title: 'Change Password', headerRight: undefined }} />
         {/* Phase 9: email-link landing pages (work signed-out) + the one-time OAuth setup step. */}
         <Stack.Screen name="verify-email" options={{ headerShown: false }} />
         <Stack.Screen name="reset-password" options={{ headerShown: false }} />

@@ -11,7 +11,7 @@ from config import logger, RESEND_API_KEY, SENDER_EMAIL, APP_URL, GOOGLE_CLIENT_
 from database import db
 from models.auth import (
     RegisterIn, LoginIn, ForgotIn, ResetPinIn, ResetPinByPasswordIn, GoogleAuthIn,
-    VerifyEmailIn, RequestPasswordResetIn, ResetPasswordIn, SetCredentialsIn,
+    VerifyEmailIn, RequestPasswordResetIn, ResetPasswordIn, SetCredentialsIn, ChangePasswordIn,
 )
 from utils.common import gen_id, now_utc
 from utils.email_rules import assert_gmail, normalize_email
@@ -298,6 +298,25 @@ async def set_credentials(body: SetCredentialsIn, user=Depends(get_current_user)
         {"id": user["id"]}, {"_id": 0, "password_hash": 0, "pin_hash": 0}
     )
     return {"ok": True, "user": _user_payload(updated)}
+
+
+# ---------- Self-service password change (signed-in) ----------
+@router.post("/auth/change-password")
+async def change_password(body: ChangePasswordIn, user=Depends(get_current_user)):
+    # In-app "change my password": prove ownership with the current password (no email round-trip),
+    # then set a new one. PIN, verification, and the JWT are all untouched. `get_current_user`
+    # strips password_hash from its projection, so re-fetch the full doc to verify.
+    if len(body.new_password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(400, f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
+    full = await db.users.find_one({"id": user["id"]})
+    if not full or not verify_secret(body.current_password, full["password_hash"]):
+        raise HTTPException(401, "Current password is incorrect")
+    if verify_secret(body.new_password, full["password_hash"]):
+        raise HTTPException(400, "New password must be different from your current password")
+    await db.users.update_one(
+        {"id": user["id"]}, {"$set": {"password_hash": hash_secret(body.new_password)}}
+    )
+    return {"ok": True}
 
 
 # Backward-compat aliases (kept so old frontend builds keep working)
