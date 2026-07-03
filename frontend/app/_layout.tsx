@@ -11,7 +11,7 @@ import { Figtree_400Regular, Figtree_500Medium, Figtree_600SemiBold, Figtree_700
 import { ThemeProvider, useTheme } from '../src/ThemeContext';
 import { AuthProvider, useAuth } from '../src/AuthContext';
 import { LogoutProvider } from '../src/LogoutProvider';
-import LogoutButton from '../src/LogoutButton';
+import ProfileAvatarButton from '../src/ProfileAvatarButton';
 import { ToastProvider } from '../src/ui';
 import { FONTS } from '../src/theme';
 import { authRedirectTarget, navResetTo, isPublicTokenRoute } from '../src/authNav';
@@ -33,7 +33,7 @@ function Inner() {
     if (target) navResetTo(router, target);
   }, [user, segments, router]);
 
-  const headerRight = user ? () => <LogoutButton /> : undefined;
+  const headerRight = user ? () => <ProfileAvatarButton /> : undefined;
   return (
     <LogoutProvider>
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />

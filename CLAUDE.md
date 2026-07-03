@@ -261,3 +261,19 @@ Grand Total=63,100.)*
 - [ ] Step 74: Frontend `api.ts::pdfUrl` + `reports.tsx` PDF button (`openReport(id,'pdf'|'xlsx')`);
       docs + full verification gate — frontend jest/tsc/lint green + backend pure unit tests green;
       live-API pytest subset + commit still pending (needs a running server).
+
+### Phase 19: Header Profile Avatar (replaces the Logout icon)
+*(Frontend-only, additive. The top-right header slot swaps the Logout icon for a circular Profile
+avatar (person icon + 1–2 uppercase initials) that navigates to the existing `(tabs)` Profile route.
+Logout is NOT removed — it stays on Profile via the unchanged Step-21 LogoutProvider/ConfirmModal/
+authNav flow. No backend/auth/RBAC/split/report change.)*
+- [x] Step 75: Pure `frontend/src/initials.ts` (single-string name → 1–2 uppercase initials: first+last
+      token, else first 2 chars, else 1 char; trim/collapse whitespace; empty→'') + full-coverage
+      `src/__tests__/initials.test.ts` (rules A/B/C + edge cases).
+- [x] Step 76: `frontend/src/ProfileAvatarButton.tsx` — filled `colors.primary` circle, `user-round`
+      icon + initials-below via `T`, IconButton-style Pressable (guarded haptics, web focus, ≥44px),
+      tap → `router.navigate('/(tabs)/profile')`.
+- [x] Step 77: Swap header `headerRight` in root `app/_layout.tsx` + `(tabs)/_layout.tsx` to
+      `ProfileAvatarButton`; delete orphaned `src/LogoutButton.tsx`; Profile big avatar reuses
+      `initials()`. Logout preserved on Profile (Step 21 unchanged); authNav/logout tests still green
+      + full frontend gate (jest/tsc/lint).

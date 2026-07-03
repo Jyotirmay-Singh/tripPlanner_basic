@@ -5,9 +5,10 @@ import ConfirmModal from './ConfirmModal';
 import { AUTH_LOGIN_HREF, navResetTo, performSignOut } from './authNav';
 
 // Single source of truth for the logout flow. Mounted once near the root so exactly one
-// themed ConfirmModal exists; both the header LogoutButton and the Profile "Sign out" row
-// trigger it via useLogout(). A native Alert can't be used here — it has no buttons on web —
-// and a hook alone can't mount a Modal, which is why the flow lives in a provider.
+// themed ConfirmModal exists; the Profile "Sign out" row triggers it via useLogout() (the header
+// now shows a ProfileAvatarButton that routes to Profile instead of signing out). A native Alert
+// can't be used here — it has no buttons on web — and a hook alone can't mount a Modal, which is
+// why the flow lives in a provider.
 type LogoutCtx = { confirmAndSignOut: () => void };
 
 export const LogoutContext = createContext<LogoutCtx>({ confirmAndSignOut: () => {} });

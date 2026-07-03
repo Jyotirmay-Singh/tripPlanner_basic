@@ -3,6 +3,7 @@ import { View, StyleSheet, Switch } from 'react-native';
 import { useAuth } from '../../src/AuthContext';
 import { useTheme } from '../../src/ThemeContext';
 import { useLogout } from '../../src/useLogout';
+import { initials } from '../../src/initials';
 import { SPACING, RADIUS } from '../../src/theme';
 import T from '../../src/T';
 import { Screen, Card, Icon } from '../../src/ui';
@@ -18,7 +19,7 @@ export default function Profile() {
 
       <Card style={styles.row}>
         <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
-          <T color={colors.primaryText} variant="h2">{(user?.name || '?').charAt(0).toUpperCase()}</T>
+          <T color={colors.primaryText} variant="h2">{initials(user?.name) || '?'}</T>
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <T variant="h3" numberOfLines={1}>{user?.name}</T>

@@ -6,7 +6,7 @@ import { useTheme } from '../../src/ThemeContext';
 import { FONTS } from '../../src/theme';
 import { Icon } from '../../src/ui';
 import { IconName } from '../../src/ui/Icon';
-import LogoutButton from '../../src/LogoutButton';
+import ProfileAvatarButton from '../../src/ProfileAvatarButton';
 
 // Named so it carries a display name (lint) — the tab icon renderer.
 function TabIcon({ name, color, focused, base = 22 }: { name: IconName; color: string; focused: boolean; base?: number }) {
@@ -48,7 +48,7 @@ export default function TabsLayout() {
         headerTitle: '',
         headerStyle: { backgroundColor: colors.background },
         headerShadowVisible: false,
-        headerRight: () => <LogoutButton />,
+        headerRight: () => <ProfileAvatarButton />,
       }}
     >
       <Tabs.Screen name="dashboard" options={{ title: 'Home', tabBarIcon: (p) => <TabIcon name="home" {...p} /> }} />
