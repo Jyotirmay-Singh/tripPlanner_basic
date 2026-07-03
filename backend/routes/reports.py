@@ -13,15 +13,15 @@ from utils.balances import _compute_balances
 from utils.display_names import member_display_names
 from utils.security import decode_token
 from services.report_builder import (
+    build_expense_member_rows,
     build_members_families_rows,
     build_split_math_rows,
     build_summary_spend_rows,
-    build_transaction_rows,
     composition_label,
     entity_ledger_components,
-    mode_label,
     settle_adj_by_entity,
 )
+from services.report_pdf import build_report_pdf
 
 router = APIRouter()
 
@@ -223,19 +223,68 @@ async def report_xlsx(trip_id: str, token: str,
     s3.freeze_panes = "A2"
     _set_widths(s3, [24, 18, 14, 12, 20, 16, 8, 16, 16])
 
-    # ----- Tab 4: Transactions (one row per expense journal) -----
+    # ----- Tab 4: Transactions (exploded: one row per member + a per-person pivot) -----
+    # Each expense expands into ONE ROW PER TRIP MEMBER showing that member's share ("Total Payable").
+    # Amount / Split Mode / Paid By print once per expense (top row of the block); non-participants
+    # show "-". A right-side pivot totals each person; the bottom row grand-totals Amount and Total
+    # Payable. All figures come from build_expense_member_rows (reuses the ledger split math).
     s4 = wb.create_sheet("Transactions")
-    tx_headers = ["Date", "Category", "Description", f"Amount ({cur})", "Paid By",
-                  "Split Among", "Split Mode"]
+    tx = build_expense_member_rows(expenses, members)
+    tx_headers = ["Sr No", "Category", "Description", "Date", f"Amount ({cur})", "Split Mode",
+                  "Paid By", "Family", "Person Name", f"Total Payable ({cur})"]
     s4.append(tx_headers)
     _style_header_row(s4, 1, len(tx_headers))
-    sorted_expenses = sorted(expenses, key=lambda x: x.get("date", ""))
-    for r in build_transaction_rows(sorted_expenses, members):
-        s4.append([r["date"], r["category"], r["description"], round(r["amount"], 2),
-                   r["paid_by"], r["split_among"], mode_label(r["split_mode"])])
-        _money(s4.cell(row=s4.max_row, column=4))
+    for blk in tx["blocks"]:
+        for i, r in enumerate(blk["rows"]):
+            first = i == 0  # Amount / Split Mode / Paid By only on the block's first member row
+            s4.append([
+                blk["sr_no"] if first else None,
+                blk["category"] if first else None,
+                blk["description"] if first else None,
+                blk["date"] if first else None,
+                round(blk["amount"], 2) if first else None,
+                blk["mode"] if first else None,
+                blk["paid_by"] if first else None,
+                r["family"], r["person"],
+                r["payable"] if r["participates"] else "-",
+            ])
+            rr = s4.max_row
+            if first:
+                _money(s4.cell(row=rr, column=5))
+            pc = s4.cell(row=rr, column=10)
+            if r["participates"]:
+                _money(pc)
+            else:
+                pc.alignment = _RIGHT
+    # Grand Total row (Sum(Amount) == Sum(Total Payable))
+    s4.append(["Grand Total", None, None, None, tx["grand_amount"], None, None, None, None,
+               tx["grand_payable"]])
+    gr = s4.max_row
+    for col in (1, 5, 10):
+        s4.cell(row=gr, column=col).font = _BOLD
+    _money(s4.cell(row=gr, column=5))
+    _money(s4.cell(row=gr, column=10))
+
+    # Right-side pivot (Person Name | Sum of Total Payable), one blank column after the main table.
+    PV_NAME, PV_SUM = 12, 13
+    s4.cell(row=1, column=PV_NAME, value="Person Name")
+    s4.cell(row=1, column=PV_SUM, value=f"Sum of Total Payable ({cur})")
+    for c in (PV_NAME, PV_SUM):
+        hc = s4.cell(row=1, column=c)
+        hc.font = _HEADER_FONT
+        hc.fill = _HEADER_FILL
+    pr = 2
+    for prow in tx["pivot"]["rows"]:
+        s4.cell(row=pr, column=PV_NAME, value=prow["name"])
+        _money(s4.cell(row=pr, column=PV_SUM, value=prow["total"]))
+        pr += 1
+    s4.cell(row=pr, column=PV_NAME, value="Grand Total").font = _BOLD
+    gt = s4.cell(row=pr, column=PV_SUM, value=tx["pivot"]["grand_total"])
+    _money(gt)
+    gt.font = _BOLD
+
     s4.freeze_panes = "A2"
-    _set_widths(s4, [18, 14, 24, 14, 16, 28, 12])
+    _set_widths(s4, [8, 14, 20, 16, 14, 12, 16, 16, 16, 16, 4, 18, 20])
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -244,5 +293,27 @@ async def report_xlsx(trip_id: str, token: str,
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={fname}"},
+    )
+
+
+@router.get("/trips/{trip_id}/report.pdf")
+async def report_pdf(trip_id: str, token: str,
+                     _unused=None):
+    # Additive PDF variant of the report — same ?token= auth as report.xlsx (opened via a browser
+    # link, so the JWT rides on the query string, not a header). Renders the exploded Transactions
+    # view (per-member rows + per-person pivot) from the SAME build_expense_member_rows data, so it
+    # reconciles to the same totals as the spreadsheet.
+    payload = decode_token(token)
+    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
+    if not user:
+        raise HTTPException(401, "User not found")
+    trip = await _trip_or_404(trip_id, user["id"])
+    expenses = await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(5000)
+    pdf_bytes = build_report_pdf(trip, trip["members"], expenses, trip.get("currency", "INR"))
+    fname = f"{trip['name'].replace(' ','_')}_report.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={fname}"},
     )

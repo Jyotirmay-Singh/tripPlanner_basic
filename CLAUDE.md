@@ -237,3 +237,27 @@ A member's per-expense `share` is DISPLAY-only and never summed into that total.
 - [x] Step 68: New screen `frontend/app/trip/[id]/member/[mid].tsx` — header total (= bar), fronted-expense list (date/category/split_mode/amount + secondary "their share" caption), empty + loading states; rows open the expense editor. Reuses `Screen`/`Card`/`ListRow`/`EmptyState`/`AmountText`/`SkeletonCard`.
 - [x] Step 69: Backend reconciliation guard in `backend/tests/test_spend_summary.py` (`TestDrilldownReconcilesToBar`: per-entity fronted sum == `aggregate_spend` paid, across PER_CAPITA + PER_FAMILY, family + individual payers; refunds/zero excluded both sides).
 - [ ] Step 70: Docs (USER_GUIDE §6, done) + full verification gate — frontend jest/tsc/lint green + backend pure unit tests green; live-API pytest subset + commit still pending (needs a running server).
+
+### Phase 18: Exploded Transactions Tab + PDF Report
+*(Report-layer ONLY — `services/report_builder.py` (pure builder), `services/report_pdf.py` (new,
+reportlab), `routes/reports.py` (openpyxl/route assembly), plus `frontend/src/api.ts` +
+`reports.tsx`. Reuses `expense_shares.entity_shares_raw` + `calculator.allocate_within_family` — NO
+forked split math, NO engine/settlement/RBAC/Gmail/auth change; Total Payable is the GROSS per-expense
+share (settlement-independent). Decision: NAIVE per-member `round(share,2)` matches the hand-built
+image-2 oracle exactly, incl. refund −85.71×7; totals reconcile Sum(Amount)=Sum(Total Payable)=pivot
+Grand Total=63,100.)*
+- [x] Step 71: Pure `build_expense_member_rows(expenses, members)` in `services/report_builder.py`
+      (blocks of one row per trip member + alphabetical per-person pivot + grand totals) reusing
+      `entity_shares_raw` / `allocate_within_family` / display-name helpers; oracle-reconciliation
+      unit tests in `tests/test_report_builder.py::TestExplodedTransactions`.
+- [x] Step 72: XLSX Transactions tab rewritten to the exploded layout in `routes/reports.py`
+      (Sr No · Category · Description · Date · Amount · Split Mode · Paid By · Family · Person Name ·
+      Total Payable; Amount/Mode/Paid By once per block; "-" for non-participants; right-side pivot;
+      bold Grand Total). `_MONEY_FMT` renders negatives red/parenthesised.
+- [x] Step 73: PDF report — `reportlab==4.5.1` (+ `pillow==12.2.0`) in `requirements.txt` (pure
+      wheels, Render-safe), `services/report_pdf.py::build_report_pdf` (landscape Platypus table +
+      pivot, repeating header, negatives red) from the SAME builder, and parallel
+      `GET /trips/{id}/report.pdf` (same `?token=` auth as `report.xlsx`).
+- [ ] Step 74: Frontend `api.ts::pdfUrl` + `reports.tsx` PDF button (`openReport(id,'pdf'|'xlsx')`);
+      docs + full verification gate — frontend jest/tsc/lint green + backend pure unit tests green;
+      live-API pytest subset + commit still pending (needs a running server).

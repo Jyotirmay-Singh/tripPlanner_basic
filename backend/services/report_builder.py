@@ -11,11 +11,16 @@ the displayed cells; these builders never compute `net`, so they add no rounding
 path.
 """
 
-from services.calculator import resolve_weights, split_per_capita, split_per_family
+from services.calculator import (
+    allocate_within_family,
+    resolve_weights,
+    split_per_capita,
+    split_per_family,
+)
 from services.expense_shares import entity_shares_raw
 from services.member_breakdown import family_member_ids
 from services.spend_summary import aggregate_spend
-from utils.display_names import member_display_names
+from utils.display_names import family_member_display_names, member_display_names
 
 
 def _to_12h(value) -> str:
@@ -393,3 +398,116 @@ def build_split_math_rows(expenses: list, members: list) -> list:
             "subtotal_allocated": round(sum(p["allocated"] for p in parts), 2),
         })
     return blocks
+
+
+# ---------- Phase 18: exploded per-member Transactions tab + pivot ----------
+# Additive and PURE. Explodes each expense into ONE ROW PER TRIP MEMBER (individuals + every family
+# member), showing that member's share of that expense ("Total Payable"). It composes the SAME two
+# engine helpers the ledger/Expenses-tab breakdown use — ``expense_shares.entity_shares_raw`` (the
+# exact per-entity split ``_compute_balances`` computes) and ``calculator.allocate_within_family``
+# (the intra-family division; involved-only in PER_CAPITA, all members in PER_FAMILY) — so no split
+# math is reimplemented here. Rounding is DISPLAY-only and NAIVE (each member's share rounded
+# independently to 2dp, matching the hand-built oracle, e.g. a -600/7 refund shows -85.71 for all 7);
+# it never feeds ``net``/settlements. Total Payable is the GROSS per-expense share, so settlements are
+# irrelevant to this tab.
+
+
+def build_expense_member_rows(expenses: list, members: list) -> dict:
+    """Exploded expense→member rows + a per-person pivot for the Transactions tab.
+
+    Returns::
+
+        {
+          "blocks": [ {"sr_no", "category", "description", "date", "amount" (signed),
+                       "mode" (label), "paid_by" (entity label),
+                       "rows": [{"family", "person", "payable", "participates"}, ...],
+                       "block_payable"}, ... ],
+          "pivot":  {"rows": [{"name", "total"}, ... alphabetical], "grand_total"},
+          "grand_amount":  Σ round(amount, 2) over non-skipped expenses,
+          "grand_payable": Σ every row's payable (== pivot.grand_total),
+        }
+
+    Expenses are taken in the same date order as the other tabs and given a sequential ``sr_no``; an
+    expense that splits to nothing (H<=0 / E<=0 → ``entity_shares_raw`` returns ``{}``) is skipped,
+    exactly like the ledger. Member rows are emitted by iterating ``members`` in array order (families
+    expand over their roster; individuals are one row), so the person order is identical in every
+    block. A member with a 0.00 share (excluded from the split / not participating) has
+    ``participates=False`` → renderers show ``"-"``. Family member shares come from
+    ``allocate_within_family`` on the family's entity share (excluded members → 0.0); individuals take
+    their own entity share. Each share is rounded once for display (naive), so per-block sums may drift
+    a few cents in the general case (they cancel to the grand total for the reference dataset).
+    """
+    names = _names(members)
+    # roster (id, display-name) pairs per family, parallel to ``family_members``.
+    fam_roster = {
+        m["id"]: list(zip(family_member_ids(m), family_member_display_names(m)))
+        for m in members if m.get("kind") == "family"
+    }
+    sorted_expenses = sorted(expenses, key=lambda x: x.get("date", ""))
+    blocks: list = []
+    pivot: dict = {}  # person id -> {"name", "total"}
+    grand_amount = 0.0
+    grand_payable = 0.0
+    sr = 0
+
+    def _add_pivot(pid, pname, share):
+        cell = pivot.setdefault(pid, {"name": pname, "total": 0.0})
+        cell["total"] += share
+
+    for e in sorted_expenses:
+        raw = entity_shares_raw(e, members)
+        if not raw:
+            continue  # H<=0 / E<=0: the ledger skips this expense, so do we
+        sr += 1
+        amount = e.get("amount", 0.0)
+        fam_participants = e.get("family_participants") or {}
+        rows: list = []
+        block_payable = 0.0
+        for m in members:
+            mid = m["id"]
+            if m.get("kind") == "family":
+                fam_label = names.get(mid, "?")
+                roster = fam_roster.get(mid, [])
+                roster_ids = [rid for rid, _ in roster]
+                # Divide THIS family's entity share among its members (0.0 when the family is not in
+                # the split); PER_CAPITA excludes non-participants, PER_FAMILY splits over all members.
+                alloc = allocate_within_family(raw.get(mid, 0.0), fam_participants.get(mid), roster_ids)
+                for rid, rname in roster:
+                    share = round(alloc.get(rid, 0.0), 2)
+                    rows.append({"family": fam_label, "person": rname,
+                                 "payable": share, "participates": share != 0.0})
+                    block_payable += share
+                    _add_pivot(rid, rname, share)
+            else:
+                label = names.get(mid, "?")
+                share = round(raw.get(mid, 0.0), 2)
+                rows.append({"family": label, "person": label,
+                             "payable": share, "participates": share != 0.0})
+                block_payable += share
+                _add_pivot(mid, label, share)
+        block_payable = round(block_payable, 2)
+        blocks.append({
+            "sr_no": sr,
+            "category": e.get("category", ""),
+            "description": e.get("description", ""),
+            "date": _date_cell(e),
+            "amount": amount,
+            "mode": mode_label(e.get("split_mode")),
+            "paid_by": names.get(e.get("paid_by_member_id"), "?"),
+            "rows": rows,
+            "block_payable": block_payable,
+        })
+        grand_amount += round(amount, 2)
+        grand_payable += block_payable
+
+    pivot_rows = sorted(
+        ({"name": v["name"], "total": round(v["total"], 2)} for v in pivot.values()),
+        key=lambda r: r["name"],
+    )
+    grand_total = round(sum(r["total"] for r in pivot_rows), 2)
+    return {
+        "blocks": blocks,
+        "pivot": {"rows": pivot_rows, "grand_total": grand_total},
+        "grand_amount": round(grand_amount, 2),
+        "grand_payable": round(grand_payable, 2),
+    }

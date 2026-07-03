@@ -70,6 +70,12 @@ export function xlsxUrl(tripId: string, token: string) {
   return `${BASE}/api/trips/${tripId}/report.xlsx?token=${encodeURIComponent(token)}`;
 }
 
+// Phase 18 — parallel PDF report (GET /trips/{id}/report.pdf). Same ?token= auth as xlsxUrl since
+// it's opened via a browser link (the JWT can't ride an Authorization header on a plain link).
+export function pdfUrl(tripId: string, token: string) {
+  return `${BASE}/api/trips/${tripId}/report.pdf?token=${encodeURIComponent(token)}`;
+}
+
 // Step 22: a streamed receipt URL for <Image source={{ uri }}> / browser links. Auth rides on
 // the ?token= query (RN <Image> can't set an Authorization header), mirroring xlsxUrl.
 export function receiptUrl(tripId: string, expenseId: string, token: string) {

@@ -32,7 +32,7 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
 | 🏠 **Home** | Snapshot of all your trips + a live "you owe / you're owed" summary |
 | 💼 **Trips** | All trips you've created or joined; create or join from here |
 | ➕ **Add** | Pick a trip and instantly add a transaction |
-| 📊 **Reports** | One-tap XLSX download per trip |
+| 📊 **Reports** | One-tap XLSX or PDF download per trip |
 | 👤 **Profile** | Your info, dark mode toggle, sign out |
 
 ---
@@ -163,11 +163,12 @@ Open via the trip's **Settle Up** button. The screen has two parts:
 
 ---
 
-## 8. Reports & XLSX Export
+## 8. Reports & Export (XLSX / PDF)
 
 - Bottom-tab **Reports** lists all your trips.
 - Tap **XLSX** to download a professionally-formatted Excel workbook (bold frozen headers, currency
-  number format, right-aligned figures) with **four sheets**:
+  number format, right-aligned figures), or **PDF** for a print-ready version of the Transactions
+  breakdown. The XLSX has **four sheets**:
   1. **Summary** — trip header (name, dates, share code, currency, member composition, budget,
      **Total Spent**), a **Spend by entity** block ranking who paid the most (**Gross Spent**,
      descending), and the **By category** totals.
@@ -180,8 +181,15 @@ Open via the trip's **Settle Up** button. The screen has two parts:
      **Units** (people counted; an entity counts as 1 in Per-Family), **Per-Unit Cost**, and
      **Allocated** amount, with a per-expense **Subtotal**. Per-Person divides by the total involved
      people; Per-Family divides by the number of entities.
-  4. **Transactions** — full journal: date, category, description, amount, who paid, who it was split
-     among, and the split mode.
+  4. **Transactions** — an itemised breakdown that expands **every expense into one row per person**,
+     showing each member's **Total Payable** (their share of that expense). Amount, split mode, and who
+     paid appear once per expense; a person not included in an expense shows **"–"**. A right-side
+     pivot totals each person across the whole trip, and a bold **Grand Total** row footers both the
+     Amount and Total Payable columns — so **Sum(Amount) = Sum(Total Payable)** and every person's
+     pivot total reconciles to the trip total.
+
+The **PDF** contains this same exploded Transactions breakdown and per-person pivot in a landscape,
+print-ready layout, reconciling to the same totals as the spreadsheet.
 
 "Gross Spent" (a.k.a. Total Spent) is the amount an entity actually fronted — not net of their own
 share — the same figure the trip card's **SPENT** total shows.
@@ -200,7 +208,7 @@ The download opens in your phone's browser; share or save it from there.
 4. You pay for dinner ₹2,000 → category *Food*, paid-by *You*, split among all → you'll get ₹1,600 back (you owe ₹400 of the ₹2,000), Riddhi owes ₹400, Sharma family owes ₹1,200 (or ₹400 per Sharma).
 5. Someone wants only 2 Sharmas to share the cab ride → on the cab expense, under the Sharma family's *"Who took part?"* row uncheck the 1 Sharma who skipped it. In **Per Person** mode the family is now counted as 2 people for that expense only: the cab is divided by the total involved people, those 2 Sharmas each owe the per-person amount, and the third owes 0.
 6. At the end of the trip, hit **Settle Up** → tap **Record** on each suggested transfer to log it, then **Mark paid** (and confirm) once the money actually changes hands.
-7. Bottom-tab **Reports → XLSX** to keep a permanent record.
+7. Bottom-tab **Reports → XLSX or PDF** to keep a permanent record.
 
 ---
 

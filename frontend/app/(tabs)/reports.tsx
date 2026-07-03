@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { View, Linking } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { api, getToken } from '../../src/api';
+import { api, getToken, xlsxUrl, pdfUrl } from '../../src/api';
 import T from '../../src/T';
 import { Screen, Card, Button, EmptyState, SkeletonCard, useToast } from '../../src/ui';
 
@@ -22,12 +22,12 @@ export default function Reports() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const openXlsx = async (tripId: string) => {
+  const openReport = async (tripId: string, kind: 'xlsx' | 'pdf') => {
     const token = await getToken();
     if (!token) return;
-    const base = process.env.EXPO_PUBLIC_BACKEND_URL;
+    const url = kind === 'pdf' ? pdfUrl(tripId, token) : xlsxUrl(tripId, token);
     try {
-      await Linking.openURL(`${base}/api/trips/${tripId}/report.xlsx?token=${encodeURIComponent(token)}`);
+      await Linking.openURL(url);
     } catch {
       toast.show('Could not open the report. Try again.', 'error');
     }
@@ -36,7 +36,7 @@ export default function Reports() {
   return (
     <Screen refreshing={refreshing} onRefresh={load}>
       <T variant="h1">Reports</T>
-      <T muted>Download an XLSX expense report for any trip.</T>
+      <T muted>Download an expense report for any trip as XLSX or PDF.</T>
 
       {!loaded ? (
         <SkeletonCard count={3} />
@@ -54,7 +54,8 @@ export default function Reports() {
               <T variant="h4" numberOfLines={1}>{t.name}</T>
               <T muted variant="caption">{t.currency}</T>
             </View>
-            <Button label="XLSX" icon="download" size="sm" onPress={() => openXlsx(t.id)} testID={`report-xlsx-${t.id}`} />
+            <Button label="XLSX" icon="download" size="sm" onPress={() => openReport(t.id, 'xlsx')} testID={`report-xlsx-${t.id}`} />
+            <Button label="PDF" icon="download" size="sm" variant="secondary" onPress={() => openReport(t.id, 'pdf')} testID={`report-pdf-${t.id}`} />
           </Card>
         ))
       )}
