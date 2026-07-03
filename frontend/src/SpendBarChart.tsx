@@ -1,12 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { View, StyleSheet, LayoutChangeEvent } from 'react-native';
+import { View, StyleSheet, LayoutChangeEvent, TouchableOpacity } from 'react-native';
 import Svg, { Rect } from 'react-native-svg';
 import { useTheme } from './ThemeContext';
 import { SPACING } from './theme';
 import T from './T';
 import { Icon } from './ui';
 import { formatMoney } from './format';
-import { rankSpend, SpendSummary } from './spend';
+import { rankSpend, SpendSummary, RankedBar } from './spend';
 
 // Horizontal "who spent the most" ranking. Built on react-native-svg (like DonutChart) with all
 // colors from useTheme() so it tracks the in-app light/dark toggle. Single hue (theme primary): the
@@ -22,10 +22,14 @@ export default function SpendBarChart({
   summary,
   displayNames,
   currency,
+  onBarPress,
 }: {
   summary: SpendSummary | null | undefined;
   displayNames: Record<string, string>;
   currency: string;
+  // Optional: tapping an entity's name OR its bar fires this with the ranked bar (Phase 17 drill-down).
+  // Omitted => the chart stays non-tappable (existing usage/tests unaffected).
+  onBarPress?: (bar: RankedBar) => void;
 }) {
   const { colors } = useTheme();
   const [width, setWidth] = useState(0);
@@ -57,8 +61,10 @@ export default function SpendBarChart({
           const label = displayNames[b.entity_id] || b.name;
           const fillW = width > 0 ? Math.max(MIN_BAR_PX, b.fraction * width) : 0;
           const alpha = 0.45 + 0.55 * b.fraction; // deepest at the top spender (fraction 1)
-          return (
-            <View key={b.entity_id} testID={`spend-bar-${b.entity_id}`}>
+          // A zero-spender fronted nothing, so its row has no history to open — leave it non-tappable.
+          const tappable = !!onBarPress && b.paid > 0;
+          const content = (
+            <>
               <View style={styles.labelLine}>
                 <View style={styles.labelLeft}>
                   <Icon name={b.entity_type === 'family' ? 'users' : 'user'} size={14} color={colors.textMuted} />
@@ -74,6 +80,22 @@ export default function SpendBarChart({
               ) : (
                 <View style={[styles.bar, { height: BAR_H }]} />
               )}
+            </>
+          );
+          // Name + bar share one touchable, so both route to the same per-member drill-down.
+          return tappable ? (
+            <TouchableOpacity
+              key={b.entity_id}
+              testID={`spend-bar-${b.entity_id}`}
+              onPress={() => onBarPress!(b)}
+              accessibilityRole="button"
+              accessibilityLabel={`View ${label}'s spending`}
+            >
+              {content}
+            </TouchableOpacity>
+          ) : (
+            <View key={b.entity_id} testID={`spend-bar-${b.entity_id}`}>
+              {content}
             </View>
           );
         })}

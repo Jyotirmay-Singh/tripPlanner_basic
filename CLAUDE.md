@@ -225,3 +225,15 @@ mark-paid RBAC (Phase 10), JWT/auth, GridFS receipts, the XLSX report's engine v
 ### Phase 16: Report (XLSX) Restructure
 *(Report-layer ONLY — `backend/routes/reports.py` (openpyxl assembly) + `backend/services/report_builder.py` (pure builders). The report only DISPLAYS engine-computed values. Decision: reconcile via an explicit Settlements column; keep a Transactions journal → 4 tabs.)*
 - [x] Step 65: Consolidate to 4 tabs (`Summary → Members & Families → Split Math → Transactions`). New pure builders (`mode_label`, `composition_label`/`trip_composition`, `entity_ledger_components`, `settle_adj_by_entity`, `build_summary_spend_rows`, `build_members_families_rows`, `build_split_math_rows`) reuse the SAME engine helpers as the ledger — `spend_summary.aggregate_spend`, `expense_shares.entity_shares_raw`, `_compute_balances` (`net_total` + chronological member breakdown), `build_per_capita_rows`/`build_per_family_rows`. Members & Families is hierarchical and foots exactly (`Net = Gross Spent − Share + Settlements`; Σ Paid = Σ Share, Σ Settlements = Σ Net = 0). Professional formatting (bold headers, frozen rows, currency format, subtotals). No frontend change.
+
+### Phase 17: Tappable Per-Member Spend Drill-Down (Summary)
+*(Additive, read-only. Reuses the category-drill-down fetch/filter pattern and the calculator-derived
+`shares` already on the expense list; NO new endpoint, NO engine/settlement/report/Gmail change.
+"Gross spend" = amount FRONTED (`spend_summary.aggregate_spend`: Σ positive `amount` by payer entity),
+split-mode-independent, refunds excluded — the drill-down running total reconciles EXACTLY to the bar.
+A member's per-expense `share` is DISPLAY-only and never summed into that total.)*
+- [x] Step 66: Pure `frontend/src/memberSpend.ts::memberSpendHistory` (filter payer + positive amounts, attach each entity's own `shares` share, 2dp total == bar) + `src/__tests__/memberSpend.test.ts`.
+- [x] Step 67: `SpendBarChart` gains optional `onBarPress`; each entity (name + bar) wrapped in ONE `TouchableOpacity`; zero-paid rows non-tappable. Summary tab routes to `/trip/[id]/member/[mid]`.
+- [x] Step 68: New screen `frontend/app/trip/[id]/member/[mid].tsx` — header total (= bar), fronted-expense list (date/category/split_mode/amount + secondary "their share" caption), empty + loading states; rows open the expense editor. Reuses `Screen`/`Card`/`ListRow`/`EmptyState`/`AmountText`/`SkeletonCard`.
+- [x] Step 69: Backend reconciliation guard in `backend/tests/test_spend_summary.py` (`TestDrilldownReconcilesToBar`: per-entity fronted sum == `aggregate_spend` paid, across PER_CAPITA + PER_FAMILY, family + individual payers; refunds/zero excluded both sides).
+- [ ] Step 70: Docs (USER_GUIDE §6, done) + full verification gate — frontend jest/tsc/lint green + backend pure unit tests green; live-API pytest subset + commit still pending (needs a running server).

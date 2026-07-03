@@ -136,6 +136,7 @@ Open any trip and look at the **Summary** tab (default tab):
 - **Donut chart** — spend by category, with % in the legend. **Tap any slice or legend row** to drill down to all transactions in that category.
 - **Top spenders bar chart** — ranks each entity (a standalone individual or a whole family) by how much money they actually **paid/fronted** on this trip, biggest first. A small 👤/👥 marker shows individual vs family, and the bar deepens in shade toward the top spender. The header reads e.g. *"INR 1,200.00 spent across 4 entities."*
   - This is **gross spend** — *who paid*, nothing else. It does **not** subtract anyone's share or any settlements, and it ignores the per-person/per-family split mode. Refunds (negative "money back" rows) are **not** subtracted here, so this total can differ from the trip's net *Spent* figure at the top of the screen when refunds exist. Members who paid nothing are still listed (at the bottom) so the roster stays complete.
+  - **Tap any entity's name or bar** to open its spending history: the expenses that individual or family fronted, each showing the date, category, split mode, the amount fronted, and *their share* of that expense. The running total at the top equals that entity's bar exactly (gross fronted; refunds excluded, so it can differ from the trip's net *Spent*). Tapping a row opens that expense to edit it.
 
 ---
 

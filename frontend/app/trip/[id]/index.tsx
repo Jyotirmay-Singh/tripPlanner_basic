@@ -260,7 +260,15 @@ export default function TripDetail() {
 
                 {expenseCount > 0 && (
                   <Card>
-                    <SpendBarChart summary={spend} displayNames={displayNames} currency={trip.currency} />
+                    <SpendBarChart
+                      summary={spend}
+                      displayNames={displayNames}
+                      currency={trip.currency}
+                      onBarPress={(b) => router.push({
+                        pathname: '/trip/[id]/member/[mid]',
+                        params: { id: id as string, mid: b.entity_id },
+                      })}
+                    />
                   </Card>
                 )}
               </View>

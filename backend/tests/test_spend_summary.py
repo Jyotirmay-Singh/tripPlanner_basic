@@ -113,6 +113,41 @@ class TestAggregateSpendPure:
         assert aggregate_spend([], [_exp("x", 10.0)]) == {"total": 0.0, "count": 0, "entities": []}
 
 
+class TestDrilldownReconcilesToBar:
+    """Phase 17: the per-member spend drill-down sums the SAME positive fronted amounts the bar does,
+    so its total equals aggregate_spend's ``paid`` for every entity — across BOTH split modes and
+    family vs individual payers. Guards the invariant the client screen (src/memberSpend) relies on;
+    no production code is exercised beyond the shared aggregate_spend the bar already uses.
+    """
+
+    def _drilldown_total(self, expenses, eid):
+        # Mirror of frontend src/memberSpend.memberSpendHistory: positive fronted amounts by THIS payer,
+        # summed in cents to 2dp — refunds (negative) and zero excluded, exactly like the gross bar.
+        cents = sum(round(e["amount"] * 100) for e in expenses
+                    if e["amount"] > 0 and e["paid_by_member_id"] == eid)
+        return cents / 100
+
+    def test_reconciles_across_modes_and_entity_kinds(self):
+        members = _members()
+        expenses = [
+            _exp("f1", 100.00),                                            # PER_CAPITA, family payer
+            _exp("f1", 50.50),
+            _exp("f1", -25.00),                                            # refund — excluded both sides
+            _exp("f3", 20.00, split_mode="PER_FAMILY"),                    # PER_FAMILY, family payer
+            _exp("i1", 30.25),                                             # individual payer
+            _exp("i2", 80.00, split_mode="PER_FAMILY", split_member_ids=["f1", "f2"]),
+            _exp("i2", 0.0),                                               # zero — excluded both sides
+        ]
+        out = aggregate_spend(members, expenses)
+        by_id = _by_id(out)
+        for m in members:
+            eid = m["id"]
+            # Per entity: the drill-down running total == that entity's gross-spend bar value.
+            assert self._drilldown_total(expenses, eid) == by_id[eid]["paid"], eid
+        # And every drill-down total foots to the same trip total as the bars.
+        assert round(sum(self._drilldown_total(expenses, m["id"]) for m in members), 2) == out["total"]
+
+
 # ---------- Live API tests (Step 51) ----------
 
 def _auth(token):
