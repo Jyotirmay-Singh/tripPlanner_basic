@@ -120,6 +120,7 @@ across standalone individuals, family entries, and joined app users.
 12. If the running total now exceeds the trip budget, a warning dialog asks you to **Cancel** or **Save anyway**.
 
 ### 5.2 Edit or delete a transaction
+- The **Expenses** tab lists transactions **newest first**, ordered by each transaction's own **date and time**. A transaction with a time sorts by that time; one with only a date sorts by when it was added, so a freshly added expense appears at the top.
 - **Expenses** tab → tap any transaction → opens the **Edit Transaction** screen with the same form pre-filled.
 - Or use the **🗑** icon on the transaction row for a quick delete.
 - Inside the edit screen there's also a red **Delete transaction** button.
@@ -149,17 +150,30 @@ Inside a trip, the **Balances** tab shows:
 - **Suggested settlements** — the minimum number of payments to zero everyone out.
 
 ### 7.2 Settle Up screen
-Open via the trip's **Settle Up** button. The screen has two parts:
+Open via the trip's **Settle Up** button. It shows the live, minimum set of *Pays → Receives* pairs
+that zero everyone out. Each pair is a card with the current amount payable, and you **record real
+payments** — including **partial** ones — against it (Splitwise-style).
 
-**Suggested settlements** — the live, minimum set of *From → To, amount* transfers that zero everyone out.
-- Tap **Record** on a suggestion to log it as a **pending** payment (a durable to-do). Recording moves no money and does **not** change anyone's balance yet, so the suggestion stays on the list.
-- Once a transfer is recorded, its card shows a muted **Recorded** chip instead of the button (so the same transfer can't be recorded twice).
-- When every debt has been paid off, this section shows a green **All square!** ✅.
+**Recording a payment**
+- Tap **Settle up** on a pair to open the amount box. It's **pre-filled with the full amount owed**
+  and shows a **Max** hint; you can change it to any amount greater than 0 and up to that maximum
+  (**no overpayment**). Tap **Continue**, then confirm on the *"Confirm _X_ paid _amount_ to _Y_?"*
+  guard.
+- Only the **receiver** (the person getting the money) or a **trip admin/owner** can record a payment —
+  the payer can't mark their own debt paid. Everyone else can still see the amounts, badges, and log.
+- On confirm, the pair's **headline amount shrinks** by what was paid (the top number *is* the
+  remaining balance), and the payment is added to the log below the card. **Everyone's balance updates**.
 
-**Settlement history** — every recorded payment, pending and paid, newest first. Nothing is ever deleted, so you always have a full log.
-- A **pending** item shows a **Mark paid** button in the top-right — but only to the **lender** (the person receiving the money) or a **trip admin/owner**. Everyone else just sees a muted **Pending** badge.
-- Tapping **Mark paid** opens a confirmation: *"Has the borrower actually paid this in full?"* Only on **confirm** is the payment recorded — the item flips to a green **Paid** badge (with the date) and **everyone's balance updates** (the debt is now offset, and the matching suggestion disappears).
-- Tap **Cancel** to back out; the item stays pending and balances are unchanged.
+**Statuses & log**
+- A pair that's been paid in part shows a **Partially Paid** badge and a small progress bar
+  (*paid of original*). Keep recording payments until it's cleared.
+- When a pair is fully paid off it moves to a **Settled** section with a green **Paid** badge; its
+  payments stay listed. When *everything* is square the screen shows **All square!** ✅.
+- Each log entry reads *"X paid _amount_ to Y"* with the **date & time**. The receiver or an admin can
+  **edit** (pencil) or **delete** (trash) an entry — deleting re-opens that much of the balance.
+
+Payments are durable: adding new expenses later never voids them — a recorded payment keeps offsetting
+the recomputed balance (and can even flip who owes whom if someone has now overpaid).
 
 ---
 
@@ -168,7 +182,7 @@ Open via the trip's **Settle Up** button. The screen has two parts:
 - Bottom-tab **Reports** lists all your trips.
 - Tap **XLSX** to download a professionally-formatted Excel workbook (bold frozen headers, currency
   number format, right-aligned figures), or **PDF** for a print-ready version of the Transactions
-  breakdown. The XLSX has **four sheets**:
+  breakdown. The XLSX has **five sheets**:
   1. **Summary** — trip header (name, dates, share code, currency, member composition, budget,
      **Total Spent**), a **Spend by entity** block ranking who paid the most (**Gross Spent**,
      descending), and the **By category** totals.
@@ -187,9 +201,12 @@ Open via the trip's **Settle Up** button. The screen has two parts:
      pivot totals each person across the whole trip, and a bold **Grand Total** row footers both the
      Amount and Total Payable columns — so **Sum(Amount) = Sum(Total Payable)** and every person's
      pivot total reconciles to the trip total.
+  5. **Payments** — a flat log of every settle-up payment recorded on the trip: **Payer**, **Payee**,
+     **Amount** (trip currency), and **Date & Time**, one row per payment (three partial payments =
+     three rows), with a bold **Total** row.
 
-The **PDF** contains this same exploded Transactions breakdown and per-person pivot in a landscape,
-print-ready layout, reconciling to the same totals as the spreadsheet.
+The **PDF** contains this same exploded Transactions breakdown and per-person pivot — plus the Payments
+log — in a landscape, print-ready layout, reconciling to the same totals as the spreadsheet.
 
 "Gross Spent" (a.k.a. Total Spent) is the amount an entity actually fronted — not net of their own
 share — the same figure the trip card's **SPENT** total shows.
@@ -207,7 +224,7 @@ The download opens in your phone's browser; share or save it from there.
 3. You add **Sharma family** (3 people) as a Member.
 4. You pay for dinner ₹2,000 → category *Food*, paid-by *You*, split among all → you'll get ₹1,600 back (you owe ₹400 of the ₹2,000), Riddhi owes ₹400, Sharma family owes ₹1,200 (or ₹400 per Sharma).
 5. Someone wants only 2 Sharmas to share the cab ride → on the cab expense, under the Sharma family's *"Who took part?"* row uncheck the 1 Sharma who skipped it. In **Per Person** mode the family is now counted as 2 people for that expense only: the cab is divided by the total involved people, those 2 Sharmas each owe the per-person amount, and the third owes 0.
-6. At the end of the trip, hit **Settle Up** → tap **Record** on each suggested transfer to log it, then **Mark paid** (and confirm) once the money actually changes hands.
+6. At the end of the trip, hit **Settle Up**. As money changes hands, the **receiver** (or an admin) taps **Settle up** on each pair and confirms the amount — pay it all at once or in parts. Each payment shrinks the amount still owed and is logged with a date & time; the pair shows **Partially Paid**, then **Paid** once it's cleared.
 7. Bottom-tab **Reports → XLSX or PDF** to keep a permanent record.
 
 ---

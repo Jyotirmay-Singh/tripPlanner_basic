@@ -18,6 +18,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 from services.report_builder import build_expense_member_rows
 from utils.date_rules import trip_date_label
+from utils.display_names import member_display_names
 
 _BRAND = colors.HexColor("#1C3F39")      # matches the XLSX header fill
 _RED = colors.HexColor("#C0392B")        # negatives (mirrors the XLSX [Red] number format)
@@ -41,8 +42,12 @@ def _p(text, bold=False):
     return Paragraph(str(text) if text is not None else "", _CELL_BOLD if bold else _CELL)
 
 
-def build_report_pdf(trip: dict, members: list, expenses: list, currency: str) -> bytes:
-    """Render the exploded Transactions report (per-member rows + per-person pivot) to PDF bytes."""
+def build_report_pdf(trip: dict, members: list, expenses: list, currency: str,
+                     payments: list = None) -> bytes:
+    """Render the exploded Transactions report (per-member rows + per-person pivot) to PDF bytes.
+
+    ``payments`` (Phase 20, optional) appends a Payments log table mirroring the XLSX Payments tab.
+    """
     tx = build_expense_member_rows(expenses, members)
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -150,6 +155,40 @@ def build_report_pdf(trip: dict, members: list, expenses: list, currency: str) -
         pivot_style.append(("TEXTCOLOR", (c, rr), (c, rr), _RED))
     pivot.setStyle(TableStyle(pivot_style))
     story.append(pivot)
+
+    # ---------- Payments log (Phase 20) ----------
+    if payments:
+        story.append(Spacer(1, 9 * mm))
+        story.append(Paragraph("Payments", ParagraphStyle(
+            "payHdr", parent=base["Heading3"], fontSize=11, textColor=_BRAND, spaceAfter=4)))
+        names = member_display_names(members)
+        pay_data = [["Payer", "Payee", f"Amount ({currency})", "Date & Time"]]
+        pay_total = 0.0
+        for p in payments:
+            ca = p.get("created_at") or ""
+            pay_data.append([
+                _p(names.get(p["from_member_id"], "?")),
+                _p(names.get(p["to_member_id"], "?")),
+                _fmt_money(round(p["amount"], 2)),
+                f"{ca[:10]} {ca[11:16]}".strip(),
+            ])
+            pay_total += round(p["amount"], 2)
+        pay_data.append([_p("Total", bold=True), "", _fmt_money(round(pay_total, 2)), ""])
+        pay_tr = len(pay_data) - 1
+        pay = Table(pay_data, colWidths=[150, 150, 110, 130])
+        pay.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), _BRAND),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("ALIGN", (2, 0), (2, -1), "RIGHT"),
+            ("GRID", (0, 0), (-1, -1), 0.4, _GRID),
+            ("FONTNAME", (0, pay_tr), (-1, pay_tr), "Helvetica-Bold"),
+            ("LINEABOVE", (0, pay_tr), (-1, pay_tr), 0.9, _BRAND),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        story.append(pay)
 
     doc.build(story)
     buf.seek(0)

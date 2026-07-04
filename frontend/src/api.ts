@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import type { SpendSummary } from './spend';
+import type { Payment } from './payments';
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
 const TOKEN_KEY = 'auth_token';
@@ -64,6 +65,27 @@ export function joinTrip<T = any>(body: Record<string, unknown>): Promise<T> {
 // Phase 12 — read-only gross-spend ranking for a trip (GET /trips/{id}/spend-summary).
 export function spendSummary(tripId: string): Promise<SpendSummary> {
   return api<SpendSummary>(`/trips/${tripId}/spend-summary`);
+}
+
+// Phase 20 — partial payments along suggested settle-up pairs (db.payments).
+export function listPayments(tripId: string): Promise<Payment[]> {
+  return api<Payment[]>(`/trips/${tripId}/payments`);
+}
+export function recordPayment(
+  tripId: string,
+  body: { from_member_id: string; to_member_id: string; amount: number; note?: string },
+): Promise<Payment> {
+  return api<Payment>(`/trips/${tripId}/payments`, { method: 'POST', body });
+}
+export function editPayment(
+  tripId: string,
+  paymentId: string,
+  body: { amount?: number; note?: string },
+): Promise<Payment> {
+  return api<Payment>(`/trips/${tripId}/payments/${paymentId}`, { method: 'PATCH', body });
+}
+export function deletePayment(tripId: string, paymentId: string): Promise<void> {
+  return api(`/trips/${tripId}/payments/${paymentId}`, { method: 'DELETE' }).then(() => undefined);
 }
 
 export function xlsxUrl(tripId: string, token: string) {

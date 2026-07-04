@@ -66,6 +66,15 @@ async def _compute_balances(trip_id: str) -> dict:
         net[s["from_member_id"]] = net.get(s["from_member_id"], 0) + s["amount"]
         net[s["to_member_id"]] = net.get(s["to_member_id"], 0) - s["amount"]
 
+    # apply payments (Phase 20): a recorded (possibly partial) payment is a real directed money
+    # movement — offset EXACTLY like a paid settlement (payer credited, payee debited). This is the
+    # only place payments touch the ledger; the greedy `minimize_transfers` below then re-derives the
+    # residual pairs, so payments persist and offset the RECOMPUTED balance after new expenses.
+    payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}).to_list(5000)
+    for p in payments:
+        net[p["from_member_id"]] = net.get(p["from_member_id"], 0) + p["amount"]
+        net[p["to_member_id"]] = net.get(p["to_member_id"], 0) - p["amount"]
+
     # round
     for k in net:
         net[k] = round(net[k], 2)
@@ -73,7 +82,9 @@ async def _compute_balances(trip_id: str) -> dict:
     # Intra-family per-member breakdown (DISPLAY-only; never mutates net/transfers). Honors each
     # expense's family_participants — excluded members show 0 and the family's share is split only
     # among participants. With no restriction it equals the uniform net_per_person below exactly.
-    breakdown = family_member_breakdown(members, expenses, settlements, net)
+    # Payments are settlement-shaped (from/to/amount/created_at), so they ride the same chronological
+    # scaling as non-pending settlements — settled money disappears per family member too.
+    breakdown = family_member_breakdown(members, expenses, settlements + payments, net)
 
     # greedy settlement suggestion
     transfers = minimize_transfers(net)

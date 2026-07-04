@@ -286,6 +286,32 @@ async def report_xlsx(trip_id: str, token: str,
     s4.freeze_panes = "A2"
     _set_widths(s4, [8, 14, 20, 16, 14, 12, 16, 16, 16, 16, 4, 18, 20])
 
+    # ----- Tab 5: Payments (Phase 20) — every recorded (partial) payment, one row each -----
+    # A flat log of the settle-up payments: three partial payments = three rows. Names are the same
+    # disambiguated labels as the rest of the report; Amount uses the trip currency; a bold Total row
+    # sums the column. Display-only — these payments already offset the ledger via _compute_balances.
+    s5 = wb.create_sheet("Payments")
+    pay_headers = ["Payer", "Payee", f"Amount ({cur})", "Date & Time"]
+    s5.append(pay_headers)
+    _style_header_row(s5, 1, len(pay_headers))
+    payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}) \
+        .sort("created_at", 1).to_list(5000)
+    pay_total = 0.0
+    for p in payments:
+        ca = p.get("created_at") or ""
+        dt_label = f"{ca[:10]} {ca[11:16]}".strip()
+        s5.append([display.get(p["from_member_id"], "?"), display.get(p["to_member_id"], "?"),
+                   round(p["amount"], 2), dt_label])
+        _money(s5.cell(row=s5.max_row, column=3))
+        pay_total += round(p["amount"], 2)
+    s5.append(["Total", "", round(pay_total, 2), ""])
+    tr = s5.max_row
+    for col in range(1, len(pay_headers) + 1):
+        s5.cell(row=tr, column=col).font = _BOLD
+    _money(s5.cell(row=tr, column=3))
+    s5.freeze_panes = "A2"
+    _set_widths(s5, [24, 24, 16, 20])
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -310,7 +336,10 @@ async def report_pdf(trip_id: str, token: str,
         raise HTTPException(401, "User not found")
     trip = await _trip_or_404(trip_id, user["id"])
     expenses = await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(5000)
-    pdf_bytes = build_report_pdf(trip, trip["members"], expenses, trip.get("currency", "INR"))
+    payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}) \
+        .sort("created_at", 1).to_list(5000)
+    pdf_bytes = build_report_pdf(trip, trip["members"], expenses, trip.get("currency", "INR"),
+                                 payments=payments)
     fname = f"{trip['name'].replace(' ','_')}_report.pdf"
     return StreamingResponse(
         io.BytesIO(pdf_bytes),

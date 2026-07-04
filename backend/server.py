@@ -12,7 +12,7 @@ from utils.date_rules import legacy_to_iso
 from utils.email_rules import is_allowed_email
 from utils.security import hash_secret
 from utils.emailer import sender_mode_summary
-from routes import auth, trips, members, expenses, balances, reports, meta, receipts, spend
+from routes import auth, trips, members, expenses, balances, reports, meta, receipts, spend, payments
 
 
 # ---------- Startup / Shutdown ----------
@@ -25,6 +25,8 @@ async def lifespan(app: FastAPI):
     await db.expenses.create_index([("trip_id", 1), ("created_at", -1)])
     # Phase 10: settlement history list (newest-first) per trip.
     await db.settlements.create_index([("trip_id", 1), ("created_at", -1)])
+    # Phase 20: recorded (partial) payments list (newest-first) per trip.
+    await db.payments.create_index([("trip_id", 1), ("created_at", -1)])
     # Step 22: index GridFS receipt lookup/cleanup by the owning expense.
     await db["receipts.files"].create_index("metadata.expense_id")
     # Phase 9: hashed/typed email tokens (verify-email + reset-password). Unique by hash;
@@ -105,7 +107,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Trip Splitter", lifespan=lifespan)
 api = APIRouter(prefix="/api")
 
-for module in (auth, trips, members, expenses, balances, reports, meta, receipts, spend):
+for module in (auth, trips, members, expenses, balances, reports, meta, receipts, spend, payments):
     api.include_router(module.router)
 
 

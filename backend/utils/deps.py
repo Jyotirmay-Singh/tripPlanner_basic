@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import HTTPException, Header
 
 from database import db
-from utils.permissions import role_of
+from utils.permissions import role_of, can_record_payment
 from utils.security import decode_token
 
 
@@ -86,3 +86,15 @@ async def _settlement_mark_paid_or_403(trip_id: str, settlement_id: str, user_id
     if not can_mark_settlement_paid(trip, settlement, user_id):
         raise HTTPException(403, "Only the lender or a trip admin can mark this settlement paid")
     return trip, settlement
+
+
+async def _payment_or_403(trip_id: str, payment_id: str, user_id: str) -> tuple[dict, dict]:
+    # Phase 20: edit/delete guard for a recorded payment. Gated (via can_record_payment on the stored
+    # doc's creditor member) to the RECEIVER or a trip admin — the payer can never touch it.
+    trip = await _trip_or_404(trip_id, user_id)
+    payment = await db.payments.find_one({"id": payment_id, "trip_id": trip_id}, {"_id": 0})
+    if not payment:
+        raise HTTPException(404, "Payment not found")
+    if not can_record_payment(trip, payment.get("to_member_id"), user_id):
+        raise HTTPException(403, "Only the receiver or a trip admin can modify this payment")
+    return trip, payment

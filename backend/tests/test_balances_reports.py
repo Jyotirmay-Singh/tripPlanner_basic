@@ -225,9 +225,9 @@ class TestReports:
         # Verify it's a valid XLSX file (starts with PK zip signature)
         assert response.content[:2] == b'PK'
 
-        # Phase 16: the workbook is restructured into 4 professional tabs (in order).
+        # Phase 16: 4 professional tabs; Phase 20 appends a 5th "Payments" tab (in order).
         wb = load_workbook(io.BytesIO(response.content))
-        assert wb.sheetnames == ["Summary", "Members & Families", "Split Math", "Transactions"]
+        assert wb.sheetnames == ["Summary", "Members & Families", "Split Math", "Transactions", "Payments"]
 
         # Summary carries the trip header, the per-entity Gross Spent block, and By category.
         summary_vals = [str(c.value) for rowcells in wb["Summary"].iter_rows() for c in rowcells]
@@ -264,8 +264,8 @@ class TestReports:
                 subtotal_checks += 1
         assert subtotal_checks >= 2  # one per expense (PER_CAPITA + PER_FAMILY line items)
 
-        # Transactions journal keeps the Split Mode column, now humanized.
+        # Transactions journal (Phase 18 exploded layout): Split Mode is column 6, humanized.
         tx_header = [c.value for c in wb["Transactions"][1]]
-        assert tx_header[-1] == "Split Mode"
-        tx_modes = {row[-1] for row in wb["Transactions"].iter_rows(min_row=2, values_only=True)}
+        assert tx_header[5] == "Split Mode"
+        tx_modes = {row[5] for row in wb["Transactions"].iter_rows(min_row=2, values_only=True) if row[5]}
         assert tx_modes <= {"Per-Person", "Per-Family"}

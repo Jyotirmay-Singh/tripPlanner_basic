@@ -91,6 +91,26 @@ export function canMarkSettlementPaid(
   return !!(lender && lender.user_id && lender.user_id === userId);
 }
 
+/**
+ * UX mirror of backend can_record_payment (Phase 20): a partial payment along a suggested
+ * debtor->creditor pair may be recorded/edited/deleted only by a trip admin/owner OR by the RECEIVER
+ * — the app user linked to the creditor member (the pair's to_member_id). The payer can never
+ * self-record. An undefined user or an unmatched/unlinked creditor resolves to false. The server
+ * stays authoritative; hiding the controls is a nicety only.
+ */
+export function canRecordPayment(
+  trip: RoleTrip,
+  toMemberId: string,
+  userId: string | undefined,
+  members: { id: string; user_id?: string | null }[],
+): boolean {
+  if (!userId) return false;
+  const r = roleOf(trip, userId);
+  if (r === 'owner' || r === 'admin') return true;
+  const receiver = members.find((m) => m.id === toMemberId);
+  return !!(receiver && receiver.user_id && receiver.user_id === userId);
+}
+
 // Owner only
 export function canManageAdmins(trip: RoleTrip, userId: string | undefined): boolean {
   return roleOf(trip, userId) === 'owner';

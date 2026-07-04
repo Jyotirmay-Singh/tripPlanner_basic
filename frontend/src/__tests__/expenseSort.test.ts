@@ -57,6 +57,29 @@ describe('sortExpensesDesc', () => {
     expect(ids(list)).toEqual(['no-date', 'has-date']);
   });
 
+  it('mixed same-day: a date-only row orders by its created_at time-of-day against timed rows', () => {
+    const list = [
+      mk({ id: 'timed-am', date: '28-06-25', time: '08:00', created_at: '2025-06-28T08:00:00+00:00' }),
+      mk({ id: 'dateonly-eve', date: '28-06-25', time: null, created_at: '2025-06-28T20:00:00+00:00' }),
+      mk({ id: 'timed-pm', date: '28-06-25', time: '18:00', created_at: '2025-06-28T18:00:00+00:00' }),
+      mk({ id: 'dateonly-dawn', date: '28-06-25', time: null, created_at: '2025-06-28T06:00:00+00:00' }),
+    ];
+    // Date-only rows use their created_at time-of-day (NOT a fabricated 23:59), so they interleave
+    // with the explicit times: eve 20:00 > pm 18:00 > am 08:00 > dawn 06:00.
+    expect(ids(list)).toEqual(['dateonly-eve', 'timed-pm', 'timed-am', 'dateonly-dawn']);
+  });
+
+  it('an unparseable time string falls back to the created_at time-of-day (garbage never wins)', () => {
+    const list = [
+      mk({ id: 'garbage-late', date: '28-06-25', time: '99:99', created_at: '2025-06-28T21:00:00+00:00' }),
+      mk({ id: 'valid-noon', date: '28-06-25', time: '12:00', created_at: '2025-06-28T00:00:00+00:00' }),
+      mk({ id: 'garbage-early', date: '28-06-25', time: '25:61', created_at: '2025-06-28T03:00:00+00:00' }),
+    ];
+    // '99:99' / '25:61' are rejected by the HH:MM parse -> use created_at minutes (21:00 / 03:00);
+    // valid-noon keeps its explicit 12:00. Order: late 21:00 > noon 12:00 > early 03:00.
+    expect(ids(list)).toEqual(['garbage-late', 'valid-noon', 'garbage-early']);
+  });
+
   it('a new expense (today + latest created_at) lands at index 0', () => {
     const existing = [
       mk({ id: 'e1', date: '20-06-25', created_at: '2025-06-20T10:00:00+00:00' }),

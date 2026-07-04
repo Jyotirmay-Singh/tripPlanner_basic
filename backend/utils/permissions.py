@@ -64,3 +64,15 @@ def can_transfer_ownership(trip: dict, user_id: Optional[str]) -> bool:
 
 def can_delete_trip(trip: dict, user_id: Optional[str]) -> bool:
     return role_of(trip, user_id) == "owner"
+
+
+def can_record_payment(trip: dict, to_member_id: Optional[str], user_id: Optional[str]) -> bool:
+    # Phase 20: a payment along a suggested debtor->creditor pair may be recorded/edited/deleted only
+    # by a trip admin (owner is always seeded into admin_ids) or by the RECEIVER — the app user linked
+    # to the creditor member (to_member_id). The payer can never self-record their own debt as paid.
+    # Mirrors can_mark_settlement_paid (Phase 10) but is parametrized on the creditor member id so the
+    # POST path (member id from the body) and the PATCH/DELETE path (id from the stored doc) share it.
+    if role_of(trip, user_id) in ("owner", "admin"):
+        return True
+    receiver = next((m for m in trip.get("members", []) if m["id"] == to_member_id), None)
+    return bool(receiver and receiver.get("user_id") == user_id)

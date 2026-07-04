@@ -277,3 +277,56 @@ authNav flow. No backend/auth/RBAC/split/report change.)*
       `ProfileAvatarButton`; delete orphaned `src/LogoutButton.tsx`; Profile big avatar reuses
       `initials()`. Logout preserved on Profile (Step 21 unchanged); authNav/logout tests still green
       + full frontend gate (jest/tsc/lint).
+
+### Phase 20: Partial Payments (Splitwise-style settlements)
+*(Additive on a new `db.payments` collection + the existing greedy engine. A payment is a directed
+money movement overlaid in `_compute_balances` (`net[from]+=amt, net[to]-=amt`) EXACTLY like a paid
+settlement, so `minimize_transfers` re-derives the residual pairs and payments persist/offset the
+RECOMPUTED balance after new expenses — NO forked split math, NO per-pair remap. "Paid"/"Partially
+Paid" are DERIVED. The legacy `db.settlements` overlay is left UNTOUCHED (additive coexistence): legacy
+paid rows keep netting; the app just stops using pending/mark-paid. Only the receiver (creditor's app
+user) or a trip admin may record/edit/delete; the payer never self-records; amount `>0` and `<=` the
+current suggested pair payable (no overpayment). No split-mode/GridFS/Gmail/auth/other-report-tab change.)*
+- [x] Step 78: `models/payment.py` (`PaymentCreate`/`PaymentPatch`) + `db.payments` index in
+      `server.py`; additive payments overlay in `utils/balances._compute_balances` AND the Phase-14
+      breakdown call (`settlements + payments`); pure `services/payments.py::pair_blocks`/`payment_status`
+      roll-up + `tests/test_payments_rollup.py` (pure).
+- [x] Step 79: `routes/payments.py` CRUD (`GET`/`POST`/`PATCH`/`DELETE /trips/{id}/payments`) with
+      server-side validation (amount `>0`, `<=` current pair payable, valid suggested pair; edit cap =
+      residual + own amount); `can_record_payment` in `utils/permissions.py` + `_payment_or_403` in
+      `utils/deps.py`; router registered in `server.py`; predicate unit tests in `test_payments_rollup.py`.
+- [x] Step 80: Excel **Payments** tab (Payer | Payee | Amount({cur}) | Date & Time + bold Total) in
+      `routes/reports.py` and the parallel PDF Payments section in `services/report_pdf.py`
+      (`build_report_pdf(..., payments=)`); all existing tabs + `?token=` intact.
+- [x] Step 81: settle-up rewrite (`app/trip/[id]/settle-up.tsx`: per-pair current payable, Partially
+      Paid/Paid badges + progress, editable amount + "Max" hint + `ConfirmModal` guard-rail, payment
+      log with date/time, receiver/admin edit/delete); pure `src/payments.ts` + `__tests__/payments.test.ts`;
+      `src/api.ts` wrappers (`listPayments`/`recordPayment`/`editPayment`/`deletePayment`);
+      `src/permissions.ts` `canRecordPayment` mirror. Frontend gate green (tsc + eslint + jest 248/248).
+- [x] Step 82: full verification gate — live-API `tests/test_payments.py` **14/14 green** against a
+      local Docker Mongo; full backend suite **581 passed / 2 skipped** (the only 2 fails are the
+      pre-existing `test_auth` admin-login env caveat, unrelated to payments). `test_balances_reports`
+      updated for the 5th "Payments" tab (+ a stale Phase-18 Transactions header assertion fixed).
+      Frontend jest 248/tsc/lint green; docs (USER_GUIDE §7.2/§8/§9). Commit pending user go-ahead.
+
+### Phase 21: Expenses Tab Date+Time Ordering
+*(Frontend-only, DISPLAY-only. The pure helper `frontend/src/expenseSort.ts`
+(`sortExpensesDesc`/`compareExpensesDesc`) already sorts the Expenses tab newest-first by each
+expense's own date+time and is already wired at `app/trip/[id]/index.tsx` + the member drill-down
+`app/trip/[id]/member/[mid].tsx`; NO engine/balance/settlement/report/RBAC/Gmail/auth change and NO
+stored-data change — this only reorders how the list is presented. Storage is a `date` `"DD-MM-YY"`
+field + an OPTIONAL `time` `"HH:MM"` (24h) field (two fields, not one datetime); `created_at` is a
+tz-aware ISO stamp read by plain string slicing (no UTC/day shift). Contract, all descending, stable:
+(1) calendar `date`, falling back to `created_at`'s date when missing/invalid; (2) time-of-day —
+explicit `time`, else the row's `created_at` time-of-day (DECISION: date-only rows order by ENTRY
+time, NOT a fabricated 23:59); (3) `created_at` ISO desc; (4) `id` desc. `sortExpensesDesc` returns a
+new array and never mutates its input.)*
+- [x] Step 83: Confirm the ordering contract is wired — Expenses tab (`index.tsx`) + member drill-down
+      (`member/[mid].tsx`) already call `sortExpensesDesc`; current tab order is newest-first. No code
+      change needed.
+- [x] Step 84: Harden `src/__tests__/expenseSort.test.ts` — added the mixed same-day case (date-only vs
+      timed rows; `created_at` time-of-day decides, not 23:59) and the unparseable-`time`-string
+      fallback case. (Existing cases already cover date+time present, date-only fallback, mixed-date
+      ordering, same date+time `created_at`→`id` tiebreaker, and missing/invalid date.)
+- [x] Step 85: Docs (USER_GUIDE §5.2 — Expenses tab shows newest first by date+time) + full frontend
+      gate green (jest 250/250, tsc clean, eslint clean).
