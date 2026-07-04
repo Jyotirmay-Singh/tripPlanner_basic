@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200">
+  <defs><linearGradient id="mg" gradientUnits="userSpaceOnUse" x1="120" y1="470" x2="400" y2="110">
+      <stop offset="0" stop-color="#0FBFA6"/>
+      <stop offset="0.55" stop-color="#2FD39B"/>
+      <stop offset="1" stop-color="#5CE07E"/>
+    </linearGradient></defs>
+  <svg x="391.5" y="200" width="417" height="520" viewBox="100 88 324 404" preserveAspectRatio="xMidYMid meet"><g fill="none" stroke="url(#mg)" stroke-width="44" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M256,300 L256,452"/>
+      <path d="M150,138 C208,150 250,236 256,300 C262,236 322,168 374,154"/>
+    </g>
+    <g fill="url(#mg)">
+      <circle cx="256" cy="452" r="24"/>
+      <circle cx="150" cy="138" r="34"/>
+      <circle cx="374" cy="154" r="34"/>
+    </g></svg>
+  <text x="600" y="900" font-family="Arial, Helvetica, sans-serif" font-size="118" font-weight="700" text-anchor="middle" letter-spacing="-2">
+    <tspan fill="#F7F5F0">Trip</tspan><tspan fill="#2FD39B">Splitter</tspan>
+  </text>
+</svg>
