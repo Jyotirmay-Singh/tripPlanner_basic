@@ -15,6 +15,7 @@ from services.custom_split import (
 )
 from services.income_migration import compute_net  # faithful _compute_balances replica
 from services.member_breakdown import family_member_breakdown
+from services.report_builder import build_expense_member_rows, build_split_math_rows, mode_label
 
 
 # --------------------------------------------------------------------------- helpers
@@ -161,3 +162,27 @@ class TestFamilyBreakdown:
         by_id = {r["id"]: r["net"] for r in rows}
         assert by_id == {"a1": -80.0, "a2": -10.0, "a3": 0.0}
         assert round(sum(by_id.values()) * 100) == round(net["fA"] * 100)  # foots to family net
+
+
+# =========================================================================== report builders (display-only)
+class TestReportBuilders:
+    def test_mode_label(self):
+        assert mode_label("EXACT") == "Exact"
+
+    def test_split_math_rows_exact(self):
+        members = [_fam("fA", ["a1", "a2"]), _ind("i1")]
+        exps = [_exp(100.0, {"a1": 80, "a2": 10, "i1": 10}, paid_by="i1")]
+        block = build_split_math_rows(exps, members)[0]
+        assert block["mode"] == "Exact"
+        shares = {p["participant"]: p["allocated"] for p in block["participants"]}
+        assert shares == {"fA": 90.0, "i1": 10.0}  # entity rollup
+        assert round(block["subtotal_allocated"] * 100) == 10000  # foots to the total
+
+    def test_expense_member_rows_exact_reconciles(self):
+        members = [_fam("fA", ["a1", "a2"]), _ind("i1")]
+        exps = [_exp(100.0, {"a1": 80, "a2": 10, "i1": 10}, paid_by="i1")]
+        out = build_expense_member_rows(exps, members)
+        # rows key `person` by display name; _fam sets member names m0/m1, _ind uses the id as name.
+        payable = {r["person"]: r["payable"] for blk in out["blocks"] for r in blk["rows"]}
+        assert payable["m0"] == 80.0 and payable["m1"] == 10.0 and payable["i1"] == 10.0
+        assert round(out["grand_amount"] * 100) == round(out["grand_payable"] * 100) == 10000

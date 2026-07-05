@@ -365,9 +365,10 @@ offline replica `income_migration.compute_net`.)*
       mismatch with HTTP 422; persist normalized `custom_amounts` (PATCH merges over the stored doc;
       leaving EXACT drops stale amounts). `_expense_modify_or_403` RBAC unchanged. Live-API coverage in
       `tests/test_exact_split_api.py`.
-- [ ] Step 91: Reports — `report_builder` `_MODE_LABELS["EXACT"]="Exact"`, `build_split_math_rows` EXACT
-      branch, `build_expense_member_rows` family sub-split via `exact_member_shares`; XLSX + PDF render
-      EXACT and reconcile.
+- [x] Step 91: Reports — `report_builder` `_MODE_LABELS["EXACT"]="Exact"`, `build_split_math_rows` EXACT
+      branch (per-entity rollup via `entity_shares_raw`), `build_expense_member_rows` family sub-split via
+      `exact_member_shares`; XLSX (Split Math + Transactions tabs) + PDF render EXACT and reconcile
+      (Σ amount == Σ payable). Pure tests in `tests/test_exact_split.py::TestReportBuilders`.
 - [ ] Step 92: Frontend pure helper `src/exactSplit.ts` (`reconcile`/`resolveEntityShares`/
       `splitRemainingEqually`) + shared `shared/exact-split-vectors.json` fixture + jest tests.
 - [ ] Step 93: UI — third `[Exact]` pill in `SplitModeSelector`; reusable `src/ExactSplitEditor.tsx`
