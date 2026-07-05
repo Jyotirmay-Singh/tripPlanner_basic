@@ -360,9 +360,11 @@ offline replica `income_migration.compute_net`.)*
       optional per-event weight map (existing 3-tuples byte-identical); `family_member_breakdown` splits an
       EXACT expense's family net by the typed amounts (0-amount ⇒ 0), and `expense_shares.expense_share_breakdown`
       uses `exact_member_shares`. Breakdown equals typed amounts, foots to family net, settlement replay scales.
-- [ ] Step 90: Enforce the hard rule at the API — `routes/expenses.py` create + edit call the Step-86
-      validator when `split_mode == "EXACT"` and reject a mismatch with HTTP 422; persist normalized
-      `custom_amounts`. `_expense_modify_or_403` RBAC unchanged.
+- [x] Step 90: Enforce the hard rule at the API — `routes/expenses.py` create + edit call the Step-86
+      validator (`_validate_exact_or_422`) when the effective `split_mode == "EXACT"` and reject a
+      mismatch with HTTP 422; persist normalized `custom_amounts` (PATCH merges over the stored doc;
+      leaving EXACT drops stale amounts). `_expense_modify_or_403` RBAC unchanged. Live-API coverage in
+      `tests/test_exact_split_api.py`.
 - [ ] Step 91: Reports — `report_builder` `_MODE_LABELS["EXACT"]="Exact"`, `build_split_math_rows` EXACT
       branch, `build_expense_member_rows` family sub-split via `exact_member_shares`; XLSX + PDF render
       EXACT and reconcile.

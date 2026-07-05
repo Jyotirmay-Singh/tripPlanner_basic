@@ -7,8 +7,19 @@ from utils.common import gen_id, now_utc
 from utils.deps import get_current_user, _trip_or_404, _expense_modify_or_403
 from services.receipts import delete_receipts_for_expense
 from services.expense_shares import expense_share_breakdown
+from services.custom_split import validate_exact_amounts, valid_exact_member_ids
 
 router = APIRouter()
+
+
+def _validate_exact_or_422(amount, custom_amounts, members):
+    """Phase 22 hard rule (backend source of truth): the per-person EXACT amounts MUST sum to the total.
+    Returns the normalized (cent-snapped) amounts, or raises HTTP 422 (FastAPI-normalized body the
+    client already understands). Never trust the client to have validated."""
+    try:
+        return validate_exact_amounts(float(amount), custom_amounts or {}, valid_exact_member_ids(members))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
 
 
 def _clean_family_participants(raw, split_mode, split_ids, members):
@@ -60,6 +71,12 @@ async def add_expense(trip_id: str, body: ExpenseIn, force: bool = False,
     family_participants = _clean_family_participants(body.family_participants, body.split_mode,
                                                      split_ids, trip["members"])
 
+    # Phase 22 — EXACT: the per-person amounts MUST sum to the total (422 otherwise). Persist the
+    # normalized (cent-snapped) amounts so the ledger/breakdown/report always foot exactly.
+    custom_amounts = None
+    if body.split_mode == "EXACT":
+        custom_amounts = _validate_exact_or_422(body.amount, body.custom_amounts, trip["members"])
+
     # budget over-check (net spend vs budget). Sums ALL rows; a negative amount (money back) nets the
     # running total down and never trips the warning.
     warning = None
@@ -86,6 +103,7 @@ async def add_expense(trip_id: str, body: ExpenseIn, force: bool = False,
         "split_mode": body.split_mode,
         "weight_snapshots": body.weight_snapshots or None,
         "family_participants": family_participants,
+        "custom_amounts": custom_amounts,  # Phase 22 — EXACT only; None otherwise
         # Step 22: receipts are no longer stored inline; the client uploads the bill image to
         # POST /trips/{id}/expenses/{eid}/receipt after the expense is created, which sets receipt_id.
         "created_by": user["id"], "created_at": now_utc().isoformat(),
@@ -146,6 +164,17 @@ async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
             if fid in old_snaps and fid not in new_snaps:
                 new_snaps[fid] = old_snaps[fid]
         updates["weight_snapshots"] = new_snaps or None
+    # Phase 22 — EXACT is the backend source of truth: whenever this edit leaves the expense in EXACT
+    # mode, re-validate that the per-person custom_amounts still sum to the total (merging the sent
+    # fields over the stored expense), reject a mismatch with 422, and persist the normalized amounts.
+    # Leaving EXACT for another mode drops the now-stale per-person amounts.
+    eff_mode = updates.get("split_mode", expense.get("split_mode") or "PER_CAPITA")
+    if eff_mode == "EXACT":
+        eff_amount = updates.get("amount", expense.get("amount"))
+        eff_custom = updates.get("custom_amounts", expense.get("custom_amounts"))
+        updates["custom_amounts"] = _validate_exact_or_422(eff_amount, eff_custom, _trip["members"])
+    elif "split_mode" in updates:
+        updates["custom_amounts"] = None
     await db.expenses.update_one({"id": expense_id, "trip_id": trip_id}, {"$set": updates})
     return await db.expenses.find_one({"id": expense_id}, {"_id": 0})
 
