@@ -390,5 +390,8 @@ offline replica `income_migration.compute_net`.)*
       the existing FastAPI error normalization); `SplitMode`/`split_mode` unions widened in
       `SplitModeSelector`/`expenseShares.ts`/`memberSpend.ts`. Frontend gate green (tsc, eslint,
       jest 267/267).
-- [ ] Step 95: Docs (CLAUDE.md §5-C + USER_GUIDE) + full verification gate (backend pytest incl. live-API
-      `tests/test_exact_split_api.py`; frontend tsc/lint/jest) + commit.
+- [x] Step 95: Docs (CLAUDE.md §5-C + USER_GUIDE §5.1) + full verification gate. Backend: EXACT pure
+      (`test_exact_split.py` 25) + live-API (`test_exact_split_api.py` 9) green; full suite **615 passed /
+      2 skipped**, the only 2 failures the pre-existing `test_auth` admin-login env caveat (unrelated).
+      Frontend: tsc clean, eslint 0 errors, jest 267/267. Live gate run against local Docker Mongo + a
+      from-source uvicorn.
