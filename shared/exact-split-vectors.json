@@ -1,0 +1,88 @@
+{
+  "_comment": "Shared EXACT-split (Phase 22) test vectors. Read by BOTH backend/tests/test_exact_split.py (TestSharedVectors) and frontend/src/__tests__/exactSplit.test.ts so the person->entity rollup and the reconcile/save-gate logic can never drift. rows: person-level {memberId, entityId (family id or self for individuals), included, amount}. KEEP BOTH READERS IN SYNC.",
+  "reconcile": [
+    {
+      "name": "family 80/10 + individual 10 == 100",
+      "total": 100,
+      "rows": [
+        {"memberId": "a1", "entityId": "fA", "included": true, "amount": 80},
+        {"memberId": "a2", "entityId": "fA", "included": true, "amount": 10},
+        {"memberId": "i1", "entityId": "i1", "included": true, "amount": 10}
+      ],
+      "assigned": 100,
+      "remaining": 0,
+      "isValid": true,
+      "entityShares": {"fA": 90, "i1": 10}
+    },
+    {
+      "name": "under by 5 -> invalid",
+      "total": 100,
+      "rows": [
+        {"memberId": "a1", "entityId": "fA", "included": true, "amount": 80},
+        {"memberId": "i1", "entityId": "i1", "included": true, "amount": 15}
+      ],
+      "assigned": 95,
+      "remaining": 5,
+      "isValid": false,
+      "entityShares": {"fA": 80, "i1": 15}
+    },
+    {
+      "name": "over by 10 -> invalid",
+      "total": 100,
+      "rows": [
+        {"memberId": "a1", "entityId": "fA", "included": true, "amount": 80},
+        {"memberId": "i1", "entityId": "i1", "included": true, "amount": 30}
+      ],
+      "assigned": 110,
+      "remaining": -10,
+      "isValid": false,
+      "entityShares": {"fA": 80, "i1": 30}
+    },
+    {
+      "name": "excluded family member contributes 0",
+      "total": 90,
+      "rows": [
+        {"memberId": "a1", "entityId": "fA", "included": true, "amount": 80},
+        {"memberId": "a2", "entityId": "fA", "included": false, "amount": null},
+        {"memberId": "i1", "entityId": "i1", "included": true, "amount": 10}
+      ],
+      "assigned": 90,
+      "remaining": 0,
+      "isValid": true,
+      "entityShares": {"fA": 80, "i1": 10}
+    },
+    {
+      "name": "total zero -> invalid, empty rollup",
+      "total": 0,
+      "rows": [
+        {"memberId": "i1", "entityId": "i1", "included": true, "amount": 0}
+      ],
+      "assigned": 0,
+      "remaining": 0,
+      "isValid": false,
+      "entityShares": {}
+    }
+  ],
+  "splitRemaining": [
+    {
+      "name": "split 100 across 3 blank rows, snap the last",
+      "total": 100,
+      "rows": [
+        {"memberId": "a", "entityId": "a", "included": true, "amount": null},
+        {"memberId": "b", "entityId": "b", "included": true, "amount": null},
+        {"memberId": "c", "entityId": "c", "included": true, "amount": null}
+      ],
+      "expectedAmounts": {"a": 33.33, "b": 33.33, "c": 33.34}
+    },
+    {
+      "name": "fill the two blanks around a fixed 40",
+      "total": 100,
+      "rows": [
+        {"memberId": "a", "entityId": "a", "included": true, "amount": 40},
+        {"memberId": "b", "entityId": "b", "included": true, "amount": null},
+        {"memberId": "c", "entityId": "c", "included": true, "amount": null}
+      ],
+      "expectedAmounts": {"a": 40, "b": 30, "c": 30}
+    }
+  ]
+}

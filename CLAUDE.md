@@ -369,8 +369,9 @@ offline replica `income_migration.compute_net`.)*
       branch (per-entity rollup via `entity_shares_raw`), `build_expense_member_rows` family sub-split via
       `exact_member_shares`; XLSX (Split Math + Transactions tabs) + PDF render EXACT and reconcile
       (Σ amount == Σ payable). Pure tests in `tests/test_exact_split.py::TestReportBuilders`.
-- [ ] Step 92: Frontend pure helper `src/exactSplit.ts` (`reconcile`/`resolveEntityShares`/
-      `splitRemainingEqually`) + shared `shared/exact-split-vectors.json` fixture + jest tests.
+- [x] Step 92: Frontend pure helper `src/exactSplit.ts` (`reconcile`/`resolveEntityShares`/
+      `splitRemainingEqually`, cent-safe) + `shared/exact-split-vectors.json` fixture asserted by BOTH
+      `src/__tests__/exactSplit.test.ts` (17 jest) and `tests/test_exact_split.py::TestSharedVectors`.
 - [ ] Step 93: UI — third `[Exact]` pill in `SplitModeSelector`; reusable `src/ExactSplitEditor.tsx`
       (collapsible families w/ subtotals, per-member checkbox+amount, reconciliation bar, Save-gate,
       "split remaining equally") wired into add/edit expense; edit rehydrates `custom_amounts`.

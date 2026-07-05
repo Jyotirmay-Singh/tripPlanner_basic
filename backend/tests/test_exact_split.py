@@ -5,6 +5,9 @@
 # EXACT: the author assigns explicit per-person amounts. Person-level input rolls UP to entity shares
 # (family = Σ its members present; individual = own) and feeds the SAME ledger/settlement engine as the
 # other two modes. The one hard rule (Σ amounts == total) is validated + cent-snapped in custom_split.
+import json
+import os
+
 import pytest
 
 from services.custom_split import (
@@ -186,3 +189,53 @@ class TestReportBuilders:
         payable = {r["person"]: r["payable"] for blk in out["blocks"] for r in blk["rows"]}
         assert payable["m0"] == 80.0 and payable["m1"] == 10.0 and payable["i1"] == 10.0
         assert round(out["grand_amount"] * 100) == round(out["grand_payable"] * 100) == 10000
+
+
+# =========================================================================== shared vectors (anti-drift)
+def _load_vectors():
+    path = os.path.join(os.path.dirname(__file__), "..", "..", "shared", "exact-split-vectors.json")
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _members_from_rows(rows):
+    """Reconstruct the trip roster the frontend rows imply: entities with >1 member (or a member id
+    that differs from the entity id) are families; a lone self-referential row is an individual."""
+    by_entity = {}
+    for r in rows:
+        by_entity.setdefault(r["entityId"], []).append(r["memberId"])
+    members = []
+    for eid, mids in by_entity.items():
+        if len(mids) == 1 and mids[0] == eid:
+            members.append({"id": eid, "kind": "individual", "family_members": [], "family_member_ids": []})
+        else:
+            members.append({"id": eid, "kind": "family",
+                            "family_members": [f"n{i}" for i in range(len(mids))], "family_member_ids": mids})
+    return members
+
+
+class TestSharedVectors:
+    """The SAME shared/exact-split-vectors.json the frontend jest suite asserts, so the person→entity
+    rollup and the save-gate rule cannot drift between layers."""
+
+    def test_reconcile_vectors(self):
+        for v in _load_vectors()["reconcile"]:
+            members = _members_from_rows(v["rows"])
+            custom = {r["memberId"]: r["amount"] for r in v["rows"] if r["included"] and r["amount"] is not None}
+            shares = resolve_exact_entity_shares(custom, members)
+            assert shares == {k: float(val) for k, val in v["entityShares"].items()}, v["name"]
+            valid_ids = valid_exact_member_ids(members)
+            if v["isValid"]:
+                out = validate_exact_amounts(v["total"], custom, valid_ids)
+                assert round(sum(out.values()) * 100) == round(v["total"] * 100), v["name"]
+            else:
+                with pytest.raises(ValueError):
+                    validate_exact_amounts(v["total"], custom, valid_ids)
+
+    def test_split_remaining_vectors_pass_validation(self):
+        # The frontend's "split remaining equally" output must be accepted by the backend validator.
+        for v in _load_vectors()["splitRemaining"]:
+            members = _members_from_rows(v["rows"])
+            valid_ids = valid_exact_member_ids(members)
+            out = validate_exact_amounts(v["total"], v["expectedAmounts"], valid_ids)
+            assert round(sum(out.values()) * 100) == round(v["total"] * 100), v["name"]
