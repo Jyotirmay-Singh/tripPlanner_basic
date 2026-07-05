@@ -5,7 +5,7 @@ from pydantic import BaseModel, field_validator
 
 from utils.date_rules import normalize_time
 
-SplitMode = Literal["PER_CAPITA", "PER_FAMILY"]
+SplitMode = Literal["PER_CAPITA", "PER_FAMILY", "EXACT"]
 
 
 def _validate_amount(v):
@@ -35,6 +35,7 @@ class ExpenseIn(BaseModel):
     # the family's entity total, the trip headcount, the ledger net, and every other entity are
     # untouched.
     family_participants: Optional[Dict[str, List[str]]] = None
+    custom_amounts: Optional[Dict[str, float]] = None  # EXACT mode: person-level member_id -> exact amount
     receipt_id: Optional[str] = None  # GridFS receipt id (Step 22); set via the upload endpoint
     receipt_base64: Optional[str] = None  # legacy/read-only inline receipt (superseded by receipt_id)
 
@@ -59,7 +60,8 @@ class ExpenseUpdate(BaseModel):
     split_member_ids: Optional[List[str]] = None
     split_mode: Optional[SplitMode] = None
     weight_snapshots: Optional[dict] = None
-    family_participants: Optional[Dict[str, List[str]]] = None  # see ExpenseIn (intra-family, both modes)
+    family_participants: Optional[Dict[str, List[str]]] = None
+    custom_amounts: Optional[Dict[str, float]] = None  # EXACT mode: person-level member_id -> exact amount
     receipt_id: Optional[str] = None  # GridFS receipt id (Step 22); set via the upload endpoint
     receipt_base64: Optional[str] = None  # legacy/read-only inline receipt (superseded by receipt_id)
     force: Optional[bool] = False

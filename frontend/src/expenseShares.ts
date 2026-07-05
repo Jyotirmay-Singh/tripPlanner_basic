@@ -16,7 +16,7 @@ export type ShareEntity = {
   members: ShareMember[];
 };
 export type ExpenseShares = {
-  mode: 'PER_CAPITA' | 'PER_FAMILY';
+  mode: 'PER_CAPITA' | 'PER_FAMILY' | 'EXACT';
   payer_id: string;
   amount: number;
   entities: ShareEntity[];

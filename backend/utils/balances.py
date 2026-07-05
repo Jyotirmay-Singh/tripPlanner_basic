@@ -7,6 +7,7 @@ from services.calculator import (
     split_per_capita,
     split_per_family,
 )
+from services.custom_split import resolve_exact_entity_shares
 from services.member_breakdown import family_member_breakdown, family_member_ids
 
 
@@ -42,6 +43,17 @@ async def _compute_balances(trip_id: str) -> dict:
             shares = split_per_capita(e["amount"], weights)
             if not shares:
                 continue  # H <= 0; nothing to split (matches old `if total_weight == 0: continue`)
+            for sid, share in shares.items():
+                net[sid] = net.get(sid, 0) - share
+            net[e["paid_by_member_id"]] = net.get(e["paid_by_member_id"], 0) + e["amount"]
+        elif mode == "EXACT":
+            # EXACT (Phase 22, §5-C): person-level typed amounts rolled up to entity shares (family =
+            # Σ its members present, individual = own), summing exactly to the total. Applied through
+            # the SAME net loop as the other modes, so settlements/payments/minimize_transfers below
+            # are untouched.
+            shares = resolve_exact_entity_shares(e.get("custom_amounts"), members)
+            if not shares:
+                continue
             for sid, share in shares.items():
                 net[sid] = net.get(sid, 0) - share
             net[e["paid_by_member_id"]] = net.get(e["paid_by_member_id"], 0) + e["amount"]

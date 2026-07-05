@@ -103,6 +103,15 @@ B) Per-Family Split (Total Entities Involved)
 - Math: Total Entities (E) = (number of selected families) + (number of selected individuals). Cost per entity C = Expense / E.
 - Example: 4 families + 2 individuals = 6 entities. A $120 expense means every family unit and every single individual owes exactly $20, regardless of internal family member size.
 
+C) Exact-Amount Split (`split_mode = "EXACT"`, Phase 22)
+- Rule: the expense author assigns an **explicit amount to specific people** (family members and/or standalone individuals); the amounts MUST sum to the expense total. Selection is person-level — presence of a member key means "involved", absence means exactly 0.
+- Data: the expense stores raw per-person input `custom_amounts: {member_id -> amount}` (persisted verbatim so edits round-trip). EXACT **ignores** `family_participants` and `weight_snapshots` (those drive PER_CAPITA involvement); "involved" is defined solely by presence in `custom_amounts`.
+- Design (person-level input → entity-level ledger → per-member display). All three stages funnel through the single pure module `services/custom_split.py` so no branch point forks logic; all reconciliation is in **integer cents**, snapped largest-remainder so resolved shares sum EXACTLY to the total:
+  1. **Ledger (entity rollup).** `resolve_exact_entity_shares(custom_amounts, members)` rolls each person up to their entity (family share = Σ its selected members' amounts; individual = own), producing the SAME `{entity_key: amount}` shape as §5-A/§5-B — so it feeds `expense_shares.entity_shares_raw` → `utils/balances._compute_balances` → `services/calculator.minimize_transfers` **unchanged**. The ledger still settles between entities.
+  2. **Per-member display.** The Phase-14 family breakdown branches for EXACT: `services/member_breakdown.family_member_breakdown` splits an expense's family net in **proportion to the typed member amounts** (excluded ⇒ 0) via `calculator.distribute_chronological`'s optional per-member weight; `services/expense_shares.expense_share_breakdown` and the report builders use the explicit amounts. Because the family entity share equals Σ member amounts by construction, the breakdown still foots EXACTLY to the family net, and the chronological settlement replay scales it unchanged.
+- **The one hard rule (two-layer save-gate).** An EXACT expense cannot be saved unless Σ amounts == total. Enforced in BOTH: (a) frontend — the Save button is disabled and a live reconciliation bar shows Assigned/Remaining until it balances (`src/exactSplit.ts` + `src/ExactSplitEditor.tsx`); (b) backend (source of truth) — `routes/expenses.py` create + edit call `custom_split.validate_exact_amounts` and reject a mismatch with **HTTP 422**. Frontend and backend snap logic are pinned together by `shared/exact-split-vectors.json`.
+- Reports display EXACT (`_MODE_LABELS["EXACT"]="Exact"`) with no forked math — the Split Math and exploded Transactions tabs + PDF reuse `entity_shares_raw` / `exact_member_shares`.
+
 App User Identity Mapping: If an App User joins an existing family group via code, they retain their unique App User ID identity for login/auth operations, but are mathematically treated as an integrated member of that family unit during the cost allocations above.
 
 ---
@@ -330,3 +339,59 @@ new array and never mutates its input.)*
       ordering, same date+time `created_at`→`id` tiebreaker, and missing/invalid date.)
 - [x] Step 85: Docs (USER_GUIDE §5.2 — Expenses tab shows newest first by date+time) + full frontend
       gate green (jest 250/250, tsc clean, eslint clean).
+
+### Phase 22: Exact-Amount Split (`split_mode = "EXACT"`)
+*(Strictly additive third split mode, §5-C. The author assigns explicit per-person amounts (family
+members and/or individuals) that MUST sum to the total — enforced in two layers (frontend Save-gate +
+backend 422). Design: person-level input (`custom_amounts: {member_id -> amount}`, presence ⇒ involved,
+absent ⇒ 0) rolls UP to the SAME `{entity_id: amount}` shape the two existing modes emit, so it flows
+through `expense_shares.entity_shares_raw` → `_compute_balances` → `minimize_transfers` UNCHANGED; the
+per-member family breakdown branches to the explicit amounts. All new fields optional; legacy rows and
+PER_CAPITA §5-A / PER_FAMILY §5-B math byte-identical. EXACT ignores `family_participants`/
+`weight_snapshots`; all reconciliation in integer cents, snapped largest-remainder so entity shares sum
+exactly to the total. NOTE: the prompt's `calculator.distribute_per_expense_net` does not exist — the
+Phase-14 breakdown is `member_breakdown.family_member_breakdown` + `calculator.distribute_chronological`
+(extended with an optional per-member weight); two extra branch points also gained an EXACT arm
+(`expense_shares.expense_share_breakdown`, `report_builder.build_expense_member_rows`) plus the
+offline replica `income_migration.compute_net`.)*
+- [x] Step 86: Model + pure validator — `SplitMode` += `"EXACT"` and optional `custom_amounts` on
+      `models/expense.py`; new pure `services/custom_split.py::validate_exact_amounts(total, custom_amounts,
+      valid_member_ids)` (keys ∈ person-level id space, amounts ≥ 0, ≥1 > 0, Σ == total ±0.01, then
+      cent-snap) → normalized amounts or `ValueError`. No I/O. Unit tests in `tests/test_exact_split.py`.
+- [x] Step 87: Pure resolver — `custom_split.resolve_exact_entity_shares(custom_amounts, members)`
+      (person→entity rollup, cent-safe) + `exact_member_shares` (per-family per-member, absent ⇒ 0) +
+      `valid_exact_member_ids`. Extensive unit tests.
+- [x] Step 88: Wire EXACT into the share/ledger engine — third branch in `expense_shares.entity_shares_raw`,
+      `utils/balances._compute_balances`, `member_breakdown.family_member_breakdown` (fam_share), and
+      `income_migration.compute_net`, all calling `resolve_exact_entity_shares`. Ledger reconciliation
+      tests (Σ entity_shares == total, family + individual payers).
+- [x] Step 89: Wire EXACT into the per-member breakdown — `calculator.distribute_chronological` takes an
+      optional per-event weight map (existing 3-tuples byte-identical); `family_member_breakdown` splits an
+      EXACT expense's family net by the typed amounts (0-amount ⇒ 0), and `expense_shares.expense_share_breakdown`
+      uses `exact_member_shares`. Breakdown equals typed amounts, foots to family net, settlement replay scales.
+- [x] Step 90: Enforce the hard rule at the API — `routes/expenses.py` create + edit call the Step-86
+      validator (`_validate_exact_or_422`) when the effective `split_mode == "EXACT"` and reject a
+      mismatch with HTTP 422; persist normalized `custom_amounts` (PATCH merges over the stored doc;
+      leaving EXACT drops stale amounts). `_expense_modify_or_403` RBAC unchanged. Live-API coverage in
+      `tests/test_exact_split_api.py`.
+- [x] Step 91: Reports — `report_builder` `_MODE_LABELS["EXACT"]="Exact"`, `build_split_math_rows` EXACT
+      branch (per-entity rollup via `entity_shares_raw`), `build_expense_member_rows` family sub-split via
+      `exact_member_shares`; XLSX (Split Math + Transactions tabs) + PDF render EXACT and reconcile
+      (Σ amount == Σ payable). Pure tests in `tests/test_exact_split.py::TestReportBuilders`.
+- [x] Step 92: Frontend pure helper `src/exactSplit.ts` (`reconcile`/`resolveEntityShares`/
+      `splitRemainingEqually`, cent-safe) + `shared/exact-split-vectors.json` fixture asserted by BOTH
+      `src/__tests__/exactSplit.test.ts` (17 jest) and `tests/test_exact_split.py::TestSharedVectors`.
+- [x] Step 93: UI — third `[Exact]` pill in `SplitModeSelector`; reusable `src/ExactSplitEditor.tsx`
+      (collapsible families w/ live subtotals, per-member checkbox+amount, reconciliation bar via
+      `ProgressBar`, Save-gate, "split remaining equally", "not set" hint) replaces the Split-among list
+      when EXACT in both add/edit expense; edit rehydrates `custom_amounts` via `buildExactRows`.
+- [x] Step 94: `splitPreviewLabel` EXACT rollup ("Name cur X · …"); add/edit submit send
+      `custom_amounts` + involved-entity `split_member_ids` through the generic `api()` (422 surfaced by
+      the existing FastAPI error normalization); `SplitMode`/`split_mode` unions widened in
+      `SplitModeSelector`/`expenseShares.ts`/`memberSpend.ts`. Frontend gate green (tsc, eslint,
+      jest 267/267).
+- [x] Step 95: Docs (CLAUDE.md §5-C + USER_GUIDE §5.1) + full verification gate. Backend: EXACT pure
+      (`test_exact_split.py` 25) + live-API (`test_exact_split_api.py` 9) green; full suite **615 passed /
+      2 skipped**, the only 2 failures the pre-existing `test_auth` admin-login env caveat (unrelated).
+      Frontend: tsc clean, eslint 0 errors, jest 267/267. Live gate run against local Docker Mongo + a
+      from-source uvicorn.

@@ -17,6 +17,7 @@ from services.calculator import (
     split_per_capita,
     split_per_family,
 )
+from services.custom_split import exact_member_shares
 from services.expense_shares import entity_shares_raw
 from services.member_breakdown import family_member_ids
 from services.spend_summary import aggregate_spend
@@ -180,12 +181,12 @@ def build_transaction_rows(expenses: list, members: list) -> list:
 # `build_*_rows` builders above), so every displayed figure can never drift from
 # `utils.balances._compute_balances`.
 
-_MODE_LABELS = {"PER_CAPITA": "Per-Person", "PER_FAMILY": "Per-Family"}
+_MODE_LABELS = {"PER_CAPITA": "Per-Person", "PER_FAMILY": "Per-Family", "EXACT": "Exact"}
 
 
 def mode_label(mode) -> str:
-    """Split-mode label for display: 'PER_CAPITA' -> 'Per-Person', 'PER_FAMILY' -> 'Per-Family'.
-    Unknown/blank defaults to 'Per-Person' (the ledger's PER_CAPITA default)."""
+    """Split-mode label for display: 'PER_CAPITA' -> 'Per-Person', 'PER_FAMILY' -> 'Per-Family',
+    'EXACT' -> 'Exact'. Unknown/blank defaults to 'Per-Person' (the ledger's PER_CAPITA default)."""
     return _MODE_LABELS.get(mode or "PER_CAPITA", "Per-Person")
 
 
@@ -376,6 +377,15 @@ def build_split_math_rows(expenses: list, members: list) -> list:
                       "units": 1, "per_unit": r["per_entity"], "allocated": r["member_share"]}
                      for r in prows]
             divisor = prows[0]["total_entities"] if prows else 0
+        elif mode == "EXACT":
+            # EXACT: each entity's exact share (family = Σ its typed member amounts, individual = own)
+            # straight from the ledger-truth `entity_shares_raw` — no per-unit divisor, units = 1.
+            raw = entity_shares_raw(e, members)
+            parts = [{"participant": names[eid],
+                      "ptype": kind_by_label.get(names[eid], "Individual"),
+                      "units": 1, "per_unit": share, "allocated": share}
+                     for eid, share in raw.items()]
+            divisor = len(parts)
         else:
             prows = build_per_capita_rows([e], members)
             parts = [{"participant": r["member_name"],
@@ -461,6 +471,7 @@ def build_expense_member_rows(expenses: list, members: list) -> dict:
         sr += 1
         amount = e.get("amount", 0.0)
         fam_participants = e.get("family_participants") or {}
+        mode = e.get("split_mode") or "PER_CAPITA"
         rows: list = []
         block_payable = 0.0
         for m in members:
@@ -471,7 +482,11 @@ def build_expense_member_rows(expenses: list, members: list) -> dict:
                 roster_ids = [rid for rid, _ in roster]
                 # Divide THIS family's entity share among its members (0.0 when the family is not in
                 # the split); PER_CAPITA excludes non-participants, PER_FAMILY splits over all members.
-                alloc = allocate_within_family(raw.get(mid, 0.0), fam_participants.get(mid), roster_ids)
+                # EXACT shows each member's explicit typed amount (absent -> 0), matching the ledger.
+                if mode == "EXACT":
+                    alloc = exact_member_shares(e.get("custom_amounts"), roster_ids)
+                else:
+                    alloc = allocate_within_family(raw.get(mid, 0.0), fam_participants.get(mid), roster_ids)
                 for rid, rname in roster:
                     share = round(alloc.get(rid, 0.0), 2)
                     rows.append({"family": fam_label, "person": rname,

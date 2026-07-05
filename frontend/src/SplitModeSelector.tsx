@@ -6,11 +6,12 @@ import { SPACING, RADIUS } from './theme';
 import T from './T';
 import { perCapitaHumans } from './familyParticipation';
 
-export type SplitMode = 'PER_CAPITA' | 'PER_FAMILY';
+export type SplitMode = 'PER_CAPITA' | 'PER_FAMILY' | 'EXACT';
 
 const OPTIONS: { mode: SplitMode; label: string; icon: keyof typeof Ionicons.glyphMap; testID: string }[] = [
   { mode: 'PER_CAPITA', label: 'Per Person', icon: 'person-outline', testID: 'split-mode-per_capita' },
   { mode: 'PER_FAMILY', label: 'Per Family', icon: 'people-outline', testID: 'split-mode-per_family' },
+  { mode: 'EXACT', label: 'Exact', icon: 'create-outline', testID: 'split-mode-exact' },
 ];
 
 type Props = {
@@ -74,9 +75,21 @@ export function splitPreviewLabel(opts: {
   weightOverrides: Record<string, number>;
   currency: string;
   familyExcluded?: Record<string, string[]>;
+  /** EXACT: entity rollup {entityId -> amount} and entity display names, for the "Sharma 90 · Alex 10"
+   *  preview. Both come from the ExactSplitEditor's live rows. */
+  exactShares?: Record<string, number>;
+  names?: Record<string, string>;
 }): string {
   const { amount, mode, members, splitSel, weightOverrides, currency, familyExcluded } = opts;
   const HINT = "Enter an amount and pick who's splitting";
+
+  if (mode === 'EXACT') {
+    // §5C: each entity's exact rollup (family = Σ its members, individual = own).
+    const entries = Object.entries(opts.exactShares ?? {});
+    if (!entries.length) return 'Assign each person an exact amount';
+    return entries.map(([eid, amt]) => `${opts.names?.[eid] ?? eid} ${currency} ${amt.toFixed(2)}`).join(' · ');
+  }
+
   // amount may be negative (money back); only 0 / blank falls back to the hint.
   if (!Number.isFinite(amount) || amount === 0 || splitSel.length === 0) return HINT;
 

@@ -63,6 +63,10 @@ def distribute_chronological(events: list, roster: list) -> dict:
       * ``("exp", net_e, chosen_ids)`` — the family's net for that expense
         (``(amount if the family paid else 0) − its share``) split EVENLY among only the members who
         took part (``chosen_ids``); a member NOT in ``chosen_ids`` gets exactly 0 from that expense.
+      * ``("exp", net_e, chosen_ids, weights)`` — EXACT split (Phase 22): the family net is split
+        among ``chosen_ids`` in PROPORTION to ``weights`` (member_id -> typed amount; a 0-weight member
+        gets 0). Falls back to the even split above when ``weights`` is falsy or sums to ~0 (e.g. the
+        family only PAID an EXACT expense and consumed nothing).
       * ``("settle", delta, None)`` — a non-pending settlement's effect on the family net (same sign
         as ``_compute_balances``: ``+amount`` when the family is the payer, ``−amount`` when it
         receives). It SCALES the running positions proportionally toward 0, so a FULL settlement
@@ -78,15 +82,26 @@ def distribute_chronological(events: list, roster: list) -> dict:
     pos = {mid: 0.0 for mid in roster}
     if not roster:
         return pos
-    for kind, value, chosen in events:
+    for ev in events:
+        kind = ev[0]
         if kind == "exp":
+            value, chosen = ev[1], ev[2]
+            weights = ev[3] if len(ev) > 3 else None  # EXACT: per-member consumption weights
             chosen = [m for m in (chosen or []) if m in pos]
             if not chosen or not value:
                 continue
-            share = value / len(chosen)
-            for mid in chosen:
-                pos[mid] += share
+            wsum = sum((weights or {}).get(m, 0.0) for m in chosen)
+            if weights and abs(wsum) > 1e-9:
+                # EXACT: split this expense's family net in proportion to each member's typed amount
+                # (a 0-amount member gets 0), so unequal per-member amounts show through exactly.
+                for mid in chosen:
+                    pos[mid] += value * (weights.get(mid, 0.0) / wsum)
+            else:
+                share = value / len(chosen)
+                for mid in chosen:
+                    pos[mid] += share
         else:  # "settle": scale open positions toward 0 by the settlement delta
+            value = ev[1]
             if not value:
                 continue
             total = sum(pos.values())

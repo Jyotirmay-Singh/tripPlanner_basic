@@ -12,6 +12,8 @@ import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, FONTS, CATEGORIES, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
 import SplitModeSelector, { SplitMode, splitPreviewLabel } from '../../../src/SplitModeSelector';
+import ExactSplitEditor from '../../../src/ExactSplitEditor';
+import { ExactRow, buildExactRows, reconcile, resolveEntityShares, rowsToCustomAmounts } from '../../../src/exactSplit';
 import { canModifyExpense } from '../../../src/permissions';
 import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displayNames';
 import { buildFamilyParticipants, excludedFromParticipants, familyMemberIds, familyShareEach } from '../../../src/familyParticipation';
@@ -33,6 +35,7 @@ type Expense = {
   split_member_ids: string[]; split_mode?: SplitMode;
   weight_snapshots?: Record<string, number> | null; receipt_base64?: string | null;
   family_participants?: Record<string, string[]> | null;
+  custom_amounts?: Record<string, number> | null;
   receipt_id?: string | null; has_receipt?: boolean;
   created_by?: string | null;
 };
@@ -59,6 +62,8 @@ export default function EditExpense() {
   const [weightOverrides, setWeightOverrides] = useState<Record<string, number>>({});
   // famId -> excluded member ids (default empty = everyone participates).
   const [familyExcluded, setFamilyExcluded] = useState<Record<string, string[]>>({});
+  // Phase 22 — EXACT: person-level rows, rehydrated from the stored custom_amounts on load.
+  const [exactRows, setExactRows] = useState<ExactRow[]>([]);
   const [receiptUri, setReceiptUri] = useState<string | null>(null);
   const [newAsset, setNewAsset] = useState<{ uri: string; mimeType?: string; fileName?: string } | null>(null);
   const [hadReceipt, setHadReceipt] = useState(false);
@@ -84,6 +89,7 @@ export default function EditExpense() {
       setSplitMode(e.split_mode || 'PER_CAPITA');
       setWeightOverrides(e.weight_snapshots || {});
       setFamilyExcluded(excludedFromParticipants(t.members, e.family_participants));
+      setExactRows(buildExactRows(t.members, e.custom_amounts));
       const has = !!(e.has_receipt || e.receipt_id || e.receipt_base64);
       setHadReceipt(has);
       if (has) {
@@ -128,42 +134,60 @@ export default function EditExpense() {
     if (!date) return toast.show('Enter a valid date as dd/mm/yyyy', 'error');
     setSaving(true);
     try {
-      const allSelected = trip.members.length > 0 && splitSel.length === trip.members.length;
-      // Legacy weight_snapshots back-compat: the headcount picker UI is gone, but preserve any
-      // per-family weight this expense already carried so editing doesn't silently wipe it.
-      const snapshots: Record<string, number> = {};
-      if (splitMode === 'PER_CAPITA') {
+      let body: any;
+      if (splitMode === 'EXACT') {
+        // Phase 22 hard rule (mirror of the backend 422): amounts must add up to the total.
+        if (!reconcile(exactRows, a).isValid) {
+          setSaving(false);
+          return toast.show('Assigned amounts must add up to the total.', 'error');
+        }
+        const shares = resolveEntityShares(exactRows);
+        body = {
+          amount: a, category: cat, description: desc, date, time: time || null,
+          paid_by_member_id: paidBy,
+          split_member_ids: Object.keys(shares),
+          split_mode: 'EXACT',
+          weight_snapshots: null,
+          family_participants: null,
+          custom_amounts: rowsToCustomAmounts(exactRows),
+        };
+      } else {
+        const allSelected = trip.members.length > 0 && splitSel.length === trip.members.length;
+        // Legacy weight_snapshots back-compat: the headcount picker UI is gone, but preserve any
+        // per-family weight this expense already carried so editing doesn't silently wipe it.
+        const snapshots: Record<string, number> = {};
+        if (splitMode === 'PER_CAPITA') {
+          for (const sid of splitSel) {
+            const m = trip.members.find((x) => x.id === sid);
+            if (m && m.kind === 'family' && weightOverrides[sid]) {
+              const fullSize = Math.max(1, m.family_members.length);
+              if (weightOverrides[sid] !== fullSize) snapshots[sid] = weightOverrides[sid];
+            }
+          }
+        }
+        // At least one member of every ticked family must take part (both split modes).
         for (const sid of splitSel) {
           const m = trip.members.find((x) => x.id === sid);
-          if (m && m.kind === 'family' && weightOverrides[sid]) {
-            const fullSize = Math.max(1, m.family_members.length);
-            if (weightOverrides[sid] !== fullSize) snapshots[sid] = weightOverrides[sid];
+          if (m && m.kind === 'family') {
+            const fam = familyMemberIds(m);
+            const excl = familyExcluded[sid] || [];
+            if (fam.length > 1 && fam.every((rid) => excl.includes(rid))) {
+              setSaving(false);
+              return toast.show(`At least one member of ${m.name} must take part.`, 'error');
+            }
           }
         }
-      }
-      // At least one member of every ticked family must take part (both split modes).
-      for (const sid of splitSel) {
-        const m = trip.members.find((x) => x.id === sid);
-        if (m && m.kind === 'family') {
-          const fam = familyMemberIds(m);
-          const excl = familyExcluded[sid] || [];
-          if (fam.length > 1 && fam.every((rid) => excl.includes(rid))) {
-            setSaving(false);
-            return toast.show(`At least one member of ${m.name} must take part.`, 'error');
-          }
-        }
-      }
-      await api(`/trips/${id}/expenses/${eid}`, {
-        method: 'PATCH',
-        body: {
+        body = {
           amount: a, category: cat, description: desc, date, time: time || null,
           paid_by_member_id: paidBy,
           split_member_ids: allSelected ? [] : splitSel,
           split_mode: splitMode,
           weight_snapshots: Object.keys(snapshots).length ? snapshots : null,
           family_participants: buildFamilyParticipants(trip.members, splitSel, splitMode, familyExcluded),
-        },
-      });
+          custom_amounts: null,  // clear any stale EXACT amounts when saving in another mode
+        };
+      }
+      await api(`/trips/${id}/expenses/${eid}`, { method: 'PATCH', body });
       if (newAsset) {
         await uploadReceipt(id, eid, newAsset);
       } else if (hadReceipt && !receiptUri) {
@@ -197,6 +221,8 @@ export default function EditExpense() {
       return { ...s, [famId]: next };
     });
   const displayNames = memberDisplayNames(trip.members);
+  const parsedAmount = Number.isFinite(parseAmount(amount)) ? parseAmount(amount) : 0;
+  const exactRec = reconcile(exactRows, parsedAmount);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
@@ -264,6 +290,13 @@ export default function EditExpense() {
             </View>
 
             <View>
+              {splitMode === 'EXACT' ? (
+              <ExactSplitEditor
+                members={trip.members} currency={trip.currency} total={parsedAmount}
+                initialRows={exactRows} onChange={setExactRows} displayNames={displayNames}
+              />
+              ) : (
+              <>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <T variant="label" muted>Split among</T>
                 <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -324,6 +357,8 @@ export default function EditExpense() {
                   );
                 })}
               </View>
+              </>
+              )}
             </View>
 
             <SplitModeSelector
@@ -331,6 +366,7 @@ export default function EditExpense() {
               onChange={setSplitMode}
               subLabel={splitPreviewLabel({
                 amount: parseFloat(amount), mode: splitMode, members: trip.members, splitSel, weightOverrides, currency: trip.currency, familyExcluded,
+                exactShares: resolveEntityShares(exactRows), names: displayNames,
               })}
             />
 
@@ -362,7 +398,7 @@ export default function EditExpense() {
 
             {canModify && (
               <>
-                <Button label="Save changes" icon="check" onPress={save} loading={saving} fullWidth size="lg" testID="ee-save" style={{ marginTop: SPACING.sm }} />
+                <Button label="Save changes" icon="check" onPress={save} loading={saving} disabled={splitMode === 'EXACT' && !exactRec.isValid} fullWidth size="lg" testID="ee-save" style={{ marginTop: SPACING.sm }} />
                 <Button label="Delete transaction" icon="trash" variant="destructive" onPress={() => setConfirmDelete(true)} fullWidth testID="ee-delete" />
               </>
             )}

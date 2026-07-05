@@ -115,7 +115,9 @@ across standalone individuals, family entries, and joined app users.
 7. **Paid by** — radio-pick the member who paid.
 8. **Split among** — **all members are pre-selected by default**. Uncheck any member you don't want to include.
 9. **Who took part (partial family)**: for any **family** you have checked, a *"Who took part?"* row lists its members — uncheck anyone who didn't share this expense (default = everyone). In **Per Person** mode this reduces the family's headcount for that expense: the cost is divided by the total *involved* people and each sharer owes that per-person amount (the unchecked members owe 0, and the family's total shrinks accordingly). In **Per Family** mode the family's flat share is unchanged and is simply split among those who took part.
-10. **Receipt (optional)** — *Attach image* picks a photo; it's stored as base64 with the transaction.
+10. **Split mode** — a three-way selector: **Per Person**, **Per Family**, or **Exact**.
+    - **Exact amounts**: assign a specific amount to specific people. Families are collapsed with a live subtotal — tap to expand and give each member their own amount (or untick anyone to leave them at 0); standalone individuals get an amount directly. A **reconciliation bar** shows *Assigned* vs *Remaining* and turns green when the amounts add up to the total. **Split remaining equally** fills the ticked-but-blank rows for you. **Save stays disabled until the amounts exactly equal the total** — the same rule is re-checked on the server, so an unbalanced Exact expense can never be saved. Balances, per-member breakdowns, and reports all use the exact amounts you typed.
+11. **Receipt (optional)** — *Attach image* picks a photo; it's stored as base64 with the transaction.
 11. Tap **Save transaction**.
 12. If the running total now exceeds the trip budget, a warning dialog asks you to **Cancel** or **Save anyway**.
 

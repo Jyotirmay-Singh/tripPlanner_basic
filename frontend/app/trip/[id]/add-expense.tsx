@@ -11,6 +11,8 @@ import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, FONTS, CATEGORIES, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
 import SplitModeSelector, { SplitMode, splitPreviewLabel } from '../../../src/SplitModeSelector';
+import ExactSplitEditor from '../../../src/ExactSplitEditor';
+import { ExactRow, buildExactRows, reconcile, resolveEntityShares, rowsToCustomAmounts } from '../../../src/exactSplit';
 import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displayNames';
 import { buildFamilyParticipants, familyMemberIds, familyShareEach } from '../../../src/familyParticipation';
 import { formatMoney } from '../../../src/format';
@@ -50,6 +52,8 @@ export default function AddExpense() {
   const weightOverrides: Record<string, number> = {};
   // famId -> excluded member ids (default empty = everyone in the family participates).
   const [familyExcluded, setFamilyExcluded] = useState<Record<string, string[]>>({});
+  // Phase 22 — EXACT: person-level rows (seeded once from the roster; the editor owns display state).
+  const [exactRows, setExactRows] = useState<ExactRow[]>([]);
   const [allInited, setAllInited] = useState(false);
   const [receiptAsset, setReceiptAsset] = useState<{ uri: string; mimeType?: string; fileName?: string } | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -63,6 +67,7 @@ export default function AddExpense() {
       if (t.members.length && !paidBy) setPaidBy(t.members[0].id);
       if (!allInited) {
         setSplitSel(t.members.map((m) => m.id));
+        setExactRows(buildExactRows(t.members));
         setAllInited(true);
       }
     }).catch((e) => toast.show(e.message || 'Could not load trip', 'error'));
@@ -107,27 +112,46 @@ export default function AddExpense() {
     if (!date) return toast.show('Enter a valid date as dd/mm/yyyy', 'error');
     setSaving(true);
     try {
-      const allSelected = trip.members.length > 0 && splitSel.length === trip.members.length;
-      // At least one member of every ticked family must take part (both split modes).
-      for (const sid of splitSel) {
-        const m = trip.members.find((x) => x.id === sid);
-        if (m && m.kind === 'family') {
-          const fam = familyMemberIds(m);
-          const excl = familyExcluded[sid] || [];
-          if (fam.length > 1 && fam.every((rid) => excl.includes(rid))) {
-            setSaving(false);
-            return toast.show(`At least one member of ${m.name} must take part.`, 'error');
+      let body: any;
+      if (splitMode === 'EXACT') {
+        // Phase 22 hard rule (mirror of the backend 422): amounts must add up to the total.
+        if (!reconcile(exactRows, a).isValid) {
+          setSaving(false);
+          return toast.show('Assigned amounts must add up to the total.', 'error');
+        }
+        const shares = resolveEntityShares(exactRows);
+        body = {
+          amount: a, category: cat, description: desc, date, time: time || null,
+          paid_by_member_id: paidBy,
+          split_member_ids: Object.keys(shares),
+          split_mode: 'EXACT',
+          weight_snapshots: null,
+          family_participants: null,
+          custom_amounts: rowsToCustomAmounts(exactRows),
+        };
+      } else {
+        const allSelected = trip.members.length > 0 && splitSel.length === trip.members.length;
+        // At least one member of every ticked family must take part (both split modes).
+        for (const sid of splitSel) {
+          const m = trip.members.find((x) => x.id === sid);
+          if (m && m.kind === 'family') {
+            const fam = familyMemberIds(m);
+            const excl = familyExcluded[sid] || [];
+            if (fam.length > 1 && fam.every((rid) => excl.includes(rid))) {
+              setSaving(false);
+              return toast.show(`At least one member of ${m.name} must take part.`, 'error');
+            }
           }
         }
+        body = {
+          amount: a, category: cat, description: desc, date, time: time || null,
+          paid_by_member_id: paidBy,
+          split_member_ids: allSelected ? [] : splitSel,
+          split_mode: splitMode,
+          weight_snapshots: null,
+          family_participants: buildFamilyParticipants(trip.members, splitSel, splitMode, familyExcluded),
+        };
       }
-      const body: any = {
-        amount: a, category: cat, description: desc, date, time: time || null,
-        paid_by_member_id: paidBy,
-        split_member_ids: allSelected ? [] : splitSel,
-        split_mode: splitMode,
-        weight_snapshots: null,
-        family_participants: buildFamilyParticipants(trip.members, splitSel, splitMode, familyExcluded),
-      };
       const qs = force ? '?force=true' : '';
       const res = await api<any>(`/trips/${id}/expenses${qs}`, { method: 'POST', body });
       if (res.requires_confirmation) {
@@ -163,6 +187,8 @@ export default function AddExpense() {
       return { ...s, [famId]: next };
     });
   const displayNames = memberDisplayNames(trip.members);
+  const parsedAmount = Number.isFinite(parseAmount(amount)) ? parseAmount(amount) : 0;
+  const exactRec = reconcile(exactRows, parsedAmount);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
@@ -225,6 +251,13 @@ export default function AddExpense() {
 
             {/* Split */}
             <View>
+              {splitMode === 'EXACT' ? (
+              <ExactSplitEditor
+                members={trip.members} currency={trip.currency} total={parsedAmount}
+                initialRows={exactRows} onChange={setExactRows} displayNames={displayNames}
+              />
+              ) : (
+              <>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <T variant="label" muted>Split among</T>
                 <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -290,6 +323,8 @@ export default function AddExpense() {
                   ? 'All selected by default — uncheck anyone to exclude. Cost is divided by total people (families count by size).'
                   : 'All selected by default — uncheck anyone to exclude. Cost is divided equally per family/individual, regardless of size.'}
               </T>
+              </>
+              )}
             </View>
 
             <SplitModeSelector
@@ -297,6 +332,7 @@ export default function AddExpense() {
               onChange={setSplitMode}
               subLabel={splitPreviewLabel({
                 amount: parseFloat(amount), mode: splitMode, members: trip.members, splitSel, weightOverrides, currency: trip.currency, familyExcluded,
+                exactShares: resolveEntityShares(exactRows), names: displayNames,
               })}
             />
 
@@ -323,7 +359,7 @@ export default function AddExpense() {
 
             <ReceiptViewer uri={receiptAsset?.uri ?? null} visible={viewerOpen} onClose={() => setViewerOpen(false)} />
 
-            <Button label="Save transaction" icon="check" onPress={() => submit(false)} loading={saving} fullWidth size="lg" testID="ae-submit" style={{ marginTop: SPACING.sm }} />
+            <Button label="Save transaction" icon="check" onPress={() => submit(false)} loading={saving} disabled={splitMode === 'EXACT' && !exactRec.isValid} fullWidth size="lg" testID="ae-submit" style={{ marginTop: SPACING.sm }} />
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
