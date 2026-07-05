@@ -27,6 +27,7 @@ from services.calculator import (
     split_per_capita,
     split_per_family,
 )
+from services.custom_split import exact_member_shares, resolve_exact_entity_shares
 from services.member_breakdown import family_member_ids
 from utils.display_names import family_member_display_names, member_display_names
 
@@ -96,6 +97,11 @@ def entity_shares_raw(expense: dict, members: list) -> dict:
         weights = resolve_weights(split_ids, _weight_map(members), expense.get("weight_snapshots"),
                                   expense.get("family_participants"), rosters)
         return split_per_capita(amount, weights)
+    if mode == "EXACT":
+        # EXACT (Phase 22): person-level typed amounts rolled up to entity shares (family = Σ its
+        # members present, individual = own), summing exactly to the total. Same shape as the two modes
+        # above, so the ledger/settlement engine consumes it unchanged.
+        return resolve_exact_entity_shares(expense.get("custom_amounts"), members)
     return split_per_family(amount, split_ids)
 
 
@@ -151,7 +157,12 @@ def expense_share_breakdown(expense: dict, members: list) -> dict:
                 # Split THIS family's shown entity share among its participating members (excluded ->
                 # 0). Apportion over ONLY the participants so the rounding can never bump an excluded
                 # member above 0; participant sub-shares sum EXACTLY to the family's shown share.
-                alloc = allocate_within_family(shown[eid], fam_participants.get(eid), ids)
+                if out["mode"] == "EXACT":
+                    # EXACT: each member shows their explicit typed amount (absent/unticked -> 0). The
+                    # family's shown share equals Σ these by construction, so parts still foot exactly.
+                    alloc = exact_member_shares(expense.get("custom_amounts"), ids)
+                else:
+                    alloc = allocate_within_family(shown[eid], fam_participants.get(eid), ids)
                 parts = [mid for mid in ids if alloc[mid] != 0.0]
                 sub = _apportion({mid: alloc[mid] for mid in parts}, parts, shown[eid]) if parts else {}
                 entity["members"] = [

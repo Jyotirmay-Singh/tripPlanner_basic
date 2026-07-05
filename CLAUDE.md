@@ -330,3 +330,47 @@ new array and never mutates its input.)*
       ordering, same date+time `created_at`→`id` tiebreaker, and missing/invalid date.)
 - [x] Step 85: Docs (USER_GUIDE §5.2 — Expenses tab shows newest first by date+time) + full frontend
       gate green (jest 250/250, tsc clean, eslint clean).
+
+### Phase 22: Exact-Amount Split (`split_mode = "EXACT"`)
+*(Strictly additive third split mode, §5-C. The author assigns explicit per-person amounts (family
+members and/or individuals) that MUST sum to the total — enforced in two layers (frontend Save-gate +
+backend 422). Design: person-level input (`custom_amounts: {member_id -> amount}`, presence ⇒ involved,
+absent ⇒ 0) rolls UP to the SAME `{entity_id: amount}` shape the two existing modes emit, so it flows
+through `expense_shares.entity_shares_raw` → `_compute_balances` → `minimize_transfers` UNCHANGED; the
+per-member family breakdown branches to the explicit amounts. All new fields optional; legacy rows and
+PER_CAPITA §5-A / PER_FAMILY §5-B math byte-identical. EXACT ignores `family_participants`/
+`weight_snapshots`; all reconciliation in integer cents, snapped largest-remainder so entity shares sum
+exactly to the total. NOTE: the prompt's `calculator.distribute_per_expense_net` does not exist — the
+Phase-14 breakdown is `member_breakdown.family_member_breakdown` + `calculator.distribute_chronological`
+(extended with an optional per-member weight); two extra branch points also gained an EXACT arm
+(`expense_shares.expense_share_breakdown`, `report_builder.build_expense_member_rows`) plus the
+offline replica `income_migration.compute_net`.)*
+- [x] Step 86: Model + pure validator — `SplitMode` += `"EXACT"` and optional `custom_amounts` on
+      `models/expense.py`; new pure `services/custom_split.py::validate_exact_amounts(total, custom_amounts,
+      valid_member_ids)` (keys ∈ person-level id space, amounts ≥ 0, ≥1 > 0, Σ == total ±0.01, then
+      cent-snap) → normalized amounts or `ValueError`. No I/O. Unit tests in `tests/test_exact_split.py`.
+- [x] Step 87: Pure resolver — `custom_split.resolve_exact_entity_shares(custom_amounts, members)`
+      (person→entity rollup, cent-safe) + `exact_member_shares` (per-family per-member, absent ⇒ 0) +
+      `valid_exact_member_ids`. Extensive unit tests.
+- [x] Step 88: Wire EXACT into the share/ledger engine — third branch in `expense_shares.entity_shares_raw`,
+      `utils/balances._compute_balances`, `member_breakdown.family_member_breakdown` (fam_share), and
+      `income_migration.compute_net`, all calling `resolve_exact_entity_shares`. Ledger reconciliation
+      tests (Σ entity_shares == total, family + individual payers).
+- [x] Step 89: Wire EXACT into the per-member breakdown — `calculator.distribute_chronological` takes an
+      optional per-event weight map (existing 3-tuples byte-identical); `family_member_breakdown` splits an
+      EXACT expense's family net by the typed amounts (0-amount ⇒ 0), and `expense_shares.expense_share_breakdown`
+      uses `exact_member_shares`. Breakdown equals typed amounts, foots to family net, settlement replay scales.
+- [ ] Step 90: Enforce the hard rule at the API — `routes/expenses.py` create + edit call the Step-86
+      validator when `split_mode == "EXACT"` and reject a mismatch with HTTP 422; persist normalized
+      `custom_amounts`. `_expense_modify_or_403` RBAC unchanged.
+- [ ] Step 91: Reports — `report_builder` `_MODE_LABELS["EXACT"]="Exact"`, `build_split_math_rows` EXACT
+      branch, `build_expense_member_rows` family sub-split via `exact_member_shares`; XLSX + PDF render
+      EXACT and reconcile.
+- [ ] Step 92: Frontend pure helper `src/exactSplit.ts` (`reconcile`/`resolveEntityShares`/
+      `splitRemainingEqually`) + shared `shared/exact-split-vectors.json` fixture + jest tests.
+- [ ] Step 93: UI — third `[Exact]` pill in `SplitModeSelector`; reusable `src/ExactSplitEditor.tsx`
+      (collapsible families w/ subtotals, per-member checkbox+amount, reconciliation bar, Save-gate,
+      "split remaining equally") wired into add/edit expense; edit rehydrates `custom_amounts`.
+- [ ] Step 94: `splitPreviewLabel` EXACT rollup + `api.ts`/type wiring (`custom_amounts`, 422 surface).
+- [ ] Step 95: Docs (CLAUDE.md §5-C + USER_GUIDE) + full verification gate (backend pytest incl. live-API
+      `tests/test_exact_split_api.py`; frontend tsc/lint/jest) + commit.

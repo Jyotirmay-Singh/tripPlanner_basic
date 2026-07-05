@@ -100,7 +100,13 @@ def family_member_breakdown(members: list, expenses: list, settlements: list, ne
 
     ``settlements`` are the SAME non-pending rows ``_compute_balances`` overlaid; each is ordered by
     its ``paid_at``/``created_at`` against the expenses.
+
+    EXACT expenses (Phase 22) split each expense's family net in PROPORTION to the typed per-member
+    amounts (a 0-amount member gets 0) via ``distribute_chronological`` weights, so the breakdown shows
+    the explicit amounts and still foots to the family ledger net.
     """
+    # Local import breaks a module cycle: services.custom_split imports family_member_ids from here.
+    from services.custom_split import exact_member_shares
     weight_map = _weight_map(members)
     all_ids = [m["id"] for m in members]
     # Stable roster ids per family, so a PER_CAPITA family restricted to a subset of its roster counts
@@ -124,16 +130,30 @@ def family_member_breakdown(members: list, expenses: list, settlements: list, ne
         # ("exp", net_e, chosen) (a member outside `chosen` gets exactly 0 from it); every non-pending
         # settlement touching it contributes ("settle", delta). `restricted` flags any proper-subset
         # participation -> use the chronological isolation path (else the uniform net/size path).
-        timed: list = []  # (sort_key, kind, value, chosen)
+        timed: list = []  # (sort_key, kind, value, chosen, weights)  weights: EXACT per-member split
         restricted = False
 
         for e in expenses:
             split_ids = e.get("split_member_ids") or all_ids
-            in_split = fid in split_ids
             is_payer = e.get("paid_by_member_id") == fid
+            mode = e.get("split_mode") or "PER_CAPITA"
+            if mode == "EXACT":
+                # EXACT (Phase 22): involvement + share come from the typed per-member amounts, exactly
+                # like the ledger (resolve_exact_entity_shares), NOT split_ids/family_participants.
+                exact_wt = exact_member_shares(e.get("custom_amounts"), ids)
+                fam_share = sum(exact_wt.values())
+                if not fam_share and not is_payer:
+                    continue
+                net_e = (e["amount"] if is_payer else 0.0) - fam_share
+                if fam_share:
+                    restricted = True  # unequal amounts must never use the uniform net/size path
+                # Full roster is `chosen`; `weights` split net_e in proportion to each member's typed
+                # amount (0-amount member -> 0), falling back to an even split when the family only paid.
+                timed.append((e.get("created_at") or "", "exp", net_e, list(ids), exact_wt))
+                continue
+            in_split = fid in split_ids
             if not in_split and not is_payer:
                 continue
-            mode = e.get("split_mode") or "PER_CAPITA"
             # The family's already-computed entity share for this expense — exactly what the ledger
             # uses (PER_CAPITA involved-count aware; PER_FAMILY flat). 0 when the family only paid.
             if not in_split:
@@ -153,7 +173,7 @@ def family_member_breakdown(members: list, expenses: list, settlements: list, ne
             if present and len(present) < len(ids):
                 restricted = True
             chosen = _chosen_participants(participants, ids)
-            timed.append((e.get("created_at") or "", "exp", net_e, chosen))
+            timed.append((e.get("created_at") or "", "exp", net_e, chosen, None))
 
         for s in settlements:
             # Settlement effect on the family net, same sign as _compute_balances (net[from]+=amount,
@@ -161,7 +181,7 @@ def family_member_breakdown(members: list, expenses: list, settlements: list, ne
             delta = (s["amount"] if s.get("from_member_id") == fid else 0.0) \
                 - (s["amount"] if s.get("to_member_id") == fid else 0.0)
             if delta:
-                timed.append((s.get("paid_at") or s.get("created_at") or "", "settle", delta, None))
+                timed.append((s.get("paid_at") or s.get("created_at") or "", "settle", delta, None, None))
 
         if not restricted:
             npp = round(net.get(fid, 0.0) / size, 2)  # byte-identical to legacy net_per_person
@@ -170,7 +190,7 @@ def family_member_breakdown(members: list, expenses: list, settlements: list, ne
             # Replay chronologically (ISO timestamps sort correctly; legacy/blank sort earliest). Each
             # settlement scales the running positions toward 0, so settled money clears per member.
             timed.sort(key=lambda ev: ev[0])
-            events = [(kind, value, chosen) for (_, kind, value, chosen) in timed]
+            events = [(kind, value, chosen, weights) for (_, kind, value, chosen, weights) in timed]
             raw = distribute_chronological(events, ids)
             apport = _apportion(raw, ids, net.get(fid, 0.0))
             rows = [{"id": ids[i], "name": names[i], "net": apport[ids[i]]} for i in range(len(ids))]

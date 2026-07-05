@@ -11,6 +11,7 @@ compute exactly which trips/members change so a human can sign off before any wr
 """
 
 from services.calculator import resolve_weights, split_per_capita, split_per_family
+from services.custom_split import resolve_exact_entity_shares
 from services.member_breakdown import family_member_ids
 from utils.settlement_gate import is_settled
 
@@ -41,6 +42,8 @@ def compute_net(members: list, expenses: list, settlements: list) -> dict:
             weights = resolve_weights(split_ids, weight_map, e.get("weight_snapshots"),
                                       e.get("family_participants"), rosters)
             shares = split_per_capita(e["amount"], weights)
+        elif mode == "EXACT":
+            shares = resolve_exact_entity_shares(e.get("custom_amounts"), members)
         else:
             shares = split_per_family(e["amount"], split_ids)
         if not shares:
