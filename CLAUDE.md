@@ -372,9 +372,14 @@ offline replica `income_migration.compute_net`.)*
 - [x] Step 92: Frontend pure helper `src/exactSplit.ts` (`reconcile`/`resolveEntityShares`/
       `splitRemainingEqually`, cent-safe) + `shared/exact-split-vectors.json` fixture asserted by BOTH
       `src/__tests__/exactSplit.test.ts` (17 jest) and `tests/test_exact_split.py::TestSharedVectors`.
-- [ ] Step 93: UI — third `[Exact]` pill in `SplitModeSelector`; reusable `src/ExactSplitEditor.tsx`
-      (collapsible families w/ subtotals, per-member checkbox+amount, reconciliation bar, Save-gate,
-      "split remaining equally") wired into add/edit expense; edit rehydrates `custom_amounts`.
-- [ ] Step 94: `splitPreviewLabel` EXACT rollup + `api.ts`/type wiring (`custom_amounts`, 422 surface).
+- [x] Step 93: UI — third `[Exact]` pill in `SplitModeSelector`; reusable `src/ExactSplitEditor.tsx`
+      (collapsible families w/ live subtotals, per-member checkbox+amount, reconciliation bar via
+      `ProgressBar`, Save-gate, "split remaining equally", "not set" hint) replaces the Split-among list
+      when EXACT in both add/edit expense; edit rehydrates `custom_amounts` via `buildExactRows`.
+- [x] Step 94: `splitPreviewLabel` EXACT rollup ("Name cur X · …"); add/edit submit send
+      `custom_amounts` + involved-entity `split_member_ids` through the generic `api()` (422 surfaced by
+      the existing FastAPI error normalization); `SplitMode`/`split_mode` unions widened in
+      `SplitModeSelector`/`expenseShares.ts`/`memberSpend.ts`. Frontend gate green (tsc, eslint,
+      jest 267/267).
 - [ ] Step 95: Docs (CLAUDE.md §5-C + USER_GUIDE) + full verification gate (backend pytest incl. live-API
       `tests/test_exact_split_api.py`; frontend tsc/lint/jest) + commit.

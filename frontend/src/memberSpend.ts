@@ -23,7 +23,7 @@ export type MemberSpendExpense = {
   time?: string | null;
   created_at?: string | null;
   amount: number;
-  split_mode?: 'PER_CAPITA' | 'PER_FAMILY';
+  split_mode?: 'PER_CAPITA' | 'PER_FAMILY' | 'EXACT';
   paid_by_member_id: string;
   shares?: ExpenseShares | null;
 };
@@ -36,7 +36,7 @@ export type MemberSpendRow = {
   time?: string | null;
   created_at?: string | null;
   amount: number;
-  split_mode: 'PER_CAPITA' | 'PER_FAMILY';
+  split_mode: 'PER_CAPITA' | 'PER_FAMILY' | 'EXACT';
   /** This entity's own share of the expense (from the backend `shares` breakdown), or null when no
    *  breakdown is available. DISPLAY-only — never summed into `total`. */
   share: number | null;

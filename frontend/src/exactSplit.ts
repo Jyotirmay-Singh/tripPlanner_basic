@@ -5,6 +5,8 @@
 // DISPLAY/INPUT only — nothing here computes a balance; the backend is the source of truth and
 // re-validates every EXACT expense (the frontend save-gate simply mirrors that rule).
 
+import { familyMemberIds, FPMember } from './familyParticipation';
+
 export type ExactRow = {
   /** person-level id: a family roster member id, or a standalone individual's own id. */
   memberId: string;
@@ -15,6 +17,31 @@ export type ExactRow = {
   /** parsed amount; null when the input is blank. */
   amount: number | null;
 };
+
+/**
+ * Expand trip members into person-level EXACT rows. With `custom` (edit rehydrate) a member is included
+ * ⇔ its key is present, carrying that stored amount; without it (a fresh expense) every person starts
+ * ticked and blank for the author to fill.
+ */
+export function buildExactRows(members: FPMember[], custom?: Record<string, number> | null): ExactRow[] {
+  const rows: ExactRow[] = [];
+  const push = (memberId: string, entityId: string) => {
+    const amt = custom ? custom[memberId] : undefined;
+    rows.push({ memberId, entityId, included: custom ? amt != null : true, amount: amt != null ? amt : null });
+  };
+  for (const m of members) {
+    if (m.kind === 'family') for (const rid of familyMemberIds(m)) push(rid, m.id);
+    else push(m.id, m.id);
+  }
+  return rows;
+}
+
+/** Person-level rows -> the `custom_amounts` payload the backend persists (included rows with a value). */
+export function rowsToCustomAmounts(rows: ExactRow[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of rows) if (r.included && r.amount != null && Number.isFinite(r.amount)) out[r.memberId] = r.amount;
+  return out;
+}
 
 const cents = (n: number): number => Math.round(n * 100);
 const has = (r: ExactRow): boolean => r.included && r.amount != null && Number.isFinite(r.amount);
