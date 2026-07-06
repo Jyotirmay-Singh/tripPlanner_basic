@@ -8,6 +8,7 @@ from utils.deps import (
     _trip_or_404,
     _settlement_mark_paid_or_403,
 )
+from utils.permissions import can_record_payment
 from utils.balances import _compute_balances
 
 router = APIRouter()
@@ -25,7 +26,17 @@ async def settle(trip_id: str, body: SettleIn, user=Depends(get_current_user)):
     # Legacy one-shot "record a completed payment". Kept for backward compatibility; the doc is
     # now stamped status:"paid"/paid_at so it offsets balances (unchanged behavior) and renders
     # in the Phase 10 settlement history. New clients use POST/PATCH /settlements instead.
-    await _trip_or_404(trip_id, user["id"])
+    trip = await _trip_or_404(trip_id, user["id"])
+    # Phase-20 parity: a completed payment offsets balances, so recording one is receiver-or-admin
+    # only — a debtor must never be able to self-settle their own debt. Validate the roster too so
+    # ghost ids can't poison the ledger (amount>0 is enforced by the SettleIn schema).
+    if not can_record_payment(trip, body.to_member_id, user["id"]):
+        raise HTTPException(403, "Only the receiver or a trip admin can record this settlement")
+    if body.from_member_id == body.to_member_id:
+        raise HTTPException(400, "A settlement cannot be from and to the same member")
+    member_ids = {m["id"] for m in trip.get("members", [])}
+    if body.from_member_id not in member_ids or body.to_member_id not in member_ids:
+        raise HTTPException(400, "Both members must belong to this trip")
     ts = now_utc().isoformat()
     doc = {"id": gen_id(), "trip_id": trip_id,
            "from_member_id": body.from_member_id,
