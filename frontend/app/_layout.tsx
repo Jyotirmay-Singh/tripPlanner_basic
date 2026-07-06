@@ -58,6 +58,7 @@ function Inner() {
         <Stack.Screen name="trip/[id]/settle-up" options={{ title: 'Settle Up' }} />
         <Stack.Screen name="trip/[id]/edit" options={{ title: 'Edit Trip', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="trip/[id]/category/[name]" options={{ title: 'Category' }} />
+        <Stack.Screen name="add" options={{ title: 'Add Transaction', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="create-trip" options={{ title: 'Create Trip', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="join-trip" options={{ title: 'Join Trip', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="change-password" options={{ title: 'Change Password', headerRight: undefined }} />

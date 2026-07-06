@@ -9,7 +9,7 @@ import { IconName } from '../../src/ui/Icon';
 import ProfileAvatarButton from '../../src/ProfileAvatarButton';
 
 // Named so it carries a display name (lint) — the tab icon renderer.
-function TabIcon({ name, color, focused, base = 22 }: { name: IconName; color: string; focused: boolean; base?: number }) {
+function TabIcon({ name, color, focused, base = 24 }: { name: IconName; color: string; focused: boolean; base?: number }) {
   return <Icon name={name} color={color} size={focused ? base + 1 : base} strokeWidth={focused ? 2 : 1.75} />;
 }
 
@@ -40,10 +40,12 @@ export default function TabsLayout() {
           borderTopWidth: StyleSheet.hairlineWidth,
           paddingTop: 8,
           paddingBottom: Platform.OS === 'ios' ? 24 : 10,
-          height: Platform.OS === 'ios' ? 86 : 64,
+          height: Platform.OS === 'ios' ? 90 : 68,
           elevation: 0,
         },
-        tabBarLabelStyle: { fontFamily: FONTS.bodySemibold, fontSize: 11 },
+        // With only four tabs, let each item flex evenly across the bar width.
+        tabBarItemStyle: { flex: 1 },
+        tabBarLabelStyle: { fontFamily: FONTS.bodySemibold, fontSize: 12 },
         headerShown: true,
         headerTitle: '',
         headerStyle: { backgroundColor: colors.background },
@@ -53,7 +55,6 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="dashboard" options={{ title: 'Home', tabBarIcon: (p) => <TabIcon name="home" {...p} /> }} />
       <Tabs.Screen name="trips" options={{ title: 'Trips', tabBarIcon: (p) => <TabIcon name="briefcase" {...p} /> }} />
-      <Tabs.Screen name="add" options={{ title: 'Add', tabBarIcon: (p) => <TabIcon name="plus-circle" base={28} {...p} /> }} />
       <Tabs.Screen name="reports" options={{ title: 'Reports', tabBarIcon: (p) => <TabIcon name="spreadsheet" {...p} /> }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: (p) => <TabIcon name="user" {...p} /> }} />
     </Tabs>

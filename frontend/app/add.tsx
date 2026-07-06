@@ -1,8 +1,8 @@
 import React, { useCallback, useState } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { api } from '../../src/api';
-import T from '../../src/T';
-import { Screen, ListRow, EmptyState, SkeletonCard } from '../../src/ui';
+import { api } from '../src/api';
+import T from '../src/T';
+import { Screen, ListRow, EmptyState, SkeletonCard } from '../src/ui';
 
 type Trip = { id: string; name: string; currency: string };
 

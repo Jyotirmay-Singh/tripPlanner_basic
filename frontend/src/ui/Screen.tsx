@@ -13,6 +13,7 @@ type Props = {
   contentStyle?: StyleProp<ViewStyle>;
   gap?: number;
   testID?: string;
+  fab?: React.ReactNode;
 };
 
 /**
@@ -21,7 +22,7 @@ type Props = {
  * content never stretches edge-to-edge on desktop.
  */
 export default function Screen({
-  children, scroll = true, refreshing, onRefresh, edges = ['top'], contentStyle, gap = SPACING.md, testID,
+  children, scroll = true, refreshing, onRefresh, edges = ['top'], contentStyle, gap = SPACING.md, testID, fab,
 }: Props) {
   const { colors } = useTheme();
 
@@ -42,6 +43,8 @@ export default function Screen({
       ) : (
         <View style={{ flex: 1, padding: SPACING.lg, alignItems: 'center' }}>{inner}</View>
       )}
+      {/* Floating overlay (e.g. a FAB): sibling of the scroll content so it stays fixed while scrolling. */}
+      {fab}
     </SafeAreaView>
   );
 }
