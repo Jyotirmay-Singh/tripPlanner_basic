@@ -249,6 +249,16 @@ export default function AddExpense() {
               </View>
             </View>
 
+            {/* Split mode — chosen up front, before the who/how-much controls it drives. */}
+            <SplitModeSelector
+              value={splitMode}
+              onChange={setSplitMode}
+              subLabel={splitPreviewLabel({
+                amount: parseFloat(amount), mode: splitMode, members: trip.members, splitSel, weightOverrides, currency: trip.currency, familyExcluded,
+                exactShares: resolveEntityShares(exactRows), names: displayNames,
+              })}
+            />
+
             {/* Split */}
             <View>
               {splitMode === 'EXACT' ? (
@@ -326,15 +336,6 @@ export default function AddExpense() {
               </>
               )}
             </View>
-
-            <SplitModeSelector
-              value={splitMode}
-              onChange={setSplitMode}
-              subLabel={splitPreviewLabel({
-                amount: parseFloat(amount), mode: splitMode, members: trip.members, splitSel, weightOverrides, currency: trip.currency, familyExcluded,
-                exactShares: resolveEntityShares(exactRows), names: displayNames,
-              })}
-            />
 
             {/* Receipt */}
             <View>

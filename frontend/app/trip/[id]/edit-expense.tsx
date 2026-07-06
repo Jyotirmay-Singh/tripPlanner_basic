@@ -289,6 +289,16 @@ export default function EditExpense() {
               </View>
             </View>
 
+            {/* Split mode — chosen up front, before the who/how-much controls it drives. */}
+            <SplitModeSelector
+              value={splitMode}
+              onChange={setSplitMode}
+              subLabel={splitPreviewLabel({
+                amount: parseFloat(amount), mode: splitMode, members: trip.members, splitSel, weightOverrides, currency: trip.currency, familyExcluded,
+                exactShares: resolveEntityShares(exactRows), names: displayNames,
+              })}
+            />
+
             <View>
               {splitMode === 'EXACT' ? (
               <ExactSplitEditor
@@ -360,15 +370,6 @@ export default function EditExpense() {
               </>
               )}
             </View>
-
-            <SplitModeSelector
-              value={splitMode}
-              onChange={setSplitMode}
-              subLabel={splitPreviewLabel({
-                amount: parseFloat(amount), mode: splitMode, members: trip.members, splitSel, weightOverrides, currency: trip.currency, familyExcluded,
-                exactShares: resolveEntityShares(exactRows), names: displayNames,
-              })}
-            />
 
             <View>
               <T variant="label" muted style={{ marginBottom: SPACING.xs }}>Receipt</T>

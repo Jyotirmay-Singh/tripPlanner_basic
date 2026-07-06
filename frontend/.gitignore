@@ -34,6 +34,10 @@ yarn-error.*
 # local env files
 .env*.local
 
+# but DO track the production web build vars (public client IDs; see docs/GLOBAL_LAUNCH_WIRING.md §2)
+# overrides the root .gitignore `.env.*` rule for this file only
+!.env.production
+
 # typescript
 *.tsbuildinfo
 

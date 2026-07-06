@@ -2,7 +2,7 @@ import React from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from './ThemeContext';
-import { SPACING, RADIUS } from './theme';
+import { SPACING, RADIUS, FONTS, SHADOW } from './theme';
 import T from './T';
 import { perCapitaHumans } from './familyParticipation';
 
@@ -21,15 +21,16 @@ type Props = {
 };
 
 /**
- * Segmented control for an expense's split mode (CLAUDE.md §5).
- * Visual style mirrors the existing "kind" toggle pills in the transaction screens.
+ * Segmented control for an expense's split mode (CLAUDE.md §5). Three connected
+ * segments share one muted "track"; the selected segment is raised with the brand
+ * fill + a soft shadow — a cleaner, more finished look than three detached pills.
  */
 export default function SplitModeSelector({ value, onChange, subLabel }: Props) {
   const { colors } = useTheme();
   return (
     <View>
       <T variant="label" muted>Split mode</T>
-      <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: 4 }}>
+      <View style={[styles.track, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
         {OPTIONS.map((o) => {
           const active = value === o.mode;
           return (
@@ -37,16 +38,17 @@ export default function SplitModeSelector({ value, onChange, subLabel }: Props) 
               key={o.mode}
               testID={o.testID}
               onPress={() => onChange(o.mode)}
-              style={[
-                styles.pill,
-                {
-                  backgroundColor: active ? colors.primary : colors.surfaceMuted,
-                  borderColor: active ? colors.primary : colors.border,
-                },
-              ]}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              style={[styles.segment, active ? [{ backgroundColor: colors.primary }, SHADOW.card] : null]}
             >
-              <Ionicons name={o.icon} size={16} color={active ? colors.primaryText : colors.textMain} />
-              <T style={{ fontWeight: '700' }} color={active ? colors.primaryText : colors.textMain}>
+              <Ionicons name={o.icon} size={15} color={active ? colors.primaryText : colors.textMuted} />
+              <T
+                variant="caption"
+                style={{ fontFamily: FONTS.bodySemibold }}
+                color={active ? colors.primaryText : colors.textMain}
+              >
                 {o.label}
               </T>
             </TouchableOpacity>
@@ -54,7 +56,7 @@ export default function SplitModeSelector({ value, onChange, subLabel }: Props) 
         })}
       </View>
       {subLabel ? (
-        <T testID="split-mode-preview" variant="caption" muted style={{ marginTop: 6 }}>{subLabel}</T>
+        <T testID="split-mode-preview" variant="caption" muted style={{ marginTop: SPACING.sm }}>{subLabel}</T>
       ) : null}
     </View>
   );
@@ -109,15 +111,21 @@ export function splitPreviewLabel(opts: {
 }
 
 const styles = StyleSheet.create({
-  pill: {
+  track: {
+    flexDirection: 'row',
+    gap: 4,
+    marginTop: SPACING.xs,
+    padding: 4,
+    borderRadius: RADIUS.pill,
+    borderWidth: 1,
+  },
+  segment: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 9,
     borderRadius: RADIUS.pill,
-    borderWidth: 1,
   },
 });
