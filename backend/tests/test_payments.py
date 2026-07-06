@@ -117,7 +117,8 @@ class TestPaymentValidation:
         resp = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/payments", json={
             "from_member_id": m_b, "to_member_id": m_owner, "amount": 0.0,
         }, headers=_auth(test_user["token"]))
-        assert resp.status_code == 400
+        # amount<=0 is now rejected at the Pydantic schema (Field(gt=0)) -> 422, not the route's 400.
+        assert resp.status_code == 422
 
     def test_rejects_from_equals_to(self, api_client, test_user):
         trip_id, m_owner, m_b, _b = self._setup_debt(api_client, test_user["token"])
