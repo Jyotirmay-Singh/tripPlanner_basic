@@ -5,6 +5,7 @@ export type { IconName } from './Icon';
 export { default as Button } from './Button';
 export type { ButtonVariant, ButtonSize } from './Button';
 export { default as IconButton } from './IconButton';
+export { default as Fab } from './Fab';
 export { default as Card } from './Card';
 export { default as Input } from './Input';
 export { default as DateField } from './DateField';

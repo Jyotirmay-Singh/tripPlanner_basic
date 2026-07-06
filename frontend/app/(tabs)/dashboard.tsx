@@ -10,7 +10,7 @@ import { compositionLabel } from '../../src/composition';
 import { formatTripDates } from '../../src/date';
 import UnverifiedBanner from '../../src/UnverifiedBanner';
 import {
-  Screen, Card, Button, StatCard, ListRow, EmptyState, AmountText, SkeletonCard,
+  Screen, Card, Button, StatCard, ListRow, EmptyState, AmountText, SkeletonCard, Fab,
 } from '../../src/ui';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
@@ -53,7 +53,11 @@ export default function Dashboard() {
   const net = owed - owing;
 
   return (
-    <Screen refreshing={refreshing} onRefresh={load}>
+    <Screen
+      refreshing={refreshing}
+      onRefresh={load}
+      fab={<Fab icon="plus" accessibilityLabel="Add transaction" testID="dash-fab" onPress={() => router.push('/add')} />}
+    >
       <View>
         <T variant="label" muted>Hello, {user?.name?.split(' ')[0] || 'traveller'}</T>
         <T variant="h1" style={{ marginTop: 2 }}>Dashboard</T>
