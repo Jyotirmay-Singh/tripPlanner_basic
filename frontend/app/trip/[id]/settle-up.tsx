@@ -96,6 +96,7 @@ export default function SettleUp() {
       await load();
     } catch (e: any) {
       toast.show(e.message || 'Could not record payment', 'error');
+      await load(); // self-heal: a 409 (or any failure) refreshes balances so the user can retry
     } finally {
       setBusy(false);
     }
@@ -108,6 +109,7 @@ export default function SettleUp() {
       await load();
     } catch (e: any) {
       toast.show(e.message || 'Could not update payment', 'error');
+      await load(); // self-heal: a 409 (or any failure) refreshes balances so the user can retry
     } finally {
       setBusy(false);
     }
