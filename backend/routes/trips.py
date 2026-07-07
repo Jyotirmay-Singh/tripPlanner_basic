@@ -43,6 +43,8 @@ async def create_trip(body: TripIn, user=Depends(get_current_user)):
         "admin_ids": [user["id"]],
         "members": [owner_member],
         "created_at": now_utc().isoformat(),
+        # Optimistic-concurrency counter for the payment-write guard (Phase 20 BUG-2 fix).
+        "version": 0,
     }
     await db.trips.insert_one(doc)
     doc.pop("_id", None)

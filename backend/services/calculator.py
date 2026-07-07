@@ -184,11 +184,20 @@ def allocate_within_family(family_share: float, participant_ids: list, all_membe
 def minimize_transfers(net: dict) -> list:
     """Greedy minimum-transaction settlement.
 
-    net: member_id -> rounded net balance (positive = creditor, negative = debtor).
-    Returns transfers: [{"from_member_id", "to_member_id", "amount"}], amount rounded to 2dp.
+    net: member_id -> net balance (positive = creditor, negative = debtor).
+    Returns transfers: [{"from_member_id", "to_member_id", "amount"}], amount to 2dp.
+
+    The greedy loop runs in INTEGER CENTS so no float rounding accumulates inside it: for a
+    balanced ledger the emitted transfers reconcile EXACTLY to the cent-rounded net (a debtor is
+    never under-collected by float drift). The 1-cent thresholds mirror the previous 0.01 float
+    guards, so the output is byte-identical to the old float implementation for the already-2dp
+    net this receives from `_compute_balances` (a sub-cent residual is still dropped, and an
+    exactly ±0.01 imbalance is still absorbed silently). Any leftover cent when the net itself
+    doesn't sum to 0 is an upstream (independent 2dp rounding) artifact, not a loop leak.
     """
-    debtors = sorted([(mid, v) for mid, v in net.items() if v < -0.01], key=lambda x: x[1])
-    creditors = sorted([(mid, v) for mid, v in net.items() if v > 0.01], key=lambda x: -x[1])
+    cents = {mid: int(round(v * 100)) for mid, v in net.items()}
+    debtors = sorted([(mid, c) for mid, c in cents.items() if c < -1], key=lambda x: x[1])
+    creditors = sorted([(mid, c) for mid, c in cents.items() if c > 1], key=lambda x: -x[1])
     transfers = []
     i = j = 0
     d = list(debtors); c = list(creditors)
@@ -196,13 +205,13 @@ def minimize_transfers(net: dict) -> list:
         owe = -d[i][1]
         receive = c[j][1]
         pay = min(owe, receive)
-        if pay > 0.01:
+        if pay > 1:
             transfers.append({"from_member_id": d[i][0], "to_member_id": c[j][0],
-                              "amount": round(pay, 2)})
+                              "amount": pay / 100.0})
         d[i] = (d[i][0], d[i][1] + pay)
         c[j] = (c[j][0], c[j][1] - pay)
-        if abs(d[i][1]) < 0.01:
+        if abs(d[i][1]) < 1:
             i += 1
-        if abs(c[j][1]) < 0.01:
+        if abs(c[j][1]) < 1:
             j += 1
     return transfers

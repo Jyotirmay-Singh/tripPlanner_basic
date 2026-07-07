@@ -43,6 +43,10 @@ async def lifespan(app: FastAPI):
         {"$or": [{"admin_ids": {"$exists": False}}, {"admin_ids": None}, {"admin_ids": []}]},
         [{"$set": {"admin_ids": ["$owner_id"]}}],
     )
+    # Phase 20 concurrency guard: every trip carries a `version` int that the optimistic
+    # payment-write guard filters on ({"version": current} + $inc). Backfill legacy trips so the
+    # guard can match them. Idempotent — only touches rows missing the field.
+    await db.trips.update_many({"version": {"$exists": False}}, {"$set": {"version": 0}})
     # Phase 10: legacy settlements (from the old offset-always /settle) carry no `status`.
     # Stamp them paid (paid_at = created_at) so they keep offsetting and render in history.
     # Idempotent — only touches rows missing the field.

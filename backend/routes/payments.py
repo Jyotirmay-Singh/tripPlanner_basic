@@ -34,6 +34,7 @@ async def record_payment(trip_id: str, body: PaymentCreate, user=Depends(get_cur
     # Record a (possibly partial) payment along a CURRENTLY SUGGESTED debtor->creditor pair. The
     # receiver (creditor's app user) or a trip admin may record; the payer never self-records.
     trip = await _trip_or_404(trip_id, user["id"])
+    current_version = trip.get("version", 0)
     if not can_record_payment(trip, body.to_member_id, user["id"]):
         raise HTTPException(403, "Only the receiver or a trip admin can record this payment")
     if body.amount <= 0:
@@ -60,6 +61,13 @@ async def record_payment(trip_id: str, body: PaymentCreate, user=Depends(get_cur
            "created_at": now_utc().isoformat(),
            "recorded_by": user["id"],
            "note": body.note}
+    # Optimistic-concurrency guard (BUG-2): serialize payment writes for this trip so two concurrent
+    # recorders can't both read the same payable and over-settle. Bump the trip version under the
+    # value we validated against; if it moved, the balance changed under us -> 409 (client refreshes).
+    guard = await db.trips.update_one(
+        {"id": trip_id, "version": current_version}, {"$inc": {"version": 1}})
+    if guard.modified_count == 0:
+        raise HTTPException(409, "Balances changed, please refresh and retry")
     await db.payments.insert_one(doc)
     doc.pop("_id", None)
     return doc
@@ -72,6 +80,7 @@ async def edit_payment(trip_id: str, payment_id: str, body: PaymentPatch,
     # direction: cap = current pair payable + this payment's own effect (i.e. the payable as if this
     # payment didn't exist), so create and edit share one rule.
     trip, payment = await _payment_or_403(trip_id, payment_id, user["id"])
+    current_version = trip.get("version", 0)
     updates: dict = {}
     if body.amount is not None:
         if body.amount <= 0:
@@ -86,6 +95,13 @@ async def edit_payment(trip_id: str, payment_id: str, body: PaymentPatch,
     if body.note is not None:
         updates["note"] = body.note
     if updates:
+        # An amount change has the same over-settle risk as recording, so guard it against concurrent
+        # writes; a note-only edit doesn't touch balances and needs no guard.
+        if body.amount is not None:
+            guard = await db.trips.update_one(
+                {"id": trip_id, "version": current_version}, {"$inc": {"version": 1}})
+            if guard.modified_count == 0:
+                raise HTTPException(409, "Balances changed, please refresh and retry")
         await db.payments.update_one({"id": payment_id, "trip_id": trip_id}, {"$set": updates})
         payment.update(updates)
     return payment

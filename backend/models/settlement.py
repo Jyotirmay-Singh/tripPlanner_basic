@@ -1,6 +1,6 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SettleIn(BaseModel):
@@ -8,7 +8,7 @@ class SettleIn(BaseModel):
     # Kept for backward compatibility; the doc it creates is now stamped status:"paid".
     from_member_id: str
     to_member_id: str
-    amount: float
+    amount: float = Field(gt=0, allow_inf_nan=False)
 
 
 class SettlementCreate(BaseModel):
@@ -16,7 +16,7 @@ class SettlementCreate(BaseModel):
     # `status` is server-controlled and always starts "pending" — it is not accepted here.
     from_member_id: str
     to_member_id: str
-    amount: float
+    amount: float = Field(gt=0, allow_inf_nan=False)
     note: Optional[str] = None
 
 

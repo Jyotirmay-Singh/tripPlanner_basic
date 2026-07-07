@@ -191,10 +191,10 @@ class TestSettlementValidation:
     def test_rejects_bad_input(self, api_client, test_user):
         trip_id, m_owner, m_b, _user_b = _make_trip_two_members(api_client, test_user["token"])
         h = _auth(test_user["token"])
-        # amount <= 0
+        # amount <= 0 is now rejected at the Pydantic schema (Field(gt=0)) -> 422, not the route's 400.
         assert api_client.post(f"{BASE_URL}/api/trips/{trip_id}/settlements", json={
             "from_member_id": m_b, "to_member_id": m_owner, "amount": 0.0,
-        }, headers=h).status_code == 400
+        }, headers=h).status_code == 422
         # from == to
         assert api_client.post(f"{BASE_URL}/api/trips/{trip_id}/settlements", json={
             "from_member_id": m_owner, "to_member_id": m_owner, "amount": 10.0,
