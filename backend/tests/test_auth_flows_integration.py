@@ -10,6 +10,7 @@
 #   A) Forgot-password:  register -> request-reset -> reset -> new pw logs in, old fails, PIN intact
 #   B) Email verify:     register (unverified) -> login still works (soft gate) -> /me flips verified
 #   + endpoint-level single-use + expiry for both token types, and malformed-email 422.
+import asyncio
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -229,3 +230,75 @@ def test_request_password_reset_malformed_email_422(client, env):
     r = client.post("/api/auth/request-password-reset", json={"email": "not-an-email"})
     assert r.status_code == 422
     send.assert_not_awaited()
+
+
+# --------------------------------------------------------------------------- #
+# Empty / unknown token is rejected at the endpoint level (real consume_token,
+# not mocked) with a clean 400 — never a 500/crash — and nothing is mutated.
+# --------------------------------------------------------------------------- #
+def _find_user(fake, email):
+    return next(d for d in fake.users.docs if d["email"] == email)
+
+
+def test_verify_email_empty_and_unknown_token_rejected_no_crash(client, env):
+    fake, send, captured = env
+    assert _register(client, "vbad@gmail.com", "verifypass1", "5551", name="VBad").status_code == 200
+    assert client.post("/api/auth/verify-email", json={"token": ""}).status_code == 400
+    assert client.post("/api/auth/verify-email", json={"token": "never-issued-xyz"}).status_code == 400
+    # the account is untouched — still unverified
+    assert _find_user(fake, "vbad@gmail.com")["email_verified"] is False
+
+
+def test_reset_password_empty_and_unknown_token_rejected_no_crash(client, env):
+    fake, send, captured = env
+    assert _register(client, "rbad@gmail.com", "origpass123", "6661").status_code == 200
+    # valid-length password so we clear the pw check and reach the token check (isolates the token 400)
+    assert client.post("/api/auth/reset-password",
+                       json={"token": "", "new_password": "brandnewpw1"}).status_code == 400
+    assert client.post("/api/auth/reset-password",
+                       json={"token": "never-issued", "new_password": "brandnewpw1"}).status_code == 400
+    # the original password still works — nothing was changed
+    assert client.post("/api/auth/login",
+                       json={"email": "rbad@gmail.com", "password": "origpass123"}).status_code == 200
+
+
+# --------------------------------------------------------------------------- #
+# Re-verifying an already-verified account is idempotent (stays verified, no error).
+# --------------------------------------------------------------------------- #
+def test_verify_already_verified_is_idempotent(client, env):
+    fake, send, captured = env
+    assert _register(client, "videm@gmail.com", "verifypass1", "7771", name="VIdem").status_code == 200
+    token1 = _latest(captured, VERIFY_EMAIL)
+    assert client.post("/api/auth/verify-email", json={"token": token1}).status_code == 200
+    user = _find_user(fake, "videm@gmail.com")
+    assert user["email_verified"] is True
+    # a second, fresh, valid token consumed again just re-affirms verified — no crash, still True
+    fresh = asyncio.run(at.issue_token(user["id"], VERIFY_EMAIL, timedelta(hours=24)))
+    assert client.post("/api/auth/verify-email", json={"token": fresh}).status_code == 200
+    assert _find_user(fake, "videm@gmail.com")["email_verified"] is True
+
+
+# --------------------------------------------------------------------------- #
+# Resend cooldown clears once >60s have elapsed since the last verify token
+# (drives the REAL seconds_since_last against a back-dated stored token).
+# --------------------------------------------------------------------------- #
+def _backdate_verify_tokens(fake, seconds):
+    for d in fake["auth_tokens"].docs:
+        if d["type"] == VERIFY_EMAIL:
+            d["created_at"] = datetime.now(timezone.utc) - timedelta(seconds=seconds)
+
+
+def test_resend_after_cooldown_elapsed_issues_new_token(client, env):
+    fake, send, captured = env
+    reg = _register(client, "rcool@gmail.com", "verifypass1", "8881", name="RCool")
+    assert reg.status_code == 200
+    jwt_token = reg.json()["access_token"]
+    before = sum(1 for (t, _) in captured if t == VERIFY_EMAIL)  # register issued one
+
+    _backdate_verify_tokens(fake, 120)  # pretend 2 min elapsed since that email
+    r = client.post("/api/auth/resend-verification", headers={"Authorization": f"Bearer {jwt_token}"})
+    assert r.status_code == 200, r.text
+
+    after = sum(1 for (t, _) in captured if t == VERIFY_EMAIL)
+    assert after == before + 1  # cooldown cleared -> a fresh verify token was issued & emailed
+    send.assert_awaited()
