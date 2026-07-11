@@ -11,11 +11,14 @@ import { Icon, Button, useToast } from './ui';
 // `email_verified === undefined` (legacy payloads / OAuth) is treated as verified, so the banner
 // only appears for genuinely-unverified accounts. Offers a rate-limited "resend" action.
 export default function UnverifiedBanner() {
-  const { user, refresh } = useAuth();
+  const { user, refresh, emailFeaturesEnabled } = useAuth();
   const { colors } = useTheme();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
 
+  // Hidden while email flows are ghosted (only an explicit false hides it, so mocks/loading
+  // that omit the flag keep the existing behavior).
+  if (emailFeaturesEnabled === false) return null;
   if (!user || user.email_verified !== false) return null;
 
   const resend = async () => {

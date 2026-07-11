@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
-from config import logger, RESEND_API_KEY, SENDER_EMAIL, APP_URL, GOOGLE_CLIENT_ID
+from config import logger, RESEND_API_KEY, SENDER_EMAIL, APP_URL, GOOGLE_CLIENT_ID, EMAIL_FEATURES_ENABLED
 from database import db
 from models.auth import (
     RegisterIn, LoginIn, ForgotIn, ResetPinIn, ResetPinByPasswordIn, GoogleAuthIn,
@@ -77,12 +77,15 @@ async def register(body: RegisterIn):
         "role": "user",
         # Phase 9: new email/password signups start UNVERIFIED (soft gate — they can still
         # log in, the app shows a "verify your email" banner) but already have credentials.
-        "email_verified": False,
+        # When email features are ghosted (EMAIL_FEATURES_ENABLED=false) there is no way to
+        # deliver/verify, so new signups are marked verified up-front and no email is sent.
+        "email_verified": not EMAIL_FEATURES_ENABLED,
         "credentials_set": True,
         "created_at": now_utc().isoformat(),
     }
     await db.users.insert_one(doc)
-    await _send_verification(doc)
+    if EMAIL_FEATURES_ENABLED:
+        await _send_verification(doc)
     token = create_token(uid, email)
     return {"access_token": token, "user": _user_payload(doc)}
 
@@ -236,6 +239,9 @@ async def verify_email(body: VerifyEmailIn):
 
 @router.post("/auth/resend-verification")
 async def resend_verification(user=Depends(get_current_user)):
+    if not EMAIL_FEATURES_ENABLED:
+        # Ghosted: nothing to send (and new users are already marked verified).
+        return {"ok": True, "message": "Email verification is currently disabled"}
     if user.get("email_verified", True):
         return {"ok": True, "message": "Email already verified"}
     email = user["email"]
@@ -254,14 +260,17 @@ async def request_password_reset(body: RequestPasswordResetIn):
     # account exists (no enumeration). The link is only emailed when the account is real.
     email = body.email.lower().strip()
     assert_gmail(email)
-    user = await db.users.find_one({"email": email})
-    if user:
-        raw = await issue_token(user["id"], RESET_PASSWORD, RESET_TTL)
-        link = build_link("reset-password", raw)
-        await send_email(
-            email, "Reset your Trip Splitter password",
-            password_reset_html(user.get("name", "there"), link, raw), link_for_log=link,
-        )
+    # When ghosted, skip issuing/sending entirely (nothing would deliver) — but keep the SAME
+    # generic response so the endpoint's behavior is indistinguishable and reveals nothing.
+    if EMAIL_FEATURES_ENABLED:
+        user = await db.users.find_one({"email": email})
+        if user:
+            raw = await issue_token(user["id"], RESET_PASSWORD, RESET_TTL)
+            link = build_link("reset-password", raw)
+            await send_email(
+                email, "Reset your Trip Splitter password",
+                password_reset_html(user.get("name", "there"), link, raw), link_for_log=link,
+            )
     return {"ok": True, "message": "If this email exists, a reset link has been sent."}
 
 

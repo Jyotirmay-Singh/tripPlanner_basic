@@ -22,6 +22,16 @@ SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 APP_URL = os.environ.get("APP_URL", "")
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 
+# Master switch for the Phase-9 email flows (email verification + forgot-PASSWORD). Default ON.
+# Set EMAIL_FEATURES_ENABLED=false to "ghost" them until a deliverable sender domain exists:
+# new signups are marked verified up-front (no nag banner), no verification/reset emails are sent
+# (so nothing bounces), and the app hides the banner + "Forgot password?" link via GET /api/meta/config.
+# Re-enable later by setting it back to true (or removing it) and redeploying — no frontend rebuild.
+# PIN-based recovery (POST /auth/reset-pin-by-password) and in-app change-password are unaffected.
+EMAIL_FEATURES_ENABLED = os.environ.get("EMAIL_FEATURES_ENABLED", "true").strip().lower() not in (
+    "false", "0", "no", "off",
+)
+
 if RESEND_API_KEY:
     resend.api_key = RESEND_API_KEY
 

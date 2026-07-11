@@ -18,6 +18,10 @@ const SAVED_EMAIL_KEY = 'last_login_email';
 type Ctx = {
   user: User | null | undefined; // undefined = loading
   savedEmail: string | null;
+  // Runtime feature flag from GET /meta/config. When false, the email-verification banner and the
+  // "Forgot password?" link are hidden (those flows are ghosted until a deliverable domain exists).
+  // Defaults to true so nothing is hidden while it loads or if the fetch fails.
+  emailFeaturesEnabled: boolean;
   signIn: (email: string, password?: string, pin?: string) => Promise<void>;
   register: (email: string, pin: string, name: string, password?: string) => Promise<void>;
   signInWithGoogle: (idToken: string) => Promise<User>;
@@ -31,6 +35,15 @@ const AuthCtx = createContext<Ctx>({} as Ctx);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [savedEmail, setSavedEmail] = useState<string | null>(null);
+  const [emailFeaturesEnabled, setEmailFeaturesEnabled] = useState(true);
+
+  // Public, DB-free config fetch. Only an explicit `false` hides the email UI; any error or a
+  // missing field leaves it enabled (default true), so we never wrongly hide it.
+  useEffect(() => {
+    api<{ email_features_enabled?: boolean }>('/meta/config', { auth: false })
+      .then((c) => setEmailFeaturesEnabled(c?.email_features_enabled !== false))
+      .catch(() => {});
+  }, []);
 
   const refresh = useCallback(async () => {
     const [t, e] = await Promise.all([getToken(), AsyncStorage.getItem(SAVED_EMAIL_KEY)]);
@@ -100,7 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthCtx.Provider value={{ user, savedEmail, signIn, register, signInWithGoogle, signOut, forgetSavedEmail, refresh }}>
+    <AuthCtx.Provider value={{ user, savedEmail, emailFeaturesEnabled, signIn, register, signInWithGoogle, signOut, forgetSavedEmail, refresh }}>
       {children}
     </AuthCtx.Provider>
   );

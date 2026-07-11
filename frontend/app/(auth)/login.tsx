@@ -10,7 +10,7 @@ import GoogleSignInButton from '../../src/GoogleSignInButton';
 import { AuthShell, Card, Input, PinInput, Button, Icon, useToast } from '../../src/ui';
 
 export default function Login() {
-  const { signIn, savedEmail, forgetSavedEmail } = useAuth();
+  const { signIn, savedEmail, forgetSavedEmail, emailFeaturesEnabled } = useAuth();
   const { colors } = useTheme();
   const router = useRouter();
   const toast = useToast();
@@ -76,9 +76,12 @@ export default function Login() {
         <Pressable testID="login-forgot-link" onPress={() => router.push('/(auth)/forgot')} hitSlop={8}>
           <T color={colors.primary}>Forgot PIN?</T>
         </Pressable>
-        <Pressable testID="login-forgot-password-link" onPress={() => router.push('/(auth)/forgot-password')} hitSlop={8}>
-          <T color={colors.primary}>Forgot password?</T>
-        </Pressable>
+        {/* Email-based reset is hidden while email flows are ghosted; "Forgot PIN?" (no email) stays. */}
+        {emailFeaturesEnabled !== false && (
+          <Pressable testID="login-forgot-password-link" onPress={() => router.push('/(auth)/forgot-password')} hitSlop={8}>
+            <T color={colors.primary}>Forgot password?</T>
+          </Pressable>
+        )}
       </View>
 
       <GoogleSignInButton />
