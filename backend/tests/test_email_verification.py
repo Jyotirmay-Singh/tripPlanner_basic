@@ -2,6 +2,7 @@
 # the Google-signup auto-verify. In-process FastAPI TestClient with the users collection, the
 # token helpers, and the emailer all mocked, so every branch runs without Mongo or real email.
 import sys
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -69,6 +70,16 @@ def test_register_creates_unverified_user_and_sends_email(client, fake_users, pa
     assert created["email_verified"] is False
 
 
+def test_register_verify_token_has_24h_ttl(client, fake_users, patched_email):
+    # The verification link must live for 24h (VERIFY_TTL) — asserted on the TTL handed to issue_token.
+    r = client.post("/api/auth/register", json={
+        "email": "ttl@gmail.com", "password": "password123", "pin": "1212", "name": "TTL",
+    })
+    assert r.status_code == 200, r.text
+    ttl_arg = patched_email.issue.call_args.args[2]
+    assert ttl_arg == auth_module.VERIFY_TTL == timedelta(hours=24)
+
+
 def test_verify_email_valid_token_marks_verified(client, fake_users, monkeypatch):
     monkeypatch.setattr(auth_module, "consume_token", AsyncMock(return_value="u-1"))
     r = client.post("/api/auth/verify-email", json={"token": "good"})
@@ -113,6 +124,25 @@ def test_resend_rate_limited_429(client, as_user, patched_email, monkeypatch):
 def test_resend_success_sends_email(client, as_user, patched_email, monkeypatch):
     as_user({"id": "u-1", "email": "u@gmail.com", "name": "U", "email_verified": False})
     monkeypatch.setattr(auth_module, "seconds_since_last", AsyncMock(return_value=None))
+    r = client.post("/api/auth/resend-verification")
+    assert r.status_code == 200, r.text
+    patched_email.send.assert_awaited_once()
+
+
+def test_resend_just_under_cooldown_429(client, as_user, patched_email, monkeypatch):
+    # 59s < RESEND_COOLDOWN_SECONDS (60) -> still rate-limited, no email sent.
+    assert auth_module.RESEND_COOLDOWN_SECONDS == 60
+    as_user({"id": "u-1", "email": "u@gmail.com", "name": "U", "email_verified": False})
+    monkeypatch.setattr(auth_module, "seconds_since_last", AsyncMock(return_value=59))
+    r = client.post("/api/auth/resend-verification")
+    assert r.status_code == 429
+    patched_email.send.assert_not_called()
+
+
+def test_resend_just_over_cooldown_ok(client, as_user, patched_email, monkeypatch):
+    # 61s >= 60 -> cooldown cleared, a fresh verification email is sent.
+    as_user({"id": "u-1", "email": "u@gmail.com", "name": "U", "email_verified": False})
+    monkeypatch.setattr(auth_module, "seconds_since_last", AsyncMock(return_value=61))
     r = client.post("/api/auth/resend-verification")
     assert r.status_code == 200, r.text
     patched_email.send.assert_awaited_once()

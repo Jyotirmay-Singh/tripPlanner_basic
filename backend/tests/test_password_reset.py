@@ -2,6 +2,7 @@
 # reset-password (token validation, password rules, PIN untouched). In-process TestClient with
 # the users collection + token helpers + emailer mocked.
 import sys
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -49,6 +50,16 @@ def test_request_known_email_issues_reset_and_emails(client, fake_users, patched
     assert r.status_code == 200
     assert r.json()["message"] == GENERIC
     assert patched_email.issue.call_args.args[1] == RESET_PASSWORD
+    patched_email.send.assert_awaited_once()
+
+
+def test_request_known_email_reset_token_has_1h_ttl(client, fake_users, patched_email):
+    # The reset link must live for 1h (RESET_TTL) — asserted on the TTL handed to issue_token.
+    fake_users.find_one.return_value = {"id": "u-1", "email": "real@gmail.com", "name": "Real"}
+    r = client.post("/api/auth/request-password-reset", json={"email": "real@gmail.com"})
+    assert r.status_code == 200
+    ttl_arg = patched_email.issue.call_args.args[2]
+    assert ttl_arg == auth_module.RESET_TTL == timedelta(hours=1)
     patched_email.send.assert_awaited_once()
 
 
