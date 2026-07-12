@@ -251,8 +251,13 @@ def entity_ledger_components(expenses: list, members: list) -> tuple:
 
 def settle_adj_by_entity(settlements: list) -> dict:
     """member id -> settlement adjustment (Σ amount paid OUT − Σ amount received), the SAME overlay
-    ``_compute_balances`` applies (``net[from] += amount``, ``net[to] -= amount``). Pass the
-    non-pending settlement rows only (the set the ledger overlays)."""
+    ``_compute_balances`` applies (``net[from] += amount``, ``net[to] -= amount``).
+
+    Pass the ledger's FULL overlay set so this matches ``net`` exactly: non-pending settlement rows
+    **plus every payment** (Phase 20). Settlements and payments share the ``from/to/amount`` shape and
+    the ledger overlays both identically (``settlements + payments`` in ``_compute_balances``), so a
+    single pass over the concatenated list reproduces the ledger's per-entity adjustment. (Passing
+    settlements alone understates the column whenever partial payments exist.)"""
     out: dict = {}
     for s in settlements or []:
         amt = s.get("amount", 0.0)
@@ -263,6 +268,23 @@ def settle_adj_by_entity(settlements: list) -> dict:
         if t is not None:
             out[t] = out.get(t, 0.0) - amt
     return out
+
+
+def build_category_rows(expenses: list) -> dict:
+    """'By category' table for the Summary tab: signed amount totals grouped by category.
+
+    Pure aggregation shared by BOTH the XLSX Summary tab and the PDF Summary section so the two can
+    never drift. Category order is first-seen (insertion order over ``expenses``), signed amounts net
+    together (a refund reduces its category and the total), each cell rounded to 2dp. Returns
+    ``{"rows": [{"category", "amount"}...], "total": <Σ rounded amounts>}``.
+    """
+    by_cat: dict = {}
+    for e in expenses:
+        cat = e.get("category", "")
+        by_cat[cat] = by_cat.get(cat, 0.0) + e.get("amount", 0.0)
+    rows = [{"category": k, "amount": round(v, 2)} for k, v in by_cat.items()]
+    total = round(sum(r["amount"] for r in rows), 2)
+    return {"rows": rows, "total": total}
 
 
 def build_summary_spend_rows(members: list, expenses: list) -> dict:

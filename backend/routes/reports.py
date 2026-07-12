@@ -13,6 +13,7 @@ from utils.balances import _compute_balances
 from utils.display_names import member_display_names
 from utils.security import decode_token
 from services.report_builder import (
+    build_category_rows,
     build_expense_member_rows,
     build_members_families_rows,
     build_split_math_rows,
@@ -95,9 +96,14 @@ async def report_xlsx(trip_id: str, token: str,
 
     members = trip["members"]
     cur = trip.get("currency", "INR")
-    # Same non-pending settlement overlay _compute_balances applies (read-only; no engine change).
+    # The SAME two overlays _compute_balances applies to `net` (read-only; no engine change): the
+    # non-pending settlements AND every Phase-20 payment. Both must feed the Settlements column or it
+    # diverges from the ledger `net` the sheet reconciles against. Fetched once and reused (the
+    # Payments tab below renders the same `payments` list).
     settlements = await db.settlements.find(
         {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}).to_list(5000)
+    payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}) \
+        .sort("created_at", 1).to_list(5000)
 
     wb = Workbook()
 
@@ -152,17 +158,13 @@ async def report_xlsx(trip_id: str, token: str,
     s1.cell(row=row, column=2, value=f"Amount ({cur})")
     _style_header_row(s1, row, 2)
     row += 1
-    by_cat = {}
-    for e in expenses:
-        by_cat[e["category"]] = by_cat.get(e["category"], 0) + e["amount"]
-    cat_total = 0.0
-    for k, v in by_cat.items():
-        s1.cell(row=row, column=1, value=k)
-        _money(s1.cell(row=row, column=2, value=round(v, 2)))
-        cat_total += round(v, 2)
+    cats = build_category_rows(expenses)  # shared with the PDF Summary — one source of truth
+    for cr in cats["rows"]:
+        s1.cell(row=row, column=1, value=cr["category"])
+        _money(s1.cell(row=row, column=2, value=cr["amount"]))
         row += 1
     s1.cell(row=row, column=1, value="Total").font = _BOLD
-    ct = s1.cell(row=row, column=2, value=round(cat_total, 2))
+    ct = s1.cell(row=row, column=2, value=cats["total"])
     _money(ct)
     ct.font = _BOLD
     _set_widths(s1, [28, 22, 18])
@@ -174,7 +176,9 @@ async def report_xlsx(trip_id: str, token: str,
     s2.append(mf_headers)
     _style_header_row(s2, 1, len(mf_headers))
     paid_map, _ = entity_ledger_components(expenses, members)
-    settle_map = settle_adj_by_entity(settlements)
+    # settlements + payments = the exact overlay set _compute_balances lays over `net`, so the
+    # Settlements column matches the ledger (partial payments included) and Net still foots.
+    settle_map = settle_adj_by_entity(settlements + payments)
     for mf in build_members_families_rows(bal["per_person"], paid_map, settle_map, display):
         s2.append([mf["name"], mf["type"], mf["family"],
                    mf["paid"] if mf["paid"] is not None else "—",
@@ -291,11 +295,9 @@ async def report_xlsx(trip_id: str, token: str,
     # disambiguated labels as the rest of the report; Amount uses the trip currency; a bold Total row
     # sums the column. Display-only — these payments already offset the ledger via _compute_balances.
     s5 = wb.create_sheet("Payments")
-    pay_headers = ["Payer", "Payee", f"Amount ({cur})", "Date & Time"]
+    pay_headers = ["Payer", "Receiver", f"Amount ({cur})", "Date & Time"]
     s5.append(pay_headers)
     _style_header_row(s5, 1, len(pay_headers))
-    payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}) \
-        .sort("created_at", 1).to_list(5000)
     pay_total = 0.0
     for p in payments:
         ca = p.get("created_at") or ""
@@ -327,19 +329,29 @@ async def report_xlsx(trip_id: str, token: str,
 async def report_pdf(trip_id: str, token: str,
                      _unused=None):
     # Additive PDF variant of the report — same ?token= auth as report.xlsx (opened via a browser
-    # link, so the JWT rides on the query string, not a header). Renders the exploded Transactions
-    # view (per-member rows + per-person pivot) from the SAME build_expense_member_rows data, so it
-    # reconciles to the same totals as the spreadsheet.
+    # link, so the JWT rides on the query string, not a header). Renders the FULL four-section report
+    # (Summary, Members & Families, exploded Transactions, Payments) from the SAME pure builders the
+    # spreadsheet uses, so the two can never diverge in value.
     payload = decode_token(token)
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
     if not user:
         raise HTTPException(401, "User not found")
     trip = await _trip_or_404(trip_id, user["id"])
+    members = trip["members"]
     expenses = await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(5000)
     payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}) \
         .sort("created_at", 1).to_list(5000)
-    pdf_bytes = build_report_pdf(trip, trip["members"], expenses, trip.get("currency", "INR"),
-                                 payments=payments)
+    # Members & Families rows — identical construction to the XLSX route (same builders + the same
+    # settlements + payments overlay), so the PDF's Settlements column and reconciliation match.
+    bal = await _compute_balances(trip_id)
+    display = member_display_names(members)
+    settlements = await db.settlements.find(
+        {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}).to_list(5000)
+    paid_map, _ = entity_ledger_components(expenses, members)
+    settle_map = settle_adj_by_entity(settlements + payments)
+    mf_rows = build_members_families_rows(bal["per_person"], paid_map, settle_map, display)
+    pdf_bytes = build_report_pdf(trip, members, expenses, trip.get("currency", "INR"),
+                                 payments=payments, mf_rows=mf_rows)
     fname = f"{trip['name'].replace(' ','_')}_report.pdf"
     return StreamingResponse(
         io.BytesIO(pdf_bytes),

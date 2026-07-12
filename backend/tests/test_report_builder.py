@@ -3,6 +3,7 @@
 # test_per_capita.py / test_per_family.py.
 from services.member_breakdown import family_member_ids
 from services.report_builder import (
+    build_category_rows,
     build_expense_member_rows,
     build_member_weight_map,
     build_per_capita_rows,
@@ -260,6 +261,38 @@ class TestOptionalTime:
         ef["time"] = "09:05"
         pf = build_per_family_rows([ef], _roster())
         assert all(r["date"] == "11-05-26 · 9:05 AM" for r in pf)
+
+
+class TestCategoryRows:
+    """Phase 23 — the shared 'By category' builder used by BOTH the XLSX Summary tab and the PDF."""
+
+    def _exp_cat(self, cat, amount):
+        return {"id": cat + str(amount), "amount": amount, "split_member_ids": [],
+                "split_mode": "PER_CAPITA", "paid_by_member_id": "i1", "date": "1",
+                "category": cat, "description": ""}
+
+    def test_first_seen_order_and_signed_sums(self):
+        exps = [self._exp_cat("Food", 100.0), self._exp_cat("Travel", 60.0),
+                self._exp_cat("Food", -12.0)]  # refund nets Food down
+        out = build_category_rows(exps)
+        assert [r["category"] for r in out["rows"]] == ["Food", "Travel"]  # first-seen order
+        assert out["rows"][0]["amount"] == 88.0   # 100 - 12 signed
+        assert out["rows"][1]["amount"] == 60.0
+        assert out["total"] == 148.0
+
+    def test_negative_category_total(self):
+        out = build_category_rows([self._exp_cat("Refunds", -40.0), self._exp_cat("Refunds", -10.0)])
+        assert out["rows"] == [{"category": "Refunds", "amount": -50.0}]
+        assert out["total"] == -50.0
+
+    def test_empty_input(self):
+        out = build_category_rows([])
+        assert out == {"rows": [], "total": 0.0}
+
+    def test_rounding_to_two_places(self):
+        out = build_category_rows([self._exp_cat("Food", 10.005), self._exp_cat("Food", 0.004)])
+        assert out["rows"][0]["amount"] == round(10.005 + 0.004, 2)
+        assert out["total"] == out["rows"][0]["amount"]
 
 
 class TestEmptyInputs:

@@ -395,3 +395,43 @@ offline replica `income_migration.compute_net`.)*
       2 skipped**, the only 2 failures the pre-existing `test_auth` admin-login env caveat (unrelated).
       Frontend: tsc clean, eslint 0 errors, jest 267/267. Live gate run against local Docker Mongo + a
       from-source uvicorn.
+
+### Phase 23: Report (XLSX + PDF) Fixes & Full PDF
+*(Report-layer ONLY — `routes/reports.py` (openpyxl/route assembly), `services/report_builder.py`
+(pure builders), `services/report_pdf.py` (reportlab). The report only DISPLAYS engine values; NO
+engine/settlement/RBAC/Gmail/auth/model change, `?token=` auth unchanged. Root cause of the settlements
+bug: the "Members & Families" Settlements column was built from `settle_adj_by_entity(settlements)` —
+non-pending `db.settlements` ONLY — while `_compute_balances` overlays `settlements + payments`
+(Phase-20 `db.payments`). Because the sheet DERIVES `Share = Paid + Settlements − Net` and `Net`
+already includes payments, the sheet still FOOTED, hiding both an understated Settlements column and a
+contaminated Share column — which is why the existing foot-only tests never caught it.)*
+- [x] Step 96: BUG — feed the ledger's FULL overlay to the Settlements column. `routes/reports.py`
+      fetches `payments` once (reused by the Payments tab) and passes `settle_adj_by_entity(settlements
+      + payments)` in BOTH the XLSX and PDF routes (payment rows share the `from/to/amount` shape, so
+      the generic helper handles them unchanged, mirroring `_compute_balances` verbatim). Pending
+      settlements stay excluded (`status != "pending"` filter untouched); Net still foots to the cent
+      and `Share` becomes the TRUE engine allocation again. `settle_adj_by_entity` docstring updated
+      (no math change). Pure regression tests in `tests/test_report_layout.py`
+      (`TestMembersFamiliesWithPayments` + `TestSettleAdj` payments cases) + live value/foot assertions
+      in `tests/test_balances_reports.py`.
+- [x] Step 97: Shared `report_builder.build_category_rows(expenses)` (first-seen order, signed sums,
+      2dp) — the XLSX Summary "By category" block AND the PDF Summary both route through it (one source
+      of truth). Pure tests in `tests/test_report_builder.py::TestCategoryRows`.
+- [x] Step 98: Payments header renamed **Payee → Receiver** (XLSX Payments tab + PDF Payments section);
+      header text only, no data/key change.
+- [x] Step 99: `report.pdf` promoted to the FULL professional report (all landscape A4), reusing the
+      SAME pure builders as the XLSX (no forked math): cover/title block (trip name + composition +
+      dates + currency) → **Summary** (meta + spend-by-entity + by-category) → **Members & Families**
+      (with the fixed Settlements column) → **Transactions** (exploded + per-person pivot) →
+      **Payments** (Receiver). `services/report_pdf.py` gains `NumberedCanvas` (Page X of Y footer +
+      trip name), `_section` (brand heading + rule), and `_styled_table` (brand header, zebra striping,
+      right-aligned currency, red/parenthesised negatives, bold+ruled totals, `repeatRows`). The route
+      builds `mf_rows` (needs the async ledger) and passes it in; empty payments/settlements/expenses
+      all render safely.
+- [x] Step 100: Full verification gate — pure suite offline green (report tests +
+      `TestMembersFamiliesWithPayments`/`TestCategoryRows`); live-API `test_balances_reports.py`
+      (Settlements value == settlement + payment, Share uncontaminated, foots; "Receiver" header; PDF
+      renders) + `test_exact_split_api.py` PDF smoke green against local Docker Mongo + from-source
+      uvicorn. Docs (this checklist + USER_GUIDE §8). Sample XLSX + PDF inspected: columns foot with
+      partial payments included. Do-NOT-break invariants (split/balance engine, settlement lifecycle,
+      RBAC, Gmail, `?token=`) untouched.

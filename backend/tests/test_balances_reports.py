@@ -269,3 +269,71 @@ class TestReports:
         assert tx_header[5] == "Split Mode"
         tx_modes = {row[5] for row in wb["Transactions"].iter_rows(min_row=2, values_only=True) if row[5]}
         assert tx_modes <= {"Per-Person", "Per-Family"}
+
+    def test_report_settlements_column_includes_partial_payments(self, api_client, test_user):
+        """Phase 23 (BUG): the Members & Families 'Settlements' column must reflect BOTH the legacy
+        non-pending settlements AND Phase-20 partial payments (the SAME overlay the ledger applies),
+        or it understates reality. Pre-fix this cell read the settlement only. Also verifies the
+        Payments header renamed to 'Receiver' and the full PDF renders."""
+        h = {"Authorization": f"Bearer {test_user['token']}"}
+        token = test_user["token"]
+
+        trip = api_client.post(f"{BASE_URL}/api/trips", json={
+            "name": "TEST_Phase23 Settle+Pay", "start_date": "2026-01-10",
+            "end_date": "2026-01-15", "currency": "INR"}, headers=h).json()
+        trip_id = trip["id"]
+        m1 = trip["members"][0]["id"]  # creator's member (payer / receiver of the settlement)
+        m2 = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/members",
+                             json={"name": "TEST_Debtor", "kind": "individual"},
+                             headers=h).json()["id"]
+
+        # m1 fronts 200 split between the two -> m2 owes m1 100 (suggested transfer m2 -> m1).
+        api_client.post(f"{BASE_URL}/api/trips/{trip_id}/expenses", json={
+            "kind": "expense", "amount": 200.0, "category": "Food", "description": "Dinner",
+            "date": "11-03-27", "paid_by_member_id": m1, "split_member_ids": []}, headers=h)
+
+        # Legacy settlement 30 (stamped paid) THEN a partial payment 15, both m2 -> m1.
+        r_settle = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/settle", json={
+            "from_member_id": m2, "to_member_id": m1, "amount": 30.0}, headers=h)
+        assert r_settle.status_code == 200
+        r_pay = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/payments", json={
+            "from_member_id": m2, "to_member_id": m1, "amount": 15.0}, headers=h)
+        assert r_pay.status_code == 200, r_pay.text
+
+        # ----- XLSX: Members & Families Settlements column must include BOTH (30 + 15 = 45) -----
+        resp = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/report.xlsx?token={token}")
+        assert resp.status_code == 200
+        wb = load_workbook(io.BytesIO(resp.content))
+        mf = wb["Members & Families"]
+        entity_rows, total_row = [], None
+        for name, typ, fam, paid, share, settle, net in mf.iter_rows(min_row=2, values_only=True):
+            if name == "TOTAL":
+                total_row = (paid, share, settle, net)
+            elif all(isinstance(x, (int, float)) for x in (paid, share, settle, net)):
+                entity_rows.append({"paid": paid, "share": share, "settle": settle, "net": net})
+
+        payer = next(r for r in entity_rows if abs(r["paid"] - 200.0) < 0.01)
+        debtor = next(r for r in entity_rows if abs(r["paid"] - 0.0) < 0.01)
+        # Debtor paid OUT 30 + 15 = 45 (would be ONLY 30 before the fix); receiver mirror -45.
+        assert abs(debtor["settle"] - 45.0) < 0.01, debtor
+        assert abs(payer["settle"] - (-45.0)) < 0.01, payer
+        # Share is the TRUE engine allocation (each owes 100), NOT contaminated by the payment.
+        assert abs(debtor["share"] - 100.0) < 0.01 and abs(payer["share"] - 100.0) < 0.01
+        # Net foots with payments included: payer +55, debtor -55.
+        assert abs(payer["net"] - 55.0) < 0.01 and abs(debtor["net"] - (-55.0)) < 0.01
+        for r in entity_rows:
+            assert abs(round(r["paid"] - r["share"] + r["settle"], 2) - r["net"]) <= 0.011
+        # Totals: Σ Settlements == Σ Net == 0.
+        assert total_row is not None
+        assert abs(total_row[2]) < 0.011 and abs(total_row[3]) < 0.011
+
+        # Payments tab header renamed Payee -> Receiver (Phase 23).
+        assert [c.value for c in wb["Payments"][1]] == ["Payer", "Receiver", "Amount (INR)",
+                                                        "Date & Time"]
+
+        # ----- PDF: full report renders (same builders -> same values) -----
+        pdf = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/report.pdf?token={token}")
+        assert pdf.status_code == 200
+        assert "application/pdf" in pdf.headers.get("Content-Type", "")
+        assert pdf.content[:4] == b"%PDF"
+        assert len(pdf.content) > 0

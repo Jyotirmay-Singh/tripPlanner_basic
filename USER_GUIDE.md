@@ -183,16 +183,17 @@ the recomputed balance (and can even flip who owes whom if someone has now overp
 
 - Bottom-tab **Reports** lists all your trips.
 - Tap **XLSX** to download a professionally-formatted Excel workbook (bold frozen headers, currency
-  number format, right-aligned figures), or **PDF** for a print-ready version of the Transactions
-  breakdown. The XLSX has **five sheets**:
+  number format, right-aligned figures), or **PDF** for a print-ready version of the **full report**.
+  The XLSX has **five sheets**:
   1. **Summary** — trip header (name, dates, share code, currency, member composition, budget,
      **Total Spent**), a **Spend by entity** block ranking who paid the most (**Gross Spent**,
      descending), and the **By category** totals.
   2. **Members & Families** — one auditable table: each individual and each family member grouped
      under its family with a **family subtotal**, then standalone individuals, then a grand **TOTAL**.
      Money columns reconcile exactly: **Net Balance = Gross Spent − Share of Expenses + Settlements**.
-     (Family-member rows show only their share of the family's **Net Balance**, which sums to the
-     family total.)
+     The **Settlements** column now includes **both** recorded settlements **and partial payments**
+     (see §7.2), so it always matches the balances the app shows. (Family-member rows show only their
+     share of the family's **Net Balance**, which sums to the family total.)
   3. **Split Math** — the full split breakdown, one block per expense: every participant row shows
      **Units** (people counted; an entity counts as 1 in Per-Family), **Per-Unit Cost**, and
      **Allocated** amount, with a per-expense **Subtotal**. Per-Person divides by the total involved
@@ -203,12 +204,15 @@ the recomputed balance (and can even flip who owes whom if someone has now overp
      pivot totals each person across the whole trip, and a bold **Grand Total** row footers both the
      Amount and Total Payable columns — so **Sum(Amount) = Sum(Total Payable)** and every person's
      pivot total reconciles to the trip total.
-  5. **Payments** — a flat log of every settle-up payment recorded on the trip: **Payer**, **Payee**,
+  5. **Payments** — a flat log of every settle-up payment recorded on the trip: **Payer**, **Receiver**,
      **Amount** (trip currency), and **Date & Time**, one row per payment (three partial payments =
      three rows), with a bold **Total** row.
 
-The **PDF** contains this same exploded Transactions breakdown and per-person pivot — plus the Payments
-log — in a landscape, print-ready layout, reconciling to the same totals as the spreadsheet.
+The **PDF** is the **full report** in a landscape, print-ready layout: a title block (trip name,
+composition, dates, currency) followed by the **Summary**, **Members & Families**, exploded
+**Transactions** (with per-person pivot), and **Payments** sections — the same sections, built from the
+same figures as the spreadsheet, so both reconcile to identical totals. Tables carry styled headers,
+zebra striping, red/parenthesised negatives, bold totals, and a *Page X of Y* footer.
 
 "Gross Spent" (a.k.a. Total Spent) is the amount an entity actually fronted — not net of their own
 share — the same figure the trip card's **SPENT** total shows.

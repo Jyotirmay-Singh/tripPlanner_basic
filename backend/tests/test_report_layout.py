@@ -63,6 +63,26 @@ class TestSettleAdj:
     def test_empty(self):
         assert settle_adj_by_entity([]) == {}
 
+    def test_payments_only(self):
+        # Phase 23: payments share the from/to/amount shape, so the same helper rolls them up.
+        payments = [{"from_member_id": "a", "to_member_id": "b", "amount": 15.0}]
+        adj = settle_adj_by_entity(payments)
+        assert adj == {"a": 15.0, "b": -15.0}
+
+    def test_settlements_plus_payments_no_double_count(self):
+        # The caller passes `settlements + payments` (the SAME list _compute_balances overlays); a
+        # single pass sums both directions once, staying zero-sum.
+        settlements = [{"from_member_id": "a", "to_member_id": "b", "amount": 30.0}]
+        payments = [{"from_member_id": "a", "to_member_id": "b", "amount": 15.0},
+                    {"from_member_id": "c", "to_member_id": "b", "amount": 5.0}]
+        adj = settle_adj_by_entity(settlements + payments)
+        assert adj["a"] == 45.0 and adj["c"] == 5.0 and adj["b"] == -50.0
+        assert round(sum(adj.values()), 2) == 0.0
+
+    def test_zero_payments_matches_settlements_only(self):
+        settlements = [{"from_member_id": "a", "to_member_id": "b", "amount": 30.0}]
+        assert settle_adj_by_entity(settlements + []) == settle_adj_by_entity(settlements)
+
 
 class TestEntityLedgerComponents:
     def test_paid_signed_and_share_match_ledger(self):
@@ -208,6 +228,97 @@ class TestMembersFamilies:
         assert kinds[-1] == "total"
         assert kinds.count("family_member") == 2
         assert "individual" in kinds
+
+
+class TestMembersFamiliesWithPayments:
+    """Phase 23 regression — the Settlements column MUST include Phase-20 partial payments (the same
+    `settlements + payments` overlay `_compute_balances` applies), or it understates reality and the
+    Share column is silently contaminated. The pre-fix code passed settlements only."""
+
+    def _scenario(self):
+        members = [_fam("f1", 2, "Fam"), _ind("i1", "Ann"), _ind("i2", "Bob")]
+        expenses = [
+            _exp("e1", 100.0, [], mode="PER_CAPITA", paid_by="i1"),   # H=4: f1=50,i1=25,i2=25
+            _exp("e2", 60.0, [], mode="PER_FAMILY", paid_by="f1"),    # E=3: 20 each
+        ]
+        # A legacy paid settlement AND a partial payment, BOTH i2 -> i1.
+        settlements = [{"from_member_id": "i2", "to_member_id": "i1", "amount": 30.0,
+                        "status": "paid"}]
+        payments = [{"from_member_id": "i2", "to_member_id": "i1", "amount": 15.0,
+                     "created_at": "2026-07-01T10:30:00+00:00"}]
+        paid, share = entity_ledger_components(expenses, members)
+        # The report must feed the FULL overlay set (settlements + payments), exactly like the ledger.
+        settle = settle_adj_by_entity(settlements + payments)
+        net = {m["id"]: round(paid[m["id"]] - share[m["id"]] + settle.get(m["id"], 0.0), 2)
+               for m in members}
+        fam_net = net["f1"]
+        half = round(fam_net / 2, 2)
+        per_person = [
+            {"member_id": "f1", "member_name": "Fam", "kind": "family", "net_total": fam_net,
+             "members": [{"id": "f1:0", "name": "a", "net": half},
+                         {"id": "f1:1", "name": "b", "net": round(fam_net - half, 2)}]},
+            {"member_id": "i1", "member_name": "Ann", "kind": "individual", "net_total": net["i1"],
+             "members": []},
+            {"member_id": "i2", "member_name": "Bob", "kind": "individual", "net_total": net["i2"],
+             "members": []},
+        ]
+        display = member_display_names(members)
+        return members, paid, share, settle, net, per_person, display, settlements, payments
+
+    def test_settlements_column_includes_payment(self):
+        members, paid, share, settle, net, per_person, display, settlements, payments = self._scenario()
+        rows = build_members_families_rows(per_person, paid, settle, display)
+        by_name = {r["name"]: r for r in rows}
+        # Bob paid OUT 30 (settlement) + 15 (payment) = 45. Pre-fix this cell would read 30.
+        assert round(by_name["Bob"]["settle"], 2) == 45.0
+        assert round(by_name["Ann"]["settle"], 2) == -45.0
+        # Share stays the TRUE engine allocation (Bob owes 25 + 20 = 45), NOT contaminated by -payment.
+        assert round(by_name["Bob"]["share"], 2) == 45.0
+        assert round(by_name["Ann"]["share"], 2) == 45.0
+
+    def test_parity_with_ledger_overlay(self):
+        # Report Settlements value == _compute_balances' overlay adjustment (settlements + payments).
+        members, paid, share, settle, net, per_person, display, settlements, payments = self._scenario()
+        overlay = settle_adj_by_entity(settlements + payments)
+        rows = build_members_families_rows(per_person, paid, settle, display)
+        for r in rows:
+            if r["kind"] in ("family_subtotal", "individual"):
+                mid = next(m["id"] for m in members if display[m["id"]] == r["name"])
+                assert abs(r["settle"] - round(overlay.get(mid, 0.0), 2)) <= 0.01
+
+    def test_every_row_and_total_foot(self):
+        members, paid, share, settle, net, per_person, display, settlements, payments = self._scenario()
+        rows = build_members_families_rows(per_person, paid, settle, display)
+        entity_rows = [r for r in rows if r["kind"] in ("family_subtotal", "individual")]
+        member_rows = [r for r in rows if r["kind"] == "family_member"]
+        total = [r for r in rows if r["kind"] == "total"][0]
+        for r in entity_rows:
+            assert abs(round(r["paid"] - r["share"] + r["settle"], 2) - r["net"]) < 1e-9
+        # Family member rows still sum to the (payment-inclusive) family Net.
+        fam = [r for r in entity_rows if r["kind"] == "family_subtotal"][0]
+        assert abs(sum(r["net"] for r in member_rows) - fam["net"]) < 1e-9
+        # Σ Settlements == Σ Net == 0 across the sheet (payments are zero-sum too).
+        assert round(total["settle"], 2) == 0.0
+        assert round(total["net"], 2) == 0.0
+        assert total["paid"] == total["share"]  # Σ Paid == Σ Share == grand total spent
+
+    def test_payment_fully_settling_a_pair(self):
+        # i2 owes i1 exactly 45 pre-settlement; a 45 payment (no legacy settlement) zeroes the pair.
+        members = [_ind("i1", "Ann"), _ind("i2", "Bob")]
+        expenses = [_exp("e1", 90.0, [], mode="PER_CAPITA", paid_by="i1")]  # each owes 45; i1 net +45
+        payments = [{"from_member_id": "i2", "to_member_id": "i1", "amount": 45.0,
+                     "created_at": "2026-07-01T00:00:00+00:00"}]
+        paid, share = entity_ledger_components(expenses, members)
+        settle = settle_adj_by_entity([] + payments)
+        net = {m["id"]: round(paid[m["id"]] - share[m["id"]] + settle.get(m["id"], 0.0), 2)
+               for m in members}
+        per_person = [{"member_id": m["id"], "member_name": m["name"], "kind": "individual",
+                       "net_total": net[m["id"]], "members": []} for m in members]
+        display = member_display_names(members)
+        rows = build_members_families_rows(per_person, paid, settle, display)
+        by_name = {r["name"]: r for r in rows if r["kind"] == "individual"}
+        assert round(by_name["Ann"]["net"], 2) == 0.0 and round(by_name["Bob"]["net"], 2) == 0.0
+        assert round(by_name["Bob"]["settle"], 2) == 45.0
 
 
 class TestSummarySpend:
