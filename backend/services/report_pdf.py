@@ -294,7 +294,8 @@ def _payments_section(base, payments, members, currency):
     """Section 4 — the recorded (partial) payments log; 'Receiver' names the creditor."""
     flow = _section(base, "Payments")
     names = member_display_names(members)
-    data = [[_hp("Payer"), _hp("Receiver"), _hp(f"Amount ({currency})"), _hp("Date & Time")]]
+    data = [[_hp("Payer"), _hp("Receiver"), _hp(f"Amount ({currency})"), _hp("Date & Time"),
+             _hp("Remark")]]
     total = 0.0
     for p in payments:
         ca = p.get("created_at") or ""
@@ -303,10 +304,11 @@ def _payments_section(base, payments, members, currency):
             _p(names.get(p["to_member_id"], "?")),
             _fmt_money(round(p["amount"], 2)),
             f"{ca[:10]} {ca[11:16]}".strip(),
+            _p((p.get("note") or "").strip() or "—"),
         ])
         total += round(p["amount"], 2)
-    data.append([_p("Total", bold=True), "", _fmt_money(round(total, 2)), ""])
-    flow.append(_styled_table(data, [150, 150, 110, 130], right_cols=(2,),
+    data.append([_p("Total", bold=True), "", _fmt_money(round(total, 2)), "", ""])
+    flow.append(_styled_table(data, [130, 140, 100, 120, 150], right_cols=(2,),
                               total_row=len(data) - 1))
     return flow
 

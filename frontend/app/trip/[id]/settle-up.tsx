@@ -51,7 +51,7 @@ export default function SettleUp() {
   const [editor, setEditor] = useState<
     | null
     | { mode: 'record' | 'edit'; fromId: string; toId: string; fromName: string; toName: string;
-        initial: number; max: number; paymentId?: string }
+        initial: number; max: number; paymentId?: string; note?: string }
   >(null);
   // The shared themed guard-rail (native Alert renders no buttons on web).
   const [confirm, setConfirm] = useState<
@@ -88,10 +88,10 @@ export default function SettleUp() {
   const allow = (toId: string) => !!trip && canRecordPayment(trip, toId, user?.id, members);
 
   // ---- Async mutations (only reached AFTER the ConfirmModal guard-rail) ----
-  const doRecord = async (fromId: string, toId: string, amount: number) => {
+  const doRecord = async (fromId: string, toId: string, amount: number, note?: string) => {
     setBusy(true);
     try {
-      await recordPayment(id, { from_member_id: fromId, to_member_id: toId, amount });
+      await recordPayment(id, { from_member_id: fromId, to_member_id: toId, amount, ...(note ? { note } : {}) });
       toast.show('Payment recorded', 'success');
       await load();
     } catch (e: any) {
@@ -101,10 +101,10 @@ export default function SettleUp() {
       setBusy(false);
     }
   };
-  const doEdit = async (paymentId: string, amount: number) => {
+  const doEdit = async (paymentId: string, amount: number, note?: string) => {
     setBusy(true);
     try {
-      await editPayment(id, paymentId, { amount });
+      await editPayment(id, paymentId, { amount, note: note ?? '' });
       toast.show('Payment updated', 'success');
       await load();
     } catch (e: any) {
@@ -141,11 +141,13 @@ export default function SettleUp() {
       fromName: nameOf(b.from_member_id), toName: nameOf(b.to_member_id),
       // Cap on edit = current residual + this payment's own effect (mirrors the backend).
       initial: p.amount, max: round2(b.current_payable + p.amount), paymentId: p.id,
+      note: p.note ?? '',
     });
 
-  const onEditorSubmit = (amount: number) => {
+  const onEditorSubmit = (amount: number, note: string) => {
     const e = editor;
     if (!e) return;
+    const remark = note.trim();
     setEditor(null);
     setConfirm({
       title: e.mode === 'edit' ? 'Update payment?' : 'Confirm payment',
@@ -155,8 +157,8 @@ export default function SettleUp() {
       yesId: 'payment-confirm',
       onYes: () => {
         setConfirm(null);
-        if (e.mode === 'edit' && e.paymentId) doEdit(e.paymentId, amount);
-        else doRecord(e.fromId, e.toId, amount);
+        if (e.mode === 'edit' && e.paymentId) doEdit(e.paymentId, amount, remark);
+        else doRecord(e.fromId, e.toId, amount, remark);
       },
     });
   };
@@ -215,6 +217,9 @@ export default function SettleUp() {
                 {nameOf(b.from_member_id)} paid {formatMoney(p.amount, { currency })} to {nameOf(b.to_member_id)}
               </T>
               <T variant="caption" muted>{whenLabel(p.created_at)}</T>
+              {p.note && p.note.trim() ? (
+                <T variant="caption" muted numberOfLines={2}>{p.note.trim()}</T>
+              ) : null}
             </View>
             {canEdit ? (
               <View style={styles.logActions}>
@@ -308,6 +313,7 @@ export default function SettleUp() {
           initial={editor.initial}
           max={editor.max}
           currency={currency}
+          initialNote={editor.note ?? ''}
           submitLabel={editor.mode === 'edit' ? 'Continue' : 'Continue'}
           onCancel={() => setEditor(null)}
           onSubmit={onEditorSubmit}
@@ -337,20 +343,22 @@ export default function SettleUp() {
 // "Max <amt>" hint and >0 / <=max validation; a valid submit hands the amount back so the caller can
 // raise the ConfirmModal guard-rail.
 function AmountModal({
-  title, subtitle, initial, max, currency, submitLabel, onCancel, onSubmit,
+  title, subtitle, initial, max, currency, initialNote, submitLabel, onCancel, onSubmit,
 }: {
   title: string; subtitle: string; initial: number; max: number; currency: string;
-  submitLabel: string; onCancel: () => void; onSubmit: (amount: number) => void;
+  initialNote: string; submitLabel: string; onCancel: () => void;
+  onSubmit: (amount: number, note: string) => void;
 }) {
   const { colors } = useTheme();
   const [amountStr, setAmountStr] = useState(String(round2(initial)));
+  const [noteStr, setNoteStr] = useState(initialNote);
   const [error, setError] = useState<string | null>(null);
 
   const submit = () => {
     const amt = round2(Number(amountStr));
     const v = validatePaymentAmount(amt, max);
     if (!v.ok) { setError(v.error); return; }
-    onSubmit(amt);
+    onSubmit(amt, noteStr);
   };
 
   return (
@@ -373,6 +381,15 @@ function AmountModal({
             autoFocus
             containerStyle={{ marginTop: SPACING.md }}
             testID="payment-amount-input"
+          />
+          <Input
+            label="Remark (optional)"
+            value={noteStr}
+            onChangeText={setNoteStr}
+            placeholder="Made the payment on Gpay app."
+            multiline
+            containerStyle={{ marginTop: SPACING.md }}
+            testID="payment-remark-input"
           />
           <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.lg }}>
             <Button label="Cancel" variant="secondary" onPress={onCancel} style={{ flex: 1 }} />

@@ -327,9 +327,9 @@ class TestReports:
         assert total_row is not None
         assert abs(total_row[2]) < 0.011 and abs(total_row[3]) < 0.011
 
-        # Payments tab header renamed Payee -> Receiver (Phase 23).
+        # Payments tab header renamed Payee -> Receiver (Phase 23); Remark column added (settle-up note).
         assert [c.value for c in wb["Payments"][1]] == ["Payer", "Receiver", "Amount (INR)",
-                                                        "Date & Time"]
+                                                        "Date & Time", "Remark"]
 
         # ----- PDF: full report renders (same builders -> same values) -----
         pdf = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/report.pdf?token={token}")
