@@ -45,14 +45,26 @@ Then in **Google Cloud Console → APIs & Services → Credentials → the Andro
 this is done, the "Continue with Google" button appears but sign-in fails; **email + PIN
 login works regardless**.
 
+**Release signing SHA-1 (EAS-managed keystore `S8Y4Kot8TG`; a signing fingerprint is public,
+not a secret):**
+
+```
+SHA-1:   B2:31:10:17:07:88:61:8B:0E:E7:15:32:81:D6:33:4E:62:53:7C:8B
+SHA-256: FD:89:4B:FB:EA:E5:99:D7:34:5C:40:DA:E9:13:80:CF:C1:5D:AE:6D:4D:58:B5:18:9D:68:18:81:FA:4F:D9:1C
+```
+
+This is the value to enter in the Android OAuth client. It stays constant across future
+`preview` builds as long as the same EAS keystore is used, so this step is one-time.
+
 ---
 
 ## 2. How to install (for testers)
 
-1. On your Android phone, open the **APK download link** you were given (open the build page
-   below and tap **Install** / **Download** once the build shows "finished"):
-   <!-- Latest build (2026-07-12), profile `preview`, package com.tripsplitter.app -->
-   `https://expo.dev/accounts/jyotirmay03/projects/frontend/builds/aa22fda8-b4ea-45a7-8fc3-6fd8e6d9dca8`
+1. On your Android phone, open the **install page** (QR + Install button) or the **direct
+   `.apk`** link:
+   <!-- Latest build: 2026-07-13, profile `preview`, com.tripsplitter.app, v1.0.0 (versionCode 1) -->
+   - Install page: `https://expo.dev/accounts/jyotirmay03/projects/frontend/builds/aa22fda8-b4ea-45a7-8fc3-6fd8e6d9dca8`
+   - Direct APK: `https://expo.dev/artifacts/eas/nleiz_H81CvsMrxLpwXibQyymaKtiieGeZ9VM9h4wPo.apk`
 2. When the browser/Files app asks, **allow "Install from unknown sources"** for that app
    (Settings → Apps → Special access → Install unknown apps → enable for your browser/Files).
 3. Tap the downloaded `.apk` → **Install** → **Open**.
