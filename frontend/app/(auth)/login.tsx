@@ -6,8 +6,13 @@ import { useTheme } from '../../src/ThemeContext';
 import { SPACING, RADIUS } from '../../src/theme';
 import T from '../../src/T';
 import { isGmail, GMAIL_ONLY_MESSAGE } from '../../src/validation';
-import GoogleSignInButton from '../../src/GoogleSignInButton';
+import GoogleSignInButton, { googleAuthAvailable } from '../../src/GoogleSignInButton';
 import { AuthShell, Card, Input, PinInput, Button, Icon, useToast } from '../../src/ui';
+
+// TODO(login-ui): email-based password reset is temporarily hidden on the login screen. Flip this to
+// re-enable the "Forgot password?" link. Nothing else is removed — the (auth)/forgot-password screen
+// and the POST /auth/request-password-reset + /auth/reset-password endpoints remain intact.
+const SHOW_FORGOT_PASSWORD = false;
 
 export default function Login() {
   const { signIn, savedEmail, forgetSavedEmail, emailFeaturesEnabled } = useAuth();
@@ -58,6 +63,7 @@ export default function Login() {
           onChangeText={setEmail}
           autoCapitalize="none"
           autoComplete="email"
+          textContentType="emailAddress"
           keyboardType="email-address"
           placeholder="you@gmail.com"
           icon="mail"
@@ -76,16 +82,25 @@ export default function Login() {
         <Pressable testID="login-forgot-link" onPress={() => router.push('/(auth)/forgot')} hitSlop={8}>
           <T color={colors.primary}>Forgot PIN?</T>
         </Pressable>
-        {/* Email-based reset is hidden while email flows are ghosted; "Forgot PIN?" (no email) stays. */}
-        {emailFeaturesEnabled !== false && (
+        {/* Email-based password reset is hidden on the login UI (SHOW_FORGOT_PASSWORD). "Forgot PIN?"
+            (no email) stays. See the flag comment at the top of this file to re-enable. */}
+        {SHOW_FORGOT_PASSWORD && emailFeaturesEnabled !== false && (
           <Pressable testID="login-forgot-password-link" onPress={() => router.push('/(auth)/forgot-password')} hitSlop={8}>
             <T color={colors.primary}>Forgot password?</T>
           </Pressable>
         )}
       </View>
 
+      {googleAuthAvailable && (
+        <View style={styles.divider}>
+          <View style={[styles.rule, { backgroundColor: colors.border }]} />
+          <T variant="caption" muted>or continue with</T>
+          <View style={[styles.rule, { backgroundColor: colors.border }]} />
+        </View>
+      )}
       <GoogleSignInButton />
 
+      <View style={[styles.bottomRule, { backgroundColor: colors.border }]} />
       <View style={styles.bottomRow}>
         <T muted>New here?  </T>
         <Pressable testID="login-register-link" onPress={() => router.push('/(auth)/register')} hitSlop={8}>
@@ -98,6 +113,11 @@ export default function Login() {
 
 const styles = StyleSheet.create({
   savedRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, borderRadius: RADIUS.lg },
-  linksRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  // Centered so the lone "Forgot PIN?" isn't left-stranded; gap keeps it tidy if the password link
+  // is re-enabled via SHOW_FORGOT_PASSWORD.
+  linksRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: SPACING.lg },
+  divider: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+  rule: { flex: 1, height: StyleSheet.hairlineWidth },
+  bottomRule: { height: StyleSheet.hairlineWidth, alignSelf: 'stretch' },
   bottomRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' },
 });

@@ -17,7 +17,7 @@ type Props = {
  * Shared scaffold for the auth screens: a calm, centered "premium unlock" layout with the
  * brand medallion, title/subtitle, and a keyboard-aware scroll. Caps width on web/tablet.
  */
-export default function AuthShell({ title, subtitle, brandIcon = 'plane', children }: Props) {
+export default function AuthShell({ title, subtitle, brandIcon = 'wallet', children }: Props) {
   const { colors } = useTheme();
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
