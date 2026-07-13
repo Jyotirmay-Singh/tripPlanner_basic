@@ -30,6 +30,7 @@ from services.report_builder import (
 )
 from utils.date_rules import trip_date_label
 from utils.display_names import member_display_names
+from utils.ist_time import format_ist
 
 _BRAND = colors.HexColor("#1C3F39")      # header fill / headings (matches the XLSX _BRAND)
 _RED = colors.HexColor("#C0392B")        # negatives (mirrors the XLSX [Red] number format)
@@ -298,12 +299,11 @@ def _payments_section(base, payments, members, currency):
              _hp("Remark")]]
     total = 0.0
     for p in payments:
-        ca = p.get("created_at") or ""
         data.append([
             _p(names.get(p["from_member_id"], "?")),
             _p(names.get(p["to_member_id"], "?")),
             _fmt_money(round(p["amount"], 2)),
-            f"{ca[:10]} {ca[11:16]}".strip(),
+            format_ist(p.get("created_at")),  # stored UTC -> IST display (Phase 24)
             _p((p.get("note") or "").strip() or "—"),
         ])
         total += round(p["amount"], 2)

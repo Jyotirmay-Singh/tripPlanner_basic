@@ -11,6 +11,7 @@ from utils.deps import get_current_user, _trip_or_404
 from utils.date_rules import ensure_date_range, trip_date_label
 from utils.balances import _compute_balances
 from utils.display_names import member_display_names
+from utils.ist_time import format_ist
 from utils.security import decode_token
 from services.report_builder import (
     build_category_rows,
@@ -300,8 +301,7 @@ async def report_xlsx(trip_id: str, token: str,
     _style_header_row(s5, 1, len(pay_headers))
     pay_total = 0.0
     for p in payments:
-        ca = p.get("created_at") or ""
-        dt_label = f"{ca[:10]} {ca[11:16]}".strip()
+        dt_label = format_ist(p.get("created_at"))  # stored UTC -> IST display (Phase 24)
         s5.append([display.get(p["from_member_id"], "?"), display.get(p["to_member_id"], "?"),
                    round(p["amount"], 2), dt_label, (p.get("note") or "").strip() or "—"])
         _money(s5.cell(row=s5.max_row, column=3))
