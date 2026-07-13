@@ -26,6 +26,10 @@ const PLATFORM_CLIENT_ID =
   : Platform.OS === 'ios' ? IOS_CLIENT_ID
   : WEB_CLIENT_ID;
 
+// True when the Google button will actually render on this platform. Lets callers (e.g. the login
+// screen's "or continue with" divider) avoid an orphaned rule when Google auth is unconfigured.
+export const googleAuthAvailable = !!PLATFORM_CLIENT_ID;
+
 function GoogleSignInInner() {
   const { signInWithGoogle } = useAuth();
   const { colors } = useTheme();
