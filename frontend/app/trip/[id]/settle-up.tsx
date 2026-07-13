@@ -12,8 +12,7 @@ import { canRecordPayment, RoleTrip } from '../../../src/permissions';
 import { Transfer } from '../../../src/settlements';
 import { Payment, PairBlock, buildPairBlocks, validatePaymentAmount } from '../../../src/payments';
 import { formatMoney } from '../../../src/format';
-import { fromISO } from '../../../src/date';
-import { formatTime12h } from '../../../src/time';
+import { formatIST } from '../../../src/istTime';
 import {
   Screen, Card, Button, Icon, IconButton, Input, EmptyState, AmountText, SkeletonCard, ProgressBar, useToast,
 } from '../../../src/ui';
@@ -28,14 +27,6 @@ type Balances = {
 type Trip = RoleTrip & { members: Member[] };
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
-
-/** 'YYYY-MM-DDT..' ISO -> 'dd/mm/yyyy · 2:30 PM' (date only if the time slice is missing). */
-function whenLabel(iso?: string | null): string {
-  if (!iso) return '';
-  const date = fromISO(iso.slice(0, 10));
-  const time = formatTime12h(iso.slice(11, 16));
-  return time ? `${date} · ${time}` : date;
-}
 
 export default function SettleUp() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -216,7 +207,7 @@ export default function SettleUp() {
               <T variant="caption">
                 {nameOf(b.from_member_id)} paid {formatMoney(p.amount, { currency })} to {nameOf(b.to_member_id)}
               </T>
-              <T variant="caption" muted>{whenLabel(p.created_at)}</T>
+              <T variant="caption" muted>{formatIST(p.created_at)}</T>
               {p.note && p.note.trim() ? (
                 <T variant="caption" muted numberOfLines={2}>{p.note.trim()}</T>
               ) : null}

@@ -5,6 +5,8 @@ import requests
 import os
 from openpyxl import load_workbook
 
+from utils.ist_time import format_ist
+
 BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL', 'http://localhost:8000').rstrip('/')
 
 class TestBalances:
@@ -330,6 +332,14 @@ class TestReports:
         # Payments tab header renamed Payee -> Receiver (Phase 23); Remark column added (settle-up note).
         assert [c.value for c in wb["Payments"][1]] == ["Payer", "Receiver", "Amount (INR)",
                                                         "Date & Time", "Remark"]
+
+        # Date & Time cell shows the stored UTC timestamp converted to IST (Phase 24) — not raw UTC.
+        pay_created = r_pay.json()["created_at"]
+        dt_cells = [row[3] for row in wb["Payments"].iter_rows(min_row=2, values_only=True)
+                    if isinstance(row[2], (int, float)) and abs(row[2] - 15.0) < 0.01]
+        assert dt_cells, "expected the 15.0 payment row in the Payments tab"
+        assert dt_cells[0] == format_ist(pay_created)
+        assert dt_cells[0].endswith(" IST")
 
         # ----- PDF: full report renders (same builders -> same values) -----
         pdf = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/report.pdf?token={token}")
