@@ -171,7 +171,7 @@ payments** — including **partial** ones — against it (Splitwise-style).
   (*paid of original*). Keep recording payments until it's cleared.
 - When a pair is fully paid off it moves to a **Settled** section with a green **Paid** badge; its
   payments stay listed. When *everything* is square the screen shows **All square!** ✅.
-- Each log entry reads *"X paid _amount_ to Y"* with the **date & time**. The receiver or an admin can
+- Each log entry reads *"X paid _amount_ to Y"* with the **date & time** (shown in **IST**, UTC+05:30). The receiver or an admin can
   **edit** (pencil) or **delete** (trash) an entry — deleting re-opens that much of the balance.
 
 Payments are durable: adding new expenses later never voids them — a recorded payment keeps offsetting
@@ -205,8 +205,8 @@ the recomputed balance (and can even flip who owes whom if someone has now overp
      Amount and Total Payable columns — so **Sum(Amount) = Sum(Total Payable)** and every person's
      pivot total reconciles to the trip total.
   5. **Payments** — a flat log of every settle-up payment recorded on the trip: **Payer**, **Receiver**,
-     **Amount** (trip currency), and **Date & Time**, one row per payment (three partial payments =
-     three rows), with a bold **Total** row.
+     **Amount** (trip currency), and **Date & Time** (shown in **IST**, UTC+05:30), one row per payment
+     (three partial payments = three rows), with a bold **Total** row.
 
 The **PDF** is the **full report** in a landscape, print-ready layout: a title block (trip name,
 composition, dates, currency) followed by the **Summary**, **Members & Families**, exploded
