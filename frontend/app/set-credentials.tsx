@@ -75,6 +75,9 @@ export default function SetCredentials() {
         icon="lock"
         error={confirmError}
       />
+      <T muted variant="caption" style={{ textAlign: 'center' }}>
+        {"Choose a password you'll remember — for your security, we can't recover it for you."}
+      </T>
       <Button label="Save & continue" icon="check" onPress={submit} loading={busy} fullWidth size="lg" testID="setcred-submit" />
       <Button label="Skip for now" variant="ghost" onPress={goDashboard} fullWidth testID="setcred-skip" haptic={false} />
     </AuthShell>

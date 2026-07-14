@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { View, StyleSheet, Modal, Pressable } from 'react-native';
+import { View, StyleSheet, Modal, Pressable, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { api, listPayments, recordPayment, editPayment, deletePayment } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
@@ -333,7 +333,9 @@ export default function SettleUp() {
 // Themed amount-entry modal (mirrors ConfirmModal's look). Prefilled to the full payable with a
 // "Max <amt>" hint and >0 / <=max validation; a valid submit hands the amount back so the caller can
 // raise the ConfirmModal guard-rail.
-function AmountModal({
+// Exported (named) for a focused render test of the ✕/footer wiring — expo-router only consumes
+// the file's default export, so this does not register a route.
+export function AmountModal({
   title, subtitle, initial, max, currency, initialNote, submitLabel, onCancel, onSubmit,
 }: {
   title: string; subtitle: string; initial: number; max: number; currency: string;
@@ -354,39 +356,69 @@ function AmountModal({
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
+      {/* Tap-outside-to-dismiss (kept). The KeyboardAvoidingView lifts the centered card above the
+          keyboard so the pinned Cancel/Continue footer stays reachable; the body scrolls if it can't
+          fit (small screens / keyboard open). */}
       <Pressable style={styles.scrim} onPress={onCancel}>
-        <Pressable
-          onPress={() => {}}
-          style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalKav}
         >
-          <T variant="h3">{title}</T>
-          <T muted style={{ marginTop: SPACING.xs }}>{subtitle}</T>
-          <Input
-            label={`Amount (${currency})`}
-            value={amountStr}
-            onChangeText={(t) => { setAmountStr(t); if (error) setError(null); }}
-            keyboardType="decimal-pad"
-            inputMode="decimal"
-            helper={`Max ${formatMoney(max, { currency })}`}
-            error={error}
-            autoFocus
-            containerStyle={{ marginTop: SPACING.md }}
-            testID="payment-amount-input"
-          />
-          <Input
-            label="Remark (optional)"
-            value={noteStr}
-            onChangeText={setNoteStr}
-            placeholder="Made the payment on Gpay app."
-            multiline
-            containerStyle={{ marginTop: SPACING.md }}
-            testID="payment-remark-input"
-          />
-          <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.lg }}>
-            <Button label="Cancel" variant="secondary" onPress={onCancel} style={{ flex: 1 }} />
-            <Button label={submitLabel} onPress={submit} style={{ flex: 1 }} testID="payment-amount-continue" />
-          </View>
-        </Pressable>
+          <Pressable
+            onPress={() => {}}
+            style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          >
+            {/* Header: title + explicit ✕ close (cancels WITHOUT recording). Reuses the canonical
+                IconButton close pattern from src/ui/Toast.tsx (44px hit target, themed muted). */}
+            <View style={styles.modalHeader}>
+              <T variant="h3" style={{ flex: 1 }}>{title}</T>
+              <IconButton
+                name="close"
+                onPress={onCancel}
+                accessibilityLabel="Close"
+                variant="plain"
+                size={18}
+                color={colors.textMuted}
+                testID="payment-close"
+                style={styles.modalClose}
+              />
+            </View>
+            <ScrollView
+              style={styles.modalBody}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: SPACING.xs }}
+            >
+              <T muted>{subtitle}</T>
+              <Input
+                label={`Amount (${currency})`}
+                value={amountStr}
+                onChangeText={(t) => { setAmountStr(t); if (error) setError(null); }}
+                keyboardType="decimal-pad"
+                inputMode="decimal"
+                helper={`Max ${formatMoney(max, { currency })}`}
+                error={error}
+                autoFocus
+                containerStyle={{ marginTop: SPACING.md }}
+                testID="payment-amount-input"
+              />
+              <Input
+                label="Remark (optional)"
+                value={noteStr}
+                onChangeText={setNoteStr}
+                placeholder="Made the payment on Gpay app."
+                multiline
+                containerStyle={{ marginTop: SPACING.md }}
+                testID="payment-remark-input"
+              />
+            </ScrollView>
+            {/* Footer pinned below the scroll region — always visible/reachable. */}
+            <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.md }}>
+              <Button label="Cancel" variant="secondary" onPress={onCancel} style={{ flex: 1 }} />
+              <Button label={submitLabel} onPress={submit} style={{ flex: 1 }} testID="payment-amount-continue" />
+            </View>
+          </Pressable>
+        </KeyboardAvoidingView>
       </Pressable>
     </Modal>
   );
@@ -405,6 +437,17 @@ const styles = StyleSheet.create({
   log: { marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: StyleSheet.hairlineWidth, gap: SPACING.xs },
   logRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   logActions: { flexDirection: 'row', alignItems: 'center' },
-  scrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: SPACING.lg },
-  modalCard: { borderRadius: RADIUS.lg, borderWidth: 1, padding: SPACING.lg },
+  scrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
+  // KAV owns the centering + outer padding so `behavior:'padding'` can add keyboard-height inset
+  // and slide the card up on iOS.
+  modalKav: { flex: 1, justifyContent: 'center', padding: SPACING.lg },
+  // maxHeight bounds the card so the body ScrollView can scroll; header + footer stay pinned.
+  modalCard: { borderRadius: RADIUS.lg, borderWidth: 1, padding: SPACING.lg, maxHeight: '90%' },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.xs },
+  // flexShrink lets the scroll area absorb overflow (keyboard open / small screen) while the
+  // header and footer keep their natural height.
+  modalBody: { flexGrow: 0, flexShrink: 1 },
+  // Negative margins overlap the card padding so the 44px ✕ hit target aligns to the top-right
+  // edge without growing the header (mirrors src/ui/Toast.tsx `close`).
+  modalClose: { marginVertical: -SPACING.sm, marginRight: -SPACING.sm },
 });

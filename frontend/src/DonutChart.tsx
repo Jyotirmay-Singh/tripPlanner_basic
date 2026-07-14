@@ -58,7 +58,14 @@ export default function DonutChart({
           <G>
             {slices.length === 1 ? (
               <>
-                <Circle cx={cx} cy={cy} r={rOuter} fill={slices[0].color} />
+                {/* Single-category donut: the ring is one Circle, so it needs its own press
+                    handler (the multi-slice <Path> branch below has one, but this one didn't —
+                    so a lone category was never tappable, on web or native). */}
+                <Circle
+                  cx={cx} cy={cy} r={rOuter} fill={slices[0].color}
+                  onPress={onSlicePress ? () => onSlicePress(slices[0]) : undefined}
+                  testID={`donut-slice-${slices[0].key}`}
+                />
                 <Circle cx={cx} cy={cy} r={rInner} fill={colors.surface} />
               </>
             ) : (
@@ -68,6 +75,7 @@ export default function DonutChart({
                   d={arcPath(cx, cy, rOuter, rInner, s.start, s.end)}
                   fill={s.color}
                   onPress={onSlicePress ? () => onSlicePress(s) : undefined}
+                  testID={`donut-slice-${s.key}`}
                 />
               ))
             )}
@@ -88,7 +96,14 @@ export default function DonutChart({
         {data.map((d) => {
           const pct = total > 0 ? (d.value / total) * 100 : 0;
           return (
-            <TouchableOpacity key={d.key} onPress={() => onSlicePress?.(d)} style={styles.legendRow}>
+            <TouchableOpacity
+              key={d.key}
+              onPress={() => onSlicePress?.(d)}
+              style={styles.legendRow}
+              testID={`donut-legend-${d.key}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Show ${d.label} transactions`}
+            >
               <View style={[styles.dot, { backgroundColor: d.color }]} />
               <T variant="caption" style={{ flex: 1 }} numberOfLines={1}>{d.label}</T>
               <T variant="caption" muted>{pct.toFixed(0)}%</T>

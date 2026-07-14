@@ -1,12 +1,14 @@
 import React, { useCallback, useState } from 'react';
 import { View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { api } from '../../src/api';
+import { api, spendSummary } from '../../src/api';
 import { useTheme } from '../../src/ThemeContext';
 import { SPACING } from '../../src/theme';
 import T from '../../src/T';
+import Badge from '../../src/Badge';
 import { compositionLabel } from '../../src/composition';
 import { formatTripDates } from '../../src/date';
+import { isTripSettledWithActivity, type WithTransfers } from '../../src/tripSettled';
 import { Screen, Card, Button, ListRow, EmptyState, SkeletonCard, Icon } from '../../src/ui';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
@@ -16,12 +18,30 @@ export default function Trips() {
   const { colors } = useTheme();
   const router = useRouter();
   const [trips, setTrips] = useState<Trip[]>([]);
+  const [settledMap, setSettledMap] = useState<Record<string, boolean>>({});
   const [refreshing, setRefreshing] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     setRefreshing(true);
-    try { setTrips(await api<Trip[]>('/trips')); } catch {}
+    try {
+      const list = await api<Trip[]>('/trips');
+      setTrips(list);
+      // Per-trip "Settled" badge signal. Same tolerant N+1 pattern the dashboard already runs:
+      // a trip reads "Settled" only if it has real spend (spendSummary.count > 0) AND no residual
+      // transfers (isTripSettled). Balance math is never recomputed on the client.
+      const map: Record<string, boolean> = {};
+      await Promise.all(list.map(async (t) => {
+        try {
+          const [bal, spend] = await Promise.all([
+            api<WithTransfers>(`/trips/${t.id}/balances`),
+            spendSummary(t.id),
+          ]);
+          map[t.id] = isTripSettledWithActivity(bal, spend.count > 0);
+        } catch { map[t.id] = false; }
+      }));
+      setSettledMap(map);
+    } catch {}
     setRefreshing(false);
     setLoaded(true);
   }, []);
@@ -62,6 +82,11 @@ export default function Trips() {
             subtitle={`${formatTripDates(t)} · ${t.currency}${t.budget ? ` · Budget ${t.budget}` : ''}`}
             meta={`${compositionLabel(t.members)} · Code ${t.code}`}
             onPress={() => router.push(`/trip/${t.id}`)}
+            right={settledMap[t.id]
+              ? <View style={{ alignSelf: 'flex-start' }} testID={`trip-settled-${t.id}`}>
+                  <Badge label="Settled" color={colors.success} />
+                </View>
+              : undefined}
           />
         ))
       )}
