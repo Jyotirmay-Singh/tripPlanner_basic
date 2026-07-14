@@ -109,7 +109,7 @@ export default function Dashboard() {
           testID="dash-empty"
         />
       ) : (
-        trips.slice(0, 5).map((t) => (
+        trips.slice(0, 2).map((t) => (
           <ListRow
             key={t.id}
             testID={`dash-trip-${t.id}`}
