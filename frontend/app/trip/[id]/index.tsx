@@ -28,7 +28,7 @@ import {
   EmptyState, AmountText, SkeletonCard, useToast,
 } from '../../../src/ui';
 
-type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
+type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; family_member_emails?: (string | null)[] | null; user_id?: string | null; email?: string | null };
 type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
 type Expense = { id: string; amount: number; category: string; description?: string; date: string; time?: string | null; created_at?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string; shares?: ExpenseShares };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[]; members?: { id: string; name: string; net: number }[] }[] };
@@ -438,27 +438,73 @@ export default function TripDetail() {
               )}
               {trip.members.map((m) => {
                 const role = memberRole(m);
+                const manageBtn = meCanManageMembers ? (
+                  <IconButton name="more-vertical" onPress={() => router.push({ pathname: '/trip/[id]/manage-member', params: { id: id as string, mid: m.id } })}
+                    accessibilityLabel={`Manage ${displayNames[m.id]}`} testID={`member-manage-${m.id}`} size={20} color={colors.primary} />
+                ) : null;
+                const badges = (
+                  <>
+                    {role === 'owner' ? <Badge label="Owner" color={colors.primary} /> : null}
+                    {role === 'admin' ? <Badge label="Admin" color={colors.success} /> : null}
+                    {m.user_id === user?.id ? <Badge label="You" color={colors.textMuted} /> : null}
+                  </>
+                );
+
+                // Family: a card that lists its members VERTICALLY (one row per member: name + email
+                // or a "No email" hint). Badges/linked account are entity-level (a family has one
+                // user_id); sub-members carry no individual claim status.
+                if (m.kind === 'family') {
+                  const subNames = familyMemberDisplayNames(m);
+                  const subEmails = m.family_member_emails || [];
+                  return (
+                    <Card key={m.id}>
+                      <View style={styles.rowCard}>
+                        <View style={[styles.memberIcon, { backgroundColor: colors.surfaceMuted }]}>
+                          <Icon name="users" size={18} color={colors.primary} />
+                        </View>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm }}>
+                            <T variant="h4">{displayNames[m.id]} ({m.family_members.length})</T>
+                            {badges}
+                          </View>
+                          {m.email ? (
+                            <T variant="caption" muted numberOfLines={1}>Linked account · {m.email}</T>
+                          ) : null}
+                        </View>
+                        {manageBtn}
+                      </View>
+                      <View style={{ marginTop: SPACING.sm, marginLeft: 20, paddingLeft: SPACING.md, gap: SPACING.xs, borderLeftWidth: 2, borderLeftColor: colors.border }}>
+                        {subNames.length === 0 ? (
+                          <T variant="caption" muted>—</T>
+                        ) : subNames.map((nm, i) => (
+                          <View key={i} testID={`member-${m.id}-sub-${i}`} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.sm }}>
+                            <T numberOfLines={1} style={{ flex: 1, minWidth: 0 }}>{nm}</T>
+                            <T variant="caption" muted numberOfLines={1} style={{ flexShrink: 0, maxWidth: '55%', fontStyle: subEmails[i] ? 'normal' : 'italic' }}>
+                              {subEmails[i] || 'No email'}
+                            </T>
+                          </View>
+                        ))}
+                      </View>
+                    </Card>
+                  );
+                }
+
+                // Individual: unchanged single-row card.
                 return (
                   <Card key={m.id} style={styles.rowCard}>
                     <View style={[styles.memberIcon, { backgroundColor: colors.surfaceMuted }]}>
-                      <Icon name={m.kind === 'family' ? 'users' : 'user'} size={18} color={colors.primary} />
+                      <Icon name="user" size={18} color={colors.primary} />
                     </View>
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm }}>
-                        <T variant="h4">{displayNames[m.id]}{m.kind === 'family' ? ` (${m.family_members.length})` : ''}</T>
-                        {role === 'owner' ? <Badge label="Owner" color={colors.primary} /> : null}
-                        {role === 'admin' ? <Badge label="Admin" color={colors.success} /> : null}
-                        {m.user_id === user?.id ? <Badge label="You" color={colors.textMuted} /> : null}
+                        <T variant="h4">{displayNames[m.id]}</T>
+                        {badges}
                       </View>
                       <T variant="caption" muted numberOfLines={1}>
-                        {m.kind === 'family' ? `Family: ${familyMemberDisplayNames(m).join(', ') || '—'}` : (m.user_id ? 'App user' : 'Individual')}
-                        {m.email ? ` · ${m.email}` : ''}
+                        {m.user_id ? 'App user' : 'Individual'}{m.email ? ` · ${m.email}` : ''}
                       </T>
                     </View>
-                    {meCanManageMembers && (
-                      <IconButton name="more-vertical" onPress={() => router.push({ pathname: '/trip/[id]/manage-member', params: { id: id as string, mid: m.id } })}
-                        accessibilityLabel={`Manage ${displayNames[m.id]}`} testID={`member-manage-${m.id}`} size={20} color={colors.primary} />
-                    )}
+                    {manageBtn}
                   </Card>
                 );
               })}

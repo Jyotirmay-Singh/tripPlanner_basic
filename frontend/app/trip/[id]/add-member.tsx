@@ -8,7 +8,7 @@ import { SPACING, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
 import { isGmail, GMAIL_ONLY_MESSAGE, isEmailTaken, DUPLICATE_EMAIL_MESSAGE } from '../../../src/validation';
 import FamilyMembersEditor from '../../../src/FamilyMembersEditor';
-import { FamilyRow, rowsToPayload } from '../../../src/familyParticipation';
+import { FamilyRow, rowsToPayload, familyEmailIssue, tripMemberEmails } from '../../../src/familyParticipation';
 import { Input, Button, SegmentedControl, useToast } from '../../../src/ui';
 
 export default function AddMember() {
@@ -28,7 +28,7 @@ export default function AddMember() {
     (async () => {
       try {
         const trip: any = await api(`/trips/${id}`);
-        setTakenEmails((trip.members || []).map((m: any) => m.email));
+        setTakenEmails(tripMemberEmails(trip.members || []));
       } catch { /* the server still enforces uniqueness on submit */ }
     })();
   }, [id]);
@@ -39,16 +39,21 @@ export default function AddMember() {
 
   const submit = async () => {
     if (!name.trim()) return toast.show('Name is required', 'error');
-    const { family_members, family_member_ids } = kind === 'family'
-      ? rowsToPayload(familyRows) : { family_members: [], family_member_ids: [] };
+    const { family_members, family_member_ids, family_member_emails } = kind === 'family'
+      ? rowsToPayload(familyRows) : { family_members: [], family_member_ids: [], family_member_emails: [] };
     if (kind === 'family' && family_members.length === 0) return toast.show('Add at least one family member name', 'error');
     if (email.trim() && !isGmail(email)) return toast.show(GMAIL_ONLY_MESSAGE, 'error');
     if (isEmailTaken(email, takenEmails)) return toast.show(DUPLICATE_EMAIL_MESSAGE, 'error');
+    if (kind === 'family') {
+      const issue = familyEmailIssue(familyRows, takenEmails);
+      if (issue === 'gmail') return toast.show(GMAIL_ONLY_MESSAGE, 'error');
+      if (issue === 'duplicate') return toast.show(DUPLICATE_EMAIL_MESSAGE, 'error');
+    }
     setSaving(true);
     try {
       await api(`/trips/${id}/members`, {
         method: 'POST',
-        body: { name: name.trim(), kind, family_members, family_member_ids, email: email.trim() || null },
+        body: { name: name.trim(), kind, family_members, family_member_ids, family_member_emails, email: email.trim() || null },
       });
       router.back();
     } catch (e: any) { toast.show(e.message || 'Could not add member', 'error'); }
@@ -78,7 +83,7 @@ export default function AddMember() {
             />
 
             {kind === 'family' && (
-              <FamilyMembersEditor rows={familyRows} onChange={setFamilyRows} testIDPrefix="mem-fam" />
+              <FamilyMembersEditor rows={familyRows} onChange={setFamilyRows} takenEmails={takenEmails} testIDPrefix="mem-fam" />
             )}
 
             <Input

@@ -7,6 +7,8 @@ import {
   familyShareEach,
   rowsToPayload,
   familyToRows,
+  familyEmailIssue,
+  tripMemberEmails,
   FPMember,
 } from '../familyParticipation';
 
@@ -110,21 +112,84 @@ describe('familyShareEach', () => {
 });
 
 describe('rowsToPayload / familyToRows', () => {
-  it('builds parallel name + id arrays from non-empty rows', () => {
+  it('builds parallel name + id + email arrays from non-empty rows', () => {
     const rows = [
-      { id: 'a', name: 'Asha' },
-      { id: null, name: 'New' },
-      { id: 'x', name: '  ' }, // blank -> dropped, its id drops too
+      { id: 'a', name: 'Asha', email: 'asha@gmail.com' },
+      { id: null, name: 'New' }, // no email -> null
+      { id: 'x', name: '  ', email: 'x@gmail.com' }, // blank name -> dropped, its id/email drop too
     ];
     expect(rowsToPayload(rows)).toEqual({
       family_members: ['Asha', 'New'],
       family_member_ids: ['a', null],
+      family_member_emails: ['asha@gmail.com', null],
     });
   });
-  it('seeds rows from stored names + ids (missing id -> null)', () => {
-    expect(familyToRows(['Asha', 'Vik'], ['a'])).toEqual([
-      { id: 'a', name: 'Asha' },
-      { id: null, name: 'Vik' },
+  it('trims emails and maps blank -> null', () => {
+    const rows = [
+      { id: 'a', name: 'Asha', email: '  Asha@Gmail.com  ' },
+      { id: 'b', name: 'Vik', email: '   ' },
+    ];
+    expect(rowsToPayload(rows).family_member_emails).toEqual(['Asha@Gmail.com', null]);
+  });
+  it('seeds rows from stored names + ids + emails (missing -> null)', () => {
+    expect(familyToRows(['Asha', 'Vik'], ['a'], ['asha@gmail.com'])).toEqual([
+      { id: 'a', name: 'Asha', email: 'asha@gmail.com' },
+      { id: null, name: 'Vik', email: null },
     ]);
+  });
+  it('tolerates a legacy family with no emails array', () => {
+    expect(familyToRows(['Asha', 'Vik'], ['a', 'b'])).toEqual([
+      { id: 'a', name: 'Asha', email: null },
+      { id: 'b', name: 'Vik', email: null },
+    ]);
+  });
+  it('round-trips rows -> payload -> rows preserving emails', () => {
+    const rows = [
+      { id: 'a', name: 'Asha', email: 'asha@gmail.com' },
+      { id: 'b', name: 'Vik', email: null },
+    ];
+    const p = rowsToPayload(rows);
+    expect(familyToRows(p.family_members, p.family_member_ids, p.family_member_emails)).toEqual(rows);
+  });
+});
+
+describe('tripMemberEmails', () => {
+  it('collects entity + per-member emails, dropping the excluded entity', () => {
+    const members = [
+      { id: 'i1', email: 'solo@gmail.com' },
+      { id: 'f1', email: 'fam@gmail.com', family_member_emails: ['a@gmail.com', null] },
+      { id: 'f2', email: null, family_member_emails: ['b@gmail.com'] },
+    ];
+    expect(tripMemberEmails(members)).toEqual([
+      'solo@gmail.com', 'fam@gmail.com', 'a@gmail.com', null, null, 'b@gmail.com',
+    ]);
+    // Excluding f1 drops its entity + per-member emails (edit round-trip self-exclusion).
+    expect(tripMemberEmails(members, 'f1')).toEqual(['solo@gmail.com', null, 'b@gmail.com']);
+  });
+});
+
+describe('familyEmailIssue', () => {
+  it('returns null when all emails are valid + unique', () => {
+    const rows = [
+      { id: 'a', name: 'A', email: 'a@gmail.com' },
+      { id: 'b', name: 'B', email: '' },
+      { id: 'c', name: 'C', email: 'c@gmail.com' },
+    ];
+    expect(familyEmailIssue(rows, ['other@gmail.com'])).toBeNull();
+  });
+  it('flags a non-gmail member email', () => {
+    const rows = [{ id: 'a', name: 'A', email: 'a@outlook.com' }];
+    expect(familyEmailIssue(rows, [])).toBe('gmail');
+  });
+  it('flags a duplicate against the external taken set', () => {
+    const rows = [{ id: 'a', name: 'A', email: 'dup@gmail.com' }];
+    expect(familyEmailIssue(rows, ['dup@gmail.com'])).toBe('duplicate');
+  });
+  it('flags an intra-roster duplicate (case-insensitive)', () => {
+    const rows = [
+      { id: 'a', name: 'A', email: 'dup@gmail.com' },
+      { id: 'b', name: 'B', email: 'DUP@Gmail.com' },
+    ];
+    expect(familyEmailIssue(rows, [])).toBe('duplicate');
   });
 });
