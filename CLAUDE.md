@@ -435,3 +435,35 @@ contaminated Share column — which is why the existing foot-only tests never ca
       uvicorn. Docs (this checklist + USER_GUIDE §8). Sample XLSX + PDF inspected: columns foot with
       partial payments included. Do-NOT-break invariants (split/balance engine, settlement lifecycle,
       RBAC, Gmail, `?token=`) untouched.
+
+### Phase 24: Per-Member Contact Emails + Vertical Family Layout
+*(Strictly additive. Each family sub-member may carry an OPTIONAL email. DECISION: emails are
+CONTACT-ONLY — display + trip-wide uniqueness, NOT a join-claim target; the family entity `email`
+(`linked_email`) is KEPT as the sole join-claim key. Phase-11 join/claim/stub logic
+(`find_own_stubs`, `is_stub_removable`, `member.user_id`) is BYTE-IDENTICAL. Balance-neutral by
+construction — the split engine never reads emails. Storage is a THIRD parallel array
+`family_member_emails` on the family member doc, alongside `family_members` (names) +
+`family_member_ids`; absent/legacy ⇒ all None ("No email"). Gmail-only + admin-only member mutation
+unchanged.)*
+- [x] Step 101: Model + pure helpers — `family_member_emails` optional on `MemberIn`/`MemberUpdate`
+      (`models/member.py`); `utils/members.py` `align_family_member_emails` (mirrors
+      `assign_family_member_ids`), `email_exists` extended to scan sub-emails (so
+      `assert_unique_email[_in_trip]` cover them with NO fork), `assert_unique_family_member_emails`
+      (intra-roster). Pure `tests/test_member_emails.py` (16).
+- [x] Step 102: Routes — `routes/members.py` `_validate_family_member_emails` (assert_gmail +
+      `assert_unique_email_in_trip` + intra-roster); wired into `add_member` (incl. individual→family
+      merge branch), `update_member`, and the parallel drop in `delete_family_member`. A sub-email may
+      equal its OWN family entity email (same person); cross-entity collisions (members, other
+      families' sub-emails, claimed users' account emails) rejected. Live `tests/test_member_emails_api.py`
+      (9: save/read-back, gmail-only, intra/cross-family/vs-individual/vs-claimed uniqueness,
+      self-exclusion, legacy, balance-neutral).
+- [x] Step 103: Frontend — `src/familyParticipation.ts` `FamilyRow.email`/`FPMember`, emails through
+      `rowsToPayload`/`familyToRows`, pure `tripMemberEmails` + `familyEmailIssue`; per-row email input
+      in `FamilyMembersEditor.tsx`; `add-member.tsx`/`edit-member.tsx` send + rehydrate + gate;
+      Members tab (`app/trip/[id]/index.tsx`) renders families VERTICALLY (one row per member: name +
+      email or "No email"), entity-level badges + linked-account on the family header, individuals
+      unchanged. `__tests__/familyParticipation.test.ts` extended.
+- [x] Step 104: Docs (this checklist + USER_GUIDE §4.1/§4.2) + full verification gate — backend pure
+      + live-API green (Phase-11 identity + uniqueness + balances/reports regression byte-identical);
+      frontend tsc clean, eslint clean, jest green. Legacy trip (family with only an entity email)
+      renders vertically with "No email" hints.
