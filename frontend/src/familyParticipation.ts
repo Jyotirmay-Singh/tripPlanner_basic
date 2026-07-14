@@ -1,6 +1,8 @@
 // Intra-family member participation — pure, display/payload helpers shared by the add/edit expense
 // screens and unit-tested in src/__tests__/familyParticipation.test.ts.
 //
+import { isGmail, isEmailTaken } from './validation';
+//
 // Unchecking a member sends a `family_participants` entry (family id -> participating member ids).
 // Absent / all checked => nothing sent => backend default "everyone participates" (exact back-compat).
 // PER_CAPITA: a restricted family counts as its INVOLVED-member count, so its share IS reduced and
@@ -13,30 +15,77 @@ export type FPMember = {
   kind: string;
   family_members: string[];
   family_member_ids?: string[] | null;
+  // Optional per-member contact emails, parallel to family_members (display/uniqueness only).
+  family_member_emails?: (string | null)[] | null;
 };
 
 // One row of the structured family-roster editor. `id` is the stable member id (null for a row the
 // user just added — the backend mints one and preserves it for past-expense participation).
-export type FamilyRow = { id: string | null; name: string };
+// `email` is an optional per-member contact email (null/absent => "no email").
+export type FamilyRow = { id: string | null; name: string; email?: string | null };
 
-/** Editor rows -> the member PATCH/POST payload: parallel name + id arrays built from the SAME
- *  non-empty rows (so a removed/blank row drops its id and arrays stay aligned). */
-export function rowsToPayload(rows: FamilyRow[]): { family_members: string[]; family_member_ids: (string | null)[] } {
+/** Editor rows -> the member PATCH/POST payload: parallel name + id + email arrays built from the
+ *  SAME non-empty rows (so a removed/blank row drops its id/email and arrays stay aligned). Emails
+ *  are trimmed; blank -> null (backend normalizes + enforces Gmail-only + uniqueness). */
+export function rowsToPayload(rows: FamilyRow[]): {
+  family_members: string[];
+  family_member_ids: (string | null)[];
+  family_member_emails: (string | null)[];
+} {
   const kept = rows.filter((r) => r.name.trim());
   return {
     family_members: kept.map((r) => r.name.trim()),
     family_member_ids: kept.map((r) => r.id),
+    family_member_emails: kept.map((r) => (r.email && r.email.trim() ? r.email.trim() : null)),
   };
 }
 
-/** Stored family -> editor rows (parallel names + ids; missing id -> null). */
+/** All emails already occupying a trip's one-email space: each member's entity email + every
+ *  family's per-member emails. `excludeId` drops one entity (the family being edited) so its own
+ *  emails don't count against itself. Mirrors the server's trip-wide uniqueness set for the modals. */
+export function tripMemberEmails(
+  members: { id: string; email?: string | null; family_member_emails?: (string | null)[] | null }[],
+  excludeId?: string | null,
+): (string | null | undefined)[] {
+  const out: (string | null | undefined)[] = [];
+  for (const m of members || []) {
+    if (excludeId && m.id === excludeId) continue;
+    out.push(m.email);
+    for (const e of m.family_member_emails || []) out.push(e);
+  }
+  return out;
+}
+
+/** The first inline problem among a family roster's per-member emails, or null. Gmail-format is
+ *  checked first, then duplicates (intra-roster as we go + the external `taken` set of other
+ *  members' emails). UX mirror of the backend gate (assert_gmail + assert_unique_email_in_trip +
+ *  assert_unique_family_member_emails); the server stays authoritative. `rowEmail(i)` reports which
+ *  row failed so the editor can highlight it. */
+export function familyEmailIssue(
+  rows: FamilyRow[],
+  taken: (string | null | undefined)[],
+): 'gmail' | 'duplicate' | null {
+  const seen: string[] = [];
+  for (const r of rows) {
+    const e = (r.email || '').trim();
+    if (!e) continue;
+    if (!isGmail(e)) return 'gmail';
+    if (isEmailTaken(e, [...taken, ...seen])) return 'duplicate';
+    seen.push(e);
+  }
+  return null;
+}
+
+/** Stored family -> editor rows (parallel names + ids + emails; missing id/email -> null). */
 export function familyToRows(
   family_members?: string[] | null,
   family_member_ids?: (string | null)[] | null,
+  family_member_emails?: (string | null)[] | null,
 ): FamilyRow[] {
   const names = family_members || [];
   const ids = family_member_ids || [];
-  return names.map((name, i) => ({ id: ids[i] ?? null, name }));
+  const emails = family_member_emails || [];
+  return names.map((name, i) => ({ id: ids[i] ?? null, name, email: emails[i] ?? null }));
 }
 
 /** Stable member ids parallel to family_members; pads with synthetic index ids for any family not

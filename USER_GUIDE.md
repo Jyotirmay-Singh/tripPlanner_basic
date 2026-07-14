@@ -74,13 +74,20 @@ A "member" can be **one individual** or **a family group** (the family is split 
 ### 4.1 Add a member
 1. Open the trip → **Members** tab → **Add member or family**.
 2. Choose **Individual** or **Family**.
-3. For **Family**: enter the family name (e.g. *Sharma*) and a comma-separated list of names (e.g. *Arjun, Priya, Rohan*).
-4. **Linked email** (optional): if you enter an email here, the next time the owner of that email **joins the trip via code**, they're automatically linked to this member entry. **This is how you avoid counting one person twice.** See §4.3.
+3. For **Family**: enter the family name (e.g. *Sharma*) and add one row per member (e.g. *Arjun, Priya, Rohan*). Each family member can optionally carry **their own email** — see below.
+4. **Linked email** (optional): if you enter an email on the member (or on the family), the next time the owner of that email **joins the trip via code**, they're automatically linked to this member entry. **This is how you avoid counting one person twice.** See §4.3. *(Only the family's linked email is used for join-matching; per-member emails are contact details.)*
 5. Tap **Add member**.
 
+> **Per-member emails.** Inside a family, each member row has an optional email field. Every email
+> (family or individual) must be a **@gmail.com** address and must be **unique across the whole trip**
+> — you can't reuse the same email on two members, two families, or a member and an individual.
+> Adding or changing an email **never** affects any balance, split, settlement, payment, or report.
+
 ### 4.2 Edit a member
-- In the **Members** tab tap the **✏️ pencil** on the member row.
-- You can change the name, kind, family members and linked email.
+- In the **Members** tab tap the **⋮** on the member row → **Edit member & family details**.
+- You can change the name, kind, family members, each member's email, and the family linked email.
+- On the Members tab a family is shown as a card that lists its members **vertically**, each with its
+  own email (or a *No email* hint).
 - **When you change the number of family members**, the app will ask:
   - **"Keep original split"** → past expenses keep their old per-person weight (recommended if those people already paid up).
   - **"Re-split with new members"** → past expenses are recomputed with the new family size.

@@ -12,6 +12,10 @@ class MemberIn(BaseModel):
     # list is omitted the server mints all. Used by per-expense `family_participants` so intra-family
     # participation survives roster edits.
     family_member_ids: Optional[List[Optional[str]]] = None
+    # Optional per-member emails, parallel (same order/length) to family_members. CONTACT-ONLY:
+    # display + trip-wide uniqueness; NOT a join-claim target (only the entity `email` below is).
+    # Absent/legacy => all None ("no email"). Balance-neutral (the split engine ignores emails).
+    family_member_emails: Optional[List[Optional[str]]] = None
     email: Optional[EmailStr] = Field(
         default=None, validation_alias=AliasChoices("email", "linked_email")
     )  # optional email to auto-link an app user
@@ -32,6 +36,8 @@ class MemberUpdate(BaseModel):
     # Parallel to family_members; entries may be null for newly-added rows (server mints ids),
     # and existing ids are preserved so past expenses keep pointing at the same person.
     family_member_ids: Optional[List[Optional[str]]] = None
+    # Parallel per-member emails (contact-only). None => keep existing; a sent list replaces them.
+    family_member_emails: Optional[List[Optional[str]]] = None
     email: Optional[str] = Field(
         default=None, validation_alias=AliasChoices("email", "linked_email")
     )  # can be empty string to clear
