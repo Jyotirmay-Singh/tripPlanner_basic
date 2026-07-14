@@ -45,7 +45,7 @@ export default function Register() {
   };
 
   return (
-    <AuthShell title="Let's get started" subtitle="Your trips, shared seamlessly.">
+    <AuthShell brandImage={require('../../assets/images/wordmark.png')} title="Let's get started" subtitle="Your trips, shared seamlessly.">
       <Input testID="reg-name" label="Your name" value={name} onChangeText={setName} placeholder="Jane Doe" icon="user" />
       <Input
         testID="reg-email"

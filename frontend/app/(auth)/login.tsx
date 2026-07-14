@@ -45,7 +45,7 @@ export default function Login() {
   };
 
   return (
-    <AuthShell title={savedEmail ? 'Welcome back' : 'Sign in'} subtitle="Use your 4-digit PIN to continue.">
+    <AuthShell brandImage={require('../../assets/images/wordmark.png')} title={savedEmail ? 'Welcome back' : 'Sign in'} subtitle="Use your 4-digit PIN to continue.">
       {savedEmail ? (
         <Card style={styles.savedRow}>
           <Icon name="user-round" size={26} color={colors.primary} />
