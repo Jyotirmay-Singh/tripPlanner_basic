@@ -16,3 +16,15 @@ export type WithTransfers = {
 export function isTripSettled(balances: WithTransfers): boolean {
   return !!balances && (balances.transfers?.length ?? 0) === 0;
 }
+
+/**
+ * Trips-list variant of the badge signal: a trip only reads "Settled" once it has REAL spend
+ * activity AND no residual left. An empty (zero-expense) trip has no suggested transfers either,
+ * but labelling a brand-new trip "Settled" is misleading — so it's gated behind `hasExpenses`
+ * (derived on the Trips page from `spendSummary(id).count > 0`, an existing read-only endpoint).
+ * This mirrors the trip-detail Expenses tab, where empty trips show the empty state, never the
+ * per-row badge. Balance math is NOT reimplemented — settled still comes only from `transfers`.
+ */
+export function isTripSettledWithActivity(balances: WithTransfers, hasExpenses: boolean): boolean {
+  return hasExpenses && isTripSettled(balances);
+}
