@@ -12,6 +12,7 @@ import { ThemeProvider, useTheme } from '../src/ThemeContext';
 import { AuthProvider, useAuth } from '../src/AuthContext';
 import { LogoutProvider } from '../src/LogoutProvider';
 import ProfileAvatarButton from '../src/ProfileAvatarButton';
+import HeaderBackButton from '../src/HeaderBackButton';
 import { ToastProvider } from '../src/ui';
 import { FONTS } from '../src/theme';
 import { authRedirectTarget, navResetTo, isPublicTokenRoute } from '../src/authNav';
@@ -49,7 +50,10 @@ function Inner() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="trip/[id]/index" options={{ title: 'Trip' }} />
+        {/* Guaranteed back affordance: trip screens live in this root stack, so the default back
+            button is absent when the trip is reached via replace (create/join) or a deep-link /
+            web-refresh. HeaderBackButton always shows and falls back to the Trips tab. */}
+        <Stack.Screen name="trip/[id]/index" options={{ title: 'Trip', headerLeft: () => <HeaderBackButton /> }} />
         <Stack.Screen name="trip/[id]/add-member" options={{ title: 'Add Member', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="trip/[id]/edit-member" options={{ title: 'Edit Member', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="trip/[id]/manage-member" options={{ title: 'Manage Member', presentation: 'modal', headerRight: undefined }} />
