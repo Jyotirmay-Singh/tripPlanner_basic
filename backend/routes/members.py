@@ -6,7 +6,10 @@ from utils.common import gen_id
 from utils.deps import get_current_user, _trip_admin_or_403
 from utils.balances import _weight_of_member, _compute_balances
 from utils.email_rules import assert_gmail, normalize_email
-from utils.members import assert_unique_email_in_trip, assign_family_member_ids
+from utils.members import (
+    assert_unique_email_in_trip, assign_family_member_ids,
+    align_family_member_emails, assert_unique_family_member_emails,
+)
 from utils.settlement_gate import (
     is_settled, entity_net, family_member_net, unsettled_family_members,
 )
@@ -14,6 +17,23 @@ from services.member_breakdown import family_member_ids
 from services.reallocation import run_member_update_with_reallocation, freeze_and_remove_member
 
 router = APIRouter()
+
+
+async def _validate_family_member_emails(trip, fam_emails, exclude_id):
+    """Gate per-member (contact-only) emails: Gmail-only + trip-wide uniqueness + intra-roster.
+
+    ``fam_emails`` are already normalized (``align_family_member_emails``). A sub-email may equal its
+    OWN family's entity email (same person) — that's why we exclude the whole family via ``exclude_id``
+    on an edit and never special-case entity-vs-sub. Cross-entity collisions (other members, other
+    families' sub-emails, claimed app users' account emails) go through the same authoritative
+    ``assert_unique_email_in_trip`` as the entity email.
+    """
+    assert_unique_family_member_emails(fam_emails)
+    for e in fam_emails:
+        if not e:
+            continue
+        assert_gmail(e)
+        await assert_unique_email_in_trip(trip, e, exclude_id=exclude_id)
 
 
 # ---------- Members ----------
@@ -37,11 +57,15 @@ async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user
     # an email already owned by a CLAIMED app user (their account email) anywhere in the trip.
     await assert_unique_email_in_trip(trip, email, exclude_id=exclude_id)
     fam_names = body.family_members if body.kind == "family" else []
+    # Per-member contact emails, parallel to family_members (Gmail + trip-wide unique + intra-roster).
+    fam_emails = align_family_member_emails(fam_names, body.family_member_emails) if body.kind == "family" else []
+    await _validate_family_member_emails(trip, fam_emails, exclude_id=exclude_id)
     new_member = {
         "id": gen_id(), "name": name, "kind": body.kind,
         "family_members": fam_names,
         # Stable ids parallel to family_members (used by per-expense family_participants).
         "family_member_ids": assign_family_member_ids(fam_names, body.family_member_ids) if body.kind == "family" else [],
+        "family_member_emails": fam_emails,
         "email": email, "user_id": None,
     }
     # If a user already in the trip has this email AND currently exists as an individual,
@@ -58,6 +82,7 @@ async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user
                     body.family_members, body.family_member_ids,
                     merge_target.get("family_member_ids"),
                 ),
+                "members.$.family_member_emails": fam_emails,
                 "members.$.email": email,
             }},
         )
@@ -97,6 +122,16 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
             assign_family_member_ids(new_fm, body.family_member_ids, target.get("family_member_ids"))
             if new_kind == "family" else []
         )
+    # Per-member contact emails: recompute when the roster changes OR emails are explicitly sent;
+    # a name/id-only edit preserves existing ones (align falls back positionally). Cleared to []
+    # when the member stops being a family, parallel to family_member_ids.
+    if body.family_members is not None or body.kind is not None or body.family_member_emails is not None:
+        fam_emails = (
+            align_family_member_emails(new_fm, body.family_member_emails, target.get("family_member_emails"))
+            if new_kind == "family" else []
+        )
+        await _validate_family_member_emails(trip, fam_emails, exclude_id=member_id)
+        updates["members.$.family_member_emails"] = fam_emails
     if body.email is not None:
         em = normalize_email(body.email)
         if em:
@@ -214,11 +249,15 @@ async def delete_family_member(trip_id: str, family_id: str, fm_id: str,
     new_names = [nm for i, nm in enumerate(names) if i != idx]
     surviving_ids = [iid for i, iid in enumerate(ids) if i != idx]
     new_ids = assign_family_member_ids(new_names, surviving_ids)
+    # Drop the removed member's parallel contact email (align pads to names first, then removes idx).
+    fam_emails = align_family_member_emails(names, existing=family.get("family_member_emails"))
+    new_emails = [e for i, e in enumerate(fam_emails) if i != idx]
     old_weight = _weight_of_member(family)
     new_weight = _weight_of_member({**family, "family_members": new_names})
     updates = {
         "members.$.family_members": new_names,
         "members.$.family_member_ids": new_ids,
+        "members.$.family_member_emails": new_emails,
     }
     await run_member_update_with_reallocation(
         trip_id, family_id, updates, old_weight, new_weight, reweight_past=False,
