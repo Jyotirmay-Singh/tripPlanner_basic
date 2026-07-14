@@ -473,13 +473,13 @@ export default function TripDetail() {
                         </View>
                         {manageBtn}
                       </View>
-                      <View style={{ marginTop: SPACING.sm, marginLeft: 20, paddingLeft: SPACING.md, gap: SPACING.xs, borderLeftWidth: 2, borderLeftColor: colors.border }}>
+                      <View style={{ marginTop: SPACING.sm, marginLeft: 20, paddingLeft: SPACING.md, paddingRight: SPACING.xs, gap: SPACING.xs, borderLeftWidth: 2, borderLeftColor: colors.border }}>
                         {subNames.length === 0 ? (
                           <T variant="caption" muted>—</T>
                         ) : subNames.map((nm, i) => (
-                          <View key={i} testID={`member-${m.id}-sub-${i}`} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.sm }}>
-                            <T numberOfLines={1} style={{ flex: 1, minWidth: 0 }}>{nm}</T>
-                            <T variant="caption" muted numberOfLines={1} style={{ flexShrink: 0, maxWidth: '55%', fontStyle: subEmails[i] ? 'normal' : 'italic' }}>
+                          <View key={i} testID={`member-${m.id}-sub-${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.md }}>
+                            <T numberOfLines={1} style={{ flexShrink: 1, minWidth: 0 }}>{nm}</T>
+                            <T variant="caption" muted numberOfLines={1} style={{ flex: 1, textAlign: 'right', paddingRight: 2, fontStyle: subEmails[i] ? 'normal' : 'italic' }}>
                               {subEmails[i] || 'No email'}
                             </T>
                           </View>
