@@ -30,7 +30,7 @@ export default function PinLogin() {
   };
 
   return (
-    <AuthShell title="Quick PIN login" subtitle="For returning users">
+    <AuthShell brandImage={require('../../assets/images/wordmark.png')} title="Quick PIN login" subtitle="For returning users">
       <Input
         testID="pin-email"
         label="Email"
