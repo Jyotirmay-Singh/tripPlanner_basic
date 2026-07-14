@@ -80,6 +80,9 @@ export default function Register() {
         icon="lock"
         error={confirmError}
       />
+      <T muted variant="caption" style={{ textAlign: 'center' }}>
+        {"Choose a password you'll remember — for your security, we can't recover it for you."}
+      </T>
 
       <View style={{ gap: SPACING.sm }}>
         <T variant="label" muted style={{ textAlign: 'center' }}>Choose a 4-digit PIN</T>
