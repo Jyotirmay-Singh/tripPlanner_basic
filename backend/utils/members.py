@@ -44,6 +44,33 @@ def assign_family_member_ids(
     return out
 
 
+def align_family_member_emails(
+    names: Optional[List[str]],
+    provided: Optional[List[Optional[str]]] = None,
+    existing: Optional[List[Optional[str]]] = None,
+) -> List[Optional[str]]:
+    """Per-member (contact-only) emails parallel to a family's ``family_members`` names.
+
+    Mirrors :func:`assign_family_member_ids`: when the client SENT ``family_member_emails``
+    (``provided`` not None) it is trusted per row (normalized; blank -> None); otherwise existing
+    emails are reused positionally so a name/id-only edit preserves them. The result is always the
+    same length as ``names`` (missing rows -> None). Values are ``normalize_email``-d; the call site
+    still runs ``assert_gmail`` + uniqueness before persisting.
+    """
+    names = names or []
+    client_sent = provided is not None
+    existing = existing or []
+    out: List[Optional[str]] = []
+    for i in range(len(names)):
+        raw = None
+        if client_sent:
+            raw = provided[i] if i < len(provided) else None
+        elif i < len(existing):
+            raw = existing[i]
+        out.append(normalize_email(raw))
+    return out
+
+
 def email_exists(members: list, email: Optional[str], exclude_id: Optional[str] = None) -> bool:
     target = normalize_email(email)
     if not target:
@@ -53,6 +80,10 @@ def email_exists(members: list, email: Optional[str], exclude_id: Optional[str] 
             continue
         if normalize_email(m.get("email")) == target:
             return True
+        # Per-member contact emails also occupy the trip's one-email space (Phase 24).
+        for sub in (m.get("family_member_emails") or []):
+            if normalize_email(sub) == target:
+                return True
     return False
 
 
@@ -60,6 +91,22 @@ def assert_unique_email(members: list, email: Optional[str], exclude_id: Optiona
     norm = normalize_email(email)
     if norm and email_exists(members, email, exclude_id):
         raise HTTPException(400, f"A member with email '{norm}' already exists in this trip")
+
+
+def assert_unique_family_member_emails(emails: Optional[List[Optional[str]]]) -> None:
+    """Reject an internal duplicate among a SINGLE family's per-member emails (blanks ignored).
+
+    ``email_exists`` excludes the whole family entity via ``exclude_id`` on an edit round-trip, so it
+    cannot catch two members of the *same* submitted roster sharing an email — this pure guard does.
+    """
+    seen = set()
+    for e in (emails or []):
+        norm = normalize_email(e)
+        if not norm:
+            continue
+        if norm in seen:
+            raise HTTPException(400, f"A member with email '{norm}' already exists in this trip")
+        seen.add(norm)
 
 
 # ---------- Phase 11: one gmail == at most one person per trip ----------
