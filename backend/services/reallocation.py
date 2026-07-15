@@ -201,7 +201,7 @@ async def run_member_update_with_reallocation(trip_id: str, member_id: str, memb
 
 
 async def freeze_and_remove_member(trip_id: str, member_id: str, weight: int,
-                                   user_id: str = None, verify=None) -> dict:
+                                   user_ids: list = None, verify=None) -> dict:
     """Remove an entity (individual OR whole family) while keeping every other balance identical.
 
     Removing a member id from the trip's ``members`` while its id is still referenced by past
@@ -212,9 +212,10 @@ async def freeze_and_remove_member(trip_id: str, member_id: str, weight: int,
       - weight  > 1 (family of N): we first PIN ``weight`` onto the member's past PER_CAPITA
         expenses (the exact Step-8 freeze, ``reweight_past=False``) so H is preserved, then ``$pull``.
 
-    ``user_id`` (P2): when the removed member is an app user, the SAME atomic ``$pull`` also evicts
-    them from the trip's ``user_ids`` (revokes access) and ``admin_ids`` (revokes admin rights), so
-    they are not left as a ghost with lingering access — and ``join_trip`` will let them rejoin fresh.
+    ``user_ids`` (P2 + Phase 25): the app users linked to the removed member — the entity's own
+    ``user_id`` AND any per-member linked sub-members (a family can hold several) — are evicted from
+    the trip's ``user_ids`` (revokes access) and ``admin_ids`` (revokes admin rights) in the SAME
+    atomic ``$pull``, so none are left as a ghost with lingering access; ``join_trip`` lets them rejoin.
 
     ``verify`` (P5): an optional async callable run as the FIRST step inside the write (before any
     freeze pin is written). It recomputes the settlement gate against the freshest committed state and
@@ -237,10 +238,11 @@ async def freeze_and_remove_member(trip_id: str, member_id: str, weight: int,
     ops = _build_ops(trip_id, plan)
 
     pull: dict = {"members": {"id": member_id}}
-    if user_id:
-        # P2: evict an app-user member from trip access + admin rights in the same write.
-        pull["user_ids"] = user_id
-        pull["admin_ids"] = user_id
+    uids = [u for u in (user_ids or []) if u]
+    if uids:
+        # P2 + Phase 25: evict every app user linked to this member (entity + per-member) in one write.
+        pull["user_ids"] = {"$in": uids}
+        pull["admin_ids"] = {"$in": uids}
 
     async def _do(session):
         if verify is not None:
