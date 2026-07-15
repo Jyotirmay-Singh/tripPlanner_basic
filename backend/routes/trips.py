@@ -14,6 +14,7 @@ from utils.members import (
     assert_unique_email_in_trip,
     assign_family_member_ids,
     find_own_stubs,
+    find_own_sub_stub,
     member_has_financial_history,
 )
 
@@ -104,6 +105,8 @@ async def _claim_member(trip, members, user, user_email, body):
     """
     if not body.member_id:
         raise HTTPException(400, "member_id is required to claim")
+    if body.family_member_id:
+        return await _claim_sub_member(trip, members, user, user_email, body)
     target = next((m for m in members if m["id"] == body.member_id), None)
     if not target:
         raise HTTPException(404, "Member not found")
@@ -123,6 +126,56 @@ async def _claim_member(trip, members, user, user_email, body):
         if cur and cur.get("user_id") == user["id"]:
             return fresh
         raise HTTPException(409, "This profile is already linked to another account")
+    return await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+
+
+async def _claim_sub_member(trip, members, user, user_email, body):
+    """action='claim' + family_member_id: link the caller to ONE family sub-member (Phase 25).
+
+    Stamps that member's per-member linked-account slot (``family_member_user_ids[idx]``) and grants
+    the caller trip access — it NEVER touches the family entity's ``user_id`` and NEVER recalculates
+    the family's split, so several members of one family can each link their own account independently
+    and every balance stays byte-identical. Self-serve but strictly limited to the slot carrying the
+    caller's OWN verified email; idempotent; atomic against a concurrent claim of the same slot.
+    """
+    family = next((m for m in members if m["id"] == body.member_id), None)
+    if not family or family.get("kind") != "family":
+        raise HTTPException(404, "Family not found")
+    names = family.get("family_members") or []
+    # Pad ids for legacy rows, parallel to services.member_breakdown.family_member_ids.
+    ids = [str(x) for x in (family.get("family_member_ids") or [])]
+    if len(ids) < len(names):
+        fid = family.get("id", "")
+        ids = ids + [f"{fid}:{i}" for i in range(len(ids), len(names))]
+    if body.family_member_id not in ids:
+        raise HTTPException(404, "Family member not found")
+    idx = ids.index(body.family_member_id)
+    emails = family.get("family_member_emails") or []
+    uids = family.get("family_member_user_ids") or []
+    sub_email = emails[idx] if idx < len(emails) else None
+    cur_uid = uids[idx] if idx < len(uids) else None
+    if cur_uid == user["id"]:
+        return trip  # idempotent: same account re-claiming its own member slot
+    if normalize_email(sub_email) != user_email:
+        raise HTTPException(403, "You can only claim the member matching your email")
+    if cur_uid:
+        raise HTTPException(409, "This member is already linked to another account")
+    # Atomic: only while this exact slot is still unclaimed (null or absent). Set just the one index
+    # so a concurrent claim of a DIFFERENT slot in the same family isn't clobbered.
+    res = await db.trips.update_one(
+        {"id": trip["id"], "members": {"$elemMatch": {
+            "id": family["id"], f"family_member_user_ids.{idx}": None}}},
+        {"$addToSet": {"user_ids": user["id"]},
+         "$set": {f"members.$.family_member_user_ids.{idx}": user["id"]}},
+    )
+    if res.modified_count == 0:
+        # Lost the race (or already linked): succeed only if this slot ended up linked to US.
+        fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+        fam = next((m for m in fresh.get("members", []) if m["id"] == family["id"]), None)
+        fu = (fam or {}).get("family_member_user_ids") or []
+        if idx < len(fu) and fu[idx] == user["id"]:
+            return fresh
+        raise HTTPException(409, "This member is already linked to another account")
     return await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
 
 
@@ -169,6 +222,12 @@ async def _apply_mode(trip, members, user, user_email, body):
                  "$set": {"members.$.user_id": user["id"]}},
             )
         else:
+            # One-email invariant: a genuine new individual can't reuse an email already in the trip
+            # (member entity, another family's sub-member email, or a claimed account) — this also
+            # steers a caller whose email sits on an unclaimed sub-member toward claiming it (Phase 25).
+            if user_email:
+                assert_gmail(user_email)
+                await assert_unique_email_in_trip(trip, user_email)
             new_member = {
                 "id": gen_id(), "name": user["name"],
                 "kind": "individual", "family_members": [],
@@ -180,6 +239,9 @@ async def _apply_mode(trip, members, user, user_email, body):
             )
 
     elif mode == "individual":
+        if user_email:
+            assert_gmail(user_email)
+            await assert_unique_email_in_trip(trip, user_email)
         new_member = {
             "id": gen_id(), "name": user["name"],
             "kind": "individual", "family_members": [],
@@ -327,6 +389,22 @@ async def join_preview(body: JoinPreviewRequest, user=Depends(get_current_user))
                 "join/preview: %d duplicate-email stubs for %s in trip %s; surfacing all, not deleting",
                 len(stubs), user_email, trip["id"],
             )
+    else:
+        # Phase 25: no whole-entity match — try a per-member email match (link the caller to ONE
+        # family sub-member). Reported claim-only (has_financial_history=True routes the wizard's
+        # claim-only path): the email sits on that member by admin intent, and "join as new" while
+        # the sub-email is still present would violate the one-email invariant.
+        sub = find_own_sub_stub(members, user_email)
+        if sub:
+            match = {
+                "member_id": sub["family_id"],
+                "member_type": "family_member",
+                "member_name": sub["member_name"],
+                "family_id": sub["family_id"],
+                "family_name": sub["family_name"],
+                "family_member_id": sub["member_id"],
+                "has_financial_history": True,
+            }
     match_conflicts = [
         {"member_id": m["id"], "member_name": m["name"],
          "member_type": "family" if m.get("kind") == "family" else "individual"}

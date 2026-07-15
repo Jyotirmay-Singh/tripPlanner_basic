@@ -22,6 +22,10 @@ class JoinRequest(BaseModel):
     # server re-resolves and enforces the financial-history guard regardless).
     action: Optional[Literal["claim", "join_new"]] = None
     member_id: Optional[str] = None  # required when action == "claim"
+    # Phase 25 — when set, action="claim" links the caller to ONE family sub-member (this stable
+    # per-member id) inside the family `member_id`, stamping its per-member linked-account slot rather
+    # than the whole family entity's user_id. Requires the caller's OWN email on that slot.
+    family_member_id: Optional[str] = None
     replace_member_id: Optional[str] = None  # advisory hint when action == "join_new"
 
     @field_validator("family_name")
