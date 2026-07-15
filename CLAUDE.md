@@ -112,7 +112,7 @@ C) Exact-Amount Split (`split_mode = "EXACT"`, Phase 22)
 - **The one hard rule (two-layer save-gate).** An EXACT expense cannot be saved unless Σ amounts == total. Enforced in BOTH: (a) frontend — the Save button is disabled and a live reconciliation bar shows Assigned/Remaining until it balances (`src/exactSplit.ts` + `src/ExactSplitEditor.tsx`); (b) backend (source of truth) — `routes/expenses.py` create + edit call `custom_split.validate_exact_amounts` and reject a mismatch with **HTTP 422**. Frontend and backend snap logic are pinned together by `shared/exact-split-vectors.json`.
 - Reports display EXACT (`_MODE_LABELS["EXACT"]="Exact"`) with no forked math — the Split Math and exploded Transactions tabs + PDF reuse `entity_shares_raw` / `exact_member_shares`.
 
-App User Identity Mapping: If an App User joins an existing family group via code, they retain their unique App User ID identity for login/auth operations, but are mathematically treated as an integrated member of that family unit during the cost allocations above.
+App User Identity Mapping: If an App User joins an existing family group via code, they retain their unique App User ID identity for login/auth operations, but are mathematically treated as an integrated member of that family unit during the cost allocations above. As of Phase 25 an App User may be linked to a SPECIFIC family sub-member (their own Gmail on that member's `family_member_emails` slot ⇒ `family_member_user_ids` slot on join/claim), so several members of one family can each carry their own account; this linkage is contact/identity only and NEVER changes any cost allocation (the split engine ignores emails and user_ids).
 
 ---
 
@@ -467,3 +467,43 @@ unchanged.)*
       + live-API green (Phase-11 identity + uniqueness + balances/reports regression byte-identical);
       frontend tsc clean, eslint clean, jest green. Legacy trip (family with only an entity email)
       renders vertically with "No email" hints.
+
+### Phase 25: Per-Member Account Linking (link an app user to ANY family member)
+*(Strictly additive on Phase 24. A family sub-member's email is now a JOIN-CLAIM target: a joiner
+whose OWN Gmail matches an unclaimed member's email links their account to THAT member. DECISION:
+**per-member accounts** — a family holds several linked accounts (entity + per-member), each
+independent. Storage is a FOURTH parallel array `family_member_user_ids` on the family doc (alongside
+`family_members` / `family_member_ids` / `family_member_emails`); `None` ⇒ unclaimed. It is
+SERVER-MANAGED — written ONLY by the join/claim flow, NEVER accepted from a member create/update body,
+so an admin can't stamp someone else's account onto a member. Balance-neutral (the split engine never
+reads emails or user_ids); the entity-email Phase-11 claim/join_new/stub path is byte-identical — a
+sub-member path is ADDED alongside it. One-Gmail-per-trip invariant preserved.)*
+- [x] Step 105: Pure helpers — `utils/members.align_family_member_user_ids` (carry linked user-ids
+      forward by stable id across roster edits + report VANISHED uids for eviction),
+      `find_own_sub_stub` (per-member analogue of `find_own_stubs`: first UNCLAIMED sub-member whose
+      email == caller's own), and widen `assert_unique_email_in_trip` to exclude a family's WHOLE uid
+      set (entity + per-member) on an edit round-trip. `models/member.py` doc-shape comment. Pure
+      tests in `tests/test_member_emails.py` (27).
+- [x] Step 106: Join/claim/preview — `models/join.JoinRequest += family_member_id`;
+      `routes/trips._claim_sub_member` (action="claim" + family_member_id stamps ONE slot's
+      `family_member_user_ids[idx]` + grants access, own-email-gated 403, idempotent, atomic against a
+      concurrent same-slot claim via single-index `$set`; never touches the entity `user_id`, never
+      recalculates split); `join_preview` surfaces a claim-only `member_type="family_member"` match
+      when no whole-entity stub matches; the individual create paths in `_apply_mode` now enforce
+      `assert_gmail` + `assert_unique_email_in_trip` (one-email guardrail steering a sub-member-email
+      joiner to claim).
+- [x] Step 107: Member routes + eviction — `routes/members.add_member` persists
+      `family_member_user_ids`; `update_member` carries links forward by id and `$pull`s vanished uids
+      from `user_ids`/`admin_ids`; `delete_family_member` drops the slot + evicts;
+      `services/reallocation.freeze_and_remove_member` takes the member's FULL uid set (entity +
+      per-member) and `$pull {$in}` so removing a family evicts every linked sub-member.
+- [x] Step 108: Frontend — `src/joinIdentity.ts` (`member_type` 'family_member' + `family_member_id`;
+      claim-only choices/mustClaim/replacementNeeded; `buildClaimBody` carries the sub-slot);
+      `app/join-trip.tsx` claim card wording; `app/trip/[id]/index.tsx` "Linked"/"You" badge on
+      claimed sub-rows. Jest coverage in `__tests__/joinIdentity.test.ts`.
+- [x] Step 109: Full verification gate — pure `test_member_emails` (27) green; live-API
+      `tests/test_member_linking_api.py` (10: preview claim-only, claim links + grants access + NOT
+      admin + balance-neutral, two members claimed independently, own-email 403, idempotent, taken-slot
+      403, join-as-new blocked, edit round-trip preserves link, member-delete + whole-family removal
+      evict linked accounts) green; Phase-11 identity + uniqueness + balances/reports regression
+      byte-identical. Frontend jest/tsc/eslint green. Docs (this checklist + USER_GUIDE §4.3).
