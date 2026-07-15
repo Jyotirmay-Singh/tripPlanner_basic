@@ -32,6 +32,11 @@ export function formatTime12h(value: string | null | undefined): string {
   return `${h12}:${pad(parts.m)} ${suffix}`;
 }
 
+/** 'HH:MM' (24h) -> canonical 24-hour 'HH:MM' for display; '' if invalid/blank. The default format. */
+export function formatTime24h(value: string | null | undefined): string {
+  return normalizeHHMM(value);
+}
+
 /** Read a (picker) Date via its LOCAL components -> 'HH:MM' (the wall-clock the user picked). */
 export function hhmmFromLocalDate(d: Date): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;

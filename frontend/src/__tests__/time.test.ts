@@ -2,6 +2,7 @@ import {
   parseHHMM,
   normalizeHHMM,
   formatTime12h,
+  formatTime24h,
   hhmmFromLocalDate,
   localDateFromHHMM,
 } from '../time';
@@ -47,6 +48,21 @@ describe('formatTime12h', () => {
     expect(formatTime12h('')).toBe('');
     expect(formatTime12h(null)).toBe('');
     expect(formatTime12h('25:00')).toBe('');
+  });
+});
+
+describe('formatTime24h', () => {
+  it('renders canonical zero-padded 24-hour time', () => {
+    expect(formatTime24h('00:00')).toBe('00:00');
+    expect(formatTime24h('9:5')).toBe('09:05');
+    expect(formatTime24h('14:30')).toBe('14:30');
+    expect(formatTime24h('23:59')).toBe('23:59');
+  });
+
+  it('returns "" for blank/invalid', () => {
+    expect(formatTime24h('')).toBe('');
+    expect(formatTime24h(null)).toBe('');
+    expect(formatTime24h('25:00')).toBe('');
   });
 });
 

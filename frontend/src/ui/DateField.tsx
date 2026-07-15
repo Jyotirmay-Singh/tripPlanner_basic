@@ -1,20 +1,13 @@
 import React, { useState } from 'react';
-import { View, Platform } from 'react-native';
+import { View } from 'react-native';
 import { SPACING } from '../theme';
 import T from '../T';
 import Input from './Input';
 import IconButton from './IconButton';
-import Button from './Button';
 import Sheet from './Sheet';
-import {
-  toISO, fromISO, formatDDMMYYYY, localDateFromISO, partsFromLocalDate,
-} from '../date';
-
-// The native picker package has no web build, so require it lazily off-web (a top-level
-// import would crash the web bundle). Web uses the browser <input type="date"> instead.
-const DateTimePicker: any =
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  Platform.OS !== 'web' ? require('@react-native-community/datetimepicker').default : null;
+import CalendarPicker from './CalendarPicker';
+import { toISO, fromISO } from '../date';
+import { relativeDateLabel } from '../calendar';
 
 type Props = {
   label?: string;
@@ -27,38 +20,19 @@ type Props = {
 };
 
 /**
- * Labelled calendar-date field: type dd/mm/yyyy manually OR tap the calendar to pick. Both
- * paths write the same dd/mm/yyyy string back to the parent, so the text field and picker
- * stay in sync. Picker is timezone-safe (local Date in/out via src/date.ts): native →
- * DateTimePicker (Android dialog / iOS inside a Sheet); web → the browser <input type="date">.
+ * Labelled calendar-date field: type dd/mm/yyyy manually OR tap the calendar to pick from a themed
+ * month grid (Sheet). Both paths write the same dd/mm/yyyy string back, so the text field and picker
+ * stay in sync. A relative caption ("Today"/"Yesterday"/"Tomorrow") appears under the field when it
+ * applies, otherwise the raw date in the box is the fallback. Timezone-safe throughout (ISO carried
+ * as y/m/d via src/date.ts + src/calendar.ts — a picked day never shifts via UTC). Cross-platform:
+ * the grid renders identically on native and web (no OS/native picker).
  */
 export default function DateField({
   label, value, onChangeText, error, minISO, testID, containerStyle,
 }: Props) {
   const [show, setShow] = useState(false);
-  const [tempDate, setTempDate] = useState<Date | null>(null);
-  const webRef = React.useRef<any>(null);
-
-  const seed = (() => {
-    const iso = toISO(value);
-    return iso ? localDateFromISO(iso) : new Date();
-  })();
-  const minDate = minISO ? localDateFromISO(minISO) : undefined;
-
-  const apply = (selected?: Date | null) => {
-    if (selected) onChangeText(formatDDMMYYYY(partsFromLocalDate(selected)));
-  };
-
-  const openPicker = () => {
-    if (Platform.OS === 'web') {
-      const el = webRef.current;
-      if (el?.showPicker) el.showPicker();
-      else el?.focus?.();
-      return;
-    }
-    setTempDate(seed);
-    setShow(true);
-  };
+  const iso = toISO(value);
+  const rel = relativeDateLabel(iso);
 
   return (
     <View style={containerStyle}>
@@ -78,57 +52,26 @@ export default function DateField({
         <IconButton
           name="calendar"
           variant="surface"
-          onPress={openPicker}
+          onPress={() => setShow(true)}
           accessibilityLabel={`Pick ${label || 'date'}`}
           testID={testID ? `${testID}-pick` : undefined}
         />
       </View>
 
-      {Platform.OS === 'web' && (
-        // @ts-ignore — raw DOM input, only rendered on web; value/min are timezone-free ISO.
-        <input
-          ref={webRef}
-          type="date"
-          value={toISO(value) ?? ''}
-          min={minISO ?? undefined}
-          onChange={(e: any) => { if (e.target.value) onChangeText(fromISO(e.target.value)); }}
-          aria-hidden
-          tabIndex={-1}
-          style={{ position: 'absolute', width: 1, height: 1, opacity: 0, border: 0, padding: 0 }}
-        />
-      )}
+      {rel ? <T variant="caption" muted style={{ marginTop: SPACING.xs }}>{rel}</T> : null}
 
-      {DateTimePicker && Platform.OS === 'android' && show && (
-        <DateTimePicker
-          value={seed}
-          mode="date"
-          minimumDate={minDate}
-          onChange={(event: any, selected?: Date) => {
-            setShow(false);
-            if (event?.type === 'set') apply(selected);
-          }}
+      <Sheet
+        visible={show}
+        onClose={() => setShow(false)}
+        title={label || 'Pick date'}
+        testID={testID ? `${testID}-sheet` : undefined}
+      >
+        <CalendarPicker
+          valueISO={iso}
+          minISO={minISO ?? null}
+          onSelect={(nextISO) => { onChangeText(fromISO(nextISO)); setShow(false); }}
         />
-      )}
-
-      {DateTimePicker && Platform.OS === 'ios' && (
-        <Sheet visible={show} onClose={() => setShow(false)} title={label || 'Pick date'}>
-          <DateTimePicker
-            value={tempDate || seed}
-            mode="date"
-            display="inline"
-            minimumDate={minDate}
-            onChange={(_e: any, selected?: Date) => { if (selected) setTempDate(selected); }}
-          />
-          <Button
-            label="Done"
-            icon="check"
-            fullWidth
-            size="lg"
-            onPress={() => { apply(tempDate); setShow(false); }}
-            style={{ marginTop: SPACING.md }}
-          />
-        </Sheet>
-      )}
+      </Sheet>
     </View>
   );
 }
