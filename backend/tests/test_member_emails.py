@@ -5,8 +5,10 @@ from fastapi import HTTPException
 
 from utils.members import (
     align_family_member_emails,
+    align_family_member_user_ids,
     email_exists,
     assert_unique_family_member_emails,
+    find_own_sub_stub,
 )
 
 
@@ -96,3 +98,88 @@ class TestAssertUniqueFamilyMemberEmails:
     def test_empty_ok(self):
         assert_unique_family_member_emails(None) is None
         assert_unique_family_member_emails([]) is None
+
+
+# ------------------------- Phase 25: per-member account linking -------------------------
+
+class TestAlignFamilyMemberUserIds:
+    """Server-managed per-member linked user-ids carry forward by stable id across roster edits."""
+
+    def test_missing_all_none(self):
+        aligned, vanished = align_family_member_user_ids(["a", "b"], None, None)
+        assert aligned == [None, None]
+        assert vanished == set()
+
+    def test_carries_forward_by_id(self):
+        # Old roster [a,b,c] with b linked to u2; edit keeps [a,b,c] -> u2 stays on b.
+        aligned, vanished = align_family_member_user_ids(
+            ["a", "b", "c"], ["a", "b", "c"], [None, "u2", None]
+        )
+        assert aligned == [None, "u2", None]
+        assert vanished == set()
+
+    def test_reorder_keeps_link_with_id(self):
+        aligned, vanished = align_family_member_user_ids(
+            ["c", "a", "b"], ["a", "b", "c"], [None, "u2", "u3"]
+        )
+        assert aligned == ["u3", None, "u2"]
+        assert vanished == set()
+
+    def test_new_row_is_unclaimed(self):
+        aligned, vanished = align_family_member_user_ids(
+            ["a", "b", "new"], ["a", "b"], ["u1", "u2"]
+        )
+        assert aligned == ["u1", "u2", None]
+        assert vanished == set()
+
+    def test_dropped_member_uid_vanishes(self):
+        # b (linked to u2) removed -> u2 must be reported vanished so the caller revokes access.
+        aligned, vanished = align_family_member_user_ids(
+            ["a", "c"], ["a", "b", "c"], ["u1", "u2", "u3"]
+        )
+        assert aligned == ["u1", "u3"]
+        assert vanished == {"u2"}
+
+
+class TestFindOwnSubStub:
+    def _family(self, **over):
+        base = {
+            "id": "F", "name": "Sharma", "kind": "family",
+            "family_members": ["Arjun", "Priya", "Rohan"],
+            "family_member_ids": ["a1", "a2", "a3"],
+            "family_member_emails": ["arjun@gmail.com", "priya@gmail.com", None],
+            "family_member_user_ids": [None, None, None],
+        }
+        base.update(over)
+        return base
+
+    def test_matches_own_unclaimed_sub(self):
+        m = find_own_sub_stub([self._family()], "Priya@Gmail.com")
+        assert m == {
+            "family_id": "F", "family_name": "Sharma",
+            "member_id": "a2", "member_index": 1, "member_name": "Priya",
+        }
+
+    def test_no_match_when_email_absent(self):
+        assert find_own_sub_stub([self._family()], "nobody@gmail.com") is None
+
+    def test_skips_already_claimed_slot(self):
+        fam = self._family(family_member_user_ids=[None, "u2", None])
+        assert find_own_sub_stub([fam], "priya@gmail.com") is None
+
+    def test_ignores_individuals_and_entity_email(self):
+        indiv = {"id": "I", "kind": "individual", "email": "solo@gmail.com", "family_members": []}
+        fam = self._family(email="fam@gmail.com")
+        assert find_own_sub_stub([indiv, fam], "solo@gmail.com") is None
+        assert find_own_sub_stub([indiv, fam], "fam@gmail.com") is None
+
+    def test_legacy_family_without_arrays(self):
+        legacy = {
+            "id": "L", "name": "Old", "kind": "family",
+            "family_members": ["X", "Y"],
+        }
+        assert find_own_sub_stub([legacy], "x@gmail.com") is None
+
+    def test_blank_email_returns_none(self):
+        assert find_own_sub_stub([self._family()], "") is None
+        assert find_own_sub_stub([self._family()], None) is None
