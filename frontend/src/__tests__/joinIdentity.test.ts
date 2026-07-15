@@ -13,6 +13,7 @@ const match = (over: Partial<JoinMatch> = {}): JoinMatch => ({
   member_name: over.member_name ?? 'Asha',
   family_id: over.family_id ?? null,
   family_name: over.family_name ?? null,
+  family_member_id: over.family_member_id ?? null,
   has_financial_history: over.has_financial_history ?? false,
 });
 
@@ -52,6 +53,29 @@ describe('buildClaimBody', () => {
   it('builds the claim wire shape', () => {
     expect(buildClaimBody('ABC123', match({ member_id: 'mX' }))).toEqual({
       code: 'ABC123', action: 'claim', member_id: 'mX',
+    });
+  });
+});
+
+describe('family_member match (Phase 25: per-member account linking)', () => {
+  const fm = match({
+    member_id: 'FAM', member_type: 'family_member', member_name: 'Priya',
+    family_id: 'FAM', family_name: 'Sharma', family_member_id: 'a2',
+    has_financial_history: true,
+  });
+  it('is claim-only regardless of financial history', () => {
+    expect(availableJoinChoices(fm)).toEqual(['claim']);
+    expect(availableJoinChoices({ ...fm, has_financial_history: false })).toEqual(['claim']);
+    expect(mustClaim(fm)).toBe(true);
+    expect(mustClaim({ ...fm, has_financial_history: false })).toBe(true);
+  });
+  it('never triggers stub replacement (claiming a sub-member removes nothing)', () => {
+    expect(replacementNeeded(fm, 'join_new')).toBe(false);
+    expect(replacementNeeded({ ...fm, has_financial_history: false }, 'join_new')).toBe(false);
+  });
+  it('claim body carries the sub-slot id (family_member_id)', () => {
+    expect(buildClaimBody('ABC123', fm)).toEqual({
+      code: 'ABC123', action: 'claim', member_id: 'FAM', family_member_id: 'a2',
     });
   });
 });

@@ -172,7 +172,9 @@ export default function JoinTrip() {
     const claimOnly = mustClaim(match);
     const where = match.member_type === 'family'
       ? `the family ${match.member_name}`
-      : match.member_name;
+      : match.member_type === 'family_member'
+        ? `${match.member_name} in the ${match.family_name} family`
+        : match.member_name;
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
         <ScrollView contentContainerStyle={{ padding: SPACING.lg, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
@@ -195,8 +197,9 @@ export default function JoinTrip() {
                 <View style={[styles.noteCard, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
                   <Icon name="info" size={18} color={colors.textMuted} />
                   <T variant="caption" muted style={{ flex: 1, marginLeft: SPACING.sm, lineHeight: 18 }}>
-                    This profile already has expenses, so it can&apos;t be duplicated. Continue as this
-                    profile to keep its history.
+                    {match.member_type === 'family_member'
+                      ? `You're listed in the ${match.family_name} family as ${match.member_name}. Continue to link your account to that member.`
+                      : "This profile already has expenses, so it can't be duplicated. Continue as this profile to keep its history."}
                   </T>
                 </View>
                 {error ? <T testID="jt-error" variant="caption" color={colors.danger}>{error}</T> : null}

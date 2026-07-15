@@ -28,7 +28,7 @@ import {
   EmptyState, AmountText, SkeletonCard, useToast,
 } from '../../../src/ui';
 
-type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; family_member_emails?: (string | null)[] | null; user_id?: string | null; email?: string | null };
+type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; family_member_emails?: (string | null)[] | null; family_member_user_ids?: (string | null)[] | null; user_id?: string | null; email?: string | null };
 type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
 type Expense = { id: string; amount: number; category: string; description?: string; date: string; time?: string | null; created_at?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string; shares?: ExpenseShares };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[]; members?: { id: string; name: string; net: number }[] }[] };
@@ -451,11 +451,12 @@ export default function TripDetail() {
                 );
 
                 // Family: a card that lists its members VERTICALLY (one row per member: name + email
-                // or a "No email" hint). Badges/linked account are entity-level (a family has one
-                // user_id); sub-members carry no individual claim status.
+                // or a "No email" hint). The family header carries the ENTITY linked account; each
+                // sub-member row shows a "Linked" badge when its own account is linked (Phase 25).
                 if (m.kind === 'family') {
                   const subNames = familyMemberDisplayNames(m);
                   const subEmails = m.family_member_emails || [];
+                  const subUserIds = m.family_member_user_ids || [];
                   return (
                     <Card key={m.id}>
                       <View style={styles.rowCard}>
@@ -479,6 +480,12 @@ export default function TripDetail() {
                         ) : subNames.map((nm, i) => (
                           <View key={i} testID={`member-${m.id}-sub-${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.md }}>
                             <T numberOfLines={1} style={{ flexShrink: 1, minWidth: 0 }}>{nm}</T>
+                            {subUserIds[i] ? (
+                              <Badge
+                                label={subUserIds[i] === user?.id ? 'You' : 'Linked'}
+                                color={subUserIds[i] === user?.id ? colors.textMuted : colors.success}
+                              />
+                            ) : null}
                             <T variant="caption" muted numberOfLines={1} style={{ flex: 1, textAlign: 'right', paddingRight: 2, fontStyle: subEmails[i] ? 'normal' : 'italic' }}>
                               {subEmails[i] || 'No email'}
                             </T>
