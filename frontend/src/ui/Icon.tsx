@@ -1,4 +1,5 @@
 import React from 'react';
+import { Image } from 'react-native';
 import {
   Plane, Ship, User, UserRound, Users, Home, Briefcase, Plus, PlusCircle,
   ChevronRight, ChevronLeft, ChevronDown, LogOut, Check, CircleCheck, Trash2,
@@ -75,7 +76,14 @@ const GLYPHS = {
   'eye-off': EyeOff,
 } satisfies Record<string, LucideIcon>;
 
-export type IconName = keyof typeof GLYPHS;
+// Full-color raster badges that replace a lucide glyph for a specific semantic slot. These render as an
+// <Image> filling their circular badge container (color/strokeWidth don't apply); everything else in the
+// app keeps using the vector GLYPHS above. `trip` is the custom trip-card logo (Phase: plane→image swap).
+const IMAGE_GLYPHS = {
+  trip: require('../../assets/images/trip-badge.png'),
+} as const;
+
+export type IconName = keyof typeof GLYPHS | keyof typeof IMAGE_GLYPHS;
 
 type Props = {
   name: IconName;
@@ -86,6 +94,17 @@ type Props = {
 
 export default function Icon({ name, size = 22, color, strokeWidth = ICON_STROKE }: Props) {
   const { colors } = useTheme();
-  const Glyph = GLYPHS[name];
+  if (name in IMAGE_GLYPHS) {
+    // Fills the 40px circular ListRow badge as its face, clipped to a circle. A full-color logo can't be
+    // theme-tinted, so `color`/`strokeWidth` don't apply; it looks identical in light and dark.
+    return (
+      <Image
+        source={IMAGE_GLYPHS[name as keyof typeof IMAGE_GLYPHS]}
+        style={{ width: 40, height: 40, borderRadius: 20 }}
+        resizeMode="cover"
+      />
+    );
+  }
+  const Glyph = GLYPHS[name as keyof typeof GLYPHS];
   return <Glyph size={size} color={color || colors.textMain} strokeWidth={strokeWidth} />;
 }

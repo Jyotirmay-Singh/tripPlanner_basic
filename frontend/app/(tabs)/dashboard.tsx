@@ -113,7 +113,7 @@ export default function Dashboard() {
           <ListRow
             key={t.id}
             testID={`dash-trip-${t.id}`}
-            icon="plane"
+            icon="trip"
             title={t.name}
             subtitle={`${formatTripDates(t)} · ${t.currency} · Code ${t.code}`}
             meta={compositionLabel(t.members)}
