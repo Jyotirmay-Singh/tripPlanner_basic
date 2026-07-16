@@ -77,7 +77,7 @@ export default function Trips() {
           <ListRow
             key={t.id}
             testID={`trip-item-${t.id}`}
-            icon="trip"
+            icon="briefcase"
             title={t.name}
             subtitle={`${formatTripDates(t)} · ${t.currency}${t.budget ? ` · Budget ${t.budget}` : ''}`}
             meta={`${compositionLabel(t.members)} · Code ${t.code}`}
