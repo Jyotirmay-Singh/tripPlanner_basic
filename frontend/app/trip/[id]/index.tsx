@@ -451,8 +451,8 @@ export default function TripDetail() {
                 );
 
                 // Family: a card that lists its members VERTICALLY (one row per member: name + email
-                // or a "No email" hint). The family header carries the ENTITY linked account; each
-                // sub-member row shows a "Linked" badge when its own account is linked (Phase 25).
+                // or a "No email" hint). Phase 26: a family carries no email/account of its own —
+                // identity lives on the sub-rows, where a linked member shows Owner/Admin/You/Linked.
                 if (m.kind === 'family') {
                   const subNames = familyMemberDisplayNames(m);
                   const subEmails = m.family_member_emails || [];
@@ -468,29 +468,34 @@ export default function TripDetail() {
                             <T variant="h4">{displayNames[m.id]} ({m.family_members.length})</T>
                             {badges}
                           </View>
-                          {m.email ? (
-                            <T variant="caption" muted numberOfLines={1}>Linked account · {m.email}</T>
-                          ) : null}
                         </View>
                         {manageBtn}
                       </View>
                       <View style={{ marginTop: SPACING.sm, marginLeft: 20, paddingLeft: SPACING.md, paddingRight: SPACING.xs, gap: SPACING.xs, borderLeftWidth: 2, borderLeftColor: colors.border }}>
                         {subNames.length === 0 ? (
                           <T variant="caption" muted>—</T>
-                        ) : subNames.map((nm, i) => (
+                        ) : subNames.map((nm, i) => {
+                          // Phase 26: identity lives on the member. A linked sub-member shows its
+                          // trip role (Owner/Admin, incl. the owner who is now a family member) and
+                          // whether it's you; a linked-but-plain member shows "Linked".
+                          const uid = subUserIds[i];
+                          const subRole = uid ? roleOf(trip, uid) : null;
+                          return (
                           <View key={i} testID={`member-${m.id}-sub-${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.md }}>
                             <T numberOfLines={1} style={{ flexShrink: 1, minWidth: 0 }}>{nm}</T>
-                            {subUserIds[i] ? (
-                              <Badge
-                                label={subUserIds[i] === user?.id ? 'You' : 'Linked'}
-                                color={subUserIds[i] === user?.id ? colors.textMuted : colors.success}
-                              />
+                            {subRole === 'owner' ? <Badge label="Owner" color={colors.primary} /> : null}
+                            {subRole === 'admin' ? <Badge label="Admin" color={colors.success} /> : null}
+                            {uid && uid === user?.id ? (
+                              <Badge label="You" color={colors.textMuted} />
+                            ) : uid && subRole !== 'owner' && subRole !== 'admin' ? (
+                              <Badge label="Linked" color={colors.success} />
                             ) : null}
                             <T variant="caption" muted numberOfLines={1} style={{ flex: 1, textAlign: 'right', paddingRight: 2, fontStyle: subEmails[i] ? 'normal' : 'italic' }}>
                               {subEmails[i] || 'No email'}
                             </T>
                           </View>
-                        ))}
+                          );
+                        })}
                       </View>
                     </Card>
                   );

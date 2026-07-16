@@ -66,7 +66,11 @@ export default function EditMember() {
     try {
       await api(`/trips/${id}/members/${mid}`, {
         method: 'PATCH',
-        body: { name: name.trim(), kind, family_members, family_member_ids, family_member_emails, email: email.trim() || null, reweight_past: reweightPast },
+        body: {
+          name: name.trim(), kind, family_members, family_member_ids, family_member_emails,
+          // Phase 26: only an individual carries a linked email; families are per-member.
+          email: kind === 'individual' ? (email.trim() || null) : null, reweight_past: reweightPast,
+        },
       });
       router.back();
     } catch (e: any) { toast.show(e.message || 'Could not save', 'error'); }
@@ -75,9 +79,11 @@ export default function EditMember() {
   const submit = () => {
     if (!member) return;
     if (!name.trim()) return toast.show('Name is required', 'error');
-    if (email.trim() && !isGmail(email)) return toast.show(GMAIL_ONLY_MESSAGE, 'error');
-    if (isEmailTaken(email, takenEmails)) return toast.show(DUPLICATE_EMAIL_MESSAGE, 'error');
-    if (kind === 'family') {
+    if (kind === 'individual') {
+      // Phase 26: only an individual carries a linked email; a family's emails live per-member.
+      if (email.trim() && !isGmail(email)) return toast.show(GMAIL_ONLY_MESSAGE, 'error');
+      if (isEmailTaken(email, takenEmails)) return toast.show(DUPLICATE_EMAIL_MESSAGE, 'error');
+    } else {
       const issue = familyEmailIssue(familyRows, takenEmails);
       if (issue === 'gmail') return toast.show(GMAIL_ONLY_MESSAGE, 'error');
       if (issue === 'duplicate') return toast.show(DUPLICATE_EMAIL_MESSAGE, 'error');
@@ -118,17 +124,20 @@ export default function EditMember() {
               <FamilyMembersEditor rows={familyRows} onChange={setFamilyRows} takenEmails={takenEmails} testIDPrefix="em-fam" />
             )}
 
-            <Input
-              testID="em-email"
-              label="Linked email"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              placeholder="(optional) you@gmail.com"
-              icon="mail"
-              error={emailError}
-            />
+            {/* Phase 26: only an individual carries a linked email; a family's emails are per-member. */}
+            {kind === 'individual' && (
+              <Input
+                testID="em-email"
+                label="Linked email"
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                placeholder="(optional) you@gmail.com"
+                icon="mail"
+                error={emailError}
+              />
+            )}
 
             <Button label="Save" icon="check" onPress={submit} fullWidth size="lg" testID="em-save" style={{ marginTop: SPACING.sm }} />
           </View>
