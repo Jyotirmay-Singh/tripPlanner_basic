@@ -9,6 +9,7 @@ from config import logger
 from database import client, db
 from utils.common import gen_id, now_utc
 from utils.date_rules import legacy_to_iso
+from utils.members import demote_family_entity_email
 from utils.email_rules import is_allowed_email
 from utils.security import hash_secret
 from utils.emailer import sender_mode_summary
@@ -80,6 +81,29 @@ async def lifespan(app: FastAPI):
                     ids[i] if i < len(ids) and ids[i] else gen_id() for i in range(len(names))
                 ]
                 changed = True
+        if changed:
+            await db.trips.update_one({"id": t["id"]}, {"$set": {"members": members_list}})
+
+    # Phase 26: an email now identifies a PERSON, never a family. Migrate any family still carrying an
+    # ENTITY-level email or linked account down onto a member slot (first slot whose email + account
+    # are both free), preserving the linked account's trip access. Idempotent — demote_family_entity_email
+    # returns None once a family is clean, so each family is rewritten at most once.
+    async for t in db.trips.find({"members.kind": "family"}, {"id": 1, "members": 1}):
+        members_list = t.get("members", [])
+        changed = False
+        for i, m in enumerate(members_list):
+            if m.get("kind") != "family":
+                continue
+            demoted = demote_family_entity_email(m)
+            if demoted is not None:
+                members_list[i] = demoted
+                changed = True
+            elif m.get("email") or m.get("user_id"):
+                logger.warning(
+                    "Phase 26 migration: family '%s' in trip %s carries a leftover entity "
+                    "email/account but has no free member slot; left unchanged.",
+                    m.get("name"), t["id"],
+                )
         if changed:
             await db.trips.update_one({"id": t["id"]}, {"$set": {"members": members_list}})
 

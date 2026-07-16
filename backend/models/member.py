@@ -12,13 +12,15 @@ class MemberIn(BaseModel):
     # list is omitted the server mints all. Used by per-expense `family_participants` so intra-family
     # participation survives roster edits.
     family_member_ids: Optional[List[Optional[str]]] = None
-    # Optional per-member emails, parallel (same order/length) to family_members. CONTACT-ONLY:
-    # display + trip-wide uniqueness; NOT a join-claim target (only the entity `email` below is).
-    # Absent/legacy => all None ("no email"). Balance-neutral (the split engine ignores emails).
+    # Optional per-member emails, parallel (same order/length) to family_members. As of Phase 25 a
+    # sub-member email IS a join-claim target: a joiner whose own Gmail matches it links their account
+    # to that member (see the SERVER-MANAGED `family_member_user_ids` parallel array on the stored doc,
+    # written only by the join/claim flow — NOT accepted here, so an admin can't stamp someone else's
+    # account onto a member). Trip-wide unique; balance-neutral (the split engine ignores emails).
     family_member_emails: Optional[List[Optional[str]]] = None
     email: Optional[EmailStr] = Field(
         default=None, validation_alias=AliasChoices("email", "linked_email")
-    )  # optional email to auto-link an app user
+    )  # optional email to auto-link an app user (the family ENTITY's linked account)
 
     @field_validator("name")
     @classmethod

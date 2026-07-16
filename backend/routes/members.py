@@ -9,6 +9,7 @@ from utils.email_rules import assert_gmail, normalize_email
 from utils.members import (
     assert_unique_email_in_trip, assign_family_member_ids,
     align_family_member_emails, assert_unique_family_member_emails,
+    align_family_member_user_ids,
 )
 from utils.settlement_gate import (
     is_settled, entity_net, family_member_net, unsettled_family_members,
@@ -66,7 +67,11 @@ async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user
         # Stable ids parallel to family_members (used by per-expense family_participants).
         "family_member_ids": assign_family_member_ids(fam_names, body.family_member_ids) if body.kind == "family" else [],
         "family_member_emails": fam_emails,
-        "email": email, "user_id": None,
+        # Per-member linked-account slots (Phase 25), server-managed; all unclaimed on creation.
+        "family_member_user_ids": [None] * len(fam_names),
+        # Phase 26: a family never carries an entity email — emails identify a PERSON (an individual
+        # member, or a specific family sub-member via family_member_emails). Individuals keep theirs.
+        "email": None if body.kind == "family" else email, "user_id": None,
     }
     # If a user already in the trip has this email AND currently exists as an individual,
     # convert that individual into this family IN-PLACE (preserves member.id so all past
@@ -83,7 +88,12 @@ async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user
                     merge_target.get("family_member_ids"),
                 ),
                 "members.$.family_member_emails": fam_emails,
-                "members.$.email": email,
+                # New family roster from an ex-individual: all sub slots start unclaimed (the entity's
+                # own user_id — the merge target — is preserved untouched, and demoted onto a member
+                # slot by the Phase-26 startup migration).
+                "members.$.family_member_user_ids": [None] * len(body.family_members),
+                # Phase 26: the resulting family carries NO entity email.
+                "members.$.email": None,
             }},
         )
         t = await db.trips.find_one({"id": trip_id}, {"_id": 0})
@@ -114,14 +124,23 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
     # Family->individual conversion is unaffected (the guard only fires when the RESULT is a family).
     if new_kind == "family" and not new_fm:
         raise HTTPException(400, "A family must have at least one member.")
+    new_ids: list = []
+    vanished_uids: set = set()
     if body.family_members is not None or body.kind is not None:
         updates["members.$.family_members"] = new_fm
         # Keep stable ids parallel to the roster: preserve ids for retained rows (the editor sends
         # them), mint for new rows, and clear ids when this stops being a family.
-        updates["members.$.family_member_ids"] = (
+        new_ids = (
             assign_family_member_ids(new_fm, body.family_member_ids, target.get("family_member_ids"))
             if new_kind == "family" else []
         )
+        updates["members.$.family_member_ids"] = new_ids
+        # Per-member linked accounts (Phase 25, server-managed): carry each surviving member's linked
+        # user_id forward by stable id; a dropped claimed member's uid VANISHES and is evicted below.
+        aligned_uids, vanished_uids = align_family_member_user_ids(
+            new_ids, target.get("family_member_ids"), target.get("family_member_user_ids")
+        )
+        updates["members.$.family_member_user_ids"] = aligned_uids
     # Per-member contact emails: recompute when the roster changes OR emails are explicitly sent;
     # a name/id-only edit preserves existing ones (align falls back positionally). Cleared to []
     # when the member stops being a family, parallel to family_member_ids.
@@ -132,7 +151,12 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
         )
         await _validate_family_member_emails(trip, fam_emails, exclude_id=member_id)
         updates["members.$.family_member_emails"] = fam_emails
-    if body.email is not None:
+    if new_kind == "family":
+        # Phase 26: a family never carries an entity email — emails identify a PERSON (an individual
+        # member, or a specific family sub-member via family_member_emails). Force it null whether the
+        # member is newly a family (individual->family conversion) or already one, regardless of body.
+        updates["members.$.email"] = None
+    elif body.email is not None:
         em = normalize_email(body.email)
         if em:
             assert_gmail(em)
@@ -150,6 +174,14 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
         trip_id, member_id, updates, old_weight, new_weight,
         reweight_past=(body.reweight_past is not False),
     )
+    if vanished_uids:
+        # A previously-linked sub-member this edit dropped loses trip access + admin rights (parallel
+        # to whole-member removal's eviction). Balance-neutral — the member doc is already rewritten.
+        await db.trips.update_one(
+            {"id": trip_id},
+            {"$pull": {"user_ids": {"$in": list(vanished_uids)},
+                       "admin_ids": {"$in": list(vanished_uids)}}},
+        )
     t = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     return next((m for m in t["members"] if m["id"] == member_id), None)
 
@@ -193,7 +225,12 @@ async def delete_member(trip_id: str, member_id: str, user=Depends(get_current_u
         return {"ok": True}
     # The owner's member row is the trip root and cannot be removed by anyone — not a promoted
     # admin, nor the owner themselves (mirrors remove_admin's "Cannot remove the root admin").
-    if target.get("user_id") and target["user_id"] == trip.get("owner_id"):
+    # Phase 26: the owner may now be linked to a family SUB-member (their account in
+    # family_member_user_ids, entity user_id None), so check the member's WHOLE uid set — otherwise a
+    # whole-family delete could remove the family the owner belongs to.
+    owner_id = trip.get("owner_id")
+    member_uids = {target.get("user_id"), *(target.get("family_member_user_ids") or [])}
+    if owner_id and owner_id in member_uids:
         raise HTTPException(403, "Cannot remove the trip owner")
 
     reason = await _settlement_block_reason(trip_id, target)
@@ -207,9 +244,12 @@ async def delete_member(trip_id: str, member_id: str, user=Depends(get_current_u
         if again:
             raise HTTPException(409, again)
 
+    # Evict every app user linked to this member: the entity's own user_id AND any per-member linked
+    # sub-members (Phase 25) — otherwise a removed family's linked members keep ghost trip access.
+    linked_uids = [target.get("user_id"), *(target.get("family_member_user_ids") or [])]
     await freeze_and_remove_member(
         trip_id, member_id, _weight_of_member(target),
-        user_id=target.get("user_id"), verify=_verify,
+        user_ids=linked_uids, verify=_verify,
     )
     return {"ok": True}
 
@@ -252,16 +292,33 @@ async def delete_family_member(trip_id: str, family_id: str, fm_id: str,
     # Drop the removed member's parallel contact email (align pads to names first, then removes idx).
     fam_emails = align_family_member_emails(names, existing=family.get("family_member_emails"))
     new_emails = [e for i, e in enumerate(fam_emails) if i != idx]
+    # Drop the removed member's parallel linked-account slot (Phase 25); if it was claimed, evict that
+    # app user's trip access below (parallel to whole-member removal).
+    fam_user_ids, _ = align_family_member_user_ids(
+        ids, family.get("family_member_ids"), family.get("family_member_user_ids")
+    )
+    removed_uid = fam_user_ids[idx] if idx < len(fam_user_ids) else None
+    # Phase 26: the owner may be linked to a family SUB-member slot; that slot is the trip root and
+    # can't be removed (mirrors the whole-member owner guard in delete_member).
+    if removed_uid and removed_uid == trip.get("owner_id"):
+        raise HTTPException(403, "Cannot remove the trip owner")
+    new_user_ids = [u for i, u in enumerate(fam_user_ids) if i != idx]
     old_weight = _weight_of_member(family)
     new_weight = _weight_of_member({**family, "family_members": new_names})
     updates = {
         "members.$.family_members": new_names,
         "members.$.family_member_ids": new_ids,
         "members.$.family_member_emails": new_emails,
+        "members.$.family_member_user_ids": new_user_ids,
     }
     await run_member_update_with_reallocation(
         trip_id, family_id, updates, old_weight, new_weight, reweight_past=False,
     )
+    if removed_uid:
+        await db.trips.update_one(
+            {"id": trip_id},
+            {"$pull": {"user_ids": removed_uid, "admin_ids": removed_uid}},
+        )
     t = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     updated = next((m for m in t["members"] if m["id"] == family_id), None)
     # P5: consistent shape with delete_member ({"ok": True}); the family survives, so also return it.

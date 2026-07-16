@@ -36,10 +36,12 @@ class TestJoin:
         return resp.json()
 
     def _add_member(self, api_client, token, trip_id, name, kind="family",
-                    family_members=None, email=None):
+                    family_members=None, email=None, family_member_emails=None):
         body = {"name": name, "kind": kind, "family_members": family_members or []}
         if email is not None:
             body["email"] = email
+        if family_member_emails is not None:
+            body["family_member_emails"] = family_member_emails
         resp = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/members", json=body,
                                headers=_auth(token))
         assert resp.status_code == 200, resp.text
@@ -72,17 +74,24 @@ class TestJoin:
         assert fam["size"] == 2
         assert fam["linked"] is False
 
-    def test_preview_matched_family_by_email(self, api_client, test_user):
+    def test_preview_matched_family_member_by_email(self, api_client, test_user):
+        # Phase 26: a family carries no entity email; a joiner whose Gmail matches a MEMBER's email
+        # gets a per-member (claim-only) match. The legacy family-only `matched_family` stays null.
         trip = self._create_trip(api_client, test_user["token"])
         joiner = self._register(api_client)
         fam = self._add_member(api_client, test_user["token"], trip["id"],
-                               "TEST_Fam Email", family_members=["Kid"], email=joiner["email"])
+                               "TEST_Fam Email", family_members=["Kid"],
+                               family_member_emails=[joiner["email"]])
         resp = self._preview(api_client, joiner["token"], trip["code"])
         assert resp.status_code == 200, resp.text
         data = resp.json()
-        assert data["matched_family"] is not None
-        assert data["matched_family"]["id"] == fam["id"]
-        assert data["matched_family"]["name"] == "TEST_Fam Email"
+        assert data["matched_family"] is None
+        m = data["match"]
+        assert m is not None
+        assert m["member_type"] == "family_member"
+        assert m["member_id"] == fam["id"]
+        assert m["family_id"] == fam["id"]
+        assert m["family_member_id"] == fam["family_member_ids"][0]
 
     def test_preview_no_match_returns_null(self, api_client, test_user):
         trip = self._create_trip(api_client, test_user["token"])
@@ -137,15 +146,15 @@ class TestJoin:
         # produces a duplicate (the previous test_join_individual_does_not_autolink behavior).
         trip = self._create_trip(api_client, test_user["token"])
         joiner = self._register(api_client, name="Independent")
-        fam = self._add_member(api_client, test_user["token"], trip["id"],
-                               "TEST_Fam Tempting", family_members=["K"], email=joiner["email"])
+        stub = self._add_member(api_client, test_user["token"], trip["id"],
+                                "TEST_Solo Tempting", kind="individual", email=joiner["email"])
         resp = self._join(api_client, joiner["token"], {"code": trip["code"], "mode": "individual"})
         assert resp.status_code == 409, resp.text
         # Nothing changed: the stub is untouched and the joiner was not added.
         trip_now = api_client.get(f"{BASE_URL}/api/trips/{trip['id']}",
                                   headers=_auth(test_user["token"])).json()
-        target_fam = next(m for m in trip_now["members"] if m["id"] == fam["id"])
-        assert target_fam.get("user_id") is None
+        target = next(m for m in trip_now["members"] if m["id"] == stub["id"])
+        assert target.get("user_id") is None
         assert joiner["id"] not in trip_now["user_ids"]
         # The joiner can then explicitly join as a new individual, which removes the clean stub.
         retry = self._join(api_client, joiner["token"],
@@ -158,7 +167,7 @@ class TestJoin:
         with_email = [m for m in data["members"]
                       if (m.get("email") or "").lower() == joiner["email"].lower()]
         assert len(with_email) == 1
-        assert fam["id"] not in {m["id"] for m in data["members"]}
+        assert stub["id"] not in {m["id"] for m in data["members"]}
 
     def test_join_individual_duplicate_name_allowed(self, api_client, test_user):
         # Duplicate names are accepted; the joiner keeps their plain name (no stored mutation).
@@ -281,16 +290,18 @@ class TestJoin:
         assert resp.status_code == 400, resp.text
 
     # ===================== LEGACY / GENERAL =====================
-    def test_join_legacy_autolinks_family(self, api_client, test_user):
+    def test_join_legacy_autolinks_own_stub(self, api_client, test_user):
+        # A legacy join (no mode) auto-claims the caller's own-email stub (Phase 26: entity emails
+        # live on individuals; family sub-member linking goes through the explicit claim flow).
         trip = self._create_trip(api_client, test_user["token"])
         joiner = self._register(api_client)
-        fam = self._add_member(api_client, test_user["token"], trip["id"],
-                               "TEST_Legacy Fam", family_members=["G1"], email=joiner["email"])
+        stub = self._add_member(api_client, test_user["token"], trip["id"],
+                                "TEST_Legacy Solo", kind="individual", email=joiner["email"])
         resp = self._join(api_client, joiner["token"], {"code": trip["code"]})  # no mode
         assert resp.status_code == 200, resp.text
         data = resp.json()
         assert len(data["members"]) == 2  # linked, no new member
-        linked = next(m for m in data["members"] if m["id"] == fam["id"])
+        linked = next(m for m in data["members"] if m["id"] == stub["id"])
         assert linked["user_id"] == joiner["id"]
 
     def test_join_legacy_adds_individual(self, api_client, test_user):

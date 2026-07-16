@@ -28,7 +28,7 @@ import {
   EmptyState, AmountText, SkeletonCard, useToast,
 } from '../../../src/ui';
 
-type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; family_member_emails?: (string | null)[] | null; user_id?: string | null; email?: string | null };
+type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; family_member_emails?: (string | null)[] | null; family_member_user_ids?: (string | null)[] | null; user_id?: string | null; email?: string | null };
 type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
 type Expense = { id: string; amount: number; category: string; description?: string; date: string; time?: string | null; created_at?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string; shares?: ExpenseShares };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[]; members?: { id: string; name: string; net: number }[] }[] };
@@ -451,11 +451,12 @@ export default function TripDetail() {
                 );
 
                 // Family: a card that lists its members VERTICALLY (one row per member: name + email
-                // or a "No email" hint). Badges/linked account are entity-level (a family has one
-                // user_id); sub-members carry no individual claim status.
+                // or a "No email" hint). Phase 26: a family carries no email/account of its own —
+                // identity lives on the sub-rows, where a linked member shows Owner/Admin/You/Linked.
                 if (m.kind === 'family') {
                   const subNames = familyMemberDisplayNames(m);
                   const subEmails = m.family_member_emails || [];
+                  const subUserIds = m.family_member_user_ids || [];
                   return (
                     <Card key={m.id}>
                       <View style={styles.rowCard}>
@@ -467,23 +468,34 @@ export default function TripDetail() {
                             <T variant="h4">{displayNames[m.id]} ({m.family_members.length})</T>
                             {badges}
                           </View>
-                          {m.email ? (
-                            <T variant="caption" muted numberOfLines={1}>Linked account · {m.email}</T>
-                          ) : null}
                         </View>
                         {manageBtn}
                       </View>
                       <View style={{ marginTop: SPACING.sm, marginLeft: 20, paddingLeft: SPACING.md, paddingRight: SPACING.xs, gap: SPACING.xs, borderLeftWidth: 2, borderLeftColor: colors.border }}>
                         {subNames.length === 0 ? (
                           <T variant="caption" muted>—</T>
-                        ) : subNames.map((nm, i) => (
+                        ) : subNames.map((nm, i) => {
+                          // Phase 26: identity lives on the member. A linked sub-member shows its
+                          // trip role (Owner/Admin, incl. the owner who is now a family member) and
+                          // whether it's you; a linked-but-plain member shows "Linked".
+                          const uid = subUserIds[i];
+                          const subRole = uid ? roleOf(trip, uid) : null;
+                          return (
                           <View key={i} testID={`member-${m.id}-sub-${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.md }}>
                             <T numberOfLines={1} style={{ flexShrink: 1, minWidth: 0 }}>{nm}</T>
+                            {subRole === 'owner' ? <Badge label="Owner" color={colors.primary} /> : null}
+                            {subRole === 'admin' ? <Badge label="Admin" color={colors.success} /> : null}
+                            {uid && uid === user?.id ? (
+                              <Badge label="You" color={colors.textMuted} />
+                            ) : uid && subRole !== 'owner' && subRole !== 'admin' ? (
+                              <Badge label="Linked" color={colors.success} />
+                            ) : null}
                             <T variant="caption" muted numberOfLines={1} style={{ flex: 1, textAlign: 'right', paddingRight: 2, fontStyle: subEmails[i] ? 'normal' : 'italic' }}>
                               {subEmails[i] || 'No email'}
                             </T>
                           </View>
-                        ))}
+                          );
+                        })}
                       </View>
                     </Card>
                   );

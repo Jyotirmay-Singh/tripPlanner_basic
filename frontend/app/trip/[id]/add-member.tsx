@@ -42,9 +42,11 @@ export default function AddMember() {
     const { family_members, family_member_ids, family_member_emails } = kind === 'family'
       ? rowsToPayload(familyRows) : { family_members: [], family_member_ids: [], family_member_emails: [] };
     if (kind === 'family' && family_members.length === 0) return toast.show('Add at least one family member name', 'error');
-    if (email.trim() && !isGmail(email)) return toast.show(GMAIL_ONLY_MESSAGE, 'error');
-    if (isEmailTaken(email, takenEmails)) return toast.show(DUPLICATE_EMAIL_MESSAGE, 'error');
-    if (kind === 'family') {
+    if (kind === 'individual') {
+      // Phase 26: only an individual carries a linked email; a family's emails live per-member.
+      if (email.trim() && !isGmail(email)) return toast.show(GMAIL_ONLY_MESSAGE, 'error');
+      if (isEmailTaken(email, takenEmails)) return toast.show(DUPLICATE_EMAIL_MESSAGE, 'error');
+    } else {
       const issue = familyEmailIssue(familyRows, takenEmails);
       if (issue === 'gmail') return toast.show(GMAIL_ONLY_MESSAGE, 'error');
       if (issue === 'duplicate') return toast.show(DUPLICATE_EMAIL_MESSAGE, 'error');
@@ -53,7 +55,10 @@ export default function AddMember() {
     try {
       await api(`/trips/${id}/members`, {
         method: 'POST',
-        body: { name: name.trim(), kind, family_members, family_member_ids, family_member_emails, email: email.trim() || null },
+        body: {
+          name: name.trim(), kind, family_members, family_member_ids, family_member_emails,
+          email: kind === 'individual' ? (email.trim() || null) : null,
+        },
       });
       router.back();
     } catch (e: any) { toast.show(e.message || 'Could not add member', 'error'); }
@@ -86,18 +91,21 @@ export default function AddMember() {
               <FamilyMembersEditor rows={familyRows} onChange={setFamilyRows} takenEmails={takenEmails} testIDPrefix="mem-fam" />
             )}
 
-            <Input
-              testID="mem-email"
-              label="Linked email (optional)"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              placeholder="family@gmail.com"
-              icon="mail"
-              error={emailError}
-              helper={`If this email belongs to an app user, they'll be linked to this ${kind === 'family' ? 'family' : 'member'} when they join.`}
-            />
+            {/* Phase 26: only an individual carries a linked email; a family's emails are per-member. */}
+            {kind === 'individual' && (
+              <Input
+                testID="mem-email"
+                label="Linked email (optional)"
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                placeholder="member@gmail.com"
+                icon="mail"
+                error={emailError}
+                helper="If this email belongs to an app user, they'll be linked to this member when they join."
+              />
+            )}
 
             <Button label="Add member" icon="plus" onPress={submit} loading={saving} fullWidth size="lg" testID="mem-submit" style={{ marginTop: SPACING.sm }} />
           </View>

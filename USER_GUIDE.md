@@ -46,6 +46,10 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
    - **Travel date** (DD-MM-YY) — required
    - **Budget** (optional) — used for the over-budget warning
    - **Currency** — INR by default; swipe horizontally to pick another
+   - **Who are you on this trip?** — choose **I'm an individual** (default) or **I'm in a family**.
+     If you pick *family*, enter the **family name**, add a row per member (your name is pre-filled on
+     the first row), and tap **"This is me"** on your own row. Your login email + account attach to
+     that one member; the family itself never has an email of its own.
 3. Tap **Create trip**. You're taken to the trip page; a unique **6-character trip code** is generated (e.g. `AX27R9`).
 
 ### 3.2 Share & let others join
@@ -74,20 +78,28 @@ A "member" can be **one individual** or **a family group** (the family is split 
 ### 4.1 Add a member
 1. Open the trip → **Members** tab → **Add member or family**.
 2. Choose **Individual** or **Family**.
-3. For **Family**: enter the family name (e.g. *Sharma*) and add one row per member (e.g. *Arjun, Priya, Rohan*). Each family member can optionally carry **their own email** — see below.
-4. **Linked email** (optional): if you enter an email on the member (or on the family), the next time the owner of that email **joins the trip via code**, they're automatically linked to this member entry. **This is how you avoid counting one person twice.** See §4.3. *(Only the family's linked email is used for join-matching; per-member emails are contact details.)*
+3. For **Family**: enter the family name (e.g. *Sharma*) and add one row per member (e.g. *Arjun, Priya, Rohan*). Each family member can optionally carry **their own email** — see below. A family itself has **no email** — only people do.
+4. **Linked email** (optional, individuals only): if you enter an email on an **individual** member, the next time the owner of that email **joins the trip via code**, they're automatically linked to that entry. Inside a **family**, the same happens per member via each member's own email. **This is how you avoid counting one person twice.** See §4.3.
 5. Tap **Add member**.
 
-> **Per-member emails.** Inside a family, each member row has an optional email field. Every email
-> (family or individual) must be a **@gmail.com** address and must be **unique across the whole trip**
-> — you can't reuse the same email on two members, two families, or a member and an individual.
-> Adding or changing an email **never** affects any balance, split, settlement, payment, or report.
+> **Emails belong to people, not families.** An email identifies a *person* — a standalone individual
+> or **one specific member inside a family**. A family group never has an email of its own. Inside a
+> family, each member row has an optional email field. Every email must be a **@gmail.com** address and
+> must be **unique across the whole trip** — you can't reuse the same email on two members, two
+> families, or a member and an individual. When an app user **joins with a Gmail that matches one
+> member's email**, their account is linked to **that specific member** — so several members of one
+> family can each join with their own account and appear with a **"Linked"** (or **You/Owner/Admin**)
+> badge on the Members tab. (Only an admin sets the emails; the app never lets you type someone else's
+> account onto a member.) Adding, changing, or linking an email **never** affects any balance, split,
+> settlement, payment, or report.
 
 ### 4.2 Edit a member
 - In the **Members** tab tap the **⋮** on the member row → **Edit member & family details**.
-- You can change the name, kind, family members, each member's email, and the family linked email.
+- You can change the name, kind, family members, and each member's email. The **Linked email** field
+  appears only for an **individual** — a family has no email of its own, so its members' emails live on
+  the member rows instead.
 - On the Members tab a family is shown as a card that lists its members **vertically**, each with its
-  own email (or a *No email* hint).
+  own email (or a *No email* hint) and — for a linked member — an **Owner / Admin / You / Linked** badge.
 - **When you change the number of family members**, the app will ask:
   - **"Keep original split"** → past expenses keep their old per-person weight (recommended if those people already paid up).
   - **"Re-split with new members"** → past expenses are recomputed with the new family size.
@@ -95,13 +107,18 @@ A "member" can be **one individual** or **a family group** (the family is split 
 ### 4.3 Avoiding double-counting yourself
 **One gmail = one person per trip.** A given email can belong to at most one person on a trip —
 across standalone individuals, family entries, and joined app users.
-- If you're already a member of the trip and a family is later added with **your email**, the app
-  **converts your existing individual entry into the family in place** — same ID, no duplicate. The
-  trip page's **Summary** tab shows a **"You" card** confirming which member you are.
+- If you created the trip as **a member of a family** (§3.1 *"This is me"*), your account is already
+  attached to that member — there's nothing to reconcile. The trip page's **Summary** tab shows a
+  **"You" card** confirming which member you are.
 - If an admin added a placeholder for your email **before** you join, the Join wizard's identity
   step (§3.2) reconciles it: you **take over** that profile (keeping its expenses) or, when it's
   empty, **join as someone new** and the placeholder is removed. Either way you never end up listed
   twice.
+- If your email was added to a **member inside a family**, the Join wizard offers to **link you to
+  that member** — you become that specific person within the family (a **"Linked"** badge appears on
+  the Members tab), while everyone else in the family is unaffected. Because a given email belongs to
+  one person, this is the only join option in that case (there's nothing to remove). Linking, like
+  everything about emails, leaves all balances unchanged.
 
 ### 4.4 Delete a member
 - Tap the **🗑 trash** on the member row.
