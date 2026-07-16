@@ -33,10 +33,12 @@ class _Base:
         return resp.json()
 
     def _add_member(self, api_client, token, trip_id, name, kind="individual",
-                    family_members=None, email=None):
+                    family_members=None, email=None, family_member_emails=None):
         body = {"name": name, "kind": kind, "family_members": family_members or []}
         if email is not None:
             body["email"] = email
+        if family_member_emails is not None:
+            body["family_member_emails"] = family_member_emails
         resp = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/members", json=body,
                                headers=_auth(token))
         assert resp.status_code == 200, resp.text
@@ -93,20 +95,22 @@ class TestPreviewMatch(_Base):
         # individual stub does NOT populate the legacy family-only field
         assert data["matched_family"] is None
 
-    def test_match_family_stub_backcompat(self, api_client, test_user):
+    def test_match_family_member_stub(self, api_client, test_user):
+        # Phase 26: a family carries no entity email; the joiner's Gmail matches a MEMBER's email, so
+        # preview surfaces a per-member (claim-only) match. The legacy `matched_family` stays null.
         trip = self._create_trip(api_client, test_user["token"])
         joiner = self._register(api_client)
         fam = self._add_member(api_client, test_user["token"], trip["id"],
                                "TEST_Stub Fam", kind="family", family_members=["Kid"],
-                               email=joiner["email"])
+                               family_member_emails=[joiner["email"]])
         data = self._preview(api_client, joiner["token"], trip["code"]).json()
         m = data["match"]
-        assert m["member_type"] == "family"
+        assert m["member_type"] == "family_member"
         assert m["member_id"] == fam["id"]
         assert m["family_id"] == fam["id"]
         assert m["family_name"] == "TEST_Stub Fam"
-        # legacy field still populated for a family match
-        assert data["matched_family"] == {"id": fam["id"], "name": "TEST_Stub Fam"}
+        assert m["family_member_id"] == fam["family_member_ids"][0]
+        assert data["matched_family"] is None
 
     def test_match_history_via_expense(self, api_client, test_user):
         trip = self._create_trip(api_client, test_user["token"])
@@ -162,22 +166,27 @@ class TestClaim(_Base):
         assert joiner["id"] in data["user_ids"]
         assert len(data["members"]) == before  # no new member created
 
-    def test_claim_family_size_and_balances_unchanged(self, api_client, test_user):
+    def test_claim_family_member_size_and_balances_unchanged(self, api_client, test_user):
+        # Phase 26: linking to a family goes through the per-member slot; the family's size and the
+        # ledger stay byte-identical (the split engine never reads emails/user_ids).
         trip = self._create_trip(api_client, test_user["token"])
         joiner = self._register(api_client)
         owner_id = trip["members"][0]["id"]
         fam = self._add_member(api_client, test_user["token"], trip["id"],
                                "TEST_Claim Fam", kind="family",
-                               family_members=["A", "B", "C"], email=joiner["email"])
+                               family_members=["A", "B", "C"],
+                               family_member_emails=[joiner["email"], None, None])
         # give the family a real balance so "no recalc" is meaningful
         self._add_expense(api_client, test_user["token"], trip["id"],
                           paid_by=owner_id, split=[owner_id, fam["id"]])
         before_bal = _financials(self._balances(api_client, test_user["token"], trip["id"]))
         resp = self._join(api_client, joiner["token"],
-                          {"code": trip["code"], "action": "claim", "member_id": fam["id"]})
+                          {"code": trip["code"], "action": "claim", "member_id": fam["id"],
+                           "family_member_id": fam["family_member_ids"][0]})
         assert resp.status_code == 200, resp.text
         claimed = next(m for m in resp.json()["members"] if m["id"] == fam["id"])
-        assert claimed["user_id"] == joiner["id"]
+        assert claimed["family_member_user_ids"][0] == joiner["id"]  # the member slot is linked
+        assert claimed.get("user_id") in (None, "")  # entity itself never claimed
         assert claimed["family_members"] == ["A", "B", "C"]  # size unchanged
         after_bal = _financials(self._balances(api_client, test_user["token"], trip["id"]))
         assert after_bal == before_bal  # no retroactive recalculation
@@ -303,19 +312,20 @@ class TestJoinNew(_Base):
         members = self._get_trip(api_client, test_user["token"], trip["id"])["members"]
         assert stub["id"] in {m["id"] for m in members}
 
-    def test_family_history_forces_claim(self, api_client, test_user):
-        # A stub whose FAMILY entity is referenced by an expense also forces claim.
+    def test_family_member_email_forces_claim(self, api_client, test_user):
+        # Phase 26: a joiner whose Gmail sits on a family MEMBER's slot can't join as a new individual
+        # (the one-email invariant blocks it) — they must claim that member instead.
         trip = self._create_trip(api_client, test_user["token"])
         joiner = self._register(api_client)
         owner_id = trip["members"][0]["id"]
         fam = self._add_member(api_client, test_user["token"], trip["id"],
                                "TEST_JN FamHist", kind="family", family_members=["A", "B"],
-                               email=joiner["email"])
+                               family_member_emails=[joiner["email"], None])
         self._add_expense(api_client, test_user["token"], trip["id"],
                           paid_by=owner_id, split=[owner_id, fam["id"]])
         resp = self._join(api_client, joiner["token"],
                           {"code": trip["code"], "action": "join_new", "mode": "individual"})
-        assert resp.status_code == 409, resp.text
+        assert resp.status_code == 400, resp.text
 
     def test_settlement_only_history_forces_claim(self, api_client, test_user):
         trip = self._create_trip(api_client, test_user["token"])
@@ -377,31 +387,32 @@ class TestCreationUniqueness(_Base):
                                     kind="individual", email=email)
         assert resp.status_code == 400, resp.text
 
-    def test_individual_vs_family_entity_email_400(self, api_client, test_user):
+    def test_individual_vs_family_member_email_400(self, api_client, test_user):
+        # Phase 26: a family's emails live on its MEMBERS; a member email still occupies the
+        # trip-wide one-email space, so an individual can't reuse it.
         trip = self._create_trip(api_client, test_user["token"])
         email = f"dup_{uuid.uuid4().hex[:8]}@gmail.com"
         self._add_member(api_client, test_user["token"], trip["id"], "TEST_Fam",
-                         kind="family", family_members=["K"], email=email)
+                         kind="family", family_members=["K"], family_member_emails=[email])
         resp = self._add_member_raw(api_client, test_user["token"], trip["id"], "TEST_Solo",
                                     kind="individual", email=email)
         assert resp.status_code == 400, resp.text
 
-    def test_rejects_claimed_account_email_not_on_member_row(self, api_client, test_user):
-        # The Phase 11 core fix: an email that belongs to a CLAIMED app user but is NOT stamped
-        # on any member.email (joined a family that already had a different email) must still be
-        # rejected. The legacy member-doc-only check missed this.
+    def test_rejects_reuse_of_a_claimed_members_email(self, api_client, test_user):
+        # The one-email invariant holds across a CLAIMED account: once a joiner has linked to a
+        # family member via their Gmail (Phase 25 per-member claim), an admin can't create another
+        # member reusing that email. (Phase 26: the family carries no entity email — the joiner's
+        # email lives on the member slot, and the guard covers the whole family's uid set.)
         trip = self._create_trip(api_client, test_user["token"])
         joiner = self._register(api_client)
-        ghost = f"ghost_{uuid.uuid4().hex[:8]}@gmail.com"
         fam = self._add_member(api_client, test_user["token"], trip["id"], "TEST_Ghost Fam",
-                               kind="family", family_members=["G"], email=ghost)
-        # joiner links into the family; mode=family does NOT stamp (family already has `ghost`)
+                               kind="family", family_members=["G"],
+                               family_member_emails=[joiner["email"]])
         link = self._join(api_client, joiner["token"],
-                          {"code": trip["code"], "mode": "family", "family_id": fam["id"]})
+                          {"code": trip["code"], "action": "claim", "member_id": fam["id"],
+                           "family_member_id": fam["family_member_ids"][0]})
         assert link.status_code == 200, link.text
-        linked = next(m for m in link.json()["members"] if m["id"] == fam["id"])
-        assert (linked.get("email") or "").lower() == ghost  # account email NOT stamped
-        # now an admin cannot create a member with the joiner's account email
+        # the claimed account's email cannot be reused for a new individual member
         resp = self._add_member_raw(api_client, test_user["token"], trip["id"], "TEST_Clash",
                                     kind="individual", email=joiner["email"])
         assert resp.status_code == 400, resp.text

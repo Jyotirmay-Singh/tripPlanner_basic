@@ -112,7 +112,7 @@ C) Exact-Amount Split (`split_mode = "EXACT"`, Phase 22)
 - **The one hard rule (two-layer save-gate).** An EXACT expense cannot be saved unless Σ amounts == total. Enforced in BOTH: (a) frontend — the Save button is disabled and a live reconciliation bar shows Assigned/Remaining until it balances (`src/exactSplit.ts` + `src/ExactSplitEditor.tsx`); (b) backend (source of truth) — `routes/expenses.py` create + edit call `custom_split.validate_exact_amounts` and reject a mismatch with **HTTP 422**. Frontend and backend snap logic are pinned together by `shared/exact-split-vectors.json`.
 - Reports display EXACT (`_MODE_LABELS["EXACT"]="Exact"`) with no forked math — the Split Math and exploded Transactions tabs + PDF reuse `entity_shares_raw` / `exact_member_shares`.
 
-App User Identity Mapping: If an App User joins an existing family group via code, they retain their unique App User ID identity for login/auth operations, but are mathematically treated as an integrated member of that family unit during the cost allocations above. As of Phase 25 an App User may be linked to a SPECIFIC family sub-member (their own Gmail on that member's `family_member_emails` slot ⇒ `family_member_user_ids` slot on join/claim), so several members of one family can each carry their own account; this linkage is contact/identity only and NEVER changes any cost allocation (the split engine ignores emails and user_ids).
+App User Identity Mapping: If an App User joins an existing family group via code, they retain their unique App User ID identity for login/auth operations, but are mathematically treated as an integrated member of that family unit during the cost allocations above. As of Phase 25 an App User may be linked to a SPECIFIC family sub-member (their own Gmail on that member's `family_member_emails` slot ⇒ `family_member_user_ids` slot on join/claim), so several members of one family can each carry their own account; this linkage is contact/identity only and NEVER changes any cost allocation (the split engine ignores emails and user_ids). As of Phase 26 an email identifies a PERSON only — a standalone individual or ONE family sub-member — so a family entity carries NO `email`/`user_id` of its own (forced null on create/add/update, and demoted onto a member slot for legacy families by an idempotent startup migration `utils/members.demote_family_entity_email`). A trip creator declares their own identity at creation (`TripIn.self_kind`): a standalone individual (default) or ONE member of a family they set up (`family_name`/`family_members`/`self_index`), whereupon their login email + account attach to that member slot. Joining therefore always links to a specific member; the entity-email claim path is retired for new families.
 
 ---
 
@@ -507,3 +507,41 @@ sub-member path is ADDED alongside it. One-Gmail-per-trip invariant preserved.)*
       403, join-as-new blocked, edit round-trip preserves link, member-delete + whole-family removal
       evict linked accounts) green; Phase-11 identity + uniqueness + balances/reports regression
       byte-identical. Frontend jest/tsc/eslint green. Docs (this checklist + USER_GUIDE §4.3).
+
+### Phase 26: Emails Identify a Person, Not a Family (+ creator identity at trip creation)
+*(Builds on Phase 24/25. DECISION: an email now identifies a PERSON only — a standalone individual or
+ONE specific family sub-member (`family_member_emails` slot) — NEVER a family unit. A family entity
+carries no `email`/`user_id` of its own. Joining always links to a specific member (Phase-25 per-member
+claim); the entity-email claim path is retired for NEW families. Strictly additive + legacy-safe;
+balance-neutral (the split engine never reads emails/user_ids); the Phase-11/25 identity claim helpers
+are byte-identical. Do-not-break invariants (§6) untouched.)*
+- [x] Step 110: Creator identity at creation — `models/trip.TripIn` += optional `self_kind`
+      (`individual` default → full back-compat | `family`) + `family_name`/`family_members`/`self_index`;
+      `routes/trips._build_owner_member` builds the owner member by `self_kind`. Family: validate name +
+      ≥1 member + `self_index` in range; the login email + account attach to that ONE slot
+      (`family_member_emails[i]`/`family_member_user_ids[i]`), entity `email`/`user_id` = None. Individual:
+      unchanged (`email`/`user_id` on the entity).
+- [x] Step 111: Families never carry an entity email — `routes/members.py` forces entity `email=None`
+      for `kind=="family"` in `add_member` (incl. the individual→family merge branch) and `update_member`
+      (incl. individual→family conversion, regardless of body). Individuals unchanged.
+- [x] Step 112: Owner protection when the owner is a family member — `delete_member` checks the member's
+      WHOLE uid set (`user_id` + `family_member_user_ids`) so a whole-family delete can't remove the
+      owner; `delete_family_member` blocks removing the owner's own slot (both 403).
+- [x] Step 113: Idempotent migration — pure `utils/members.demote_family_entity_email(member)` moves a
+      legacy family's entity email + linked account onto the FIRST member slot whose email AND account
+      are both free (they belong to one person → land together), nulls the entity, returns `None` when
+      already clean (idempotent) or no free slot (caller logs). A `server.py` lifespan loop applies it
+      (mirrors the `family_member_ids` backfill). Pure `tests/test_member_emails.py::TestDemoteFamilyEntityEmail`
+      (10) → 37 pass.
+- [x] Step 114: Frontend — create-trip "Who are you on this trip?" segmented control (individual / in a
+      family → family name + member rows + per-row "This is me"; row 0 prefilled with the user's name);
+      pure `src/createIdentity.ts` (`identityIssue`/`buildIdentityFields`, remaps `self_index` across
+      dropped blanks) + `createIdentity.test.ts` (10). Members tab: dropped the family-header
+      `Linked account · email` line; sub-rows show Owner/Admin/You/Linked (via `roleOf`). Add/Edit
+      member: the "Linked email" input renders ONLY for `kind==='individual'`; families send `email=null`.
+- [x] Step 115: Full verification gate — live-API `tests/test_trip_create_identity_api.py` (8:
+      create-as-family attaches owner to slot + entity email None + owner in user_ids/admin_ids +
+      balances compute, create-as-individual legacy shape, self_index default 0, family validation 400s,
+      family add/update ignore a crafted entity email, individual→family edit nulls it, owner-as-family-
+      member unremovable) green; Phase-11/24/25 identity + balances/reports regression byte-identical.
+      Frontend tsc/eslint clean, jest 342/342. Docs (this checklist + USER_GUIDE §3/§4.1/§4.2).

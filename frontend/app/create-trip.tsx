@@ -34,12 +34,15 @@ export default function CreateTrip() {
 
   const setMemberName = (i: number, v: string) => setMemberNames((rows) => rows.map((r, j) => (j === i ? v : r)));
   const addMember = () => setMemberNames((rows) => [...rows, '']);
-  const removeMember = (i: number) => setMemberNames((rows) => {
-    const next = rows.filter((_, j) => j !== i);
-    // Keep "This is me" pointing at the same row (shift left if a row before it was removed).
+  const removeMember = (i: number) => {
+    setMemberNames((rows) => {
+      const next = rows.filter((_, j) => j !== i);
+      return next.length ? next : [''];
+    });
+    // Keep "This is me" pointing at the same row (shift left when a row before it is removed; the
+    // removed row itself defaults back to row 0).
     setSelfIndex((cur) => (i < cur ? cur - 1 : i === cur ? 0 : cur));
-    return next.length ? next : [''];
-  });
+  };
 
   const submit = async () => {
     if (!name.trim()) return toast.show('Trip name is required', 'error');
