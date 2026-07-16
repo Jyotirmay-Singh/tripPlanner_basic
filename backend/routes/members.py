@@ -69,7 +69,9 @@ async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user
         "family_member_emails": fam_emails,
         # Per-member linked-account slots (Phase 25), server-managed; all unclaimed on creation.
         "family_member_user_ids": [None] * len(fam_names),
-        "email": email, "user_id": None,
+        # Phase 26: a family never carries an entity email — emails identify a PERSON (an individual
+        # member, or a specific family sub-member via family_member_emails). Individuals keep theirs.
+        "email": None if body.kind == "family" else email, "user_id": None,
     }
     # If a user already in the trip has this email AND currently exists as an individual,
     # convert that individual into this family IN-PLACE (preserves member.id so all past
@@ -87,9 +89,11 @@ async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user
                 ),
                 "members.$.family_member_emails": fam_emails,
                 # New family roster from an ex-individual: all sub slots start unclaimed (the entity's
-                # own user_id — the merge target — is preserved untouched).
+                # own user_id — the merge target — is preserved untouched, and demoted onto a member
+                # slot by the Phase-26 startup migration).
                 "members.$.family_member_user_ids": [None] * len(body.family_members),
-                "members.$.email": email,
+                # Phase 26: the resulting family carries NO entity email.
+                "members.$.email": None,
             }},
         )
         t = await db.trips.find_one({"id": trip_id}, {"_id": 0})
@@ -147,7 +151,12 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
         )
         await _validate_family_member_emails(trip, fam_emails, exclude_id=member_id)
         updates["members.$.family_member_emails"] = fam_emails
-    if body.email is not None:
+    if new_kind == "family":
+        # Phase 26: a family never carries an entity email — emails identify a PERSON (an individual
+        # member, or a specific family sub-member via family_member_emails). Force it null whether the
+        # member is newly a family (individual->family conversion) or already one, regardless of body.
+        updates["members.$.email"] = None
+    elif body.email is not None:
         em = normalize_email(body.email)
         if em:
             assert_gmail(em)
@@ -216,7 +225,12 @@ async def delete_member(trip_id: str, member_id: str, user=Depends(get_current_u
         return {"ok": True}
     # The owner's member row is the trip root and cannot be removed by anyone — not a promoted
     # admin, nor the owner themselves (mirrors remove_admin's "Cannot remove the root admin").
-    if target.get("user_id") and target["user_id"] == trip.get("owner_id"):
+    # Phase 26: the owner may now be linked to a family SUB-member (their account in
+    # family_member_user_ids, entity user_id None), so check the member's WHOLE uid set — otherwise a
+    # whole-family delete could remove the family the owner belongs to.
+    owner_id = trip.get("owner_id")
+    member_uids = {target.get("user_id"), *(target.get("family_member_user_ids") or [])}
+    if owner_id and owner_id in member_uids:
         raise HTTPException(403, "Cannot remove the trip owner")
 
     reason = await _settlement_block_reason(trip_id, target)
@@ -284,6 +298,10 @@ async def delete_family_member(trip_id: str, family_id: str, fm_id: str,
         ids, family.get("family_member_ids"), family.get("family_member_user_ids")
     )
     removed_uid = fam_user_ids[idx] if idx < len(fam_user_ids) else None
+    # Phase 26: the owner may be linked to a family SUB-member slot; that slot is the trip root and
+    # can't be removed (mirrors the whole-member owner guard in delete_member).
+    if removed_uid and removed_uid == trip.get("owner_id"):
+        raise HTTPException(403, "Cannot remove the trip owner")
     new_user_ids = [u for i, u in enumerate(fam_user_ids) if i != idx]
     old_weight = _weight_of_member(family)
     new_weight = _weight_of_member({**family, "family_members": new_names})

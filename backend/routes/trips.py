@@ -23,6 +23,39 @@ logger = logging.getLogger(__name__)
 
 
 # ---------- Trips ----------
+def _build_owner_member(body: TripIn, user) -> dict:
+    """The creator's own member doc. Phase 26: individual (default, full back-compat) OR one member
+    inside a family the creator sets up here. In the family case the creator's login email + account
+    attach to a SINGLE member slot (self_index); the family entity itself carries NO email/user_id
+    (emails identify a person, never a family)."""
+    if body.self_kind == "family":
+        names = [n.strip() for n in (body.family_members or []) if n and n.strip()]
+        if not (body.family_name or "").strip():
+            raise HTTPException(400, "Family name is required")
+        if not names:
+            raise HTTPException(400, "Add at least one family member")
+        idx = body.self_index if body.self_index is not None else 0
+        if idx < 0 or idx >= len(names):
+            raise HTTPException(400, "self_index is out of range")
+        emails = [None] * len(names)
+        uids = [None] * len(names)
+        emails[idx] = user["email"]
+        uids[idx] = user["id"]
+        return {
+            "id": gen_id(), "name": body.family_name.strip(), "kind": "family",
+            "family_members": names,
+            "family_member_ids": assign_family_member_ids(names),
+            "family_member_emails": emails,
+            "family_member_user_ids": uids,
+            "email": None, "user_id": None,
+        }
+    # Individual (default): the creator is a standalone member carrying their own login email/account.
+    return {
+        "id": gen_id(), "name": user["name"], "kind": "individual",
+        "family_members": [], "email": user["email"], "user_id": user["id"],
+    }
+
+
 @router.post("/trips")
 async def create_trip(body: TripIn, user=Depends(get_current_user)):
     # Calendar dates are stored as 'YYYY-MM-DD'; reject impossible dates and end-before-start.
@@ -31,11 +64,9 @@ async def create_trip(body: TripIn, user=Depends(get_current_user)):
     code = gen_trip_code()
     while await db.trips.find_one({"code": code}):
         code = gen_trip_code()
-    # create an "owner member" automatically (individual)
-    owner_member = {
-        "id": gen_id(), "name": user["name"], "kind": "individual",
-        "family_members": [], "email": user["email"], "user_id": user["id"],
-    }
+    # Create the owner's member automatically. Phase 26: the creator declares whether they're a
+    # standalone individual (default, legacy behavior) or ONE member inside a family they set up here.
+    owner_member = _build_owner_member(body, user)
     doc = {
         "id": tid, "code": code, "name": body.name,
         "start_date": body.start_date.strip(), "end_date": body.end_date.strip(),

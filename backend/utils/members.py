@@ -98,6 +98,49 @@ def align_family_member_user_ids(
     return aligned, vanished
 
 
+def demote_family_entity_email(member: dict) -> Optional[dict]:
+    """Phase 26 migration: move a family's ENTITY-level email + linked account onto a member slot.
+
+    Historically a family could carry its own ``email`` (+ a linked ``user_id`` from an entity claim).
+    Phase 26 makes an email identify a PERSON only, so a family must carry none. Given a family member
+    doc that still has a non-empty entity ``email`` or ``user_id``, this aligns the parallel arrays to
+    the roster, finds the FIRST member slot whose email AND linked-account are BOTH free (the entity
+    email + account belong to ONE person, so they land together), moves the entity email -> that
+    slot's ``family_member_emails`` and the entity account -> that slot's ``family_member_user_ids``,
+    and nulls the entity ``email``/``user_id``. Returns the rewritten member doc, or ``None`` when there
+    is nothing to move (already clean — so it is idempotent) or no free slot exists (the caller logs
+    and leaves the row untouched). Pure and balance-neutral (never touches names/weights). Non-family
+    members always return ``None``.
+    """
+    if member.get("kind") != "family":
+        return None
+    entity_email = normalize_email(member.get("email"))
+    entity_uid = member.get("user_id") or None
+    if not entity_email and not entity_uid:
+        return None  # already clean — idempotent no-op
+    names = member.get("family_members") or []
+    ids = assign_family_member_ids(names, existing_ids=member.get("family_member_ids"))
+    emails = align_family_member_emails(names, existing=member.get("family_member_emails"))
+    uids, _ = align_family_member_user_ids(ids, ids, member.get("family_member_user_ids"))
+    slot = next(
+        (i for i in range(len(names))
+         if not normalize_email(emails[i]) and not uids[i]),
+        None,
+    )
+    if slot is None:
+        return None  # no free member slot; caller logs and leaves the row as-is
+    emails[slot] = entity_email
+    uids[slot] = entity_uid
+    return {
+        **member,
+        "family_member_ids": ids,
+        "family_member_emails": emails,
+        "family_member_user_ids": uids,
+        "email": None,
+        "user_id": None,
+    }
+
+
 def email_exists(members: list, email: Optional[str], exclude_id: Optional[str] = None) -> bool:
     target = normalize_email(email)
     if not target:
