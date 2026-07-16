@@ -231,3 +231,71 @@ class TestLinkedSubMemberLifecycle(_Helpers):
         assert d.status_code == 200, d.text
         trip = self._get_trip(api_client, test_user["token"], trip_id).json()
         assert u1 not in trip["user_ids"] and u2 not in trip["user_ids"]
+
+
+class TestSubMemberAdmin(_Helpers):
+    """Phase 27 — admin is held by a specific PERSON. A linked family sub-member can be promoted; the
+    family entity itself never is. Promote/demote stays owner-only (unchanged)."""
+
+    def _link_sub(self, api_client, test_user, trip_id, member_index=0):
+        e = _gmail()
+        fam = self._add_family(api_client, test_user["token"], trip_id,
+                               name="TEST_Fam", family_members=["Alice", "Bob"],
+                               family_member_emails=([e, None] if member_index == 0 else [None, e])).json()
+        code = self._get_trip(api_client, test_user["token"], trip_id).json()["code"]
+        jtok, juid = self._register(api_client, e)
+        assert self._claim_sub(api_client, jtok, code,
+                               fam["id"], fam["family_member_ids"][member_index]).status_code == 200
+        return fam, jtok, juid
+
+    def test_owner_promotes_linked_sub_member(self, api_client, test_user):
+        trip_id = self._create_trip(api_client, test_user["token"])
+        fam, jtok, juid = self._link_sub(api_client, test_user, trip_id, member_index=0)
+        # Owner promotes the sub-member's account.
+        r = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/admins",
+                            json={"user_id": juid}, headers=_auth(test_user["token"]))
+        assert r.status_code == 200, r.text
+        trip = self._get_trip(api_client, test_user["token"], trip_id).json()
+        assert juid in trip["admin_ids"]
+        # The family ENTITY is never itself an admin (it carries no user_id).
+        f = next(m for m in trip["members"] if m["id"] == fam["id"])
+        assert f.get("user_id") in (None, "")
+        # /admins resolves the admin to the SPECIFIC person (Alice), with their family context.
+        admins = r.json()["admins"]
+        row = next(a for a in admins if a["user_id"] == juid)
+        assert row["name"] == "Alice"
+        assert row["family_id"] == fam["id"]
+        # The promoted sub-member (now admin) can manage members.
+        add = self._add_family(api_client, jtok, trip_id, name="TEST_ByAdmin", family_members=["X"])
+        assert add.status_code == 200, add.text
+        # Owner demotes.
+        d = api_client.delete(f"{BASE_URL}/api/trips/{trip_id}/admins/{juid}",
+                             headers=_auth(test_user["token"]))
+        assert d.status_code == 200, d.text
+        assert juid not in self._get_trip(api_client, test_user["token"], trip_id).json()["admin_ids"]
+
+    def test_two_sub_members_independent_admin(self, api_client, test_user):
+        # Two members of the SAME family each carry their own account; promoting one never promotes
+        # the other (admin is per-person, not per-family).
+        trip_id = self._create_trip(api_client, test_user["token"])
+        e1, e2 = _gmail(), _gmail()
+        fam = self._add_family(api_client, test_user["token"], trip_id,
+                               name="TEST_Fam", family_members=["Alice", "Bob"],
+                               family_member_emails=[e1, e2]).json()
+        code = self._get_trip(api_client, test_user["token"], trip_id).json()["code"]
+        t1, u1 = self._register(api_client, e1)
+        t2, u2 = self._register(api_client, e2)
+        assert self._claim_sub(api_client, t1, code, fam["id"], fam["family_member_ids"][0]).status_code == 200
+        assert self._claim_sub(api_client, t2, code, fam["id"], fam["family_member_ids"][1]).status_code == 200
+        assert api_client.post(f"{BASE_URL}/api/trips/{trip_id}/admins",
+                               json={"user_id": u1}, headers=_auth(test_user["token"])).status_code == 200
+        admin_ids = self._get_trip(api_client, test_user["token"], trip_id).json()["admin_ids"]
+        assert u1 in admin_ids and u2 not in admin_ids
+
+    def test_promote_is_owner_only(self, api_client, test_user):
+        # An ordinary linked sub-member cannot promote anyone (owner-only, unchanged from Phase 7).
+        trip_id = self._create_trip(api_client, test_user["token"])
+        fam, jtok, juid = self._link_sub(api_client, test_user, trip_id, member_index=0)
+        r = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/admins",
+                            json={"user_id": juid}, headers=_auth(jtok))
+        assert r.status_code == 403, r.text

@@ -20,7 +20,10 @@ import {
 
 type Mode = 'individual' | 'family' | 'new_family';
 
-type PreviewFamily = { id: string; name: string; size: number; linked: boolean };
+// Phase 27: `open_slots` are the family's unclaimed member slots — "join existing family" links the
+// joiner to one specific slot (balance-neutral), since a family carries no account of its own.
+type OpenSlot = { id: string; name: string };
+type PreviewFamily = { id: string; name: string; size: number; linked: boolean; open_slots?: OpenSlot[] };
 type Preview = {
   trip: {
     id: string; name: string; code: string;
@@ -35,8 +38,8 @@ type Preview = {
 
 const MODE_OPTIONS: { m: Mode; icon: IconName; title: string; desc: string }[] = [
   { m: 'individual', icon: 'user', title: 'Join as Individual', desc: 'You pay your own share as a single person.' },
-  { m: 'family', icon: 'users', title: 'Join existing Family', desc: 'Link yourself into a family already on this trip.' },
-  { m: 'new_family', icon: 'plus-circle', title: 'Create New Family', desc: 'Start a new family group and list its members.' },
+  { m: 'family', icon: 'users', title: 'Join existing Family', desc: 'Take an open spot in a family already on this trip.' },
+  { m: 'new_family', icon: 'plus-circle', title: 'Create New Family', desc: 'Start a new family group. List yourself first — you’ll be its first member.' },
 ];
 
 export default function JoinTrip() {
@@ -48,6 +51,8 @@ export default function JoinTrip() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [mode, setMode] = useState<Mode>('individual');
   const [familyId, setFamilyId] = useState<string | null>(null);
+  // The specific unclaimed member slot picked inside the selected family (Phase 27).
+  const [familyMemberId, setFamilyMemberId] = useState<string | null>(null);
   const [familyName, setFamilyName] = useState('');
   const [familyText, setFamilyText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -67,7 +72,7 @@ export default function JoinTrip() {
       const p = await previewJoin<Preview>(cleanCode());
       if (p.already_member) { goToTrip(p.trip.id); return; }
       setPreview(p);
-      setMode('individual'); setFamilyId(null);
+      setMode('individual'); setFamilyId(null); setFamilyMemberId(null);
       // A match (the caller's own stub) routes through the identity step first; otherwise the
       // normal join wizard.
       setStage(p.match ? 'identity' : 'choose');
@@ -79,6 +84,7 @@ export default function JoinTrip() {
     setStage('code');
     setPreview(null);
     setFamilyId(null);
+    setFamilyMemberId(null);
     setFamilyName('');
     setFamilyText('');
     setError(null);
@@ -103,12 +109,15 @@ export default function JoinTrip() {
       goToTrip(trip.id);
     } catch (e: any) {
       setError(e.message);
-      // A family slot can be taken between preview and submit — refresh the picker on 400/404.
-      if (body.mode === 'family' && (e.status === 400 || e.status === 404)) {
+      // A member slot can be taken between preview and submit — refresh the picker on 400/404/409.
+      if (body.mode === 'family' && (e.status === 400 || e.status === 404 || e.status === 409)) {
         try {
           const p = await previewJoin<Preview>(cleanCode());
           setPreview(p);
-          if (familyId && !p.families.some((f) => f.id === familyId && !f.linked)) setFamilyId(null);
+          const fam = p.families.find((f) => f.id === familyId);
+          const stillOpen = fam?.open_slots?.some((s) => s.id === familyMemberId);
+          if (!stillOpen) setFamilyMemberId(null);
+          if (!fam || (fam.open_slots?.length ?? 0) === 0) setFamilyId(null);
         } catch { /* keep the original error message */ }
       }
     } finally { setBusy(false); }
@@ -121,7 +130,8 @@ export default function JoinTrip() {
       body = buildJoinNewBody(c, 'individual', {}, match);
     } else if (mode === 'family') {
       if (!familyId) { setError('Select a family to join'); return; }
-      body = buildJoinNewBody(c, 'family', { family_id: familyId }, match);
+      if (!familyMemberId) { setError('Select which member you are'); return; }
+      body = buildJoinNewBody(c, 'family', { family_id: familyId, family_member_id: familyMemberId }, match);
     } else {
       const name = familyName.trim();
       const members = parsedMembers();
@@ -249,12 +259,14 @@ export default function JoinTrip() {
   // Exclude the caller's own stub from the family picker — joining it would be a claim, offered
   // separately on the identity step.
   const families = (preview?.families ?? []).filter((f) => f.id !== match?.member_id);
+  const openCount = (f: PreviewFamily) => f.open_slots?.length ?? 0;
   const hasFamilies = families.length > 0;
-  const allLinked = hasFamilies && families.every((f) => f.linked);
+  const allFull = hasFamilies && families.every((f) => openCount(f) === 0);
   const sortedFamilies = families;
+  const selectedFamily = sortedFamilies.find((f) => f.id === familyId) ?? null;
 
   const confirmDisabled = busy
-    || (mode === 'family' && !familyId)
+    || (mode === 'family' && (!familyId || !familyMemberId))
     || (mode === 'new_family' && (!familyName.trim() || parsedMembers().length === 0));
 
   return (
@@ -301,32 +313,63 @@ export default function JoinTrip() {
 
             {mode === 'family' && hasFamilies && (
               <View style={{ gap: SPACING.sm }}>
-                {allLinked ? (
-                  <T testID="jt-family-all-linked" muted variant="caption">All families are already claimed. Pick another option above.</T>
+                {allFull ? (
+                  <T testID="jt-family-all-linked" muted variant="caption">Every family is full — all members are already linked. Pick another option above.</T>
                 ) : null}
                 {sortedFamilies.map((f) => {
                   const selected = familyId === f.id;
-                  const rowDisabled = f.linked || busy;
+                  const open = openCount(f);
+                  const rowDisabled = open === 0 || busy;
+                  const selectFamily = () => {
+                    setFamilyId(f.id);
+                    // Auto-pick the only open slot; otherwise clear any previous pick.
+                    setFamilyMemberId(open === 1 ? f.open_slots![0].id : null);
+                    setError(null);
+                  };
                   return (
                     <TouchableOpacity key={f.id} testID={`jt-family-${f.id}`} disabled={rowDisabled}
-                      onPress={() => { setFamilyId(f.id); setError(null); }}
+                      onPress={selectFamily}
                       accessibilityRole="radio" accessibilityState={{ selected, disabled: rowDisabled }}
                       style={[styles.familyRow, {
                         backgroundColor: selected ? colors.surfaceMuted : colors.surface,
                         borderColor: selected ? colors.primary : colors.border,
-                        opacity: f.linked ? 0.5 : 1,
+                        opacity: rowDisabled && !selected ? 0.5 : 1,
                       }]}>
                       <Icon name={selected ? 'radio-on' : 'radio-off'} size={20} color={selected ? colors.primary : colors.textMuted} />
                       <View style={{ flex: 1, marginLeft: SPACING.sm, gap: 2 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm }}>
                           <T style={{ fontFamily: FONTS.bodySemibold }}>{f.name}</T>
-                          {f.linked ? <Badge label="Linked" color={colors.textMuted} /> : null}
+                          {open === 0 ? <Badge label="Full" color={colors.textMuted} /> : null}
                         </View>
-                        <T muted variant="caption">{f.size} {f.size === 1 ? 'member' : 'members'}</T>
+                        <T muted variant="caption">
+                          {f.size} {f.size === 1 ? 'member' : 'members'}{open > 0 ? ` · ${open} open` : ''}
+                        </T>
                       </View>
                     </TouchableOpacity>
                   );
                 })}
+
+                {/* Which member are you? — pick a specific open slot in the selected family (Phase 27). */}
+                {selectedFamily && openCount(selectedFamily) > 0 ? (
+                  <View style={{ gap: SPACING.sm, marginTop: SPACING.xs, marginLeft: SPACING.md }}>
+                    <T variant="label" muted>Which member are you?</T>
+                    {(selectedFamily.open_slots ?? []).map((s) => {
+                      const slotSelected = familyMemberId === s.id;
+                      return (
+                        <TouchableOpacity key={s.id} testID={`jt-slot-${s.id}`} disabled={busy}
+                          onPress={() => { setFamilyMemberId(s.id); setError(null); }}
+                          accessibilityRole="radio" accessibilityState={{ selected: slotSelected, disabled: busy }}
+                          style={[styles.familyRow, {
+                            backgroundColor: slotSelected ? colors.surfaceMuted : colors.surface,
+                            borderColor: slotSelected ? colors.primary : colors.border,
+                          }]}>
+                          <Icon name={slotSelected ? 'radio-on' : 'radio-off'} size={20} color={slotSelected ? colors.primary : colors.textMuted} />
+                          <T style={{ flex: 1, marginLeft: SPACING.sm }}>{s.name}</T>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ) : null}
               </View>
             )}
 

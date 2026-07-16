@@ -451,8 +451,8 @@ export default function TripDetail() {
                 );
 
                 // Family: a card that lists its members VERTICALLY (one row per member: name + email
-                // or a "No email" hint). Phase 26: a family carries no email/account of its own —
-                // identity lives on the sub-rows, where a linked member shows Owner/Admin/You/Linked.
+                // when present, otherwise nothing). Phase 26/27: a family carries no email/account of
+                // its own — identity lives on the sub-rows (a linked member shows Owner/Admin/You/Linked).
                 if (m.kind === 'family') {
                   const subNames = familyMemberDisplayNames(m);
                   const subEmails = m.family_member_emails || [];
@@ -490,9 +490,12 @@ export default function TripDetail() {
                             ) : uid && subRole !== 'owner' && subRole !== 'admin' ? (
                               <Badge label="Linked" color={colors.success} />
                             ) : null}
-                            <T variant="caption" muted numberOfLines={1} style={{ flex: 1, textAlign: 'right', paddingRight: 2, fontStyle: subEmails[i] ? 'normal' : 'italic' }}>
-                              {subEmails[i] || 'No email'}
-                            </T>
+                            {/* Phase 27: an empty email renders as nothing (no placeholder). */}
+                            {subEmails[i] ? (
+                              <T variant="caption" muted numberOfLines={1} style={{ flex: 1, textAlign: 'right', paddingRight: 2 }}>
+                                {subEmails[i]}
+                              </T>
+                            ) : null}
                           </View>
                           );
                         })}

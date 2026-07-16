@@ -5,18 +5,25 @@ import { api } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING } from '../../../src/theme';
-import { canManageAdmins, canRemoveMemberRow } from '../../../src/permissions';
+import { canManageAdmins, canRemoveMemberRow, roleOf } from '../../../src/permissions';
 import {
   isSettled, isLastFamilyMember, entityRemovable, entityBlockReason, entityRemoveLabel,
 } from '../../../src/removal';
-import { memberDisplayNames } from '../../../src/displayNames';
+import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displayNames';
+import { familyMemberIds } from '../../../src/familyParticipation';
 import { formatMoney } from '../../../src/format';
 import T from '../../../src/T';
 import Badge from '../../../src/Badge';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { Screen, Card, Button, IconButton, Icon, useToast } from '../../../src/ui';
 
-type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
+type Member = {
+  id: string; name: string; kind: 'individual' | 'family'; family_members: string[];
+  family_member_ids?: (string | null)[] | null;
+  family_member_emails?: (string | null)[] | null;
+  family_member_user_ids?: (string | null)[] | null;
+  user_id?: string | null; email?: string | null;
+};
 type Trip = { id: string; name: string; owner_id: string; admin_ids: string[]; user_ids?: string[]; members: Member[] };
 type FamRow = { id: string; name: string; net: number };
 type Balances = { net: Record<string, number>; per_person: { member_id: string; members?: FamRow[] }[] };
@@ -33,7 +40,7 @@ export default function ManageMember() {
   const [balances, setBalances] = useState<Balances | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmTransfer, setConfirmTransfer] = useState(false);
+  const [confirmTransfer, setConfirmTransfer] = useState<null | { uid: string; name: string }>(null);
   // One themed confirm dialog drives both whole-entity removal and per-family-member removal.
   const [confirm, setConfirm] = useState<null | { title: string; message?: string; onYes: () => void; yesId?: string }>(null);
 
@@ -64,6 +71,27 @@ export default function ManageMember() {
   const viewerIsOwner = canManageAdmins({ ...trip, admin_ids: adminIds }, user?.id);
   const canTransferToMember = viewerIsOwner && !!member.user_id && !isOwner;
 
+  // Phase 27: admin is per-PERSON. For a family the entity carries no account, so roles live on the
+  // individual sub-members: each linked slot (family_member_user_ids[i]) can hold owner/admin.
+  const subMembers = member.kind === 'family'
+    ? (() => {
+        const ids = familyMemberIds({
+          id: member.id, kind: member.kind, family_members: member.family_members,
+          // Stored ids are always non-null strings; the null entries are only for unsaved editor rows.
+          family_member_ids: member.family_member_ids as string[] | null | undefined,
+        });
+        const names = familyMemberDisplayNames(member);
+        const uids = member.family_member_user_ids || [];
+        return names.map((name, i) => ({
+          id: ids[i], name, uid: (uids[i] as string | null) || null,
+        }));
+      })()
+    : [];
+  const roleOfUid = (uid: string): 'owner' | 'admin' | null => {
+    const r = roleOf({ ...trip, admin_ids: adminIds }, uid);
+    return r === 'owner' || r === 'admin' ? r : null;
+  };
+
   // Removal (settled-only). The owner row is never removable; otherwise an admin may remove any
   // settled member. Settled-ness comes from the balance engine (read-only); the backend re-checks.
   const viewerCanRemove = canRemoveMemberRow({ ...trip, admin_ids: adminIds }, member, user?.id);
@@ -74,12 +102,11 @@ export default function ManageMember() {
   const blockReason = balances ? entityBlockReason(member, entityNet, famRows) : null;
   const removable = !!balances && entityRemovable(member, entityNet, famRows);
 
-  const toggleAdmin = async () => {
-    const uid = member.user_id;
+  const toggleAdmin = async (uid: string | null | undefined, currentlyAdmin: boolean) => {
     if (!uid) return;
     setBusy(true); setError(null);
     try {
-      if (isMemberAdmin) {
+      if (currentlyAdmin) {
         await api(`/trips/${id}/admins/${uid}`, { method: 'DELETE' });
         setAdminIds((prev) => prev.filter((u) => u !== uid));
         toast.show('Admin removed', 'success');
@@ -92,10 +119,8 @@ export default function ManageMember() {
     finally { setBusy(false); }
   };
 
-  const doTransfer = async () => {
-    const uid = member.user_id;
-    if (!uid) return;
-    setConfirmTransfer(false);
+  const doTransfer = async (uid: string) => {
+    setConfirmTransfer(null);
     setBusy(true); setError(null);
     try {
       await api(`/trips/${id}/transfer-ownership`, { method: 'POST', body: { user_id: uid } });
@@ -161,6 +186,65 @@ export default function ManageMember() {
         </T>
       </View>
 
+      {member.kind === 'family' ? (
+        // Phase 27: admin is per-PERSON. List each family member; a linked slot can hold owner/admin,
+        // an unlinked one cannot become admin until its account is linked (via join/claim).
+        <Card>
+          <T variant="label" muted>Trip roles</T>
+          <T variant="caption" muted style={{ marginTop: SPACING.sm }}>
+            Admin is held by a specific person, not the whole family. Promote a linked family member to
+            let them add and change members and expenses.
+          </T>
+          {subMembers.map((sm, i) => {
+            const smRole = sm.uid ? roleOfUid(sm.uid) : null;
+            const isSmOwner = smRole === 'owner';
+            const isSmAdmin = smRole === 'admin';
+            return (
+              <View
+                key={sm.id ?? i}
+                testID={`mm-subrole-${sm.id ?? i}`}
+                style={{ marginTop: SPACING.md, paddingTop: SPACING.md, borderTopWidth: 1, borderTopColor: colors.border, gap: SPACING.sm }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm }}>
+                  <T style={{ flexShrink: 1, minWidth: 0 }} numberOfLines={1}>{sm.name}</T>
+                  {isSmOwner ? <Badge label="Owner" color={colors.primary} /> : null}
+                  {isSmAdmin ? <Badge label="Admin" color={colors.success} /> : null}
+                </View>
+                {!sm.uid ? (
+                  <T variant="caption" muted>
+                    Not linked to an account yet — they can become admin after they join and link their account.
+                  </T>
+                ) : isSmOwner ? (
+                  <T variant="caption" muted>Owner · root admin (cannot be removed).</T>
+                ) : !viewerIsOwner ? (
+                  <T variant="caption" muted>Only the trip owner can change admin roles.</T>
+                ) : (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm }}>
+                    <Button
+                      testID={`mm-admin-${sm.id ?? i}`}
+                      label={isSmAdmin ? 'Remove admin' : 'Make admin'}
+                      icon={isSmAdmin ? 'close' : 'shield'}
+                      variant={isSmAdmin ? 'destructive' : 'primary'}
+                      size="sm"
+                      onPress={() => toggleAdmin(sm.uid, isSmAdmin)}
+                      loading={busy}
+                    />
+                    <Button
+                      testID={`mm-transfer-${sm.id ?? i}`}
+                      label="Make owner"
+                      icon="arrow-left-right"
+                      variant="secondary"
+                      size="sm"
+                      onPress={() => setConfirmTransfer({ uid: sm.uid as string, name: sm.name })}
+                      loading={busy}
+                    />
+                  </View>
+                )}
+              </View>
+            );
+          })}
+        </Card>
+      ) : (
       <Card>
         <T variant="label" muted>Trip role</T>
         {!member.user_id ? (
@@ -188,7 +272,7 @@ export default function ManageMember() {
               label={isMemberAdmin ? 'Remove admin' : 'Make admin'}
               icon={isMemberAdmin ? 'close' : 'shield'}
               variant={isMemberAdmin ? 'destructive' : 'primary'}
-              onPress={toggleAdmin}
+              onPress={() => toggleAdmin(member.user_id, isMemberAdmin)}
               loading={busy}
               fullWidth
             />
@@ -205,18 +289,19 @@ export default function ManageMember() {
               label="Transfer ownership"
               icon="arrow-left-right"
               variant="secondary"
-              onPress={() => setConfirmTransfer(true)}
+              onPress={() => member.user_id && setConfirmTransfer({ uid: member.user_id, name: memberLabel })}
               loading={busy}
               fullWidth
             />
           </View>
         ) : null}
       </Card>
+      )}
 
       <Card>
         <T variant="label" muted>Member configuration</T>
         <T variant="caption" muted style={{ marginTop: SPACING.sm, marginBottom: SPACING.sm }}>
-          Update the name, linked email, or {member.kind === 'family' ? 'family roster' : 'member kind'}.
+          Update the name{member.kind === 'family' ? ' or family roster (each member can have their own email)' : ', linked email, or member kind'}.
         </T>
         <Button
           testID="mm-edit-details"
@@ -295,14 +380,14 @@ export default function ManageMember() {
       {error ? <T testID="mm-error" variant="caption" color={colors.danger}>{error}</T> : null}
 
       <ConfirmModal
-        visible={confirmTransfer}
+        visible={!!confirmTransfer}
         testID="mm-transfer-modal"
-        title={`Make ${memberLabel} the owner?`}
+        title={`Make ${confirmTransfer?.name ?? memberLabel} the owner?`}
         message="You will become an admin. Only the owner can manage admins and delete the trip."
-        onRequestClose={() => setConfirmTransfer(false)}
+        onRequestClose={() => setConfirmTransfer(null)}
         actions={[
-          { label: 'Transfer', variant: 'primary', testID: 'mm-transfer-confirm', onPress: doTransfer },
-          { label: 'Cancel', variant: 'cancel', onPress: () => setConfirmTransfer(false) },
+          { label: 'Transfer', variant: 'primary', testID: 'mm-transfer-confirm', onPress: () => confirmTransfer && doTransfer(confirmTransfer.uid) },
+          { label: 'Cancel', variant: 'cancel', onPress: () => setConfirmTransfer(null) },
         ]}
       />
 

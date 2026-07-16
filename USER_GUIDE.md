@@ -61,6 +61,13 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
     a profile with history can't be duplicated.
   - Otherwise you can **take over the profile** (recommended) **or** **join as someone new**;
     joining as new asks you to confirm, then removes the empty placeholder so there's no duplicate.
+- **If your email isn't already on the trip**, pick how to join:
+  - **Join as Individual** — you pay your own share as a single person.
+  - **Join existing Family** — choose a family, then pick **which member you are** from its open
+    (unclaimed) spots; your account links to that one person. Families with no open spots are shown
+    as **Full**.
+  - **Create New Family** — start a new family group and list its members (**list yourself first** —
+    you become its first member). The family itself never holds an account or email; each person does.
 
 ### 3.3 Edit / delete a trip
 - Inside the trip page, the row of action buttons under the header has:
@@ -99,7 +106,9 @@ A "member" can be **one individual** or **a family group** (the family is split 
   appears only for an **individual** — a family has no email of its own, so its members' emails live on
   the member rows instead.
 - On the Members tab a family is shown as a card that lists its members **vertically**, each with its
-  own email (or a *No email* hint) and — for a linked member — an **Owner / Admin / You / Linked** badge.
+  own email (members without one simply show no email) and — for a linked member — an
+  **Owner / Admin / You / Linked** badge shown next to **that member's name** (never on the family
+  header — admin is always held by a *specific person*, never a whole family).
 - **When you change the number of family members**, the app will ask:
   - **"Keep original split"** → past expenses keep their old per-person weight (recommended if those people already paid up).
   - **"Re-split with new members"** → past expenses are recomputed with the new family size.
@@ -125,6 +134,15 @@ across standalone individuals, family entries, and joined app users.
 - Only members **without any transactions linked to them** can be deleted. App-user-linked members cannot be deleted (sign-out and let the owner delete the trip if needed).
 - Duplicate **names** are allowed (the app disambiguates them on screen), but a given **email** can
   be used by only one person in the trip — including emails of people who have already joined.
+
+### 4.5 Roles & admins (per person)
+- Open a member's **⋮ Manage** screen → **Trip role(s)**. Only the **owner** can change roles.
+- **Admin is held by a specific person, never a family as a whole.** For a family, the Manage screen
+  lists each member; next to any member **whose own account is linked** you'll see **Make admin** /
+  **Remove admin** (and **Make owner**). A member with no linked account can't be an admin until they
+  join and link it.
+- Admins can add and change members and expenses. **Make owner** hands over ownership (you stay an
+  admin). None of this affects any balance — roles are about permissions, not money.
 
 ---
 

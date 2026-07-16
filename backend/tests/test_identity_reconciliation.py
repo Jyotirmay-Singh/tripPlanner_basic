@@ -275,8 +275,12 @@ class TestJoinNew(_Base):
         assert resp.status_code == 200, resp.text
         data = resp.json()
         assert stub["id"] not in {m["id"] for m in data["members"]}
-        fam = next(m for m in data["members"] if m.get("user_id") == joiner["id"])
-        assert fam["kind"] == "family" and fam["family_members"] == ["P", "Q"]
+        # Phase 27: the joiner's new family carries no entity account — they are member slot 0.
+        fam = next(m for m in data["members"]
+                   if m["kind"] == "family" and joiner["id"] in (m.get("family_member_user_ids") or []))
+        assert fam["family_members"] == ["P", "Q"]
+        assert fam.get("user_id") is None
+        assert fam["family_member_user_ids"][0] == joiner["id"]
 
     def test_existing_family_removes_clean_stub(self, api_client, test_user):
         trip = self._create_trip(api_client, test_user["token"])
@@ -287,13 +291,15 @@ class TestJoinNew(_Base):
                                    "TEST_JN OpenFam", kind="family", family_members=["Z"])
         resp = self._join(api_client, joiner["token"], {
             "code": trip["code"], "action": "join_new", "mode": "family",
-            "family_id": openfam["id"],
+            "family_id": openfam["id"], "family_member_id": openfam["family_member_ids"][0],
         })
         assert resp.status_code == 200, resp.text
         data = resp.json()
         assert stub["id"] not in {m["id"] for m in data["members"]}
+        # Phase 27: linking targets the member SLOT, never the family entity.
         linked = next(m for m in data["members"] if m["id"] == openfam["id"])
-        assert linked["user_id"] == joiner["id"]
+        assert linked.get("user_id") is None
+        assert linked["family_member_user_ids"][0] == joiner["id"]
 
     def test_history_stub_blocked_even_with_replace_hint(self, api_client, test_user):
         trip = self._create_trip(api_client, test_user["token"])

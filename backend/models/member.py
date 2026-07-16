@@ -1,6 +1,6 @@
 from typing import List, Optional, Literal
 
-from pydantic import AliasChoices, BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, field_validator
 
 
 class MemberIn(BaseModel):
@@ -18,9 +18,9 @@ class MemberIn(BaseModel):
     # written only by the join/claim flow — NOT accepted here, so an admin can't stamp someone else's
     # account onto a member). Trip-wide unique; balance-neutral (the split engine ignores emails).
     family_member_emails: Optional[List[Optional[str]]] = None
-    email: Optional[EmailStr] = Field(
-        default=None, validation_alias=AliasChoices("email", "linked_email")
-    )  # optional email to auto-link an app user (the family ENTITY's linked account)
+    # An email identifies a PERSON, never a family: only an INDIVIDUAL carries an entity email here
+    # (routes force it null for kind=="family"). Optional — used to auto-link an app user on join.
+    email: Optional[EmailStr] = None
 
     @field_validator("name")
     @classmethod
@@ -40,9 +40,9 @@ class MemberUpdate(BaseModel):
     family_member_ids: Optional[List[Optional[str]]] = None
     # Parallel per-member emails (contact-only). None => keep existing; a sent list replaces them.
     family_member_emails: Optional[List[Optional[str]]] = None
-    email: Optional[str] = Field(
-        default=None, validation_alias=AliasChoices("email", "linked_email")
-    )  # can be empty string to clear
+    # Only an INDIVIDUAL carries an entity email (routes force null for kind=="family"). Empty string
+    # clears it. An email identifies a PERSON, never a family.
+    email: Optional[str] = None  # can be empty string to clear
     reweight_past: Optional[bool] = True  # if False, snapshot old weights onto past expenses
 
     @field_validator("name")

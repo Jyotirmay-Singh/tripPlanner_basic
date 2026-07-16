@@ -16,10 +16,12 @@ class TestFindOwnStubs:
         members = [_stub("m1", "a@gmail.com")]
         assert find_own_stubs(members, "a@gmail.com") == members
 
-    def test_single_family_stub(self):
+    def test_family_entity_never_matched(self):
+        # Phase 27: an email identifies a PERSON, never a family — a family entity carries no email,
+        # so find_own_stubs (individuals only) never returns it. Family sub-members are matched by
+        # find_own_sub_stub instead.
         members = [_stub("f1", "a@gmail.com", kind="family")]
-        out = find_own_stubs(members, "a@gmail.com")
-        assert len(out) == 1 and out[0]["id"] == "f1"
+        assert find_own_stubs(members, "a@gmail.com") == []
 
     def test_claimed_member_excluded(self):
         members = [_stub("m1", "a@gmail.com", user_id="u1")]
@@ -42,9 +44,14 @@ class TestFindOwnStubs:
         members = [_stub("m1", None)]
         assert find_own_stubs(members, "a@gmail.com") == []
 
-    def test_legacy_duplicate_emails_returns_multiple(self):
-        members = [_stub("m1", "a@gmail.com"), _stub("m2", "a@gmail.com", kind="family")]
-        assert len(find_own_stubs(members, "a@gmail.com")) == 2
+    def test_legacy_duplicate_emails_returns_only_individuals(self):
+        # Phase 27: only INDIVIDUAL members carry an entity email, so a duplicate-email family entity
+        # (legacy data) is ignored; two individual stubs still both surface.
+        mixed = [_stub("m1", "a@gmail.com"), _stub("m2", "a@gmail.com", kind="family")]
+        out = find_own_stubs(mixed, "a@gmail.com")
+        assert [m["id"] for m in out] == ["m1"]
+        both = [_stub("m1", "a@gmail.com"), _stub("m3", "a@gmail.com")]
+        assert len(find_own_stubs(both, "a@gmail.com")) == 2
 
 
 class TestMemberHasFinancialHistoryIn:

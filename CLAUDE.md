@@ -112,7 +112,7 @@ C) Exact-Amount Split (`split_mode = "EXACT"`, Phase 22)
 - **The one hard rule (two-layer save-gate).** An EXACT expense cannot be saved unless Σ amounts == total. Enforced in BOTH: (a) frontend — the Save button is disabled and a live reconciliation bar shows Assigned/Remaining until it balances (`src/exactSplit.ts` + `src/ExactSplitEditor.tsx`); (b) backend (source of truth) — `routes/expenses.py` create + edit call `custom_split.validate_exact_amounts` and reject a mismatch with **HTTP 422**. Frontend and backend snap logic are pinned together by `shared/exact-split-vectors.json`.
 - Reports display EXACT (`_MODE_LABELS["EXACT"]="Exact"`) with no forked math — the Split Math and exploded Transactions tabs + PDF reuse `entity_shares_raw` / `exact_member_shares`.
 
-App User Identity Mapping: If an App User joins an existing family group via code, they retain their unique App User ID identity for login/auth operations, but are mathematically treated as an integrated member of that family unit during the cost allocations above. As of Phase 25 an App User may be linked to a SPECIFIC family sub-member (their own Gmail on that member's `family_member_emails` slot ⇒ `family_member_user_ids` slot on join/claim), so several members of one family can each carry their own account; this linkage is contact/identity only and NEVER changes any cost allocation (the split engine ignores emails and user_ids). As of Phase 26 an email identifies a PERSON only — a standalone individual or ONE family sub-member — so a family entity carries NO `email`/`user_id` of its own (forced null on create/add/update, and demoted onto a member slot for legacy families by an idempotent startup migration `utils/members.demote_family_entity_email`). A trip creator declares their own identity at creation (`TripIn.self_kind`): a standalone individual (default) or ONE member of a family they set up (`family_name`/`family_members`/`self_index`), whereupon their login email + account attach to that member slot. Joining therefore always links to a specific member; the entity-email claim path is retired for new families.
+App User Identity Mapping: If an App User joins an existing family group via code, they retain their unique App User ID identity for login/auth operations, but are mathematically treated as an integrated member of that family unit during the cost allocations above. As of Phase 25 an App User may be linked to a SPECIFIC family sub-member (their own Gmail on that member's `family_member_emails` slot ⇒ `family_member_user_ids` slot on join/claim), so several members of one family can each carry their own account; this linkage is contact/identity only and NEVER changes any cost allocation (the split engine ignores emails and user_ids). As of Phase 26 an email identifies a PERSON only — a standalone individual or ONE family sub-member — so a family entity carries NO `email`/`user_id` of its own (forced null on create/add/update, and demoted onto a member slot for legacy families by an idempotent startup migration `utils/members.demote_family_entity_email`). A trip creator declares their own identity at creation (`TripIn.self_kind`): a standalone individual (default) or ONE member of a family they set up (`family_name`/`family_members`/`self_index`), whereupon their login email + account attach to that member slot. Joining therefore always links to a specific member. As of Phase 27 the entity-email claim path is retired ENTIRELY (not just for new families): `find_own_stubs` matches individuals only, family claims go through `find_own_sub_stub`, and "join existing family" links the joiner to a specific UNCLAIMED member slot they pick (`_apply_mode mode="family"` + `family_member_id`, own-or-empty-email gated, balance-neutral) while "create new family" via join makes them member slot 0 — the family entity never receives an `email`/`user_id`. Admin is per-PERSON: `admin_ids` holds app-user ids, so a linked family sub-member can be promoted (owner-only) but a family unit — having no account — never is.
 
 ---
 
@@ -545,3 +545,33 @@ are byte-identical. Do-not-break invariants (§6) untouched.)*
       family add/update ignore a crafted entity email, individual→family edit nulls it, owner-as-family-
       member unremovable) green; Phase-11/24/25 identity + balances/reports regression byte-identical.
       Frontend tsc/eslint clean, jest 342/342. Docs (this checklist + USER_GUIDE §3/§4.1/§4.2).
+
+### Phase 27: Family Email Fully Retired + Per-Member Admin (join re-keyed to member emails)
+*(Finishes the Phase-24/25/26 transition. DECISIONS: (a) a family entity carries NO email/account
+anywhere — the `linked_email` alias + every entity-email join path are removed; an email identifies a
+PERSON only (an individual's `email` or a family sub-member's `family_member_emails[i]`). (b) The
+join/claim flow keys on member-level emails: `find_own_stubs` is INDIVIDUALS-only, family matches go
+through `find_own_sub_stub` (Phase 25). (c) "Join existing family" links the joiner to a specific
+UNCLAIMED member SLOT (`family_member_user_ids[idx]`) they pick — balance-neutral, no entity account;
+"create new family" via join attaches the joiner as member slot 0. (d) Admin is per-PERSON: `admin_ids`
+already stores app-user ids, so promoting a linked family sub-member "just works" once the UI targets
+that member's `user_id`; a family as a whole is never an admin (it has no account). Promote/demote stays
+owner-only (Phase 7 unchanged). Strictly balance-neutral — the split engine never reads emails/user_ids.
+Do-not-break invariants (§6) untouched.)*
+- [x] Step 116: Backend — `models/member.py` drop the `linked_email` alias (keep `email` for
+      individuals). `utils/members.find_own_stubs` → individuals-only; new pure
+      `padded_family_member_ids` helper (dedupes the join/claim slot-id padding). `routes/trips.py`:
+      `join_preview` emits per-family `open_slots` + individual-only `match` (`matched_family` always
+      null); `_apply_mode` `mode="family"` links an unclaimed slot (own-or-empty-email gated, atomic
+      single-index `$set`, stamps an empty slot's email), `mode="new_family"` makes the joiner slot 0
+      with a null entity account; `_admin_payload` resolves sub-member accounts to the person.
+- [x] Step 117: Frontend — `index.tsx` empty sub-member email renders as nothing (no "No email").
+      `manage-member.tsx` shows a per-linked-sub-member **Trip roles** list (Make/Remove admin + Make
+      owner per member; unlinked slots noted). `join-trip.tsx` "Join existing family" shows the family's
+      open slots ("Which member are you?") + `family_member_id` in the body; "Create new family" hints
+      "list yourself first". `joinIdentity.ts` body carries `family_member_id`.
+- [x] Step 118: Full verification gate — backend suite **776 passed / 2 skipped** (updated
+      `test_join.py`, `test_identity_reconciliation.py`, `test_identity_helpers.py`; new join open-slot /
+      slot-link and `TestSubMemberAdmin` promote-a-linked-member coverage). Frontend tsc/eslint clean,
+      jest **343/343** (+1 join-family body case). Balances/reports regression byte-identical. Docs
+      (this checklist + USER_GUIDE §3.2/§4.1/§4.5).

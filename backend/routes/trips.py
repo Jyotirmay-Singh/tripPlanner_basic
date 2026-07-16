@@ -10,12 +10,12 @@ from utils.date_rules import assert_valid_range, ensure_date_range
 from utils.deps import get_current_user, _trip_or_404, _trip_admin_or_403, _trip_owner_or_403
 from utils.email_rules import assert_gmail, normalize_email
 from utils.members import (
-    email_exists,
     assert_unique_email_in_trip,
     assign_family_member_ids,
     find_own_stubs,
     find_own_sub_stub,
     member_has_financial_history,
+    padded_family_member_ids,
 )
 
 router = APIRouter()
@@ -172,12 +172,7 @@ async def _claim_sub_member(trip, members, user, user_email, body):
     family = next((m for m in members if m["id"] == body.member_id), None)
     if not family or family.get("kind") != "family":
         raise HTTPException(404, "Family not found")
-    names = family.get("family_members") or []
-    # Pad ids for legacy rows, parallel to services.member_breakdown.family_member_ids.
-    ids = [str(x) for x in (family.get("family_member_ids") or [])]
-    if len(ids) < len(names):
-        fid = family.get("id", "")
-        ids = ids + [f"{fid}:{i}" for i in range(len(ids), len(names))]
+    ids = padded_family_member_ids(family)
     if body.family_member_id not in ids:
         raise HTTPException(404, "Family member not found")
     idx = ids.index(body.family_member_id)
@@ -284,6 +279,11 @@ async def _apply_mode(trip, members, user, user_email, body):
         )
 
     elif mode == "family":
+        # Phase 27: "join existing family" links the caller to a specific UNCLAIMED member SLOT
+        # (family_member_user_ids[idx]), never the family entity — a family carries no account/email of
+        # its own. Balance-neutral (no size change). One-gmail-per-trip preserved: a slot may be taken
+        # only when it has no email or that email is already the joiner's; an empty slot is stamped
+        # with the joiner's email.
         if not body.family_id:
             raise HTTPException(400, "family_id is required to link into a family")
         target = next((m for m in members if m["id"] == body.family_id), None)
@@ -291,31 +291,60 @@ async def _apply_mode(trip, members, user, user_email, body):
             raise HTTPException(404, "Family not found")
         if target.get("kind") != "family":
             raise HTTPException(400, "Target member is not a family")
-        if target.get("user_id") and target["user_id"] != user["id"]:
-            raise HTTPException(400, "This family is already linked to another account")
-        set_fields = {"members.$.user_id": user["id"]}
-        # Stamp the joiner's email only if the family has none and it stays unique.
-        if user_email and not normalize_email(target.get("email")) \
-                and not email_exists(members, user_email, exclude_id=target["id"]):
-            set_fields["members.$.email"] = user_email
-        await db.trips.update_one(
-            {"id": trip["id"], "members.id": target["id"]},
-            {"$push": {"user_ids": user["id"]}, "$set": set_fields},
+        if not body.family_member_id:
+            raise HTTPException(400, "family_member_id is required to link into a family")
+        ids = padded_family_member_ids(target)
+        if body.family_member_id not in ids:
+            raise HTTPException(404, "Family member not found")
+        idx = ids.index(body.family_member_id)
+        emails = target.get("family_member_emails") or []
+        uids = target.get("family_member_user_ids") or []
+        cur_uid = uids[idx] if idx < len(uids) else None
+        if cur_uid and cur_uid != user["id"]:
+            raise HTTPException(400, "This member is already linked to another account")
+        slot_email = normalize_email(emails[idx] if idx < len(emails) else None)
+        set_fields = {f"members.$.family_member_user_ids.{idx}": user["id"]}
+        if user_email:
+            if slot_email and slot_email != user_email:
+                raise HTTPException(400, "This member belongs to a different email")
+            if not slot_email:
+                assert_gmail(user_email)
+                await assert_unique_email_in_trip(trip, user_email)
+                set_fields[f"members.$.family_member_emails.{idx}"] = user_email
+        # Atomic: only while this exact slot is still unclaimed (null matches null OR missing), so a
+        # concurrent claim of the same slot loses. Never touches the entity user_id/email.
+        res = await db.trips.update_one(
+            {"id": trip["id"], "members": {"$elemMatch": {
+                "id": target["id"], f"family_member_user_ids.{idx}": None}}},
+            {"$addToSet": {"user_ids": user["id"]}, "$set": set_fields},
         )
+        if res.modified_count == 0:
+            raise HTTPException(409, "This member is already linked to another account")
 
     elif mode == "new_family":
         if not body.family_name:
             raise HTTPException(400, "family_name is required to create a new family")
+        if not body.family_members:
+            raise HTTPException(400, "Add at least one family member")
         # Duplicate family names are allowed (disambiguated at display time); only the
         # one-email invariant is enforced (members + claimed users' account emails).
         if user_email:
             assert_gmail(user_email)
             await assert_unique_email_in_trip(trip, user_email)
+        # Phase 26/27: the family entity carries NO email/account — the joiner is member slot 0
+        # (they list themselves first), so their email + account attach to THAT slot.
+        n = len(body.family_members)
+        emails = [None] * n
+        uids = [None] * n
+        emails[0] = user_email
+        uids[0] = user["id"]
         new_member = {
             "id": gen_id(), "name": body.family_name, "kind": "family",
             "family_members": body.family_members,
             "family_member_ids": assign_family_member_ids(body.family_members),
-            "email": user_email, "user_id": user["id"],
+            "family_member_emails": emails,
+            "family_member_user_ids": uids,
+            "email": None, "user_id": None,
         }
         await db.trips.update_one(
             {"id": trip["id"]},
@@ -392,26 +421,39 @@ async def join_preview(body: JoinPreviewRequest, user=Depends(get_current_user))
     ensure_date_range(trip)
     members = trip.get("members", [])
     user_email = normalize_email(user["email"])
-    families = [
-        {"id": m["id"], "name": m["name"],
-         "size": len(m.get("family_members", [])),
-         "linked": bool(m.get("user_id"))}
-        for m in members if m.get("kind") == "family"
-    ]
-    # Phase 11: match an unclaimed stub carrying the caller's OWN email — an individual OR a
-    # whole family (linked_email lives on the entity). The wizard uses `match` to offer
-    # claim-vs-join-new and to gate join-new on financial history.
+    # Phase 27: emails identify a person, never a family, so "join existing family" links to a
+    # specific UNCLAIMED member slot. Surface each family's open slots (a slot with no linked account)
+    # so the wizard can offer them; `size` stays for the count, `linked` for back-compat (always
+    # False now — a family carries no entity account).
+    families = []
+    for m in members:
+        if m.get("kind") != "family":
+            continue
+        names = m.get("family_members", []) or []
+        ids = padded_family_member_ids(m)
+        uids = m.get("family_member_user_ids") or []
+        open_slots = [
+            {"id": ids[i], "name": names[i]}
+            for i in range(len(names))
+            if not (uids[i] if i < len(uids) else None)
+        ]
+        families.append({
+            "id": m["id"], "name": m["name"], "size": len(names),
+            "linked": bool(m.get("user_id")), "open_slots": open_slots,
+        })
+    # Match an unclaimed stub carrying the caller's OWN email. An email identifies a PERSON: a
+    # standalone INDIVIDUAL (find_own_stubs) or ONE family sub-member (find_own_sub_stub). The wizard
+    # uses `match` to offer claim-vs-join-new and to gate join-new on financial history.
     stubs = find_own_stubs(members, user_email)
     match = None
     if stubs:
         stub = stubs[0]
-        is_family = stub.get("kind") == "family"
         match = {
             "member_id": stub["id"],
-            "member_type": "family" if is_family else "individual",
+            "member_type": "individual",
             "member_name": stub["name"],
-            "family_id": stub["id"] if is_family else None,
-            "family_name": stub["name"] if is_family else None,
+            "family_id": None,
+            "family_name": None,
             "has_financial_history": await member_has_financial_history(trip["id"], stub["id"]),
         }
         if len(stubs) > 1:
@@ -421,10 +463,10 @@ async def join_preview(body: JoinPreviewRequest, user=Depends(get_current_user))
                 len(stubs), user_email, trip["id"],
             )
     else:
-        # Phase 25: no whole-entity match — try a per-member email match (link the caller to ONE
-        # family sub-member). Reported claim-only (has_financial_history=True routes the wizard's
-        # claim-only path): the email sits on that member by admin intent, and "join as new" while
-        # the sub-email is still present would violate the one-email invariant.
+        # Phase 25: try a per-member email match (link the caller to ONE family sub-member). Reported
+        # claim-only (has_financial_history=True routes the wizard's claim-only path): the email sits
+        # on that member by admin intent, and "join as new" while the sub-email is still present would
+        # violate the one-email invariant.
         sub = find_own_sub_stub(members, user_email)
         if sub:
             match = {
@@ -437,15 +479,11 @@ async def join_preview(body: JoinPreviewRequest, user=Depends(get_current_user))
                 "has_financial_history": True,
             }
     match_conflicts = [
-        {"member_id": m["id"], "member_name": m["name"],
-         "member_type": "family" if m.get("kind") == "family" else "individual"}
+        {"member_id": m["id"], "member_name": m["name"], "member_type": "individual"}
         for m in stubs[1:]
     ] or None
-    # Back-compat: matched_family stays populated only when the (first) match is a family entity.
-    matched_family = (
-        {"id": stubs[0]["id"], "name": stubs[0]["name"]}
-        if stubs and stubs[0].get("kind") == "family" else None
-    )
+    # Back-compat: `matched_family` (the retired whole-family-entity match) is always null now.
+    matched_family = None
     return {
         "trip": {
             "id": trip["id"], "name": trip["name"], "code": trip["code"],
@@ -463,11 +501,36 @@ async def join_preview(body: JoinPreviewRequest, user=Depends(get_current_user))
 
 # ---------- Trip Admins ----------
 def _admin_payload(trip: dict) -> dict:
-    by_uid = {m.get("user_id"): m for m in trip.get("members", []) if m.get("user_id")}
+    # Resolve each admin app-user id to the PERSON it links to: a standalone individual (entity
+    # user_id) OR a specific family sub-member (family_member_user_ids[i]). An email/account
+    # identifies a person, never a family, so a family entity is never itself an admin.
+    by_uid: dict = {}
+    for m in trip.get("members", []):
+        if m.get("kind") == "family":
+            names = m.get("family_members", []) or []
+            ids = padded_family_member_ids(m)
+            emails = m.get("family_member_emails") or []
+            uids = m.get("family_member_user_ids") or []
+            for i in range(len(names)):
+                uid = uids[i] if i < len(uids) else None
+                if uid and uid not in by_uid:
+                    by_uid[uid] = {
+                        "id": ids[i], "name": names[i],
+                        "email": emails[i] if i < len(emails) else None,
+                        "family_id": m["id"], "family_name": m["name"],
+                    }
+        elif m.get("user_id") and m["user_id"] not in by_uid:
+            by_uid[m["user_id"]] = {
+                "id": m["id"], "name": m.get("name"), "email": m.get("email"),
+                "family_id": None, "family_name": None,
+            }
     admins = [
-        {"user_id": uid, "id": (by_uid.get(uid) or {}).get("id"),
+        {"user_id": uid,
+         "id": (by_uid.get(uid) or {}).get("id"),
          "name": (by_uid.get(uid) or {}).get("name"),
-         "email": (by_uid.get(uid) or {}).get("email")}
+         "email": (by_uid.get(uid) or {}).get("email"),
+         "family_id": (by_uid.get(uid) or {}).get("family_id"),
+         "family_name": (by_uid.get(uid) or {}).get("family_name")}
         for uid in trip.get("admin_ids", [])
     ]
     return {"owner_id": trip["owner_id"], "admin_ids": trip.get("admin_ids", []), "admins": admins}

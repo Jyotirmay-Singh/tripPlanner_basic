@@ -188,20 +188,38 @@ def assert_unique_family_member_emails(emails: Optional[List[Optional[str]]]) ->
 # same convention as ``services/reallocation.py``).
 
 def find_own_stubs(members: list, caller_email: Optional[str]) -> list:
-    """Unclaimed members whose linked email == the caller's own email (case-insensitive).
+    """Unclaimed INDIVIDUAL members whose linked email == the caller's own email (case-insensitive).
 
-    Matching is done ONLY against the caller's own verified account email — never free text —
-    so a joiner can only ever resolve to the stub that was created for them. Returns ``[]`` or
-    ``[one]`` in normal data; ``>1`` indicates pre-existing duplicate-email rows (legacy data),
-    which callers must surface and warn about, never auto-destroy.
+    An email now identifies a PERSON only — a standalone individual or ONE family sub-member — never a
+    family entity, so this matches only ``kind != "family"`` members (a family carries no entity email;
+    the per-member analogue is :func:`find_own_sub_stub`). Matching is done ONLY against the caller's
+    own verified account email — never free text — so a joiner can only ever resolve to the stub that
+    was created for them. Returns ``[]`` or ``[one]`` in normal data; ``>1`` indicates pre-existing
+    duplicate-email rows (legacy data), which callers must surface and warn about, never auto-destroy.
     """
     target = normalize_email(caller_email)
     if not target:
         return []
     return [
         m for m in members
-        if not m.get("user_id") and normalize_email(m.get("email")) == target
+        if m.get("kind") != "family"
+        and not m.get("user_id") and normalize_email(m.get("email")) == target
     ]
+
+
+def padded_family_member_ids(family: dict) -> List[str]:
+    """Stable per-member ids parallel to a family's ``family_members``, padding legacy rows.
+
+    Mirrors ``services.member_breakdown.family_member_ids`` and the inline padding in the join/claim
+    paths: any name past the stored ``family_member_ids`` gets a synthetic ``{family_id}:{i}`` id so a
+    slot can always be addressed even before the id backfill has run.
+    """
+    names = family.get("family_members") or []
+    ids = [str(x) for x in (family.get("family_member_ids") or [])]
+    if len(ids) < len(names):
+        fid = family.get("id", "")
+        ids = ids + [f"{fid}:{i}" for i in range(len(ids), len(names))]
+    return ids[: len(names)]
 
 
 def find_own_sub_stub(members: list, caller_email: Optional[str]) -> Optional[dict]:
@@ -223,11 +241,7 @@ def find_own_sub_stub(members: list, caller_email: Optional[str]) -> Optional[di
         names = m.get("family_members") or []
         emails = m.get("family_member_emails") or []
         uids = m.get("family_member_user_ids") or []
-        # Pad ids for legacy rows, parallel to services.member_breakdown.family_member_ids.
-        ids = [str(x) for x in (m.get("family_member_ids") or [])]
-        if len(ids) < len(names):
-            fid = m.get("id", "")
-            ids = ids + [f"{fid}:{i}" for i in range(len(ids), len(names))]
+        ids = padded_family_member_ids(m)
         for i, nm in enumerate(names):
             em = emails[i] if i < len(emails) else None
             claimed = uids[i] if i < len(uids) else None

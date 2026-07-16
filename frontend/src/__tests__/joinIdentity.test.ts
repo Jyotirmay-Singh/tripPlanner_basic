@@ -100,4 +100,13 @@ describe('buildJoinNewBody', () => {
       match({ member_id: 'stub1', has_financial_history: true }));
     expect(body).not.toHaveProperty('replace_member_id');
   });
+  it('carries family_id + family_member_id for "join existing family" (Phase 27 slot link)', () => {
+    // "Join existing family" links the joiner to ONE unclaimed member slot, not the family entity.
+    const body = buildJoinNewBody('ABC123', 'family',
+      { family_id: 'FAM', family_member_id: 'slot2' }, null);
+    expect(body).toEqual({
+      code: 'ABC123', action: 'join_new', mode: 'family',
+      family_id: 'FAM', family_member_id: 'slot2',
+    });
+  });
 });
