@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useColorScheme } from 'react-native';
+import { useColorScheme, Platform } from 'react-native';
 import { COLORS, ColorScheme, Mode } from './theme';
 
 type Ctx = {
@@ -28,6 +28,19 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       if (v === 'light' || v === 'dark') setModeState(v);
     });
   }, []);
+
+  // Web only: feed the live theme to <html> so native form-control theming and the
+  // browser-autofill override (see app/+html.tsx) track the app's actual mode — including a
+  // manual Profile toggle that diverges from the OS color scheme. Reuses COLORS[mode], so no
+  // hardcoded hex leaks in here.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const root = document.documentElement;
+    const c = COLORS[mode];
+    root.style.colorScheme = mode;
+    root.style.setProperty('--autofill-bg', c.surfaceMuted);
+    root.style.setProperty('--autofill-text', c.textMain);
+  }, [mode]);
 
   const setMode = useCallback((m: Mode) => {
     setModeState(m);
