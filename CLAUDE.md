@@ -1,89 +1,99 @@
 # CLAUDE.md
 
-This file provides strict guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Strict guidance for Claude Code (claude.ai/code) working in this repo. These instructions OVERRIDE default behavior.
 
 ## 1. Project Overview
 
-Trip Expense Splitter — a mobile app (Expo/React Native) + FastAPI/MongoDB backend for tracking trip
+Trip Expense Splitter — mobile app (Expo/React Native) + FastAPI/MongoDB backend for tracking trip
 expenses, splitting costs between individuals and families, settling balances, and exporting reports.
-See `USER_GUIDE.md` for full feature documentation and `memory/PRD.md` for the product spec.
+See `USER_GUIDE.md` for feature docs and `memory/PRD.md` for the product spec.
 
 ## 2. Current Architecture
 
 ### Backend (`backend/`)
-Modular FastAPI app. The original single-file `server.py` was split (Roadmap Step 1) into `models/`
+Modular FastAPI app. Original single-file `server.py` was split (Roadmap Step 1) into `models/`
 (Pydantic bodies), `routes/` (an `APIRouter(prefix="/api")` per area: auth, trips, members, expenses,
-balances, reports, receipts, spend, meta), `services/` (business + split math), and `utils/` (auth, RBAC
-deps, helpers). `server.py` now just builds `app`, includes the routers, and runs startup/shutdown;
+balances, reports, receipts, spend, payments, meta), `services/` (business + split math), `utils/`
+(auth, RBAC deps, helpers). `server.py` builds `app`, includes routers, runs startup/shutdown;
 `config.py` holds env vars, `database.py` the Motor client + `db` handle.
 
-- Mongo via Motor (`AsyncIOMotorClient`); collections accessed as `db.<collection>` (`db.users`,
-  `db.trips`, `db.expenses`, `db.settlements`, `db.auth_tokens`) + GridFS for receipts.
-- Auth: bcrypt-hashed password + 4-digit PIN, plus Google OAuth (`POST /api/auth/google`); JWT bearer
-  tokens (30-day expiry, `HS256`, secret from `JWT_SECRET`). `get_current_user` (`utils/deps.py`) decodes
-  the `Authorization: Bearer <token>` header.
-- IDs are UUID strings (`gen_id()`), not Mongo ObjectIds — documents store `id` and queries use
-  `{"_id": 0}` projections. Members are an **embedded array** on the trip doc (positional `$` updates).
-- A trip's `user_ids` array tracks access (`_trip_or_404`); three-tier RBAC owner/admin/member is enforced
-  by `utils/permissions.py` (source of truth) + `utils/deps.py` guards.
-- Balance/settle-up logic lives in `utils/balances.py::_compute_balances` (greedy minimum-transaction
-  settlement) over `services/calculator.py`. Expenses carry a `split_mode` (`PER_CAPITA`|`PER_FAMILY`, §5).
-- XLSX reports (`services/report_builder.py` + `routes/reports.py`, `openpyxl`) are built in-memory and
-  streamed; this endpoint takes the JWT as a `token` query param (not a header) since it's opened via a
-  browser link.
-- Receipts live in GridFS (`services/receipts.py`); expense lists expose only a `has_receipt` flag, with a
+- Mongo via Motor (`AsyncIOMotorClient`); collections as `db.<collection>` (`db.users`, `db.trips`,
+  `db.expenses`, `db.settlements`, `db.auth_tokens`, `db.payments`) + GridFS for receipts.
+- Auth: bcrypt password + 4-digit PIN, plus Google OAuth (`POST /api/auth/google`); JWT bearer (30-day
+  expiry, `HS256`, secret from `JWT_SECRET`). `get_current_user` (`utils/deps.py`) decodes the
+  `Authorization: Bearer <token>` header.
+- IDs are UUID strings (`gen_id()`), not Mongo ObjectIds — docs store `id`, queries use `{"_id": 0}`
+  projections. Members are an **embedded array** on the trip doc (positional `$` updates).
+- Trip's `user_ids` array tracks access (`_trip_or_404`); three-tier RBAC owner/admin/member enforced by
+  `utils/permissions.py` (source of truth) + `utils/deps.py` guards.
+- Balance/settle-up: `utils/balances.py::_compute_balances` (greedy minimum-transaction settlement) over
+  `services/calculator.py`. Expenses carry a `split_mode` (`PER_CAPITA`|`PER_FAMILY`|`EXACT`, §5).
+- XLSX reports (`services/report_builder.py` + `routes/reports.py`, `openpyxl`) built in-memory &
+  streamed; this endpoint takes the JWT as a `token` query param (not a header) — opened via browser link.
+- Receipts in GridFS (`services/receipts.py`); expense lists expose only a `has_receipt` flag, with a
   read-time fallback for legacy inline `receipt_base64` rows.
-- Startup creates indexes, seeds an admin user from `ADMIN_EMAIL`/`ADMIN_PASSWORD`/`ADMIN_PIN`, and runs
-  idempotent backfills. Verification / forgot-PIN / password-reset emails go via Resend
-  (`utils/emailer.py`); if not configured, the link/token is logged instead.
+- Startup creates indexes, seeds an admin from `ADMIN_EMAIL`/`ADMIN_PASSWORD`/`ADMIN_PIN`, runs
+  idempotent backfills. Verification / forgot-PIN / password-reset emails via Resend (`utils/emailer.py`);
+  if not configured, the link/token is logged instead.
 
 ### Frontend (`frontend/`)
-Expo SDK 54 app using `expo-router` (file-based routing under `frontend/app/`).
+Expo SDK 54, `expo-router` (file-based routing under `frontend/app/`).
 
-- Route groups: `(auth)` for login/register/forgot/reset/pin-login, `(tabs)` for the bottom-tab nav (dashboard, trips, add, reports, profile), and `trip/[id]/*` for trip detail, member/expense add-edit modals, settle-up, and category drill-down.
-- Shared logic lives in `frontend/src/`:
-  - `api.ts` — thin fetch wrapper; reads `EXPO_PUBLIC_BACKEND_URL`, attaches the bearer token from AsyncStorage, normalizes FastAPI error responses, and builds the XLSX download URL.
+- Route groups: `(auth)` for login/register/forgot/reset/pin-login, `(tabs)` for the bottom-tab nav
+  (dashboard, trips, add, reports, profile), and `trip/[id]/*` for trip detail, member/expense add-edit
+  modals, settle-up, category drill-down.
+- Shared logic in `frontend/src/`:
+  - `api.ts` — thin fetch wrapper; reads `EXPO_PUBLIC_BACKEND_URL`, attaches bearer token from
+    AsyncStorage, normalizes FastAPI error responses, builds the XLSX download URL.
   - `AuthContext.tsx` — session state, sign in/up/out, remembers last-used email for quick PIN login.
   - `ThemeContext.tsx` / `theme.ts` — light/dark color schemes, persisted via AsyncStorage, toggled from Profile.
   - `permissions.ts` — UX mirror of the backend RBAC matrix; `ui/` — shared design-system components.
-  - `DonutChart.tsx`, `T.tsx`, `LogoutButton.tsx` — shared UI components used across screens.
-- All screens read the backend base URL from `process.env.EXPO_PUBLIC_BACKEND_URL` (set in `frontend/.env`); there is no localhost fallback baked into the app itself.
+  - `DonutChart.tsx`, `T.tsx`, `ProfileAvatarButton.tsx` — shared UI components used across screens.
+- All screens read the backend base URL from `process.env.EXPO_PUBLIC_BACKEND_URL` (set in
+  `frontend/.env`); no localhost fallback is baked into the app.
 
 ## 3. Commands
 
-### Backend Commands
+### Backend
+```
 cd backend
 pip install -r requirements.txt
 uvicorn server:app --reload          # run the API (loads backend/.env via python-dotenv)
 pytest                                # run all tests
 pytest tests/test_auth.py             # run one test file
 pytest tests/test_auth.py::TestAuth::test_register_success   # run one test
+```
 
-### Frontend Commands
+### Frontend
+```
 cd frontend
 yarn install
 yarn start      # expo start — scan QR with Expo Go
 yarn android / yarn ios / yarn web
 yarn lint       # expo lint
+```
 
 ## 4. Required Environment Variables
 
-### Backend Configuration (`backend/.env`)
+### Backend (`backend/.env`)
 * `MONGO_URL`: MongoDB connection string
-* `DB_NAME`: Database identification string
-* `JWT_SECRET`: Signing key for HS256 authentication tokens
-* `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_PIN`: Seed credentials for system superuser (must be a `@gmail.com` address)
-* `RESEND_API_KEY`, `SENDER_EMAIL`, `APP_URL`: Email transactional routing configuration
-* `GOOGLE_CLIENT_ID`: OAuth 2.0 client ID(s) used to verify Google ID tokens for `POST /api/auth/google`. Accepts a single client ID or a comma-separated list of accepted audiences (e.g. `<web>,<ios>,<android>`), since `expo-auth-session` mints an `id_token` whose `aud` is the current platform's client ID.
+* `DB_NAME`: Database name
+* `JWT_SECRET`: Signing key for HS256 auth tokens
+* `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_PIN`: Seed superuser credentials (must be a `@gmail.com` address)
+* `RESEND_API_KEY`, `SENDER_EMAIL`, `APP_URL`: Email transactional config
+* `GOOGLE_CLIENT_ID`: OAuth 2.0 client ID(s) used to verify Google ID tokens for `POST /api/auth/google`.
+  Accepts a single client ID OR a comma-separated list of accepted audiences (e.g. `<web>,<ios>,<android>`),
+  since `expo-auth-session` mints an `id_token` whose `aud` is the current platform's client ID.
 
-### Frontend Configuration (`frontend/.env`)
-* `EXPO_PUBLIC_BACKEND_URL`: Complete targeted API base URL path
-* `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`, `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`, `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID`: OAuth 2.0 client IDs for "Sign in with Google" (`GoogleSignInButton`)
+### Frontend (`frontend/.env`)
+* `EXPO_PUBLIC_BACKEND_URL`: Complete API base URL
+* `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`, `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`, `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID`:
+  OAuth 2.0 client IDs for "Sign in with Google" (`GoogleSignInButton`)
 
 ### Gmail-Only Identity
-This project is gmail-only: every email address accepted anywhere (register, login, forgot-PIN, member
-linked emails, and Google sign-in) must end in `@gmail.com`, enforced server-side by
-`backend/utils/email_rules.py::assert_gmail` and mirrored client-side by `frontend/src/validation.ts`.
+Gmail-only project: every email accepted anywhere (register, login, forgot-PIN, member linked emails,
+Google sign-in) must end in `@gmail.com`, enforced server-side by `backend/utils/email_rules.py::assert_gmail`
+and mirrored client-side by `frontend/src/validation.ts`.
 
 ---
 
@@ -121,7 +131,9 @@ App User Identity Mapping: If an App User joins an existing family group via cod
 AGENT DIRECTIVE: You must update this file by changing `[ ]` to `[x]` as you successfully complete, test,
 and commit each step. Do not skip steps or leave partial components. Phases 1–16 below are **complete** —
 each step is condensed to its load-bearing artifacts (files/endpoints/invariants); the blow-by-blow history
-(test counts, branch names, verification runs, deploy gotchas) lives in git and the `memory/` files.
+(test counts, branch names, verification runs, deploy gotchas) lives in git and the `memory/` files. The
+same condensation is applied to all completed phases here: each `[x]` step keeps its load-bearing
+artifacts + decisions; per-step test-count/"verification gate"/commit-status narration lives in git.
 
 **Do-not-break invariants (most phases were strictly additive):** unless a task is *specifically* about
 them, do not alter the split/balance engine (`services/calculator.py` + `minimize_transfers`; PER_CAPITA
@@ -158,7 +170,7 @@ mark-paid RBAC (Phase 10), JWT/auth, GridFS receipts, the XLSX report's engine v
 
 ### Phase 6: Core Presentation Layer & Media Handling (Frontend)
 - [x] Step 18: Standardize typography/spacing/color tokens; composition string `[X] Individuals across [Y] Families & [Z] Singles`.
-- [x] Step 19: Global header `LogoutButton` via `_layout.tsx` `screenOptions`.
+- [x] Step 19: Global header `LogoutButton` via `_layout.tsx` `screenOptions`. (Later replaced by `ProfileAvatarButton` in Phase 19 / Step 77.)
 - [x] Step 20: `expo-image-picker` receipts + `expo-media-library` save-to-gallery.
 
 ### Phase 7: Post-Launch Bug Fixes & Hardening
@@ -177,7 +189,7 @@ mark-paid RBAC (Phase 10), JWT/auth, GridFS receipts, the XLSX report's engine v
 - [x] Step 30: Expo **web** on Vercel `https://tripsplitter-web.vercel.app` (`frontend/vercel.json` build + SPA rewrite, `frontend/.vercelignore`); `EXPO_PUBLIC_BACKEND_URL` as a build-time Vercel env. Web limits for testers: email+PIN only (no web Google), file-picker receipts, save-to-gallery is a no-op.
 
 ### Phase 9: Gmail Auth — Google OAuth + Email Verification + Forgot-Password
-*(Additive on top of email+PIN+JWT. User doc += `email_verified`/`credentials_set`; new `db.auth_tokens`; pre-existing users backfilled verified + credential-complete on startup.)*
+*(Additive on email+PIN+JWT. User doc += `email_verified`/`credentials_set`; new `db.auth_tokens`; pre-existing users backfilled verified + credential-complete on startup.)*
 - [x] Step 31: `utils/auth_tokens.py` — cryptographically random, SHA-256-**hashed**, single-use, time-limited tokens (`verify_email`|`reset_password`) in `db.auth_tokens` (unique `token_hash` index + TTL on `expires_at`); `utils/emailer.py` (logs the link when Resend unconfigured).
 - [x] Step 32: Additive user fields `email_verified`/`credentials_set` (register → verified:false/creds:true; Google → verified:true/creds:false) + idempotent startup backfill; exposed on auth payloads + `GET /auth/me`.
 - [x] Step 33: Email verification (soft gate): register emails a 24h link; `POST /auth/verify-email` (unauth), `POST /auth/resend-verification` (Bearer, 60s rate-limit → 429). Unverified users still log in; dashboard `UnverifiedBanner`. Google signups skip it.
@@ -202,7 +214,7 @@ mark-paid RBAC (Phase 10), JWT/auth, GridFS receipts, the XLSX report's engine v
 - [x] Step 46: `add_member`/`update_member` use `assert_unique_email_in_trip` (preserving merge-target/self-exclusion + `assert_gmail`-first).
 - [x] Step 47: Join wizard identity step — pure `src/joinIdentity.ts` (`availableJoinChoices`/`mustClaim`/`replacementNeeded`/`buildClaimBody`/`buildJoinNewBody`); `api.ts` `previewJoin`/`joinTrip`; claim (recommended) vs join-as-new with `ConfirmModal`-gated stub removal.
 - [x] Step 48: `validation.ts` `isEmailTaken` + `DUPLICATE_EMAIL_MESSAGE` mirror wired into `add-member.tsx`/`edit-member.tsx`.
-- [x] Step 49: Docs (USER_GUIDE §3.2/§4.3/§4.4) + full verification gate.
+- [x] Step 49: Docs (USER_GUIDE §3.2/§4.3/§4.4).
 
 ### Phase 12: Spend Ranking Bar Chart (Trip Insights)
 *(Additive, read-only. "Spent" = Σ gross positive `amount` grouped by payer `paid_by_member_id`, descending; split/settlement-independent; zero-spenders shown.)*
@@ -211,20 +223,20 @@ mark-paid RBAC (Phase 10), JWT/auth, GridFS receipts, the XLSX report's engine v
 - [x] Step 52: Pure `src/spend.ts::rankSpend` + types.
 - [x] Step 53: `SpendBarChart.tsx` (react-native-svg, theme intensity ramp, empty state).
 - [x] Step 54: Wire into the trip Summary tab (`api.ts::spendSummary`, near the donut).
-- [x] Step 55: Docs (USER_GUIDE §6) + full verification gate.
+- [x] Step 55: Docs (USER_GUIDE §6).
 
 ### Phase 13: Splitting & Balance Bug Fixes
 *(Decisions: (a) BUG 2 — `family_participants` now DRIVES the PER_CAPITA family weight to the involved count (overturns "ledger ignores family_participants" for PER_CAPITA only); (b) apply the involved-count weight EVERYWHERE — ledger, per-expense `shares`, frontend preview, XLSX. PER_FAMILY §5-B untouched.)*
 - [x] Step 56: BUG 2 — `calculator.py` `_chosen_participants`/`involved_count`/`resolve_weights(..., family_participants, rosters)` (snapshot override → involved count → full size); wired into `_compute_balances`, `member_breakdown`, `expense_shares.entity_shares_raw`, `report_builder.build_per_capita_rows`, `income_migration.compute_net`.
 - [x] Step 57: BUG 1 — family per-member breakdown shows the post-settlement remainder (superseded by Phase 14 / Step 63).
 - [x] Step 58: Frontend preview mirror — `src/familyParticipation.ts` `familyInvolvedWeight`/`perCapitaHumans`/`familyShareEach` honor the involved count (thread `familyExcluded`); routed through `SplitModeSelector.splitPreviewLabel`.
-- [x] Step 59: Tests (`tests/test_split_bugfix.py` + updates) + docs (§5-A + USER_GUIDE) + full verification gate.
+- [x] Step 59: Tests (`tests/test_split_bugfix.py` + updates) + docs (§5-A + USER_GUIDE).
 
 ### Phase 14: Per-Expense Family Breakdown Isolation
 *(DISPLAY-only intra-family rows. Decision: a member excluded from an expense contributes exactly 0 to that expense.)*
 - [x] Step 60: `calculator.py::distribute_per_expense_net` — each expense's family net split EVENLY among only its participants (excluded ⇒ 0); `member_breakdown` restricted path rewritten; non-restricted path byte-identical (`round(net/size,2)`). (Settlement handling superseded by Step 63.)
 - [x] Step 61: Tests — `TestDistributePerExpenseNet` + `TestBreakdownPerExpenseIsolation`.
-- [x] Step 62: Docs (§5-A + USER_GUIDE) + full verification gate; cleared dev-trip junk settlements.
+- [x] Step 62: Docs (§5-A + USER_GUIDE); cleared dev-trip junk settlements.
 - [x] Step 63: CHRONOLOGICAL settlement replay — `distribute_chronological(events, roster)` replays the family's expenses + non-pending settlements in `paid_at`/`created_at` order; each settlement SCALES running positions toward 0 (full settle ⇒ 0; partial ⇒ proportional). Reads via `member_breakdown` → Balances rows + report Sheet 3b. No frontend change.
 
 ### Phase 15: Toast Manual Dismiss (UX)
@@ -284,8 +296,7 @@ authNav flow. No backend/auth/RBAC/split/report change.)*
       tap → `router.navigate('/(tabs)/profile')`.
 - [x] Step 77: Swap header `headerRight` in root `app/_layout.tsx` + `(tabs)/_layout.tsx` to
       `ProfileAvatarButton`; delete orphaned `src/LogoutButton.tsx`; Profile big avatar reuses
-      `initials()`. Logout preserved on Profile (Step 21 unchanged); authNav/logout tests still green
-      + full frontend gate (jest/tsc/lint).
+      `initials()`. Logout preserved on Profile (Step 21 unchanged).
 
 ### Phase 20: Partial Payments (Splitwise-style settlements)
 *(Additive on a new `db.payments` collection + the existing greedy engine. A payment is a directed
@@ -311,12 +322,10 @@ current suggested pair payable (no overpayment). No split-mode/GridFS/Gmail/auth
       Paid/Paid badges + progress, editable amount + "Max" hint + `ConfirmModal` guard-rail, payment
       log with date/time, receiver/admin edit/delete); pure `src/payments.ts` + `__tests__/payments.test.ts`;
       `src/api.ts` wrappers (`listPayments`/`recordPayment`/`editPayment`/`deletePayment`);
-      `src/permissions.ts` `canRecordPayment` mirror. Frontend gate green (tsc + eslint + jest 248/248).
-- [x] Step 82: full verification gate — live-API `tests/test_payments.py` **14/14 green** against a
-      local Docker Mongo; full backend suite **581 passed / 2 skipped** (the only 2 fails are the
-      pre-existing `test_auth` admin-login env caveat, unrelated to payments). `test_balances_reports`
-      updated for the 5th "Payments" tab (+ a stale Phase-18 Transactions header assertion fixed).
-      Frontend jest 248/tsc/lint green; docs (USER_GUIDE §7.2/§8/§9). Commit pending user go-ahead.
+      `src/permissions.ts` `canRecordPayment` mirror.
+- [x] Step 82: full verification gate — live-API `tests/test_payments.py`; full backend suite;
+      `test_balances_reports` updated for the 5th "Payments" tab (+ a stale Phase-18 Transactions header
+      assertion fixed). Docs (USER_GUIDE §7.2/§8/§9).
 
 ### Phase 21: Expenses Tab Date+Time Ordering
 *(Frontend-only, DISPLAY-only. The pure helper `frontend/src/expenseSort.ts`
@@ -337,8 +346,7 @@ new array and never mutates its input.)*
       timed rows; `created_at` time-of-day decides, not 23:59) and the unparseable-`time`-string
       fallback case. (Existing cases already cover date+time present, date-only fallback, mixed-date
       ordering, same date+time `created_at`→`id` tiebreaker, and missing/invalid date.)
-- [x] Step 85: Docs (USER_GUIDE §5.2 — Expenses tab shows newest first by date+time) + full frontend
-      gate green (jest 250/250, tsc clean, eslint clean).
+- [x] Step 85: Docs (USER_GUIDE §5.2 — Expenses tab shows newest first by date+time).
 
 ### Phase 22: Exact-Amount Split (`split_mode = "EXACT"`)
 *(Strictly additive third split mode, §5-C. The author assigns explicit per-person amounts (family
@@ -380,7 +388,7 @@ offline replica `income_migration.compute_net`.)*
       (Σ amount == Σ payable). Pure tests in `tests/test_exact_split.py::TestReportBuilders`.
 - [x] Step 92: Frontend pure helper `src/exactSplit.ts` (`reconcile`/`resolveEntityShares`/
       `splitRemainingEqually`, cent-safe) + `shared/exact-split-vectors.json` fixture asserted by BOTH
-      `src/__tests__/exactSplit.test.ts` (17 jest) and `tests/test_exact_split.py::TestSharedVectors`.
+      `src/__tests__/exactSplit.test.ts` and `tests/test_exact_split.py::TestSharedVectors`.
 - [x] Step 93: UI — third `[Exact]` pill in `SplitModeSelector`; reusable `src/ExactSplitEditor.tsx`
       (collapsible families w/ live subtotals, per-member checkbox+amount, reconciliation bar via
       `ProgressBar`, Save-gate, "split remaining equally", "not set" hint) replaces the Split-among list
@@ -388,13 +396,8 @@ offline replica `income_migration.compute_net`.)*
 - [x] Step 94: `splitPreviewLabel` EXACT rollup ("Name cur X · …"); add/edit submit send
       `custom_amounts` + involved-entity `split_member_ids` through the generic `api()` (422 surfaced by
       the existing FastAPI error normalization); `SplitMode`/`split_mode` unions widened in
-      `SplitModeSelector`/`expenseShares.ts`/`memberSpend.ts`. Frontend gate green (tsc, eslint,
-      jest 267/267).
-- [x] Step 95: Docs (CLAUDE.md §5-C + USER_GUIDE §5.1) + full verification gate. Backend: EXACT pure
-      (`test_exact_split.py` 25) + live-API (`test_exact_split_api.py` 9) green; full suite **615 passed /
-      2 skipped**, the only 2 failures the pre-existing `test_auth` admin-login env caveat (unrelated).
-      Frontend: tsc clean, eslint 0 errors, jest 267/267. Live gate run against local Docker Mongo + a
-      from-source uvicorn.
+      `SplitModeSelector`/`expenseShares.ts`/`memberSpend.ts`.
+- [x] Step 95: Docs (CLAUDE.md §5-C + USER_GUIDE §5.1).
 
 ### Phase 23: Report (XLSX + PDF) Fixes & Full PDF
 *(Report-layer ONLY — `routes/reports.py` (openpyxl/route assembly), `services/report_builder.py`
@@ -428,13 +431,9 @@ contaminated Share column — which is why the existing foot-only tests never ca
       right-aligned currency, red/parenthesised negatives, bold+ruled totals, `repeatRows`). The route
       builds `mf_rows` (needs the async ledger) and passes it in; empty payments/settlements/expenses
       all render safely.
-- [x] Step 100: Full verification gate — pure suite offline green (report tests +
-      `TestMembersFamiliesWithPayments`/`TestCategoryRows`); live-API `test_balances_reports.py`
-      (Settlements value == settlement + payment, Share uncontaminated, foots; "Receiver" header; PDF
-      renders) + `test_exact_split_api.py` PDF smoke green against local Docker Mongo + from-source
-      uvicorn. Docs (this checklist + USER_GUIDE §8). Sample XLSX + PDF inspected: columns foot with
-      partial payments included. Do-NOT-break invariants (split/balance engine, settlement lifecycle,
-      RBAC, Gmail, `?token=`) untouched.
+- [x] Step 100: Docs (this checklist + USER_GUIDE §8). Do-NOT-break invariants (split/balance engine,
+      settlement lifecycle, RBAC, Gmail, `?token=`) untouched; sample XLSX + PDF foot with partial
+      payments included.
 
 ### Phase 24: Per-Member Contact Emails + Vertical Family Layout
 *(Strictly additive. Each family sub-member may carry an OPTIONAL email. DECISION: emails are
@@ -449,24 +448,19 @@ unchanged.)*
       (`models/member.py`); `utils/members.py` `align_family_member_emails` (mirrors
       `assign_family_member_ids`), `email_exists` extended to scan sub-emails (so
       `assert_unique_email[_in_trip]` cover them with NO fork), `assert_unique_family_member_emails`
-      (intra-roster). Pure `tests/test_member_emails.py` (16).
+      (intra-roster). Pure `tests/test_member_emails.py`.
 - [x] Step 102: Routes — `routes/members.py` `_validate_family_member_emails` (assert_gmail +
       `assert_unique_email_in_trip` + intra-roster); wired into `add_member` (incl. individual→family
       merge branch), `update_member`, and the parallel drop in `delete_family_member`. A sub-email may
       equal its OWN family entity email (same person); cross-entity collisions (members, other
-      families' sub-emails, claimed users' account emails) rejected. Live `tests/test_member_emails_api.py`
-      (9: save/read-back, gmail-only, intra/cross-family/vs-individual/vs-claimed uniqueness,
-      self-exclusion, legacy, balance-neutral).
+      families' sub-emails, claimed users' account emails) rejected. Live `tests/test_member_emails_api.py`.
 - [x] Step 103: Frontend — `src/familyParticipation.ts` `FamilyRow.email`/`FPMember`, emails through
       `rowsToPayload`/`familyToRows`, pure `tripMemberEmails` + `familyEmailIssue`; per-row email input
       in `FamilyMembersEditor.tsx`; `add-member.tsx`/`edit-member.tsx` send + rehydrate + gate;
       Members tab (`app/trip/[id]/index.tsx`) renders families VERTICALLY (one row per member: name +
       email or "No email"), entity-level badges + linked-account on the family header, individuals
       unchanged. `__tests__/familyParticipation.test.ts` extended.
-- [x] Step 104: Docs (this checklist + USER_GUIDE §4.1/§4.2) + full verification gate — backend pure
-      + live-API green (Phase-11 identity + uniqueness + balances/reports regression byte-identical);
-      frontend tsc clean, eslint clean, jest green. Legacy trip (family with only an entity email)
-      renders vertically with "No email" hints.
+- [x] Step 104: Docs (this checklist + USER_GUIDE §4.1/§4.2).
 
 ### Phase 25: Per-Member Account Linking (link an app user to ANY family member)
 *(Strictly additive on Phase 24. A family sub-member's email is now a JOIN-CLAIM target: a joiner
@@ -483,7 +477,7 @@ sub-member path is ADDED alongside it. One-Gmail-per-trip invariant preserved.)*
       `find_own_sub_stub` (per-member analogue of `find_own_stubs`: first UNCLAIMED sub-member whose
       email == caller's own), and widen `assert_unique_email_in_trip` to exclude a family's WHOLE uid
       set (entity + per-member) on an edit round-trip. `models/member.py` doc-shape comment. Pure
-      tests in `tests/test_member_emails.py` (27).
+      tests in `tests/test_member_emails.py`.
 - [x] Step 106: Join/claim/preview — `models/join.JoinRequest += family_member_id`;
       `routes/trips._claim_sub_member` (action="claim" + family_member_id stamps ONE slot's
       `family_member_user_ids[idx]` + grants access, own-email-gated 403, idempotent, atomic against a
@@ -501,12 +495,7 @@ sub-member path is ADDED alongside it. One-Gmail-per-trip invariant preserved.)*
       claim-only choices/mustClaim/replacementNeeded; `buildClaimBody` carries the sub-slot);
       `app/join-trip.tsx` claim card wording; `app/trip/[id]/index.tsx` "Linked"/"You" badge on
       claimed sub-rows. Jest coverage in `__tests__/joinIdentity.test.ts`.
-- [x] Step 109: Full verification gate — pure `test_member_emails` (27) green; live-API
-      `tests/test_member_linking_api.py` (10: preview claim-only, claim links + grants access + NOT
-      admin + balance-neutral, two members claimed independently, own-email 403, idempotent, taken-slot
-      403, join-as-new blocked, edit round-trip preserves link, member-delete + whole-family removal
-      evict linked accounts) green; Phase-11 identity + uniqueness + balances/reports regression
-      byte-identical. Frontend jest/tsc/eslint green. Docs (this checklist + USER_GUIDE §4.3).
+- [x] Step 109: Docs (this checklist + USER_GUIDE §4.3).
 
 ### Phase 26: Emails Identify a Person, Not a Family (+ creator identity at trip creation)
 *(Builds on Phase 24/25. DECISION: an email now identifies a PERSON only — a standalone individual or
@@ -531,20 +520,14 @@ are byte-identical. Do-not-break invariants (§6) untouched.)*
       legacy family's entity email + linked account onto the FIRST member slot whose email AND account
       are both free (they belong to one person → land together), nulls the entity, returns `None` when
       already clean (idempotent) or no free slot (caller logs). A `server.py` lifespan loop applies it
-      (mirrors the `family_member_ids` backfill). Pure `tests/test_member_emails.py::TestDemoteFamilyEntityEmail`
-      (10) → 37 pass.
+      (mirrors the `family_member_ids` backfill). Pure `tests/test_member_emails.py::TestDemoteFamilyEntityEmail`.
 - [x] Step 114: Frontend — create-trip "Who are you on this trip?" segmented control (individual / in a
       family → family name + member rows + per-row "This is me"; row 0 prefilled with the user's name);
       pure `src/createIdentity.ts` (`identityIssue`/`buildIdentityFields`, remaps `self_index` across
-      dropped blanks) + `createIdentity.test.ts` (10). Members tab: dropped the family-header
+      dropped blanks) + `createIdentity.test.ts`. Members tab: dropped the family-header
       `Linked account · email` line; sub-rows show Owner/Admin/You/Linked (via `roleOf`). Add/Edit
       member: the "Linked email" input renders ONLY for `kind==='individual'`; families send `email=null`.
-- [x] Step 115: Full verification gate — live-API `tests/test_trip_create_identity_api.py` (8:
-      create-as-family attaches owner to slot + entity email None + owner in user_ids/admin_ids +
-      balances compute, create-as-individual legacy shape, self_index default 0, family validation 400s,
-      family add/update ignore a crafted entity email, individual→family edit nulls it, owner-as-family-
-      member unremovable) green; Phase-11/24/25 identity + balances/reports regression byte-identical.
-      Frontend tsc/eslint clean, jest 342/342. Docs (this checklist + USER_GUIDE §3/§4.1/§4.2).
+- [x] Step 115: Docs (this checklist + USER_GUIDE §3/§4.1/§4.2).
 
 ### Phase 27: Family Email Fully Retired + Per-Member Admin (join re-keyed to member emails)
 *(Finishes the Phase-24/25/26 transition. DECISIONS: (a) a family entity carries NO email/account
@@ -570,8 +553,7 @@ Do-not-break invariants (§6) untouched.)*
       owner per member; unlinked slots noted). `join-trip.tsx` "Join existing family" shows the family's
       open slots ("Which member are you?") + `family_member_id` in the body; "Create new family" hints
       "list yourself first". `joinIdentity.ts` body carries `family_member_id`.
-- [x] Step 118: Full verification gate — backend suite **776 passed / 2 skipped** (updated
-      `test_join.py`, `test_identity_reconciliation.py`, `test_identity_helpers.py`; new join open-slot /
-      slot-link and `TestSubMemberAdmin` promote-a-linked-member coverage). Frontend tsc/eslint clean,
-      jest **343/343** (+1 join-family body case). Balances/reports regression byte-identical. Docs
-      (this checklist + USER_GUIDE §3.2/§4.1/§4.5).
+- [x] Step 118: Full verification gate — backend suite (updated `test_join.py`,
+      `test_identity_reconciliation.py`, `test_identity_helpers.py`; new join open-slot / slot-link and
+      `TestSubMemberAdmin` promote-a-linked-member coverage). Balances/reports regression byte-identical.
+      Docs (this checklist + USER_GUIDE §3.2/§4.1/§4.5).
