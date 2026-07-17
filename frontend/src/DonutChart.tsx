@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Pressable, Platform, GestureResponderEvent } from 'react-native';
 import Svg, { G, Path, Circle, Text as SvgText } from 'react-native-svg';
 import { useTheme } from './ThemeContext';
 import T from './T';
@@ -51,47 +51,68 @@ export default function DonutChart({
     return { ...d, start, end };
   });
 
+  // react-native-svg's per-shape onPress reaches DOM onClick on web but doesn't reliably fire on
+  // native, so on native we hit-test the tapped slice from the touch location (angle within the
+  // drawn ring, matching polar()'s -90° convention). Web keeps the existing <Path>/<Circle> path.
+  const handleDonutPress = (e: GestureResponderEvent) => {
+    if (!onSlicePress) return;
+    const { locationX, locationY } = e.nativeEvent;
+    const dx = locationX - cx;
+    const dy = locationY - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < rInner || dist > rOuter) return; // outside the ring band
+    const angle = (Math.atan2(dy, dx) * 180 / Math.PI + 90 + 360) % 360;
+    const hit = slices.find((s) => angle >= s.start && angle < s.end);
+    if (hit) onSlicePress(hit);
+  };
+
+  const donut = (
+    <Svg width={size} height={size}>
+      <G>
+        {slices.length === 1 ? (
+          <>
+            {/* Single-category donut: the ring is one Circle, so it needs its own press
+                handler (the multi-slice <Path> branch below has one, but this one didn't —
+                so a lone category was never tappable, on web or native). */}
+            <Circle
+              cx={cx} cy={cy} r={rOuter} fill={slices[0].color}
+              onPress={onSlicePress ? () => onSlicePress(slices[0]) : undefined}
+              testID={`donut-slice-${slices[0].key}`}
+            />
+            <Circle cx={cx} cy={cy} r={rInner} fill={colors.surface} />
+          </>
+        ) : (
+          slices.map((s) => (
+            <Path
+              key={s.key}
+              d={arcPath(cx, cy, rOuter, rInner, s.start, s.end)}
+              fill={s.color}
+              onPress={onSlicePress ? () => onSlicePress(s) : undefined}
+              testID={`donut-slice-${s.key}`}
+            />
+          ))
+        )}
+      </G>
+      {centerValue ? (
+        <SvgText x={cx} y={cy - 2} textAnchor="middle" fontSize="22" fontWeight="700" fill={colors.textMain}>
+          {centerValue}
+        </SvgText>
+      ) : null}
+      {centerLabel ? (
+        <SvgText x={cx} y={cy + 18} textAnchor="middle" fontSize="11" fill={colors.textMuted}>
+          {centerLabel.toUpperCase()}
+        </SvgText>
+      ) : null}
+    </Svg>
+  );
+
   return (
     <View style={styles.wrap}>
-      <View>
-        <Svg width={size} height={size}>
-          <G>
-            {slices.length === 1 ? (
-              <>
-                {/* Single-category donut: the ring is one Circle, so it needs its own press
-                    handler (the multi-slice <Path> branch below has one, but this one didn't —
-                    so a lone category was never tappable, on web or native). */}
-                <Circle
-                  cx={cx} cy={cy} r={rOuter} fill={slices[0].color}
-                  onPress={onSlicePress ? () => onSlicePress(slices[0]) : undefined}
-                  testID={`donut-slice-${slices[0].key}`}
-                />
-                <Circle cx={cx} cy={cy} r={rInner} fill={colors.surface} />
-              </>
-            ) : (
-              slices.map((s) => (
-                <Path
-                  key={s.key}
-                  d={arcPath(cx, cy, rOuter, rInner, s.start, s.end)}
-                  fill={s.color}
-                  onPress={onSlicePress ? () => onSlicePress(s) : undefined}
-                  testID={`donut-slice-${s.key}`}
-                />
-              ))
-            )}
-          </G>
-          {centerValue ? (
-            <SvgText x={cx} y={cy - 2} textAnchor="middle" fontSize="22" fontWeight="700" fill={colors.textMain}>
-              {centerValue}
-            </SvgText>
-          ) : null}
-          {centerLabel ? (
-            <SvgText x={cx} y={cy + 18} textAnchor="middle" fontSize="11" fill={colors.textMuted}>
-              {centerLabel.toUpperCase()}
-            </SvgText>
-          ) : null}
-        </Svg>
-      </View>
+      {Platform.OS !== 'web' && onSlicePress ? (
+        <Pressable onPress={handleDonutPress} testID="donut-press">{donut}</Pressable>
+      ) : (
+        <View>{donut}</View>
+      )}
       <View style={styles.legend}>
         {data.map((d) => {
           const pct = total > 0 ? (d.value / total) * 100 : 0;

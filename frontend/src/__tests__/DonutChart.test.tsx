@@ -63,6 +63,27 @@ describe('DonutChart drill-down affordances', () => {
     expect(onPress.mock.calls[0][0].key).toBe('Fuel');
   });
 
+  it('native: hit-tests the tapped slice from the touch location', () => {
+    // On native the SVG per-shape onPress doesn't fire, so a Pressable over the donut resolves the
+    // slice by angle. Food spans 0–216°; a point mid-wedge (~108°) inside the ring band → Food.
+    const onPress = jest.fn();
+    const r = mount(MULTI, onPress);
+    act(() => {
+      pressable(r, 'donut-press').props.onPress({ nativeEvent: { locationX: 193.7, locationY: 137.2 } });
+    });
+    expect(onPress).toHaveBeenCalledTimes(1);
+    expect(onPress.mock.calls[0][0].key).toBe('Food');
+  });
+
+  it('native: a tap in the center hole (inside the ring) drills into nothing', () => {
+    const onPress = jest.fn();
+    const r = mount(MULTI, onPress);
+    act(() => {
+      pressable(r, 'donut-press').props.onPress({ nativeEvent: { locationX: 110, locationY: 110 } });
+    });
+    expect(onPress).not.toHaveBeenCalled();
+  });
+
   it('single-slice ring exposes onPress and fires onSlicePress (regression: it had none)', () => {
     const onPress = jest.fn();
     const r = mount(SINGLE, onPress);
