@@ -11,6 +11,7 @@
     },
     "preview": {
       "distribution": "internal",
+      "autoIncrement": true,
       "android": { "buildType": "apk" },
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://tripsplitter-api.onrender.com",
