@@ -40,6 +40,7 @@ export default function Forgot() {
 
   return (
     <AuthShell
+      edges={['bottom']}
       brandIcon="key"
       title="Forgot PIN"
       subtitle="Confirm your email and password, then choose a new 4-digit PIN."

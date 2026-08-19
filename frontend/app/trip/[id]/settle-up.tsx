@@ -413,9 +413,13 @@ export function AmountModal({
               />
             </ScrollView>
             {/* Footer pinned below the scroll region — always visible/reachable. */}
-            <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.md }}>
-              <Button label="Cancel" variant="secondary" onPress={onCancel} style={{ flex: 1 }} />
-              <Button label={submitLabel} onPress={submit} style={{ flex: 1 }} testID="payment-amount-continue" />
+            <View style={styles.modalFooter}>
+              <View style={styles.modalAction}>
+                <Button label="Cancel" variant="secondary" onPress={onCancel} fullWidth />
+              </View>
+              <View style={styles.modalAction}>
+                <Button label={submitLabel} onPress={submit} fullWidth testID="payment-amount-continue" />
+              </View>
             </View>
           </Pressable>
         </KeyboardAvoidingView>
@@ -444,6 +448,8 @@ const styles = StyleSheet.create({
   // maxHeight bounds the card so the body ScrollView can scroll; header + footer stay pinned.
   modalCard: { borderRadius: RADIUS.lg, borderWidth: 1, padding: SPACING.lg, maxHeight: '90%' },
   modalHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.xs },
+  modalFooter: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.md },
+  modalAction: { flex: 1 },
   // flexShrink lets the scroll area absorb overflow (keyboard open / small screen) while the
   // header and footer keep their natural height.
   modalBody: { flexGrow: 0, flexShrink: 1 },

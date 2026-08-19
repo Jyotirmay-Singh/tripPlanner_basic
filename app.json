@@ -1,3 +1,12 @@
 {
-  "expo": {}
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "0ef4d6e2-8a5c-4adb-9f7d-83938c3582c8"
+      }
+    },
+    "android": {
+      "package": "com.jyotirmay03.tripplanner"
+    }
+  }
 }

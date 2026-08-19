@@ -6,7 +6,6 @@ import { useTheme } from '../../src/ThemeContext';
 import { FONTS } from '../../src/theme';
 import { Icon } from '../../src/ui';
 import { IconName } from '../../src/ui/Icon';
-import ProfileAvatarButton from '../../src/ProfileAvatarButton';
 
 // Named so it carries a display name (lint) — the tab icon renderer.
 function TabIcon({ name, color, focused, base = 24 }: { name: IconName; color: string; focused: boolean; base?: number }) {
@@ -46,11 +45,9 @@ export default function TabsLayout() {
         // With only four tabs, let each item flex evenly across the bar width.
         tabBarItemStyle: { flex: 1 },
         tabBarLabelStyle: { fontFamily: FONTS.bodySemibold, fontSize: 12 },
-        headerShown: true,
-        headerTitle: '',
-        headerStyle: { backgroundColor: colors.background },
-        headerShadowVisible: false,
-        headerRight: () => <ProfileAvatarButton />,
+        // Tab pages render their own compact header inside Screen. Keeping the navigator header
+        // here would reserve another status-bar/header-height band above the Screen safe area.
+        headerShown: false,
       }}
     >
       <Tabs.Screen name="dashboard" options={{ title: 'Home', tabBarIcon: (p) => <TabIcon name="home" {...p} /> }} />

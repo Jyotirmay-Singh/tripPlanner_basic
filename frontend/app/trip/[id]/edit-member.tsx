@@ -101,7 +101,7 @@ export default function EditMember() {
   };
 
   if (!member) {
-    return <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}><T style={{ padding: SPACING.lg }}>Loading…</T></SafeAreaView>;
+    return <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}><T style={{ padding: SPACING.lg }}>Loading…</T></SafeAreaView>;
   }
 
   return (

@@ -9,6 +9,7 @@ import T from '../../src/T';
 import { compositionLabel } from '../../src/composition';
 import { formatTripDates } from '../../src/date';
 import UnverifiedBanner from '../../src/UnverifiedBanner';
+import TabPageHeader from '../../src/TabPageHeader';
 import {
   Screen, Card, Button, StatCard, ListRow, EmptyState, AmountText, SkeletonCard,
 } from '../../src/ui';
@@ -57,10 +58,10 @@ export default function Dashboard() {
       refreshing={refreshing}
       onRefresh={load}
     >
-      <View>
-        <T variant="label" muted>Hello, {user?.name?.split(' ')[0] || 'traveller'}</T>
-        <T variant="h1" style={{ marginTop: 2 }}>Dashboard</T>
-      </View>
+      <TabPageHeader
+        title="Dashboard"
+        eyebrow={`Hello, ${user?.name?.split(' ')[0] || 'traveller'}`}
+      />
 
       <UnverifiedBanner />
 

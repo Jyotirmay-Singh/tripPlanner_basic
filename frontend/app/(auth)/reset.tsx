@@ -27,7 +27,7 @@ export default function Reset() {
   };
 
   return (
-    <AuthShell brandIcon="lock" title="Reset PIN" subtitle="Paste the token from your email and choose a new 4-digit PIN.">
+    <AuthShell edges={['bottom']} brandIcon="lock" title="Reset PIN" subtitle="Paste the token from your email and choose a new 4-digit PIN.">
       <Input
         testID="reset-token"
         label="Reset token"

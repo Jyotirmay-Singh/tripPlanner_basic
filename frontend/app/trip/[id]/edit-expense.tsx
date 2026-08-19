@@ -206,7 +206,7 @@ export default function EditExpense() {
 
   if (!trip) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
         <View style={{ padding: SPACING.lg, gap: SPACING.md }}><SkeletonCard count={4} /></View>
       </SafeAreaView>
     );

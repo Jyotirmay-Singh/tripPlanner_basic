@@ -30,6 +30,10 @@ jest.mock('../../T', () => {
 jest.mock('../../composition', () => ({ compositionLabel: () => 'comp' }));
 jest.mock('../../date', () => ({ formatTripDates: () => 'dates' }));
 jest.mock('../../UnverifiedBanner', () => ({ __esModule: true, default: () => null }));
+jest.mock('../../TabPageHeader', () => {
+  const R = require('react');
+  return { __esModule: true, default: (p: any) => R.createElement('TabPageHeader', p) };
+});
 jest.mock('../../ui', () => {
   const R = require('react');
   const stub = (name: string) => (p: any) => R.createElement(name, p, p && p.children);

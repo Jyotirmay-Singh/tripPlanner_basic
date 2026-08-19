@@ -22,7 +22,7 @@ export default function AddTab() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   return (
-    <Screen refreshing={refreshing} onRefresh={load}>
+    <Screen edges={['bottom']} refreshing={refreshing} onRefresh={load}>
       <T variant="h1">Add transaction</T>
       <T muted>Pick a trip to add an expense (or a negative amount for money back).</T>
 

@@ -9,6 +9,7 @@ import Badge from '../../src/Badge';
 import { compositionLabel } from '../../src/composition';
 import { formatTripDates } from '../../src/date';
 import { isTripSettledWithActivity, type WithTransfers } from '../../src/tripSettled';
+import TabPageHeader from '../../src/TabPageHeader';
 import { Screen, Card, Button, ListRow, EmptyState, SkeletonCard, Icon } from '../../src/ui';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
@@ -50,10 +51,10 @@ export default function Trips() {
 
   return (
     <Screen refreshing={refreshing} onRefresh={load}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <T variant="h1">Trips</T>
-        <Button label="New" icon="plus" size="sm" onPress={() => router.push('/create-trip')} testID="trips-new-btn" />
-      </View>
+      <TabPageHeader
+        title="Trips"
+        action={<Button label="New" icon="plus" size="sm" onPress={() => router.push('/create-trip')} testID="trips-new-btn" />}
+      />
 
       <Card onPress={() => router.push('/join-trip')} testID="trips-join-btn" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm }}>
         <Icon name="key" size={18} color={colors.primary} />

@@ -7,6 +7,7 @@ import { useLogout } from '../../src/useLogout';
 import { initials } from '../../src/initials';
 import { SPACING, RADIUS } from '../../src/theme';
 import T from '../../src/T';
+import TabPageHeader from '../../src/TabPageHeader';
 import { Screen, Card, Icon } from '../../src/ui';
 
 export default function Profile() {
@@ -17,7 +18,7 @@ export default function Profile() {
 
   return (
     <Screen scroll={false}>
-      <T variant="h1">Profile</T>
+      <TabPageHeader title="Profile" />
 
       <Card style={styles.row}>
         <View style={[styles.avatar, { backgroundColor: colors.primary }]}>

@@ -1,5 +1,8 @@
 import React, { useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Platform } from 'react-native';
+import {
+  Animated, Pressable, StyleSheet, Platform,
+  type StyleProp, type ViewStyle,
+} from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useAuth } from './AuthContext';
@@ -15,7 +18,12 @@ import { Icon } from './ui';
 // care (Animated press-scale, native-only haptics, web focus outline) so it matches the app.
 const SIZE = 40;
 
-export default function ProfileAvatarButton() {
+type Props = {
+  /** Override the wrapper spacing when the avatar is rendered outside a navigator header. */
+  containerStyle?: StyleProp<ViewStyle>;
+};
+
+export default function ProfileAvatarButton({ containerStyle }: Props) {
   const { user } = useAuth();
   const { colors } = useTheme();
   const router = useRouter();
@@ -27,7 +35,7 @@ export default function ProfileAvatarButton() {
     Animated.spring(scale, { toValue: to, useNativeDriver: Platform.OS !== 'web', speed: 50, bounciness: 0 }).start();
 
   return (
-    <Animated.View style={{ transform: [{ scale }], marginRight: 6 }}>
+    <Animated.View style={[styles.container, { transform: [{ scale }] }, containerStyle]}>
       <Pressable
         testID="header-profile-avatar"
         onPress={() => {
@@ -55,6 +63,8 @@ export default function ProfileAvatarButton() {
 }
 
 const styles = StyleSheet.create({
+  // Native navigation headers need a small trailing gutter. Inline consumers override it to 0.
+  container: { marginRight: 6 },
   circle: {
     width: SIZE, height: SIZE, borderRadius: RADIUS.pill,
     alignItems: 'center', justifyContent: 'center',

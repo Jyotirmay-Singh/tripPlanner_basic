@@ -9,6 +9,7 @@
 //    the route module doesn't pull the network / router; the modal uses the REAL
 //    validatePaymentAmount + formatMoney.
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 
 jest.mock('expo-router', () => ({ useFocusEffect: () => {}, useLocalSearchParams: () => ({ id: 't1' }) }));
@@ -58,11 +59,18 @@ function mount(onCancel: jest.Mock, onSubmit: jest.Mock) {
 describe('settle-up AmountModal (✕ close + reachable footer)', () => {
   it('renders the amount + remark inputs and the footer buttons', () => {
     const r = mount(jest.fn(), jest.fn());
+    const cancel = buttonByLabel(r, 'Cancel');
+    const continueButton = buttonByLabel(r, 'Continue');
     expect(hasHost(r, 'payment-amount-input')).toBe(true);
     expect(hasHost(r, 'payment-remark-input')).toBe(true);
     expect(hasHost(r, 'payment-amount-continue')).toBe(true);
     expect(hasHost(r, 'payment-close')).toBe(true);
-    expect(buttonByLabel(r, 'Cancel')).toBeTruthy();
+    expect(cancel).toBeTruthy();
+    expect(continueButton).toBeTruthy();
+    expect(cancel.props.fullWidth).toBe(true);
+    expect(continueButton.props.fullWidth).toBe(true);
+    expect(StyleSheet.flatten(cancel.parent?.parent?.props.style).flex).toBe(1);
+    expect(StyleSheet.flatten(continueButton.parent?.parent?.props.style).flex).toBe(1);
   });
 
   it('✕ cancels WITHOUT recording (onCancel, never onSubmit)', () => {

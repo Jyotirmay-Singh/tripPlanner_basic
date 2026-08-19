@@ -3,6 +3,7 @@ import { View, Linking } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { api, getToken, xlsxUrl, pdfUrl } from '../../src/api';
 import T from '../../src/T';
+import TabPageHeader from '../../src/TabPageHeader';
 import { Screen, Card, Button, EmptyState, SkeletonCard, useToast } from '../../src/ui';
 
 type Trip = { id: string; name: string; currency: string };
@@ -35,7 +36,7 @@ export default function Reports() {
 
   return (
     <Screen refreshing={refreshing} onRefresh={load}>
-      <T variant="h1">Reports</T>
+      <TabPageHeader title="Reports" />
       <T muted>Download an expense report for any trip as XLSX or PDF.</T>
 
       {!loaded ? (
