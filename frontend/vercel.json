@@ -2,5 +2,12 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npx expo export -p web",
   "outputDirectory": "dist",
+  "redirects": [
+    {
+      "source": "/download/android",
+      "destination": "https://expo.dev/artifacts/eas/6NZc9NFqWG1YmeDV20_aOLM2Dn03eF9vMivXqe2n9EY.apk",
+      "permanent": false
+    }
+  ],
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
