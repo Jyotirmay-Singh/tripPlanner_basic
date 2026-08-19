@@ -3,7 +3,7 @@ import { Tabs } from 'expo-router';
 import { Platform, StyleSheet } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { useTheme } from '../../src/ThemeContext';
-import { FONTS } from '../../src/theme';
+import { FONTS, TYPESCALE } from '../../src/theme';
 import { Icon } from '../../src/ui';
 import { IconName } from '../../src/ui/Icon';
 
@@ -42,9 +42,13 @@ export default function TabsLayout() {
           height: Platform.OS === 'ios' ? 90 : 68,
           elevation: 0,
         },
-        // With only four tabs, let each item flex evenly across the bar width.
+        // Keep the three visible destinations evenly distributed across the bar width.
         tabBarItemStyle: { flex: 1 },
-        tabBarLabelStyle: { fontFamily: FONTS.bodySemibold, fontSize: 12 },
+        tabBarLabelStyle: {
+          fontFamily: FONTS.bodySemibold,
+          fontSize: Platform.select({ web: TYPESCALE.base, default: TYPESCALE.xs }),
+        },
+        tabBarAllowFontScaling: true,
         // Tab pages render their own compact header inside Screen. Keeping the navigator header
         // here would reserve another status-bar/header-height band above the Screen safe area.
         headerShown: false,
@@ -53,7 +57,8 @@ export default function TabsLayout() {
       <Tabs.Screen name="dashboard" options={{ title: 'Home', tabBarIcon: (p) => <TabIcon name="home" {...p} /> }} />
       <Tabs.Screen name="trips" options={{ title: 'Trips', tabBarIcon: (p) => <TabIcon name="briefcase" {...p} /> }} />
       <Tabs.Screen name="reports" options={{ title: 'Reports', tabBarIcon: (p) => <TabIcon name="spreadsheet" {...p} /> }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: (p) => <TabIcon name="user" {...p} /> }} />
+      {/* Keep Profile routable from the header avatar while removing it from the tab bar. */}
+      <Tabs.Screen name="profile" options={{ href: null, title: 'Profile' }} />
     </Tabs>
   );
 }
