@@ -1,4 +1,4 @@
-import { formatMoney, pluralize } from '../format';
+import { formatCompactMoney, formatMoney, pluralize } from '../format';
 
 describe('formatMoney', () => {
   it('formats with grouped thousands and 2 decimals', () => {
@@ -27,6 +27,21 @@ describe('formatMoney', () => {
   it('falls back to 0.00 for non-finite input', () => {
     expect(formatMoney(NaN)).toBe('0.00');
     expect(formatMoney(Infinity)).toBe('0.00');
+  });
+});
+
+describe('formatCompactMoney', () => {
+  it('keeps small values exact and abbreviates large values with trimmed precision', () => {
+    expect(formatCompactMoney(0, { currency: 'INR' })).toBe('INR 0.00');
+    expect(formatCompactMoney(100_000, { currency: 'INR' })).toBe('INR 100K');
+    expect(formatCompactMoney(9_999_999.99, { currency: 'INR' })).toBe('INR 10M');
+    expect(formatCompactMoney(123_456_789, { currency: 'INR' })).toBe('INR 123.46M');
+  });
+
+  it('supports shorter fallback precision without losing sign or currency context', () => {
+    expect(formatCompactMoney(-123_456_789, { currency: 'USD', maximumFractionDigits: 1 })).toBe('USD -123.5M');
+    expect(formatCompactMoney(123_456_789, { signed: true, maximumFractionDigits: 0 })).toBe('+123M');
+    expect(formatCompactMoney(NaN, { currency: 'INR' })).toBe('INR 0.00');
   });
 });
 

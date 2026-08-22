@@ -20,25 +20,29 @@ import { billLabel } from '../../../src/bill';
 import { sortExpensesDesc } from '../../../src/expenseSort';
 import { hasShareBreakdown, shareVerbs, type ExpenseShares } from '../../../src/expenseShares';
 import { isTripSettled } from '../../../src/tripSettled';
-import { formatMoney } from '../../../src/format';
+import { formatCompactMoney, formatMoney } from '../../../src/format';
 import { formatTripDates } from '../../../src/date';
 import { formatTime12h } from '../../../src/time';
+import TripChat from '../../../src/TripChat';
+import { resolveOptimisticSender, unreadBadge } from '../../../src/chat';
+import { useTripChat } from '../../../src/useTripChat';
 import {
   Card, Button, IconButton, Icon, SegmentedControl, StatCard, ProgressBar,
-  EmptyState, AmountText, SkeletonCard, useToast,
+  EmptyState, ResponsiveAmountText, SkeletonCard, useToast,
 } from '../../../src/ui';
 
-type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; family_member_emails?: (string | null)[] | null; family_member_user_ids?: (string | null)[] | null; user_id?: string | null; email?: string | null };
+type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; family_member_ids?: string[] | null; family_member_emails?: (string | null)[] | null; family_member_user_ids?: (string | null)[] | null; user_id?: string | null; email?: string | null };
 type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
 type Expense = { id: string; amount: number; category: string; description?: string; date: string; time?: string | null; created_at?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string; shares?: ExpenseShares };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[]; members?: { id: string; name: string; net: number }[] }[] };
 
-type TabKey = 'summary' | 'expenses' | 'balances' | 'members';
+type TabKey = 'summary' | 'expenses' | 'balances' | 'members' | 'chat';
 const TABS: { value: TabKey; label: string }[] = [
   { value: 'summary', label: 'Summary' },
   { value: 'expenses', label: 'Expenses' },
   { value: 'balances', label: 'Balances' },
   { value: 'members', label: 'Members' },
+  { value: 'chat', label: 'Chat' },
 ];
 
 export default function TripDetail() {
@@ -78,6 +82,14 @@ export default function TripDetail() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  const optimisticSender = resolveOptimisticSender(trip?.members, user?.id);
+  const chat = useTripChat({
+    tripId: id || '',
+    userId: user?.id,
+    sender: optimisticSender,
+    active: tab === 'chat',
+  });
+
   const shareCode = async () => {
     if (!trip) return;
     await Share.share({ message: `Join my trip "${trip.name}" on Trip Splitter. Code: ${trip.code}` });
@@ -112,7 +124,7 @@ export default function TripDetail() {
 
   if (!trip) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom', 'left', 'right']}>
         <View style={{ padding: SPACING.lg, gap: SPACING.md }}>
           <SkeletonCard count={4} />
         </View>
@@ -139,60 +151,114 @@ export default function TripDetail() {
     return r === 'owner' || r === 'admin' ? r : null;
   };
 
+  const tripTabs = TABS.map((item) => (
+    item.value === 'chat' ? { ...item, badge: unreadBadge(chat.unreadCount) } : item
+  ));
+
+  const tripHeader = (
+    <>
+      <Card variant="primary" padding="lg" radius={RADIUS.xl}>
+        <View style={styles.heroMetaRow}>
+          <T variant="label" color={colors.primaryText} style={styles.heroDate}>{formatTripDates(trip)}</T>
+          <TouchableOpacity testID="trip-share" onPress={shareCode} accessibilityRole="button" accessibilityLabel="Share trip code"
+            style={[styles.codeChip, { backgroundColor: colors.overlayOnPrimary }]}>
+            <Icon name="share" size={14} color={colors.primaryText} />
+            <T color={colors.primaryText} style={{ fontWeight: '700' }} numberOfLines={1}>{trip.code}</T>
+          </TouchableOpacity>
+        </View>
+        <T variant="h1" color={colors.primaryText} style={{ marginTop: SPACING.xs }}>{trip.name}</T>
+        <View style={styles.compositionRow}>
+          <Icon name="users" size={14} color={colors.primaryText} />
+          <T color={colors.primaryText} style={styles.compositionText}>{compositionLabel(trip.members)}</T>
+        </View>
+        <View style={styles.financialsRow}>
+          <View style={styles.financialMetric}>
+            <T variant="label" color={colors.primaryText} style={{ opacity: 0.7 }}>Spent</T>
+            <ResponsiveAmountText
+              value={totalSpent}
+              currency={trip.currency}
+              label="Spent"
+              color={colors.primaryText}
+              style={{ marginTop: 2 }}
+              testID="trip-spent-amount"
+            />
+          </View>
+          {trip.budget ? (
+            <View style={styles.financialMetric}>
+              <T variant="label" color={colors.primaryText} style={{ opacity: 0.7 }}>Budget</T>
+              <ResponsiveAmountText
+                value={trip.budget}
+                currency={trip.currency}
+                showCurrency={false}
+                label="Budget"
+                color={over ? colors.warning : colors.primaryText}
+                style={{ marginTop: 2 }}
+                testID="trip-budget-amount"
+              />
+            </View>
+          ) : null}
+        </View>
+      </Card>
+
+      <View style={styles.actionsRow}>
+        <View style={styles.actionButton}>
+          <Button label="Expense" icon="plus" onPress={() => router.push(`/trip/${id}/add-expense`)} fullWidth testID="trip-add-expense" />
+        </View>
+        <View style={styles.actionButton}>
+          <Button label="Settle Up" icon="arrow-left-right" variant="secondary" onPress={() => router.push(`/trip/${id}/settle-up`)} fullWidth testID="trip-settle-up" />
+        </View>
+        {meCanEditSettings && (
+          <IconButton name="pencil" variant="surface" onPress={() => router.push(`/trip/${id}/edit`)} accessibilityLabel="Edit trip" testID="trip-edit" size={18} />
+        )}
+        {meCanDeleteTrip && (
+          <IconButton name="trash" variant="surface" color={colors.danger} onPress={onDelete} accessibilityLabel="Delete trip" testID="trip-delete" size={18} />
+        )}
+      </View>
+
+      <SegmentedControl segments={tripTabs} value={tab} onChange={setTab} layout="adaptive" testIDPrefix="trip-tab" />
+    </>
+  );
+
+  const tripConfirmModal = (
+    <ConfirmModal
+      visible={!!confirm}
+      title={confirm?.title || ''}
+      message={confirm?.message}
+      onRequestClose={() => setConfirm(null)}
+      actions={[
+        { label: 'Cancel', variant: 'cancel', onPress: () => setConfirm(null) },
+        { label: 'Delete', variant: 'destructive', onPress: () => confirm?.onYes(), testID: confirm?.yesId },
+      ]}
+    />
+  );
+
+  if (tab === 'chat') {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom', 'left', 'right']}>
+        <TripChat
+          header={(
+            <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, padding: SPACING.lg, paddingBottom: 0, gap: SPACING.md }}>
+              {tripHeader}
+            </View>
+          )}
+          controller={chat}
+          currentUserId={user?.id}
+          isOwner={trip.owner_id === user?.id}
+          canSend={!!optimisticSender}
+        />
+        {tripConfirmModal}
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom', 'left', 'right']}>
       <ScrollView
         contentContainerStyle={{ padding: SPACING.lg, paddingBottom: LAYOUT.scrollBottomInset, alignItems: 'center' }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor={colors.primary} />}
       >
         <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
-          {/* Header card */}
-          <Card variant="primary" padding="lg" radius={RADIUS.xl}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <T variant="label" color={colors.primaryText} style={{ opacity: 0.85 }}>{formatTripDates(trip)}</T>
-              <TouchableOpacity testID="trip-share" onPress={shareCode} accessibilityRole="button" accessibilityLabel="Share trip code"
-                style={[styles.codeChip, { backgroundColor: colors.overlayOnPrimary }]}>
-                <Icon name="share" size={14} color={colors.primaryText} />
-                <T color={colors.primaryText} style={{ fontWeight: '700' }}>{trip.code}</T>
-              </TouchableOpacity>
-            </View>
-            <T variant="h1" color={colors.primaryText} style={{ marginTop: SPACING.xs }}>{trip.name}</T>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
-              <Icon name="users" size={14} color={colors.primaryText} />
-              <T color={colors.primaryText} style={{ opacity: 0.85 }}>{compositionLabel(trip.members)}</T>
-            </View>
-            <View style={{ flexDirection: 'row', gap: SPACING.xl, marginTop: SPACING.md }}>
-              <View>
-                <T variant="label" color={colors.primaryText} style={{ opacity: 0.7 }}>Spent</T>
-                <AmountText value={totalSpent} currency={trip.currency} color={colors.primaryText} style={{ marginTop: 2 }} />
-              </View>
-              {trip.budget ? (
-                <View>
-                  <T variant="label" color={colors.primaryText} style={{ opacity: 0.7 }}>Budget</T>
-                  <AmountText value={trip.budget} color={over ? colors.warning : colors.primaryText} style={{ marginTop: 2 }} />
-                </View>
-              ) : null}
-            </View>
-          </Card>
-
-          {/* Actions row */}
-          <View style={{ flexDirection: 'row', gap: SPACING.sm, alignItems: 'center' }}>
-            <View style={{ flex: 1 }}>
-              <Button label="Expense" icon="plus" onPress={() => router.push(`/trip/${id}/add-expense`)} fullWidth testID="trip-add-expense" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Button label="Settle Up" icon="arrow-left-right" variant="secondary" onPress={() => router.push(`/trip/${id}/settle-up`)} fullWidth testID="trip-settle-up" />
-            </View>
-            {meCanEditSettings && (
-              <IconButton name="pencil" variant="surface" onPress={() => router.push(`/trip/${id}/edit`)} accessibilityLabel="Edit trip" testID="trip-edit" size={18} />
-            )}
-            {meCanDeleteTrip && (
-              <IconButton name="trash" variant="surface" color={colors.danger} onPress={onDelete} accessibilityLabel="Delete trip" testID="trip-delete" size={18} />
-            )}
-          </View>
-
-          {/* Tabs */}
-          <SegmentedControl segments={TABS} value={tab} onChange={setTab} scrollable testIDPrefix="trip-tab" />
+          {tripHeader}
 
           {tab === 'summary' && (() => {
             const myMember = trip.members.find((m) => m.user_id === user?.id);
@@ -214,25 +280,48 @@ export default function TripDetail() {
                     <View style={[styles.youBadge, { backgroundColor: colors.primary }]}>
                       <T color={colors.primaryText} variant="label">You</T>
                     </View>
-                    <View style={{ flex: 1, minWidth: 0 }}>
+                    <View style={styles.youIdentity}>
                       <T variant="h4">{displayNames[myMember.id]}{myMember.kind === 'family' ? ' (Family)' : ''}</T>
-                      <T variant="caption" muted numberOfLines={1}>
+                      <T variant="caption" muted>
                         {myMember.kind === 'family'
                           ? `Your family of ${myMember.family_members.length}: ${familyMemberDisplayNames(myMember).join(', ')}`
                           : 'Individual member'}
                       </T>
                     </View>
-                    <AmountText value={myNet} signed color={myNet < 0 ? colors.danger : myNet > 0 ? colors.success : colors.textMuted} />
+                    <ResponsiveAmountText
+                      value={myNet}
+                      currency={trip.currency}
+                      signed
+                      showCurrency={false}
+                      label="Your balance"
+                      color={myNet < 0 ? colors.danger : myNet > 0 ? colors.success : colors.textMuted}
+                      testID="trip-my-balance"
+                    />
                   </View>
                 )}
 
                 {trip.budget ? (
                   <Card>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <T variant="label" muted>Budget used</T>
-                      <T variant="caption" color={over ? colors.danger : colors.textMain}>
-                        {formatMoney(totalSpent)} / {formatMoney(trip.budget)} {trip.currency}
-                      </T>
+                    <T variant="label" muted>Budget used</T>
+                    <View style={styles.budgetUsageValues}>
+                      <ResponsiveAmountText
+                        value={totalSpent}
+                        currency={trip.currency}
+                        label="Spent"
+                        variant="caption"
+                        color={over ? colors.danger : colors.textMain}
+                        testID="trip-budget-used-spent"
+                      />
+                      <T variant="caption" muted>of</T>
+                      <ResponsiveAmountText
+                        value={trip.budget}
+                        currency={trip.currency}
+                        showCurrency={false}
+                        label="Budget"
+                        variant="caption"
+                        color={over ? colors.danger : colors.textMain}
+                        testID="trip-budget-used-total"
+                      />
                     </View>
                     <ProgressBar progress={budgetPct} />
                   </Card>
@@ -248,8 +337,9 @@ export default function TripDetail() {
                     <T variant="label" muted style={{ marginBottom: SPACING.sm }}>Spend by category · tap to drill down</T>
                     <DonutChart
                       data={slices}
-                      centerValue={formatMoney(totalSpent)}
+                      centerValue={formatCompactMoney(totalSpent)}
                       centerLabel={trip.currency}
+                      centerAccessibilityLabel={`Total spent, ${formatMoney(totalSpent, { currency: trip.currency })}`}
                       onSlicePress={(s) => router.push({
                         pathname: '/trip/[id]/category/[name]',
                         params: { id: id as string, name: encodeURIComponent(s.key) },
@@ -301,7 +391,13 @@ export default function TripDetail() {
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 4 }}>
                       {tripSettled ? <Badge label="Settled" color={colors.success} /> : null}
-                      <AmountText value={e.amount} color={e.amount < 0 ? colors.success : colors.textMain} />
+                    <ResponsiveAmountText
+                      value={e.amount}
+                      currency={trip.currency}
+                      showCurrency={false}
+                      label="Transaction amount"
+                      color={e.amount < 0 ? colors.success : colors.textMain}
+                    />
                     </View>
                     {canModifyExpense(e, user?.id, trip) && (
                       <IconButton name="trash" onPress={() => deleteExpense(e)} accessibilityLabel="Delete transaction" testID={`expense-del-${e.id}`} size={18} color={colors.danger} />
@@ -375,7 +471,14 @@ export default function TripDetail() {
                         </T>
                       </View>
                       <View style={{ alignItems: 'flex-end' }}>
-                        <AmountText value={pp.net_total} signed color={pp.net_total < 0 ? colors.danger : pp.net_total > 0 ? colors.success : colors.textMuted} />
+                    <ResponsiveAmountText
+                      value={pp.net_total}
+                      currency={trip.currency}
+                      signed
+                      showCurrency={false}
+                      label={`${displayNames[pp.member_id] || pp.member_name} balance`}
+                      color={pp.net_total < 0 ? colors.danger : pp.net_total > 0 ? colors.success : colors.textMuted}
+                    />
                         {pp.kind === 'family' && pp.people_count > 1 && (
                           <T variant="caption" muted>{formatMoney(pp.net_per_person, { signed: true })} per person</T>
                         )}
@@ -415,7 +518,12 @@ export default function TripDetail() {
                           <T color={colors.success} style={{ fontWeight: '700' }}>{displayNames[tr.to_member_id]}</T>
                         </T>
                       </View>
-                      <AmountText value={tr.amount} />
+                  <ResponsiveAmountText
+                    value={tr.amount}
+                    currency={trip.currency}
+                    showCurrency={false}
+                    label="Settlement amount"
+                  />
                     </Card>
                   ))}
                 </>
@@ -530,24 +638,48 @@ export default function TripDetail() {
 
       <ReceiptViewer uri={viewerUri} visible={!!viewerUri} onClose={() => setViewerUri(null)} />
 
-      <ConfirmModal
-        visible={!!confirm}
-        title={confirm?.title || ''}
-        message={confirm?.message}
-        onRequestClose={() => setConfirm(null)}
-        actions={[
-          { label: 'Cancel', variant: 'cancel', onPress: () => setConfirm(null) },
-          { label: 'Delete', variant: 'destructive', onPress: () => confirm?.onYes(), testID: confirm?.yesId },
-        ]}
-      />
+      {tripConfirmModal}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  heroMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  heroDate: { opacity: 0.85, flexShrink: 1, minWidth: 0 },
   codeChip: {
     flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingVertical: 6,
-    borderRadius: RADIUS.pill, alignItems: 'center',
+    borderRadius: RADIUS.pill, alignItems: 'center', maxWidth: '100%', flexShrink: 0,
+  },
+  compositionRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 6,
+  },
+  compositionText: { opacity: 0.85, flex: 1, minWidth: 0 },
+  financialsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: SPACING.xl,
+    rowGap: SPACING.md,
+    marginTop: SPACING.md,
+  },
+  financialMetric: { flexGrow: 1, flexShrink: 0, maxWidth: '100%' },
+  actionsRow: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, alignItems: 'center',
+  },
+  actionButton: { flexGrow: 1, flexShrink: 0, maxWidth: '100%' },
+  budgetUsageValues: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    columnGap: SPACING.xs,
+    rowGap: 2,
+    marginTop: SPACING.xs,
+    marginBottom: 6,
   },
   rowCard: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
   catDot: { width: 10, height: 10, borderRadius: 5 },
@@ -555,8 +687,9 @@ const styles = StyleSheet.create({
   memberIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   transferIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   youCard: {
-    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACING.sm,
     padding: SPACING.md, borderRadius: RADIUS.lg, borderWidth: 2,
   },
+  youIdentity: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
   youBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: RADIUS.pill },
 });

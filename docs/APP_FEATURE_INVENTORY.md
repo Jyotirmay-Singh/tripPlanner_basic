@@ -1,6 +1,6 @@
 # App Feature Inventory
 
-This is a code-first inventory of the repository as it existed on 2026-08-18. Plans, roadmap checkboxes, specs, user guides, and Claude instructions were treated as supporting evidence only. A feature is described as current only when a corresponding code path was found.
+This is a code-first inventory of the repository as it existed on 2026-08-22. Plans, roadmap checkboxes, specs, user guides, and Claude instructions were treated as supporting evidence only. A feature is described as current only when a corresponding code path was found.
 
 Status meanings used below:
 
@@ -13,15 +13,15 @@ Status meanings used below:
 
 ## Snapshot
 
-- **Date:** 2026-08-18 (Asia/Calcutta).
-- **Git branch:** `main`, read directly from `.git/HEAD` because no Git executable was available in the audit shell.
-- **Commit:** `246e7b1fca61ac5fe96f8fff323a4ac94697d44f`.
-- **Repository state at audit start:** dirty. A direct comparison of the Git index to the working tree found pre-existing tracked modifications to [app.json](../app.json#L1) and [eas.json](../eas.json#L1). `docs/APP_FEATURE_INVENTORY.md` did not previously exist. Because neither Windows Git nor WSL Git was available, ignored/untracked-file status could not be reproduced with `git status`; that part of worktree cleanliness remains indeterminate.
-- **Verification run:** 357 selected backend pure/unit tests passed; TypeScript `--noEmit` passed; direct ESLint completed with 0 errors and 1 warning in generated `.expo/types/router.d.ts`. The full frontend Jest run passed 344/345 tests and timed out on one rendered-screen test; that file then passed 2/2 in isolation. Live HTTP/MongoDB tests were not run because no test API/database was started.
+- **Date:** 2026-08-22 (Asia/Calcutta).
+- **Git branch:** `main`.
+- **Commit before this feature work:** `35b8f1b31722b50d478c55924f82249f41d5d776`.
+- **Repository state at feature start:** clean according to `git status --short`.
+- **Verification run:** 443 self-contained backend tests passed, including 18 focused chat tests; application-source Python compilation, TypeScript `--noEmit`, and targeted ESLint passed; the full frontend Jest run passed 370/370 tests. Live HTTP/MongoDB chat tests were added but not run because Docker was unavailable and the configured MongoDB endpoint did not respond to a bounded ping.
 
 ## Application Summary
 
-Trip Splitter is a collaborative trip-expense application for mobile and web. It serves groups whose costs may be attributed to standalone people or family units. Authenticated users create or join trips, record positive expenses and negative refunds, split each transaction per person, per family, or by exact per-person amounts, inspect balances, record partial payments, attach receipt images, and export reports.
+Trip Splitter is a collaborative trip-expense application for mobile and web. It serves groups whose costs may be attributed to standalone people or family units. Authenticated users create or join trips, chat under their trip-specific person identity, record positive expenses and negative refunds, split each transaction per person, per family, or by exact per-person amounts, inspect balances, record partial payments, attach receipt images, and export reports.
 
 The code is substantially ahead of the older MVP documents. Current code includes per-person family identity linking, three-tier trip RBAC, GridFS receipts, partial payments, exact splits, and PDF reports. Older claims in [memory/ARCHITECTURE.md](../memory/ARCHITECTURE.md#L251) and [memory/PRD.md](../memory/PRD.md#L28) that receipts are inline and PDF/RBAC are future work are no longer accurate.
 
@@ -38,7 +38,7 @@ The code is substantially ahead of the older MVP documents. Current code include
 
 ### Main applications and boundaries
 
-- `backend/server.py` is the FastAPI assembly point. It registers auth, trips, members, expenses, balances, reports, metadata, receipts, spend, and payments routers under `/api` ([backend/server.py](../backend/server.py#L135)).
+- `backend/server.py` is the FastAPI assembly point. It registers auth, trips, members, expenses, balances, reports, metadata, receipts, spend, payments, and chat routers under `/api` ([backend/server.py](../backend/server.py#L135)).
 - `backend/models/`, `routes/`, `services/`, and `utils/` separate request schemas, HTTP handling, pure business/report logic, and cross-cutting helpers.
 - `frontend/app/` uses file-based routes. The persistent tab bar currently contains Home, Trips, Reports, and Profile ([frontend/app/(tabs)/_layout.tsx](<../frontend/app/(tabs)/_layout.tsx#L55>)); transaction creation is reached from trip screens and `app/add.tsx`, not a visible fifth tab.
 - `frontend/src/` contains the API client, auth/theme contexts, permissions mirror, split/payment helpers, receipt viewer, charts, and shared UI system.
@@ -54,6 +54,9 @@ MongoDB is accessed through Motor ([backend/database.py](../backend/database.py#
 | `expenses` | Signed transactions, payer, participants, split mode, snapshots, exact amounts, and receipt reference |
 | `settlements` | Legacy completed settlements and the older pending-to-paid lifecycle |
 | `payments` | Current partial-payment log over suggested debtor/creditor pairs |
+| `chat_messages` | Per-trip text history, sent-time attribution, edits, and deletion tombstones |
+| `chat_reads` | Per-trip/per-user last-read sequence for cross-device unread counts |
+| `chat_counters` | Stable per-trip message sequencing and owner clear-history boundary |
 | `auth_tokens` | Hashed, typed, expiring email-verification/password-reset tokens |
 | `password_reset_tokens` | Older raw-token store used only by the legacy email-based PIN reset path |
 | GridFS `receipts.files` / `receipts.chunks` | Receipt images, indexed by owning expense metadata |
@@ -97,14 +100,15 @@ No external deployment, OAuth exchange, email delivery, or hosted database was c
 | Session persistence, logout, and route guard | Implemented and verified | Token/session is restored from AsyncStorage; logout uses a themed confirmation and resets navigation; signed-out users are redirected from protected routes | Root layout, Profile, avatar header | [frontend/app/_layout.tsx](../frontend/app/_layout.tsx#L23), [frontend/src/AuthContext.tsx](../frontend/src/AuthContext.tsx#L101) | Logout/auth-navigation Jest tests passed ([logout.test.ts](../frontend/src/__tests__/logout.test.ts#L10)); TypeScript passed | No refresh-token flow; an invalid/expired token clears the local session |
 | Trip create/list/view/edit/delete and share code | Implemented but unverified | Users create trips with date range, budget, currency, and individual/family self-identity; share a six-character code; admins edit; owner deletes | `/create-trip`, Trips/Home, `/trip/[id]`; trip CRUD APIs | [frontend/app/create-trip.tsx](../frontend/app/create-trip.tsx#L47), [backend/routes/trips.py](../backend/routes/trips.py#L59) | Date/identity helper tests passed; live CRUD was not run | Currency changes only relabel values; they do not convert historical amounts |
 | Contextual join wizard and per-person family account linking | Implemented but unverified | A code preview supports joining as an individual, linking to a specific open family-member slot, creating a new family, or claiming a matching stub | `/join-trip`; `POST /trips/join/preview`, `POST /trips/join` | [frontend/app/join-trip.tsx](../frontend/app/join-trip.tsx#L64), [backend/routes/trips.py](../backend/routes/trips.py#L355) | Frontend join-decision tests passed ([joinIdentity.test.ts](../frontend/src/__tests__/joinIdentity.test.ts#L20)); extensive live tests exist but were not run | Concurrency and database identity reconciliation were not exercised live; legacy action-less API behavior remains |
-| Member/family administration and contact identity | Implemented but unverified | Admins add/edit/remove people and families; family sub-members have stable IDs, optional Gmail contacts, and server-managed linked accounts | Trip Members tab and add/edit/manage-member screens; member APIs | [backend/models/member.py](../backend/models/member.py#L6), [backend/routes/members.py](../backend/routes/members.py#L41) | Pure member/email helper coverage was included in the 357 passing backend tests | A family entity itself cannot own an email/account; removal is blocked while balances remain |
+| Member/family administration and contact identity | Implemented but unverified | Admins add/edit/remove people and families; family sub-members have stable IDs, optional Gmail contacts, and server-managed linked accounts | Trip Members tab and add/edit/manage-member screens; member APIs | [backend/models/member.py](../backend/models/member.py#L6), [backend/routes/members.py](../backend/routes/members.py#L41) | Existing pure member/email helper coverage remains green in the selected backend run | A family entity itself cannot own an email/account; removal is blocked while balances remain |
+| Per-trip realtime text chat | Implemented and verified locally | A fifth trip tab provides MongoDB-backed text history, trip-person sender labels, exact cross-device unread counts, optimistic retry, sender edit/delete tombstones, reconnect catch-up, and owner-only clearing | Trip Chat tab; chat REST APIs and authenticated WebSocket | [frontend/src/TripChat.tsx](../frontend/src/TripChat.tsx#L1), [frontend/src/useTripChat.ts](../frontend/src/useTripChat.ts#L1), [backend/routes/chat.py](../backend/routes/chat.py#L1) | 18 backend chat tests plus frontend helper, component, tab, TypeScript, lint, and full Jest verification passed | Live HTTP/MongoDB/WebSocket round-trip was not run; realtime fan-out is intentionally process-local while production uses one worker; text-only with no push/presence/media |
 | Owner/admin/member RBAC and ownership transfer | Implemented and verified | Members view and add their own data; admins manage members/settings and any expense; only owner manages admins, transfers ownership, or deletes the trip | Manage Member, trip action controls; admin/ownership APIs | [backend/utils/permissions.py](../backend/utils/permissions.py#L39), [frontend/src/permissions.ts](../frontend/src/permissions.ts#L41), [backend/routes/trips.py](../backend/routes/trips.py#L539) | Frontend permission suite passed ([permissions.test.ts](../frontend/src/__tests__/permissions.test.ts#L13)); backend guard paths were statically rechecked | Backend live RBAC tests were not run; global user `role="admin"` does not grant access to unrelated trips |
 | Expense/refund CRUD, categories, date/time, and ordering | Implemented but unverified | Any trip member can add a transaction; creator/admin can edit/delete; negative nonzero amounts represent money returned; lists sort newest first by parsed date/time | Add/Edit Transaction and Expenses tab; expense CRUD APIs | [backend/models/expense.py](../backend/models/expense.py#L11), [backend/routes/expenses.py](../backend/routes/expenses.py#L54), [frontend/src/expenseSort.ts](../frontend/src/expenseSort.ts#L1) | Ordering tests passed ([expenseSort.test.ts](../frontend/src/__tests__/expenseSort.test.ts#L12)); TypeScript passed | Live CRUD not run; edit does not repeat all create-time category/member/budget validations |
 | Budget warning and force-save | Partially implemented | Creating an expense over budget returns a confirmation response and can be re-submitted with `force=true`; refunds reduce net spend | Add Transaction; `POST /trips/{id}/expenses?force=true` | [backend/routes/expenses.py](../backend/routes/expenses.py#L80), [frontend/app/trip/[id]/add-expense.tsx](../frontend/app/trip/[id]/add-expense.tsx#L156) | Static code verification only | Editing an expense does not re-run the budget warning, so edits can silently exceed budget |
 | Per-capita split | Implemented and verified | Cost is divided by involved humans, including selected family-member participation and weight snapshots | Add/Edit split selector; balances and reports | [backend/services/calculator.py](../backend/services/calculator.py#L119), [backend/services/expense_shares.py](../backend/services/expense_shares.py#L78) | Per-capita, expense-share, report, and split-bug tests passed; reference tests start at [test_per_capita.py](../backend/tests/test_per_capita.py#L6) | Family size/participation semantics are complex; live API persistence was not exercised |
 | Per-family split | Implemented and verified | Each selected root entity owes one equal share regardless of family size | Add/Edit split selector; balances and reports | [backend/services/calculator.py](../backend/services/calculator.py#L134) | Per-family and report tests passed ([test_per_family.py](../backend/tests/test_per_family.py#L6)) | Intra-family display breakdown is separate from the entity ledger |
 | Exact per-person split | Implemented and verified | The author selects individual people and assigns explicit amounts; Save is gated until the assigned amount matches the total; backend rejects mismatches with 422 | Add/Edit Exact editor; expense APIs | [backend/services/custom_split.py](../backend/services/custom_split.py#L68), [backend/routes/expenses.py](../backend/routes/expenses.py#L74), [frontend/src/ExactSplitEditor.tsx](../frontend/src/ExactSplitEditor.tsx#L1) | Backend exact/share/report tests and frontend exact tests passed ([test_exact_split.py](../backend/tests/test_exact_split.py#L44), [exactSplit.test.ts](../frontend/src/__tests__/exactSplit.test.ts#L25)) | Live create/edit round-trip was not exercised |
-| Family participation and historical reallocation | Implemented and verified | A family expense may include only selected sub-members; changing family size can reweight history or freeze old weights | Edit Member confirmation; member update/reallocation service | [backend/routes/members.py](../backend/routes/members.py#L166), [backend/services/reallocation.py](../backend/services/reallocation.py#L1) | Reallocation/family participation tests passed in the 357-test run | Mongo transaction/fallback behavior was not exercised against a live server |
+| Family participation and historical reallocation | Implemented and verified | A family expense may include only selected sub-members; changing family size can reweight history or freeze old weights | Edit Member confirmation; member update/reallocation service | [backend/routes/members.py](../backend/routes/members.py#L166), [backend/services/reallocation.py](../backend/services/reallocation.py#L1) | Reallocation/family participation tests remain part of the backend unit coverage | Mongo transaction/fallback behavior was not exercised against a live server |
 | Balance ledger, greedy settle suggestions, per-member family breakdown | Implemented and verified | Trip users see entity net balances, minimum-transfer suggestions, and chronological family sub-member balances | Balances tab; `GET /trips/{id}/balances` | [backend/utils/balances.py](../backend/utils/balances.py#L1), [backend/services/calculator.py](../backend/services/calculator.py#L184), [backend/services/member_breakdown.py](../backend/services/member_breakdown.py#L1) | Calculator, split, breakdown, report, and adversarial settle-up tests passed | Algorithm is greedy over cent-rounded net values; live database aggregation was not exercised |
 | Legacy settlement lifecycle | Deprecated or disabled | APIs can still create completed settlements or pending records and mark pending records paid | `POST /settle`; settlement list/create/patch APIs | [backend/models/settlement.py](../backend/models/settlement.py#L6), [backend/routes/balances.py](../backend/routes/balances.py#L24) | Pure settlement helpers passed; live APIs not run | Current settle-up UI uses `payments`, not these endpoints; retained for compatibility |
 | Partial payments | Implemented and verified | Receiver or trip admin records, edits, or deletes partial payments up to the current suggested amount; UI shows open/partial/paid pair state and payment history | `/trip/[id]/settle-up`; payment CRUD APIs | [backend/routes/payments.py](../backend/routes/payments.py#L24), [frontend/app/trip/[id]/settle-up.tsx](../frontend/app/trip/[id]/settle-up.tsx#L57) | Backend payment roll-up and frontend payment/adversarial tests passed ([test_payments_rollup.py](../backend/tests/test_payments_rollup.py#L10), [payments.test.ts](../frontend/src/__tests__/payments.test.ts#L22)) | Live optimistic-concurrency guard and authorization were not exercised |
@@ -124,6 +128,9 @@ Trip roles are per trip. The seeded account's global `users.role = "admin"` is n
 | Capability | Unauthenticated/non-member | Member | Admin | Owner |
 |---|---:|---:|---:|---:|
 | View trip, expenses, balances, reports, receipts, payments | No | Yes | Yes | Yes |
+| Read/send trip chat | No | Yes | Yes | Yes |
+| Edit/delete own chat messages | No | Yes | Yes | Yes |
+| Clear all chat history | No | No | No | Yes |
 | Add an expense | No | Yes | Yes | Yes |
 | Edit/delete own expense | No | Yes | Yes | Yes |
 | Edit/delete any expense | No | No | Yes | Yes |
@@ -242,8 +249,8 @@ The older PRD lists live foreign-exchange conversion, push notifications, and of
 
 ## Known Gaps and Risks
 
-- **Live integration is unverified.** The strongest test result is 357 passing pure/unit backend tests. API tests use a running service and mutate test data; they were not run.
-- **Frontend suite has a timing flake.** The full Jest run timed out once in [trip-settled-badge.test.tsx](../frontend/src/__tests__/screens/trip-settled-badge.test.tsx#L136), although that file passed in isolation.
+- **Live integration is unverified.** Chat API/WebSocket tests require a running service and MongoDB; the configured endpoint timed out and Docker Desktop was unavailable during this feature verification.
+- **Realtime fan-out is single-process.** The production image currently runs one worker, matching the in-process chat connection manager. Multiple workers/instances require shared pub/sub before rollout.
 - **Password reset is intentionally hidden.** `SHOW_FORGOT_PASSWORD = false` prevents normal login-screen discovery even when email features are enabled ([login.tsx](<../frontend/app/(auth)/login.tsx#L12>)).
 - **Budget edits bypass the warning.** `ExpenseUpdate.force` is excluded and updates are written without recomputing budget ([backend/routes/expenses.py](../backend/routes/expenses.py#L142)). Updates also do not repeat create-time category, payer, and participant validation.
 - **Older PIN-reset path is weaker than newer token flows.** Forgot-PIN creates raw reset tokens and logs the token/link ([backend/routes/auth.py](../backend/routes/auth.py#L117)); email verification/password reset use hashed typed tokens. Avoid exposing logs.
@@ -259,7 +266,7 @@ The older PRD lists live foreign-exchange conversion, push notifications, and of
 - **Row caps.** Expense lists cap at 1,000 and report/payment fetches cap at 5,000. Larger trips are silently incomplete in those responses/reports.
 - **Currency is a label.** Changing currency does not convert stored amounts; live FX is absent.
 - **Destructive starter command remains exposed.** `yarn reset-project` can remove the current application source and should not be part of routine onboarding.
-- **Tooling availability differs from docs.** This audit shell had neither `rtk`, `git`, nor `yarn` on PATH. Direct executables were used for tests; Git history/status commands could not be run.
+- **Tooling availability differs from docs.** This shell had Git and npm/npx, but neither `rtk` nor `yarnpkg` was on PATH. Raw commands/direct executables were used where documented fallbacks permitted them.
 
 ## Evidence Reviewed
 
@@ -268,7 +275,7 @@ Important evidence included:
 - Root guidance and product docs: `CLAUDE.md`, `README.md`, `USER_GUIDE.md`, `memory/ARCHITECTURE.md`, and `memory/PRD.md`.
 - All repository-local Claude artifacts: `.claude/commands/create_spec.md`, `.claude/skills/context/SKILL.md`, all six files under `.claude/plan/`, all files under `.claude/specs/`, and `.claude/settings.local.json` (without reproducing its URL).
 - Backend assembly/config/schema: `backend/server.py`, `config.py`, `database.py`, all models, all route modules, split/payment/report/receipt services, and authorization/date/member utilities.
-- Backend tests: the complete test-file inventory plus focused reading of auth, RBAC, join, member, expense, receipt, split, payment, balance, and report suites. Twenty pure/unit modules were executed in the 357-test run.
+- Backend tests: the existing auth, RBAC, join, member, expense, receipt, split, payment, balance, and report suites plus focused chat helper/route/realtime coverage.
 - Frontend routes: every file under `frontend/app/`, with focused reading of root/tab layouts, auth screens, trip detail, create/join, add/edit expense/member, settle-up, and reports.
 - Frontend shared code/tests: `api.ts`, auth/theme contexts, permission/split/payment/date/receipt/navigation helpers, shared UI components, and every Jest test file. The full Jest suite, isolated flaky file, TypeScript, and ESLint were executed.
 - Storage/deployment/build files: both requirements files, both Expo/EAS config locations, Dockerfiles, Compose, Render, Vercel, package files, pytest/Jest/TypeScript/ESLint config, and shared exact-split vectors.
@@ -287,4 +294,3 @@ After a feature change:
 5. Reconcile affected `.claude` plans/specs and `CLAUDE.md` checklist items, explicitly noting historical or superseded requirements.
 6. Re-run the smallest relevant unit suites plus TypeScript/lint; run live API/database and device/web checks when the feature depends on them.
 7. Review Known Gaps for resolved or newly introduced risks, without copying secrets or private configuration values.
-

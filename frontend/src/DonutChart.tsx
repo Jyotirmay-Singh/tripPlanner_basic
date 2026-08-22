@@ -3,6 +3,8 @@ import { View, TouchableOpacity, StyleSheet, Pressable, Platform, GestureRespond
 import Svg, { G, Path, Circle, Text as SvgText } from 'react-native-svg';
 import { useTheme } from './ThemeContext';
 import T from './T';
+import { formatMoney } from './format';
+import ResponsiveAmountText from './ui/ResponsiveAmountText';
 
 export type DonutSlice = { key: string; label: string; value: number; color: string };
 
@@ -28,13 +30,14 @@ function arcPath(cx: number, cy: number, rOuter: number, rInner: number, startDe
 }
 
 export default function DonutChart({
-  data, size = 220, thickness = 36, centerLabel, centerValue, onSlicePress,
+  data, size = 220, thickness = 36, centerLabel, centerValue, centerAccessibilityLabel, onSlicePress,
 }: {
   data: DonutSlice[];
   size?: number;
   thickness?: number;
   centerLabel?: string;
   centerValue?: string;
+  centerAccessibilityLabel?: string;
   onSlicePress?: (s: DonutSlice) => void;
 }) {
   const { colors } = useTheme();
@@ -67,7 +70,7 @@ export default function DonutChart({
   };
 
   const donut = (
-    <Svg width={size} height={size}>
+    <Svg width={size} height={size} accessible accessibilityLabel={centerAccessibilityLabel}>
       <G>
         {slices.length === 1 ? (
           <>
@@ -123,12 +126,17 @@ export default function DonutChart({
               style={styles.legendRow}
               testID={`donut-legend-${d.key}`}
               accessibilityRole="button"
-              accessibilityLabel={`Show ${d.label} transactions`}
+              accessibilityLabel={`Show ${d.label} transactions, ${formatMoney(d.value)}`}
             >
               <View style={[styles.dot, { backgroundColor: d.color }]} />
               <T variant="caption" style={{ flex: 1 }} numberOfLines={1}>{d.label}</T>
               <T variant="caption" muted>{pct.toFixed(0)}%</T>
-              <T variant="caption" style={{ width: 70, textAlign: 'right' }}>{d.value.toFixed(2)}</T>
+              <ResponsiveAmountText
+                value={d.value}
+                variant="caption"
+                label={`${d.label} amount`}
+                style={styles.legendValue}
+              />
             </TouchableOpacity>
           );
         })}
@@ -141,5 +149,6 @@ const styles = StyleSheet.create({
   wrap: { alignItems: 'center', gap: 12 },
   legend: { width: '100%', gap: 6 },
   legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+  legendValue: { textAlign: 'right' },
   dot: { width: 12, height: 12, borderRadius: 6 },
 });

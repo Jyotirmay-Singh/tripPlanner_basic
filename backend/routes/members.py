@@ -16,6 +16,7 @@ from utils.settlement_gate import (
 )
 from services.member_breakdown import family_member_ids
 from services.reallocation import run_member_update_with_reallocation, freeze_and_remove_member
+from services.chat_realtime import chat_connections
 
 router = APIRouter()
 
@@ -182,6 +183,7 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
             {"$pull": {"user_ids": {"$in": list(vanished_uids)},
                        "admin_ids": {"$in": list(vanished_uids)}}},
         )
+        await chat_connections.disconnect_users(trip_id, vanished_uids)
     t = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     return next((m for m in t["members"] if m["id"] == member_id), None)
 
@@ -251,6 +253,7 @@ async def delete_member(trip_id: str, member_id: str, user=Depends(get_current_u
         trip_id, member_id, _weight_of_member(target),
         user_ids=linked_uids, verify=_verify,
     )
+    await chat_connections.disconnect_users(trip_id, linked_uids)
     return {"ok": True}
 
 
@@ -319,6 +322,7 @@ async def delete_family_member(trip_id: str, family_id: str, fm_id: str,
             {"id": trip_id},
             {"$pull": {"user_ids": removed_uid, "admin_ids": removed_uid}},
         )
+        await chat_connections.disconnect_users(trip_id, [removed_uid])
     t = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     updated = next((m for m in t["members"] if m["id"] == family_id), None)
     # P5: consistent shape with delete_member ({"ok": True}); the family survives, so also return it.

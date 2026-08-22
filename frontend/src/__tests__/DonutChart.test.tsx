@@ -92,4 +92,24 @@ describe('DonutChart drill-down affordances', () => {
     expect(onPress).toHaveBeenCalledTimes(1);
     expect(onPress.mock.calls[0][0].key).toBe('Food');
   });
+
+  it('keeps the exact chart total and legend amount in accessibility labels', () => {
+    let r: any;
+    act(() => {
+      r = TestRenderer.create(
+        <DonutChart
+          data={SINGLE}
+          centerValue="123.46M"
+          centerLabel="INR"
+          centerAccessibilityLabel="Total spent, INR 123,456,789.00"
+          onSlicePress={jest.fn()}
+        />,
+      );
+    });
+
+    expect(r.root.findByType('Svg' as any).props.accessibilityLabel)
+      .toBe('Total spent, INR 123,456,789.00');
+    expect(pressable(r, 'donut-legend-Food').props.accessibilityLabel)
+      .toBe('Show Food transactions, 100.00');
+  });
 });

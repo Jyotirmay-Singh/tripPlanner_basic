@@ -17,6 +17,7 @@ from utils.members import (
     member_has_financial_history,
     padded_family_member_ids,
 )
+from services.chat_realtime import chat_connections
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -122,6 +123,10 @@ async def delete_trip(trip_id: str, user=Depends(get_current_user)):
     await db.trips.delete_one({"id": trip_id})
     await db.expenses.delete_many({"trip_id": trip_id})
     await db.settlements.delete_many({"trip_id": trip_id})
+    await db.chat_messages.delete_many({"trip_id": trip_id})
+    await db.chat_reads.delete_many({"trip_id": trip_id})
+    await db.chat_counters.delete_many({"trip_id": trip_id})
+    await chat_connections.disconnect_trip(trip_id)
     return {"ok": True}
 
 

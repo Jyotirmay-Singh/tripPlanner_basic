@@ -13,7 +13,7 @@ from utils.members import demote_family_entity_email
 from utils.email_rules import is_allowed_email
 from utils.security import hash_secret
 from utils.emailer import sender_mode_summary
-from routes import auth, trips, members, expenses, balances, reports, meta, receipts, spend, payments
+from routes import auth, trips, members, expenses, balances, reports, meta, receipts, spend, payments, chat
 
 
 # ---------- Startup / Shutdown ----------
@@ -28,6 +28,13 @@ async def lifespan(app: FastAPI):
     await db.settlements.create_index([("trip_id", 1), ("created_at", -1)])
     # Phase 20: recorded (partial) payments list (newest-first) per trip.
     await db.payments.create_index([("trip_id", 1), ("created_at", -1)])
+    # Per-trip chat history, idempotent client retries, stable sequence pagination, and read state.
+    await db.chat_messages.create_index([("trip_id", 1), ("sequence", -1)], unique=True)
+    await db.chat_messages.create_index(
+        [("trip_id", 1), ("sender_user_id", 1), ("client_message_id", 1)], unique=True
+    )
+    await db.chat_reads.create_index([("trip_id", 1), ("user_id", 1)], unique=True)
+    await db.chat_counters.create_index("trip_id", unique=True)
     # Step 22: index GridFS receipt lookup/cleanup by the owning expense.
     await db["receipts.files"].create_index("metadata.expense_id")
     # Phase 9: hashed/typed email tokens (verify-email + reset-password). Unique by hash;
@@ -135,7 +142,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Trip Splitter", lifespan=lifespan)
 api = APIRouter(prefix="/api")
 
-for module in (auth, trips, members, expenses, balances, reports, meta, receipts, spend, payments):
+for module in (auth, trips, members, expenses, balances, reports, meta, receipts, spend, payments, chat):
     api.include_router(module.router)
 
 

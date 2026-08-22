@@ -45,6 +45,18 @@ jest.mock('../../DonutChart', () => ({ __esModule: true, default: () => null, pa
 jest.mock('../../SpendBarChart', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../ReceiptViewer', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../ConfirmModal', () => ({ __esModule: true, default: () => null }));
+jest.mock('../../TripChat', () => {
+  const R = require('react');
+  return { __esModule: true, default: (p: any) => R.createElement('TripChat', p) };
+});
+jest.mock('../../useTripChat', () => ({
+  useTripChat: () => ({
+    messages: [], unreadCount: 3, loading: false, loadingOlder: false,
+    hasMoreBefore: false, connected: true, refreshUnread: jest.fn(), loadLatest: jest.fn(),
+    loadOlder: jest.fn(), send: jest.fn(), retry: jest.fn(), edit: jest.fn(), remove: jest.fn(),
+    clear: jest.fn(), markThrough: jest.fn(),
+  }),
+}));
 jest.mock('../../ui', () => {
   const R = require('react');
   const stub = (name: string) => (p: any) => R.createElement(name, p, p && p.children);
@@ -58,17 +70,19 @@ jest.mock('../../ui', () => {
     ProgressBar: stub('ProgressBar'),
     EmptyState: stub('EmptyState'),
     AmountText: stub('AmountText'),
+    ResponsiveAmountText: stub('ResponsiveAmountText'),
     SkeletonCard: stub('SkeletonCard'),
     // Render each tab segment as a pressable host node so the test can switch tabs.
     SegmentedControl: (p: any) =>
       R.createElement(
-        R.Fragment,
-        null,
+        'segmented-control',
+        { layout: p.layout },
         (p.segments || []).map((s: any) =>
           R.createElement('segment', {
             key: s.value,
             testID: `${p.testIDPrefix}-${s.value}`,
             onPress: () => p.onChange(s.value),
+            badge: s.badge,
           }),
         ),
       ),
@@ -86,7 +100,7 @@ jest.mock('../../permissions', () => ({
 }));
 jest.mock('../../composition', () => ({ compositionLabel: () => '' }));
 jest.mock('../../displayNames', () => ({ memberDisplayNames: () => ({}), familyMemberDisplayNames: () => [] }));
-jest.mock('../../format', () => ({ formatMoney: () => '0' }));
+jest.mock('../../format', () => ({ formatMoney: () => '0', formatCompactMoney: () => '0' }));
 jest.mock('../../date', () => ({ formatTripDates: () => '' }));
 jest.mock('../../time', () => ({ formatTime12h: () => '' }));
 jest.mock('../../bill', () => ({ billLabel: () => 'Bill not attached' }));
@@ -101,7 +115,7 @@ const getTokenMock = getToken as unknown as jest.Mock;
 const TRIP = {
   id: 't1', name: 'Trip', code: 'ABC', currency: 'INR',
   owner_id: 'u1', admin_ids: ['u1'],
-  members: [{ id: 'm1', name: 'A', kind: 'individual', family_members: [] }],
+  members: [{ id: 'm1', name: 'A', kind: 'individual', family_members: [], user_id: 'u1' }],
 };
 const EXPENSES = [
   { id: 'e1', amount: 100, category: 'Food', date: '01-01-25', paid_by_member_id: 'm1', split_member_ids: ['m1'] },
@@ -142,5 +156,28 @@ describe('Expenses tab — trip-level "Settled" badge', () => {
   it('shows no badge when any balance is outstanding', async () => {
     const r = await openExpenses([{ from_member_id: 'm1', to_member_id: 'm2', amount: 10 }]);
     expect(settledBadges(r).length).toBe(0);
+  });
+});
+
+describe('Trip chat tab wiring', () => {
+  it('uses adaptive trip tabs and horizontal safe-area protection', async () => {
+    const r = await openExpenses([]);
+    expect(r.root.findByType('segmented-control' as any).props.layout).toBe('adaptive');
+    const safeArea = r.root.findAll((node: any) => Array.isArray(node.props.edges))[0];
+    expect(safeArea.props.edges).toEqual(['bottom', 'left', 'right']);
+  });
+
+  it('adds the fifth Chat segment with its exact unread badge', async () => {
+    const r = await openExpenses([]);
+    expect(tabBtn(r, 'chat').props.badge).toBe('3');
+  });
+
+  it('opens the chat view with the linked sender enabled', async () => {
+    const r = await openExpenses([]);
+    await act(async () => { tabBtn(r, 'chat').props.onPress(); });
+    const chat = r.root.findByType('TripChat' as any);
+    expect(chat.props.currentUserId).toBe('u1');
+    expect(chat.props.isOwner).toBe(true);
+    expect(chat.props.canSend).toBe(true);
   });
 });

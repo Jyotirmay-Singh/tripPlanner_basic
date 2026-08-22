@@ -4,6 +4,7 @@ import Svg, { Rect } from 'react-native-svg';
 import { useTheme } from './ThemeContext';
 import { SPACING } from './theme';
 import T from './T';
+import ResponsiveAmountText from './ui/ResponsiveAmountText';
 import { Icon } from './ui';
 import { formatMoney } from './format';
 import { rankSpend, SpendSummary, RankedBar } from './spend';
@@ -70,7 +71,13 @@ export default function SpendBarChart({
                   <Icon name={b.entity_type === 'family' ? 'users' : 'user'} size={14} color={colors.textMuted} />
                   <T variant="caption" numberOfLines={1} style={{ flexShrink: 1 }}>{label}</T>
                 </View>
-                <T variant="caption" style={styles.value}>{formatMoney(b.paid, { currency })}</T>
+                <ResponsiveAmountText
+                  value={b.paid}
+                  currency={currency}
+                  variant="caption"
+                  label={`${label} spending`}
+                  style={styles.value}
+                />
               </View>
               {width > 0 ? (
                 <Svg width={width} height={BAR_H} style={styles.bar}>
@@ -89,7 +96,7 @@ export default function SpendBarChart({
               testID={`spend-bar-${b.entity_id}`}
               onPress={() => onBarPress!(b)}
               accessibilityRole="button"
-              accessibilityLabel={`View ${label}'s spending`}
+              accessibilityLabel={`View ${label}'s spending, ${formatMoney(b.paid, { currency })}`}
             >
               {content}
             </TouchableOpacity>

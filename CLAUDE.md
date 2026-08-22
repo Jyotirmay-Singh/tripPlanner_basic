@@ -38,7 +38,7 @@ Ignore generated, dependency, cache, and build-output directories unless a task 
 - `backend/config.py`: environment configuration.
 - `backend/database.py`: Motor client and database handle.
 
-MongoDB is accessed through Motor. Principal collections include `users`, `trips`, `expenses`, `settlements`, `payments`, and `auth_tokens`. Receipts use GridFS. Startup creates indexes, seeds the configured admin, and runs idempotent legacy-data backfills.
+MongoDB is accessed through Motor. Principal collections include `users`, `trips`, `expenses`, `settlements`, `payments`, `chat_messages`, `chat_reads`, `chat_counters`, and `auth_tokens`. Receipts use GridFS. Startup creates indexes, seeds the configured admin, and runs idempotent legacy-data backfills.
 
 ### Frontend
 
@@ -55,6 +55,7 @@ Shared frontend code lives under `frontend/src/`. Important modules include:
 - `permissions.ts`: UI mirror of backend permissions; backend permissions remain authoritative.
 - `ThemeContext.tsx` and `theme.ts`: persisted light/dark theme.
 - `exactSplit.ts`, `familyParticipation.ts`, `payments.ts`, `expenseSort.ts`: pure domain helpers.
+- `chat.ts`, `useTripChat.ts`, and `TripChat.tsx`: chat contracts/identity helpers, realtime state, unread synchronization, and the trip Chat tab.
 - `ui/`: shared UI components.
 
 The app reads its API base from `EXPO_PUBLIC_BACKEND_URL`; do not add a hard-coded localhost fallback.
@@ -214,6 +215,21 @@ Divide equally among selected root entities: each family counts as one and each 
 - Transactions use exploded per-person rows and preserve negative refunds.
 - `GET /api/trips/{id}/report.xlsx` and `report.pdf` use a JWT `token` query parameter for browser-download compatibility. Preserve authorization and avoid leaking URLs.
 
+### Trip Chat
+
+- Chat is restricted to signed-in IDs in `trip.user_ids`, and sending additionally requires that the
+  app account resolve to a standalone trip member or one exact family sub-member.
+- Persisted messages snapshot the trip-specific sender/family display names. Historical attribution
+  must not depend on the current roster or global account profile.
+- REST writes are durable and idempotent before WebSocket events are broadcast. WebSocket auth is in
+  the first frame, never a query-string JWT.
+- Senders alone may edit/delete their own messages; deletion removes the original text and retains a
+  tombstone. Only the trip owner may clear all chat history.
+- Per-user read sequences live in MongoDB and must advance monotonically. Own messages and deleted
+  tombstones do not count as unread.
+- Production currently runs one backend worker, so the in-process realtime manager is sufficient.
+  Add shared pub/sub before scaling to multiple workers or service instances.
+
 ## 7. Current Capability Snapshot
 
 The 27-phase, 118-step implementation diary was removed. Current evidence is in `docs/APP_FEATURE_INVENTORY.md`; history remains in Git and `.claude/` plans/specs.
@@ -230,6 +246,8 @@ Broadly implemented areas include:
 - spend/category/member drill-downs and date/time expense ordering;
 - XLSX and PDF reporting;
 - hosted-build configuration for Render, Vercel, Expo, and EAS.
+- per-trip realtime text chat with MongoDB history, cross-device unread state, sender snapshots,
+  optimistic retry, sender edits/deletion, and owner-only history clearing.
 
 Historical roadmap caveats:
 

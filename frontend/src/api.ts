@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import type { SpendSummary } from './spend';
 import type { Payment } from './payments';
+import type { ChatMessage, ChatPage, ChatUnread } from './chat';
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
 const TOKEN_KEY = 'auth_token';
@@ -149,4 +150,54 @@ export async function uploadReceipt(
 // Step 22: detach the receipt from an expense (deletes the GridFS file). Idempotent server-side.
 export async function deleteReceipt(tripId: string, expenseId: string): Promise<void> {
   await api(`/trips/${tripId}/expenses/${expenseId}/receipt`, { method: 'DELETE' });
+}
+
+// Per-trip durable chat. REST owns persistence; WebSocket only announces committed mutations.
+export function listChatMessages(
+  tripId: string,
+  options: { beforeSequence?: number; afterSequence?: number; limit?: number } = {},
+): Promise<ChatPage> {
+  const query = new URLSearchParams();
+  if (options.beforeSequence != null) query.set('before_sequence', String(options.beforeSequence));
+  if (options.afterSequence != null) query.set('after_sequence', String(options.afterSequence));
+  if (options.limit != null) query.set('limit', String(options.limit));
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return api<ChatPage>(`/trips/${tripId}/chat/messages${suffix}`);
+}
+
+export function sendChatMessage(
+  tripId: string,
+  body: { client_message_id: string; text: string },
+): Promise<ChatMessage> {
+  return api<ChatMessage>(`/trips/${tripId}/chat/messages`, { method: 'POST', body });
+}
+
+export function editChatMessage(tripId: string, messageId: string, text: string): Promise<ChatMessage> {
+  return api<ChatMessage>(`/trips/${tripId}/chat/messages/${messageId}`, {
+    method: 'PATCH', body: { text },
+  });
+}
+
+export function deleteChatMessage(tripId: string, messageId: string): Promise<ChatMessage> {
+  return api<ChatMessage>(`/trips/${tripId}/chat/messages/${messageId}`, { method: 'DELETE' });
+}
+
+export function chatUnread(tripId: string): Promise<ChatUnread> {
+  return api<ChatUnread>(`/trips/${tripId}/chat/unread`);
+}
+
+export function markChatRead(tripId: string, throughSequence: number): Promise<void> {
+  return api(`/trips/${tripId}/chat/read`, {
+    method: 'PUT', body: { through_sequence: throughSequence },
+  }).then(() => undefined);
+}
+
+export function clearChatHistory(tripId: string): Promise<{ ok: boolean; cleared_through_sequence: number }> {
+  return api(`/trips/${tripId}/chat/history`, { method: 'DELETE' });
+}
+
+export function chatSocketUrl(tripId: string): string {
+  if (!BASE) throw new Error('EXPO_PUBLIC_BACKEND_URL is not configured');
+  const websocketBase = BASE.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:').replace(/\/$/, '');
+  return `${websocketBase}/api/trips/${encodeURIComponent(tripId)}/chat/ws`;
 }

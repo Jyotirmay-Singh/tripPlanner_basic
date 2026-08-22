@@ -74,7 +74,7 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
   - **Expense** (+) — add a transaction
   - **Settle Up** — show who owes whom
   - **✏️ pencil** — edit trip name / date / budget / currency
-  - **🗑 trash** — delete the trip (owner only; removes all expenses)
+  - **🗑 trash** — delete the trip (owner only; removes all expenses and chat history)
 
 ---
 
@@ -221,7 +221,36 @@ the recomputed balance (and can even flip who owes whom if someone has now overp
 
 ---
 
-## 8. Reports & Export (XLSX / PDF)
+## 8. Trip Chat
+
+Open any trip and swipe the trip tabs to **Chat**. Chat is shared by the signed-in app users who are
+linked to people on that trip; a roster-only placeholder cannot chat until that person joins or
+claims the profile.
+
+- New messages appear live. If the connection drops, the **Live** label changes to
+  **Reconnecting** and missed MongoDB-backed messages are recovered automatically.
+- Every message shows the sender's **trip member name**. A linked family member appears as, for
+  example, **Priya · Sharma Family**, so their identity is clear outside the nested Members list.
+  That sent-time label stays on old messages even if the roster is renamed later.
+- The Chat tab shows the exact unread count, capped visually at **99+**. Read position is saved to
+  the account, so it follows you between phone and web. Messages you send do not count as unread.
+- Messages are plain text and can contain up to **2,000 characters**. A message appears immediately
+  while it is being saved; if the network request fails, tap **Retry** on that message.
+- Tap one of **your own** saved messages to **Edit message** or **Delete message**. You can do this at
+  any time while you still belong to the trip. An edit is marked *edited*. Deletion permanently
+  removes the original text and leaves a **Message deleted** placeholder for conversation order.
+- The trip owner can open **Chat options → Clear chat history**. After confirmation, this
+  permanently removes all existing messages and deletion placeholders for every member. Admins do
+  not receive this owner-only power.
+- Removing a linked person from the trip immediately removes their chat access. Their historical
+  sender label remains understandable to the people who still have access.
+
+Chat v1 does not include images, reactions, typing/online presence, per-message seen receipts, or
+device push notifications.
+
+---
+
+## 9. Reports & Export (XLSX / PDF)
 
 - Bottom-tab **Reports** lists all your trips.
 - Tap **XLSX** to download a professionally-formatted Excel workbook (bold frozen headers, currency
@@ -263,7 +292,7 @@ The download opens in your phone's browser; share or save it from there.
 
 ---
 
-## 9. Practical Workflow Example
+## 10. Practical Workflow Example
 
 > "We're going to Goa, 4 of us. I'm splitting with Riddhi (individual) and the Sharma family (3 people)."
 
@@ -277,18 +306,18 @@ The download opens in your phone's browser; share or save it from there.
 
 ---
 
-## 10. Tips & Troubleshooting
+## 11. Tips & Troubleshooting
 
 - **Icons missing or "font is empty"?** Close Expo Go fully and reopen → re-scan the QR. Asset caches can corrupt; this re-downloads them.
 - **Reset emails not arriving?** The Resend account is in test mode — emails only deliver to the account owner. Verify a domain at resend.com/domains to send to anyone. Until then, the reset token is also printed in the backend logs (admin can fetch it).
 - **Forgot PIN?** Sign-in screen → *Forgot PIN?* → email link → set a new PIN. If email isn't delivering yet, ask the admin.
 - **Want to edit a past family split?** Edit the family → choose **Re-split with new members** when prompted. To preserve the old splits, choose **Keep original**.
 - **Currency** is per-trip; the app does not auto-convert between currencies (manual entry only).
-- **Receipts** are saved as base64 inside the transaction — they sync between users in real time when they refresh the trip.
+- **Receipts** are stored in MongoDB GridFS and load on demand; legacy inline receipts remain readable.
 
 ---
 
-## 11. Default Admin Account
+## 12. Default Admin Account
 
 For demo & testing:
 - Email: `admin@trip.app`
