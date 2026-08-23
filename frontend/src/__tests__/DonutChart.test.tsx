@@ -4,6 +4,7 @@
 //
 // Verifies the category drill-down affordances in src/DonutChart.tsx are reachable:
 //  - every legend row (the reliable cross-platform TouchableOpacity) fires onSlicePress;
+//  - Android hit-testing samples multiple points across every sector and its enlarged touch band;
 //  - a multi-slice arc <Path> fires onSlicePress;
 //  - a SINGLE-slice donut ring (<Circle>) now exposes onPress (the bug: it previously had none,
 //    so a lone category was never tappable on any platform).
@@ -56,6 +57,17 @@ afterEach(() => {
   Object.defineProperty(Platform, 'OS', { configurable: true, value: originalOS });
 });
 
+const pointAt = (angleDeg: number, radius: number, size = 220) => {
+  const center = size / 2;
+  const radians = (angleDeg - 90) * Math.PI / 180;
+  return {
+    nativeEvent: {
+      locationX: center + radius * Math.cos(radians),
+      locationY: center + radius * Math.sin(radians),
+    },
+  };
+};
+
 describe('DonutChart drill-down affordances', () => {
   it('web: fires onSlicePress from a multi-slice arc Path', () => {
     setPlatform('web');
@@ -86,6 +98,36 @@ describe('DonutChart drill-down affordances', () => {
     });
     expect(onPress).toHaveBeenCalledTimes(1);
     expect(onPress.mock.calls[0][0].key).toBe('Food');
+  });
+
+  it('native: hit-tests multiple points across every slice and the enlarged radial band', () => {
+    setPlatform('android');
+    const onPress = jest.fn();
+    const r = mount(MULTI, onPress);
+    const chartPress = pressable(r, 'donut-press');
+
+    // The default visible ring spans radii 70-106. Radii 56 and 116 prove the larger touch
+    // band works on both sides; the other samples cover each sector near its angular edges and
+    // middle. Food spans 0-216 degrees and Fuel spans 216-360 degrees.
+    const samples = [
+      { angle: 5, radius: 56, key: 'Food' },
+      { angle: 45, radius: 116, key: 'Food' },
+      { angle: 90, radius: 88, key: 'Food' },
+      { angle: 180, radius: 104, key: 'Food' },
+      { angle: 215, radius: 72, key: 'Food' },
+      { angle: 217, radius: 72, key: 'Fuel' },
+      { angle: 220, radius: 56, key: 'Fuel' },
+      { angle: 270, radius: 88, key: 'Fuel' },
+      { angle: 315, radius: 116, key: 'Fuel' },
+      { angle: 355, radius: 104, key: 'Fuel' },
+    ];
+
+    samples.forEach(({ angle, radius }) => {
+      act(() => { chartPress.props.onPress(pointAt(angle, radius)); });
+    });
+
+    expect(onPress.mock.calls.map(([slice]) => slice.key))
+      .toEqual(samples.map(({ key }) => key));
   });
 
   it('native: a tap in the center hole (inside the ring) drills into nothing', () => {
@@ -126,6 +168,20 @@ describe('DonutChart drill-down affordances', () => {
     act(() => {
       pressable(r, 'donut-press').props.onPress({ nativeEvent: { locationX: undefined, locationY: 5 } });
     });
+    expect(onPress).not.toHaveBeenCalled();
+  });
+
+  it('native: ignores points beyond the enlarged inner and outer limits', () => {
+    setPlatform('android');
+    const onPress = jest.fn();
+    const r = mount(MULTI, onPress);
+    const chartPress = pressable(r, 'donut-press');
+
+    act(() => {
+      chartPress.props.onPress(pointAt(90, 50));
+      chartPress.props.onPress(pointAt(45, 130));
+    });
+
     expect(onPress).not.toHaveBeenCalled();
   });
 

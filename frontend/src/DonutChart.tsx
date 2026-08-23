@@ -11,6 +11,10 @@ export type DonutSlice = { key: string; label: string; value: number; color: str
 const PALETTE_LIGHT = ['#1C3F39', '#D4A373', '#6B8E6B', '#E05D3D', '#88B0A8', '#A48ED4', '#5C6B67'];
 const PALETTE_DARK = ['#87C0B2', '#F5C28F', '#8FC98F', '#FF8A66', '#A8D4CC', '#C5B4F0', '#8EA39D'];
 
+// The visible ring is 36dp wide by default, which is too precise for a finger. Keep the chart
+// visually unchanged while accepting taps 16dp beyond both radial edges of every sector.
+const NATIVE_TOUCH_PADDING = 16;
+
 export function paletteForMode(mode: 'light' | 'dark') {
   return mode === 'dark' ? PALETTE_DARK : PALETTE_LIGHT;
 }
@@ -64,7 +68,9 @@ export default function DonutChart({
     const dx = locationX - cx;
     const dy = locationY - cy;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < rInner || dist > rOuter) return; // outside the ring band
+    const hitInner = Math.max(0, rInner - NATIVE_TOUCH_PADDING);
+    const hitOuter = rOuter + NATIVE_TOUCH_PADDING;
+    if (dist < hitInner || dist > hitOuter) return; // outside the enlarged ring band
     const angle = (Math.atan2(dy, dx) * 180 / Math.PI + 90 + 360) % 360;
     const hit = slices.find((s) => angle >= s.start && angle < s.end);
     if (hit) onSlicePress(hit);
@@ -121,6 +127,8 @@ export default function DonutChart({
             onPress={handleDonutPress}
             testID="donut-press"
             accessible={false}
+            hitSlop={NATIVE_TOUCH_PADDING}
+            pressRetentionOffset={NATIVE_TOUCH_PADDING}
             style={StyleSheet.absoluteFill}
           />
         </View>
