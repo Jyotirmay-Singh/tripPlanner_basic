@@ -11,6 +11,8 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 
+const mockRouterPush = jest.fn();
+
 // --- contexts / router / native shells ---
 jest.mock('../../api', () => ({
   api: jest.fn(), getToken: jest.fn(), receiptUrl: jest.fn(() => 'receipt://x'),
@@ -24,7 +26,7 @@ jest.mock('expo-router', () => {
   const R = require('react');
   return {
     useLocalSearchParams: () => ({ id: 't1' }),
-    useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
+    useRouter: () => ({ push: mockRouterPush, back: jest.fn() }),
     // Run the focus callback once on mount so the screen's load() fires.
     useFocusEffect: (cb: any) => R.useEffect(() => { cb(); }, []),
   };
@@ -41,7 +43,14 @@ jest.mock('../../T', () => {
   const { Text } = require('react-native');
   return { __esModule: true, default: (p: any) => R.createElement(Text, null, p.children) };
 });
-jest.mock('../../DonutChart', () => ({ __esModule: true, default: () => null, paletteForMode: () => ['#000'] }));
+jest.mock('../../DonutChart', () => {
+  const R = require('react');
+  return {
+    __esModule: true,
+    default: (p: any) => R.createElement('DonutChart', p),
+    paletteForMode: () => ['#000'],
+  };
+});
 jest.mock('../../SpendBarChart', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../ReceiptViewer', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../ConfirmModal', () => ({ __esModule: true, default: () => null }));
@@ -128,7 +137,7 @@ const balances = (transfers: any[]) => ({
 const settledBadges = (r: any) => r.root.findAll((n: any) => n.props && n.props.label === 'Settled');
 const tabBtn = (r: any, value: string) => r.root.find((n: any) => n.props && n.props.testID === `trip-tab-${value}`);
 
-async function openExpenses(transfersValue: any[]) {
+async function mountTrip(transfersValue: any[]) {
   apiMock.mockImplementation((url: string) => {
     if (url === '/trips/t1') return Promise.resolve(TRIP);
     if (url === '/trips/t1/expenses') return Promise.resolve(EXPENSES);
@@ -137,6 +146,11 @@ async function openExpenses(transfersValue: any[]) {
   });
   let r: any;
   await act(async () => { r = TestRenderer.create(React.createElement(TripDetail)); });
+  return r;
+}
+
+async function openExpenses(transfersValue: any[]) {
+  const r = await mountTrip(transfersValue);
   await act(async () => { tabBtn(r, 'expenses').props.onPress(); });
   return r;
 }
@@ -145,6 +159,16 @@ beforeEach(() => {
   apiMock.mockReset();
   getTokenMock.mockReset();
   getTokenMock.mockResolvedValue('tok');
+  mockRouterPush.mockReset();
+});
+
+describe('Category chart navigation', () => {
+  it('opens one concrete encoded category path from the chart callback', async () => {
+    const r = await mountTrip([]);
+    const donut = r.root.findByType('DonutChart' as any);
+    act(() => { donut.props.onSlicePress({ key: 'Local Transportation' }); });
+    expect(mockRouterPush).toHaveBeenCalledWith('/trip/t1/category/Local%20Transportation');
+  });
 });
 
 describe('Expenses tab — trip-level "Settled" badge', () => {

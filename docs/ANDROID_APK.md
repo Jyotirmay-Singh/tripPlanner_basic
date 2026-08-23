@@ -60,11 +60,11 @@ This is the value to enter in the Android OAuth client. It stays constant across
 
 ## 2. How to install (for testers)
 
-1. On your Android phone, open the **install page** (QR + Install button) or the **direct
-   `.apk`** link:
-   <!-- Latest build: 2026-07-13, profile `preview`, com.tripsplitter.app, v1.0.0 (versionCode 1) -->
-   - Install page: `https://expo.dev/accounts/jyotirmay03/projects/frontend/builds/aa22fda8-b4ea-45a7-8fc3-6fd8e6d9dca8`
-   - Direct APK: `https://expo.dev/artifacts/eas/nleiz_H81CvsMrxLpwXibQyymaKtiieGeZ9VM9h4wPo.apk`
+1. On your Android phone, open the stable download link:
+   - `https://tripsplitter-web.vercel.app/download/android`
+
+   This temporary redirect is refreshed after each verified EAS build, so testers do not need a
+   new URL when an Expo artifact changes or expires. The redirected `.apk` downloads anonymously.
 2. When the browser/Files app asks, **allow "Install from unknown sources"** for that app
    (Settings → Apps → Special access → Install unknown apps → enable for your browser/Files).
 3. Tap the downloaded `.apk` → **Install** → **Open**.
@@ -81,6 +81,7 @@ This is the value to enter in the Android OAuth client. It stays constant across
 - [ ] Register a new gmail → email-verification link; PIN login; logout.
 - [ ] Google sign-in (needs SHA-1 registered); first-time Google user lands on set-credentials.
 - [ ] Create a trip; add expenses in **Per Person / Per Family / Exact** split modes.
+- [ ] On Trip Summary, tap a donut slice and a legend row; both open the category breakdown with payer bars, refunds, and transactions.
 - [ ] Receipt capture (camera) + upload from gallery; view receipt.
 - [ ] Settle-up + record a partial payment; badges/progress update.
 - [ ] XLSX and PDF report download open correctly.

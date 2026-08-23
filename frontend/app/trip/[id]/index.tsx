@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { View, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Share, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { api, getToken, receiptUrl, spendSummary } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
@@ -23,6 +23,7 @@ import { isTripSettled } from '../../../src/tripSettled';
 import { formatCompactMoney, formatMoney } from '../../../src/format';
 import { formatTripDates } from '../../../src/date';
 import { formatTime12h } from '../../../src/time';
+import { categoryDetailPath } from '../../../src/categoryRoute';
 import TripChat from '../../../src/TripChat';
 import { resolveOptimisticSender, unreadBadge } from '../../../src/chat';
 import { useTripChat } from '../../../src/useTripChat';
@@ -340,10 +341,7 @@ export default function TripDetail() {
                       centerValue={formatCompactMoney(totalSpent)}
                       centerLabel={trip.currency}
                       centerAccessibilityLabel={`Total spent, ${formatMoney(totalSpent, { currency: trip.currency })}`}
-                      onSlicePress={(s) => router.push({
-                        pathname: '/trip/[id]/category/[name]',
-                        params: { id: id as string, name: encodeURIComponent(s.key) },
-                      })}
+                      onSlicePress={(s) => router.push(categoryDetailPath(id as string, s.key) as Href)}
                     />
                   </Card>
                 )}

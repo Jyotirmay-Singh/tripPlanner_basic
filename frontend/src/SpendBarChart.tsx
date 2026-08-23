@@ -24,6 +24,10 @@ export default function SpendBarChart({
   displayNames,
   currency,
   onBarPress,
+  title = 'Top spenders',
+  summaryText,
+  rowDetail,
+  emptyMessage = 'No spending to rank yet.',
 }: {
   summary: SpendSummary | null | undefined;
   displayNames: Record<string, string>;
@@ -31,6 +35,10 @@ export default function SpendBarChart({
   // Optional: tapping an entity's name OR its bar fires this with the ranked bar (Phase 17 drill-down).
   // Omitted => the chart stays non-tappable (existing usage/tests unaffected).
   onBarPress?: (bar: RankedBar) => void;
+  title?: string;
+  summaryText?: string;
+  rowDetail?: (bar: RankedBar, total: number) => string | undefined;
+  emptyMessage?: string;
 }) {
   const { colors } = useTheme();
   const [width, setWidth] = useState(0);
@@ -45,21 +53,22 @@ export default function SpendBarChart({
     // No expenses, or only refunds — nothing to rank.
     return (
       <View testID="spend-bar-chart">
-        <T variant="label" muted style={{ marginBottom: SPACING.sm }}>Top spenders</T>
-        <T variant="caption" muted>No spending to rank yet.</T>
+        <T variant="label" muted style={{ marginBottom: SPACING.sm }}>{title}</T>
+        <T variant="caption" muted>{emptyMessage}</T>
       </View>
     );
   }
 
   return (
     <View testID="spend-bar-chart">
-      <T variant="label" muted style={{ marginBottom: 2 }}>Top spenders</T>
+      <T variant="label" muted style={{ marginBottom: 2 }}>{title}</T>
       <T variant="caption" muted style={{ marginBottom: SPACING.md }}>
-        {formatMoney(total, { currency })} spent across {count} {count === 1 ? 'entity' : 'entities'}
+        {summaryText ?? `${formatMoney(total, { currency })} spent across ${count} ${count === 1 ? 'entity' : 'entities'}`}
       </T>
       <View onLayout={onLayout} style={{ gap: SPACING.md }}>
         {bars.map((b) => {
           const label = displayNames[b.entity_id] || b.name;
+          const detail = rowDetail?.(b, total);
           const fillW = width > 0 ? Math.max(MIN_BAR_PX, b.fraction * width) : 0;
           const alpha = 0.45 + 0.55 * b.fraction; // deepest at the top spender (fraction 1)
           // A zero-spender fronted nothing, so its row has no history to open — leave it non-tappable.
@@ -69,7 +78,14 @@ export default function SpendBarChart({
               <View style={styles.labelLine}>
                 <View style={styles.labelLeft}>
                   <Icon name={b.entity_type === 'family' ? 'users' : 'user'} size={14} color={colors.textMuted} />
-                  <T variant="caption" numberOfLines={1} style={{ flexShrink: 1 }}>{label}</T>
+                  <View style={styles.labelCopy}>
+                    <T variant="caption" numberOfLines={1}>{label}</T>
+                    {detail ? (
+                      <T testID={`spend-bar-detail-${b.entity_id}`} variant="caption" muted numberOfLines={1}>
+                        {detail}
+                      </T>
+                    ) : null}
+                  </View>
                 </View>
                 <ResponsiveAmountText
                   value={b.paid}
@@ -96,12 +112,17 @@ export default function SpendBarChart({
               testID={`spend-bar-${b.entity_id}`}
               onPress={() => onBarPress!(b)}
               accessibilityRole="button"
-              accessibilityLabel={`View ${label}'s spending, ${formatMoney(b.paid, { currency })}`}
+              accessibilityLabel={`View ${label}'s spending, ${formatMoney(b.paid, { currency })}${detail ? `, ${detail}` : ''}`}
             >
               {content}
             </TouchableOpacity>
           ) : (
-            <View key={b.entity_id} testID={`spend-bar-${b.entity_id}`}>
+            <View
+              key={b.entity_id}
+              testID={`spend-bar-${b.entity_id}`}
+              accessible
+              accessibilityLabel={`${label}, ${formatMoney(b.paid, { currency })}${detail ? `, ${detail}` : ''}`}
+            >
               {content}
             </View>
           );
@@ -114,6 +135,7 @@ export default function SpendBarChart({
 const styles = StyleSheet.create({
   labelLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.sm },
   labelLeft: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 },
+  labelCopy: { flex: 1, minWidth: 0, gap: 1 },
   value: { fontVariant: ['tabular-nums'] },
   bar: { marginTop: 6 },
 });

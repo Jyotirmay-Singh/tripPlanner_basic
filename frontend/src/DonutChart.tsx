@@ -60,6 +60,7 @@ export default function DonutChart({
   const handleDonutPress = (e: GestureResponderEvent) => {
     if (!onSlicePress) return;
     const { locationX, locationY } = e.nativeEvent;
+    if (!Number.isFinite(locationX) || !Number.isFinite(locationY)) return;
     const dx = locationX - cx;
     const dy = locationY - cy;
     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -79,7 +80,7 @@ export default function DonutChart({
                 so a lone category was never tappable, on web or native). */}
             <Circle
               cx={cx} cy={cy} r={rOuter} fill={slices[0].color}
-              onPress={onSlicePress ? () => onSlicePress(slices[0]) : undefined}
+              onPress={Platform.OS === 'web' && onSlicePress ? () => onSlicePress(slices[0]) : undefined}
               testID={`donut-slice-${slices[0].key}`}
             />
             <Circle cx={cx} cy={cy} r={rInner} fill={colors.surface} />
@@ -90,7 +91,7 @@ export default function DonutChart({
               key={s.key}
               d={arcPath(cx, cy, rOuter, rInner, s.start, s.end)}
               fill={s.color}
-              onPress={onSlicePress ? () => onSlicePress(s) : undefined}
+              onPress={Platform.OS === 'web' && onSlicePress ? () => onSlicePress(s) : undefined}
               testID={`donut-slice-${s.key}`}
             />
           ))
@@ -112,7 +113,17 @@ export default function DonutChart({
   return (
     <View style={styles.wrap}>
       {Platform.OS !== 'web' && onSlicePress ? (
-        <Pressable onPress={handleDonutPress} testID="donut-press">{donut}</Pressable>
+        <View style={{ width: size, height: size }}>
+          {/* react-native-svg can claim Android touches before a wrapping Pressable receives them.
+              Keep the SVG visual-only on native and put a real RN touch surface above it instead. */}
+          <View pointerEvents="none">{donut}</View>
+          <Pressable
+            onPress={handleDonutPress}
+            testID="donut-press"
+            accessible={false}
+            style={StyleSheet.absoluteFill}
+          />
+        </View>
       ) : (
         <View>{donut}</View>
       )}
@@ -148,7 +159,7 @@ export default function DonutChart({
 const styles = StyleSheet.create({
   wrap: { alignItems: 'center', gap: 12 },
   legend: { width: '100%', gap: 6 },
-  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44, paddingVertical: 8 },
   legendValue: { textAlign: 'right' },
   dot: { width: 12, height: 12, borderRadius: 6 },
 });

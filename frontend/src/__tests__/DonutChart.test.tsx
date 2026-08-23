@@ -10,6 +10,7 @@
 // react-native-svg is stubbed to host elements so testIDs + onPress pass straight through.
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
+import { Platform } from 'react-native';
 
 jest.mock('react-native-svg', () => {
   const R = require('react');
@@ -46,8 +47,18 @@ function mount(data: DonutSlice[], onSlicePress: (s: DonutSlice) => void) {
   return r;
 }
 
+const setPlatform = (os: 'android' | 'web') => {
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: os });
+};
+
+const originalOS = Platform.OS;
+afterEach(() => {
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: originalOS });
+});
+
 describe('DonutChart drill-down affordances', () => {
-  it('fires onSlicePress from a multi-slice arc Path', () => {
+  it('web: fires onSlicePress from a multi-slice arc Path', () => {
+    setPlatform('web');
     const onPress = jest.fn();
     const r = mount(MULTI, onPress);
     act(() => { pressable(r, 'donut-slice-Food').props.onPress(); });
@@ -56,6 +67,7 @@ describe('DonutChart drill-down affordances', () => {
   });
 
   it('fires onSlicePress from a legend row', () => {
+    setPlatform('android');
     const onPress = jest.fn();
     const r = mount(MULTI, onPress);
     act(() => { pressable(r, 'donut-legend-Fuel').props.onPress(); });
@@ -64,6 +76,7 @@ describe('DonutChart drill-down affordances', () => {
   });
 
   it('native: hit-tests the tapped slice from the touch location', () => {
+    setPlatform('android');
     // On native the SVG per-shape onPress doesn't fire, so a Pressable over the donut resolves the
     // slice by angle. Food spans 0–216°; a point mid-wedge (~108°) inside the ring band → Food.
     const onPress = jest.fn();
@@ -76,6 +89,7 @@ describe('DonutChart drill-down affordances', () => {
   });
 
   it('native: a tap in the center hole (inside the ring) drills into nothing', () => {
+    setPlatform('android');
     const onPress = jest.fn();
     const r = mount(MULTI, onPress);
     act(() => {
@@ -84,16 +98,39 @@ describe('DonutChart drill-down affordances', () => {
     expect(onPress).not.toHaveBeenCalled();
   });
 
-  it('single-slice ring exposes onPress and fires onSlicePress (regression: it had none)', () => {
+  it('native: the overlay handles a single-slice ring and SVG shapes cannot intercept it', () => {
+    setPlatform('android');
     const onPress = jest.fn();
     const r = mount(SINGLE, onPress);
-    expect(has(r, 'donut-slice-Food')).toBe(true); // the <Circle> now owns a callable onPress
-    act(() => { pressable(r, 'donut-slice-Food').props.onPress(); });
+    expect(has(r, 'donut-slice-Food')).toBe(false);
+    act(() => {
+      pressable(r, 'donut-press').props.onPress({ nativeEvent: { locationX: 110, locationY: 5 } });
+    });
     expect(onPress).toHaveBeenCalledTimes(1);
     expect(onPress.mock.calls[0][0].key).toBe('Food');
   });
 
+  it('web: a single-slice Circle remains directly tappable', () => {
+    setPlatform('web');
+    const onPress = jest.fn();
+    const r = mount(SINGLE, onPress);
+    expect(has(r, 'donut-slice-Food')).toBe(true);
+    act(() => { pressable(r, 'donut-slice-Food').props.onPress(); });
+    expect(onPress).toHaveBeenCalledWith(expect.objectContaining(SINGLE[0]));
+  });
+
+  it('native: ignores malformed press coordinates instead of navigating', () => {
+    setPlatform('android');
+    const onPress = jest.fn();
+    const r = mount(MULTI, onPress);
+    act(() => {
+      pressable(r, 'donut-press').props.onPress({ nativeEvent: { locationX: undefined, locationY: 5 } });
+    });
+    expect(onPress).not.toHaveBeenCalled();
+  });
+
   it('keeps the exact chart total and legend amount in accessibility labels', () => {
+    setPlatform('android');
     let r: any;
     act(() => {
       r = TestRenderer.create(
