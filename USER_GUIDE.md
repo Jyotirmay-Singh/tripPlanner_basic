@@ -39,6 +39,20 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
 
 ## 3. Trips
 
+The **Home** tab keeps one **Net position** card for your overall position. When all of your trips
+use the same currency it shows one signed total. If your trips use different currencies, it shows a
+separate total for each currency rather than adding unlike currencies together. Its message changes
+between **You come out ahead**, **You owe overall**, **All settled up**, and a mixed-currency message.
+
+On the **Trips** tab, every trip card shows your own position for that trip:
+- **YOU'RE OWED** with a green exact amount when other members collectively owe you;
+- **YOU OWE** with a coral exact amount when you owe other members;
+- **Settled** when your rounded balance is zero.
+
+The amount always uses that trip's currency. On narrow Android phones or with larger accessibility
+text, the balance moves below the trip details so the exact value and navigation chevron stay visible.
+Settled trips remain tappable and can still be opened normally.
+
 ### 3.1 Create a trip
 1. **Home → New Trip** (or **Trips → New**).
 2. Fill in:

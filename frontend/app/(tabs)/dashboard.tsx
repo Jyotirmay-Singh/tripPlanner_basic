@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from 'react';
-import { View } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { api } from '../../src/api';
 import { useAuth } from '../../src/AuthContext';
@@ -11,7 +11,15 @@ import { formatTripDates } from '../../src/date';
 import UnverifiedBanner from '../../src/UnverifiedBanner';
 import TabPageHeader from '../../src/TabPageHeader';
 import {
-  Screen, Card, Button, StatCard, ListRow, EmptyState, AmountText, SkeletonCard,
+  BALANCE_COPY,
+  groupBalancesByCurrency,
+  netPositionMessage,
+  resolveUserTripBalance,
+  type CurrencyBalance,
+  type TripBalancePayload,
+} from '../../src/tripBalance';
+import {
+  Screen, Card, Button, ListRow, EmptyState, AmountText, SkeletonCard,
 } from '../../src/ui';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
@@ -24,40 +32,61 @@ export default function Dashboard() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [owing, setOwing] = useState(0);
-  const [owed, setOwed] = useState(0);
+  const [currencyBalances, setCurrencyBalances] = useState<CurrencyBalance[]>([]);
+  const [balancesAvailable, setBalancesAvailable] = useState(false);
+  const loadGeneration = useRef(0);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     setRefreshing(true);
     try {
       const list = await api<Trip[]>('/trips');
+      const results = await Promise.allSettled(
+        list.map((trip) => api<TripBalancePayload>(`/trips/${trip.id}/balances`)),
+      );
+      const rows: { currency: string; balance: number }[] = [];
+      let complete = true;
+
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          complete = false;
+          return;
+        }
+        const balance = resolveUserTripBalance(result.value, user?.id);
+        if (balance == null) {
+          complete = false;
+          return;
+        }
+        rows.push({
+          currency: result.value.currency || list[index].currency,
+          balance,
+        });
+      });
+
+      if (generation !== loadGeneration.current) return;
       setTrips(list);
-      let _owe = 0, _owed = 0;
-      for (const t of list) {
-        try {
-          const b = await api<any>(`/trips/${t.id}/balances`);
-          const myMember = (b.members as any[]).find((m) => m.user_id === user?.id);
-          if (myMember) {
-            const net = b.net[myMember.id] || 0;
-            if (net < 0) _owe += -net; else _owed += net;
-          }
-        } catch {}
+      if (complete) setCurrencyBalances(groupBalancesByCurrency(rows));
+      setBalancesAvailable(complete);
+    } catch {
+      if (generation === loadGeneration.current) setBalancesAvailable(false);
+    } finally {
+      if (generation === loadGeneration.current) {
+        setRefreshing(false);
+        setLoaded(true);
       }
-      setOwing(_owe); setOwed(_owed);
-    } catch {}
-    setRefreshing(false);
-    setLoaded(true);
+    }
   }, [user?.id]);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    void load();
+    return () => { loadGeneration.current += 1; };
+  }, [load]));
 
-  const net = owed - owing;
+  const positionMessage = netPositionMessage(currencyBalances);
+  const tripCount = `${trips.length} trip${trips.length === 1 ? '' : 's'}`;
 
   return (
-    <Screen
-      refreshing={refreshing}
-      onRefresh={load}
-    >
+    <Screen refreshing={refreshing} onRefresh={load}>
       <TabPageHeader
         title="Dashboard"
         eyebrow={`Hello, ${user?.name?.split(' ')[0] || 'traveller'}`}
@@ -65,32 +94,55 @@ export default function Dashboard() {
 
       <UnverifiedBanner />
 
-      {/* Bento: full-width net position card */}
       <Card variant="primary" padding="lg" radius={RADIUS.xl}>
         <T variant="label" color={colors.primaryText} style={{ opacity: 0.85 }}>Net position</T>
-        <AmountText
-          value={net}
-          variant="moneyLg"
-          signed
-          color={colors.primaryText}
-          style={{ marginTop: SPACING.xs }}
-        />
-        <T color={colors.primaryText} style={{ opacity: 0.8, marginTop: 2 }}>
-          {net >= 0 ? 'You come out ahead' : 'You owe overall'} · {trips.length} trip{trips.length === 1 ? '' : 's'}
+        {!loaded ? (
+          <T variant="h3" color={colors.primaryText} style={styles.balanceMessage}>
+            Loading balances…
+          </T>
+        ) : !balancesAvailable ? (
+          <T variant="h3" color={colors.primaryText} style={styles.balanceMessage}>
+            {BALANCE_COPY.unavailable}
+          </T>
+        ) : currencyBalances.length <= 1 ? (
+          <AmountText
+            value={currencyBalances[0]?.value ?? 0}
+            currency={currencyBalances[0]?.currency}
+            variant="moneyLg"
+            signed={(currencyBalances[0]?.cents ?? 0) > 0}
+            color={colors.primaryText}
+            style={{ marginTop: SPACING.xs }}
+          />
+        ) : (
+          <View style={styles.currencyBalances}>
+            {currencyBalances.map((balance) => (
+              <View key={balance.currency} style={styles.currencyBalanceRow}>
+                <T variant="label" color={colors.primaryText} style={{ opacity: 0.8 }}>
+                  {balance.currency}
+                </T>
+                <AmountText
+                  value={balance.value}
+                  signed={balance.cents > 0}
+                  color={colors.primaryText}
+                />
+              </View>
+            ))}
+          </View>
+        )}
+        <T color={colors.primaryText} style={styles.balanceSubtitle}>
+          {!loaded
+            ? tripCount
+            : balancesAvailable
+              ? `${positionMessage} · ${tripCount}`
+              : `Pull to refresh · ${tripCount}`}
         </T>
       </Card>
 
-      {/* Bento: two columns */}
-      <View style={{ flexDirection: 'row', gap: SPACING.md }}>
-        <StatCard label="You owe" value={owing.toFixed(2)} valueColor={colors.danger} testID="dash-you-owe" />
-        <StatCard label="You're owed" value={owed.toFixed(2)} valueColor={colors.success} testID="dash-you-owed" />
-      </View>
-
-      <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
-        <View style={{ flex: 1 }}>
+      <View style={styles.actions}>
+        <View style={styles.actionButton}>
           <Button label="New Trip" icon="plus" onPress={() => router.push('/create-trip')} fullWidth testID="dash-new-trip" />
         </View>
-        <View style={{ flex: 1 }}>
+        <View style={styles.actionButton}>
           <Button label="Join Trip" icon="users" variant="secondary" onPress={() => router.push('/join-trip')} fullWidth testID="dash-join-trip" />
         </View>
       </View>
@@ -110,18 +162,32 @@ export default function Dashboard() {
           testID="dash-empty"
         />
       ) : (
-        trips.slice(0, 2).map((t) => (
+        trips.slice(0, 2).map((trip) => (
           <ListRow
-            key={t.id}
-            testID={`dash-trip-${t.id}`}
+            key={trip.id}
+            testID={`dash-trip-${trip.id}`}
             icon="briefcase"
-            title={t.name}
-            subtitle={`${formatTripDates(t)} · ${t.currency} · Code ${t.code}`}
-            meta={compositionLabel(t.members)}
-            onPress={() => router.push(`/trip/${t.id}`)}
+            title={trip.name}
+            subtitle={`${formatTripDates(trip)} · ${trip.currency} · Code ${trip.code}`}
+            meta={compositionLabel(trip.members)}
+            onPress={() => router.push(`/trip/${trip.id}`)}
           />
         ))
       )}
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  balanceMessage: { marginTop: SPACING.sm },
+  balanceSubtitle: { opacity: 0.8, marginTop: SPACING.xs },
+  currencyBalances: { marginTop: SPACING.sm, gap: SPACING.xs },
+  currencyBalanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.md,
+  },
+  actions: { flexDirection: 'row', gap: SPACING.sm },
+  actionButton: { flex: 1 },
+});
