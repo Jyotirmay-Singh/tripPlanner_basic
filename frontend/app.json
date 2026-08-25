@@ -60,6 +60,14 @@
           "savePhotosPermission": "Save receipt photos to your gallery"
         }
       ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.svg",
+          "color": "#1FC89A",
+          "defaultChannel": "trip_activity"
+        }
+      ],
       "@react-native-community/datetimepicker",
       "expo-web-browser",
       "expo-font"

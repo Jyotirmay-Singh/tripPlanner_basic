@@ -16,6 +16,7 @@ import HeaderBackButton from '../src/HeaderBackButton';
 import { ToastProvider } from '../src/ui';
 import { FONTS } from '../src/theme';
 import { authRedirectTarget, navResetTo, isPublicTokenRoute } from '../src/authNav';
+import PushNotificationCoordinator from '../src/PushNotificationCoordinator';
 
 // Keep the native splash up until our fonts are ready, so text never flashes in a fallback face.
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -37,6 +38,7 @@ function Inner() {
   const headerRight = user ? () => <ProfileAvatarButton /> : undefined;
   return (
     <LogoutProvider>
+      <PushNotificationCoordinator />
       <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <Stack screenOptions={{
         headerStyle: { backgroundColor: colors.background },

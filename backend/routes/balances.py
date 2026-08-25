@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from database import db
 from models.settlement import SettleIn, SettlementCreate, SettlementPatch
@@ -10,6 +10,7 @@ from utils.deps import (
 )
 from utils.permissions import can_record_payment
 from utils.balances import _compute_balances
+from services.push_notifications import enqueue_financial_event
 
 router = APIRouter()
 
@@ -22,7 +23,8 @@ async def balances(trip_id: str, user=Depends(get_current_user)):
 
 
 @router.post("/trips/{trip_id}/settle")
-async def settle(trip_id: str, body: SettleIn, user=Depends(get_current_user)):
+async def settle(trip_id: str, body: SettleIn, background_tasks: BackgroundTasks,
+                 user=Depends(get_current_user)):
     # Legacy one-shot "record a completed payment". Kept for backward compatibility; the doc is
     # now stamped status:"paid"/paid_at so it offsets balances (unchanged behavior) and renders
     # in the Phase 10 settlement history. New clients use POST/PATCH /settlements instead.
@@ -48,6 +50,15 @@ async def settle(trip_id: str, body: SettleIn, user=Depends(get_current_user)):
            "recorded_by": user["id"]}
     await db.settlements.insert_one(doc)
     doc.pop("_id", None)
+    await enqueue_financial_event(
+        event_key=f"settlement.paid:{doc['id']}",
+        event_type="settlement.paid",
+        source_id=doc["id"],
+        trip_id=trip_id,
+        actor_user_id=user["id"],
+        target="settle_up",
+        background_tasks=background_tasks,
+    )
     return doc
 
 
@@ -88,6 +99,7 @@ async def create_settlement(trip_id: str, body: SettlementCreate, user=Depends(g
 
 @router.patch("/trips/{trip_id}/settlements/{settlement_id}")
 async def mark_settlement_paid(trip_id: str, settlement_id: str, body: SettlementPatch,
+                               background_tasks: BackgroundTasks,
                                user=Depends(get_current_user)):
     # Flip pending -> paid (offsets balances). Gated to the lender (creditor's app user) or a trip
     # admin. Idempotent: a settlement already paid is returned unchanged.
@@ -100,4 +112,13 @@ async def mark_settlement_paid(trip_id: str, settlement_id: str, body: Settlemen
         {"$set": {"status": "paid", "paid_at": paid_at, "marked_paid_by": user["id"]}},
     )
     settlement.update({"status": "paid", "paid_at": paid_at, "marked_paid_by": user["id"]})
+    await enqueue_financial_event(
+        event_key=f"settlement.paid:{settlement_id}",
+        event_type="settlement.paid",
+        source_id=settlement_id,
+        trip_id=trip_id,
+        actor_user_id=user["id"],
+        target="settle_up",
+        background_tasks=background_tasks,
+    )
     return settlement

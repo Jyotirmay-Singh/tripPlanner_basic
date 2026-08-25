@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
 
 from config import CATEGORIES
 from database import db
@@ -8,6 +8,7 @@ from utils.deps import get_current_user, _trip_or_404, _expense_modify_or_403
 from services.receipts import delete_receipts_for_expense
 from services.expense_shares import expense_share_breakdown
 from services.custom_split import validate_exact_amounts, valid_exact_member_ids
+from services.push_notifications import enqueue_financial_event
 
 router = APIRouter()
 
@@ -52,7 +53,8 @@ def _clean_family_participants(raw, split_mode, split_ids, members):
 
 # ---------- Expenses ----------
 @router.post("/trips/{trip_id}/expenses")
-async def add_expense(trip_id: str, body: ExpenseIn, force: bool = False,
+async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: BackgroundTasks,
+                      force: bool = False,
                       user=Depends(get_current_user)):
     trip = await _trip_or_404(trip_id, user["id"])
     if body.category not in CATEGORIES:
@@ -110,6 +112,15 @@ async def add_expense(trip_id: str, body: ExpenseIn, force: bool = False,
     }
     await db.expenses.insert_one(doc)
     doc.pop("_id", None)
+    await enqueue_financial_event(
+        event_key=f"expense.created:{eid}",
+        event_type="expense.created",
+        source_id=eid,
+        trip_id=trip_id,
+        actor_user_id=user["id"],
+        target="trip_expenses",
+        background_tasks=background_tasks,
+    )
     return {"expense": doc, "warning": warning}
 
 

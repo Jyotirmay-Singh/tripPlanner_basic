@@ -42,6 +42,26 @@ To learn more about developing your project with Expo, look at the following res
 - [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
 - [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
 
+## Android push notification setup
+
+The app uses `expo-notifications`; delivery remains disabled in the backend until these one-time
+credentials are configured:
+
+1. In Firebase, register Android package `com.tripsplitter.app` and download `google-services.json`.
+2. Add that file as an EAS **file** environment variable named `GOOGLE_SERVICES_JSON` in both the
+   `preview` and `production` environments. `app.config.js` maps it to
+   `android.googleServicesFile`; the local file is intentionally gitignored.
+3. Create an FCM v1 service account in Firebase/Google Cloud and upload its JSON through
+   `eas credentials --platform android`. Never add the service-account file to this repository.
+4. Enable enhanced push security in the Expo project, create an Expo access token, and add it to
+   Render as `EXPO_PUSH_ACCESS_TOKEN`.
+5. Deploy the backend with `PUSH_NOTIFICATIONS_ENABLED=true`, then rebuild the preview APK and the
+   production AAB. Android remote push cannot be tested in Expo Go on SDK 54; use a physical device
+   with the preview build.
+
+Expo Push Service and FCM are free for this application's expected volume. The backend reuses
+MongoDB and the existing Render process, so no Redis, queue service, or additional worker is needed.
+
 ## Join the community
 
 Join our community of developers creating universal apps.

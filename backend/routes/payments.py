@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from database import db
 from models.payment import PaymentCreate, PaymentPatch
@@ -6,6 +6,7 @@ from utils.common import gen_id, now_utc
 from utils.deps import get_current_user, _trip_or_404, _payment_or_403
 from utils.permissions import can_record_payment
 from utils.balances import _compute_balances
+from services.push_notifications import enqueue_financial_event
 
 router = APIRouter()
 
@@ -30,7 +31,8 @@ async def list_payments(trip_id: str, user=Depends(get_current_user)):
 
 
 @router.post("/trips/{trip_id}/payments")
-async def record_payment(trip_id: str, body: PaymentCreate, user=Depends(get_current_user)):
+async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: BackgroundTasks,
+                         user=Depends(get_current_user)):
     # Record a (possibly partial) payment along a CURRENTLY SUGGESTED debtor->creditor pair. The
     # receiver (creditor's app user) or a trip admin may record; the payer never self-records.
     trip = await _trip_or_404(trip_id, user["id"])
@@ -70,6 +72,15 @@ async def record_payment(trip_id: str, body: PaymentCreate, user=Depends(get_cur
         raise HTTPException(409, "Balances changed, please refresh and retry")
     await db.payments.insert_one(doc)
     doc.pop("_id", None)
+    await enqueue_financial_event(
+        event_key=f"payment.recorded:{doc['id']}",
+        event_type="payment.recorded",
+        source_id=doc["id"],
+        trip_id=trip_id,
+        actor_user_id=user["id"],
+        target="settle_up",
+        background_tasks=background_tasks,
+    )
     return doc
 
 

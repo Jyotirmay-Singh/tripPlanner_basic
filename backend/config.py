@@ -22,6 +22,14 @@ SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 APP_URL = os.environ.get("APP_URL", "")
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 
+# Android push notifications are deliberately opt-in at runtime. Deploy the backend and client
+# first, configure Expo enhanced push security + FCM v1 in EAS, then flip this switch in Render.
+# Keeping the default off prevents an unconfigured deployment from accumulating stale outbox jobs.
+PUSH_NOTIFICATIONS_ENABLED = os.environ.get("PUSH_NOTIFICATIONS_ENABLED", "false").strip().lower() in (
+    "true", "1", "yes", "on",
+)
+EXPO_PUSH_ACCESS_TOKEN = os.environ.get("EXPO_PUSH_ACCESS_TOKEN", "").strip()
+
 # Master switch for the Phase-9 email flows (email verification + forgot-PASSWORD). Default ON.
 # Set EMAIL_FEATURES_ENABLED=false to "ghost" them until a deliverable sender domain exists:
 # new signups are marked verified up-front (no nag banner), no verification/reset emails are sent

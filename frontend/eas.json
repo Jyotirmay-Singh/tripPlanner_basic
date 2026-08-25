@@ -7,11 +7,13 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "environment": "development",
       "android": { "buildType": "apk" }
     },
     "preview": {
       "distribution": "internal",
       "autoIncrement": true,
+      "environment": "preview",
       "android": { "buildType": "apk" },
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://tripsplitter-api.onrender.com",
@@ -20,6 +22,7 @@
       }
     },
     "production": {
+      "environment": "production",
       "android": { "buildType": "app-bundle" },
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://tripsplitter-api.onrender.com",

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, getToken, setToken } from './api';
+import { unregisterCurrentPushInstallation } from './pushNotifications';
 
 export type User = {
   id: string;
@@ -99,6 +100,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async (clearSavedEmail = false) => {
+    // Best effort while the bearer token still exists. A failure never blocks logout; the next
+    // authenticated foreground sync safely reassigns this installation and Expo token.
+    await unregisterCurrentPushInstallation();
     await setToken(null);
     if (clearSavedEmail) {
       await AsyncStorage.removeItem(SAVED_EMAIL_KEY);

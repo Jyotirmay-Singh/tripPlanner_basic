@@ -9,6 +9,7 @@ import { SPACING, RADIUS } from '../../src/theme';
 import T from '../../src/T';
 import TabPageHeader from '../../src/TabPageHeader';
 import { Screen, Card, Icon } from '../../src/ui';
+import NotificationSettingsRow from '../../src/NotificationSettingsRow';
 
 export default function Profile() {
   const { user } = useAuth();
@@ -52,6 +53,8 @@ export default function Profile() {
         <T style={{ flex: 1 }}>Change password</T>
         <Icon name="chevron-right" size={18} color={colors.textMuted} />
       </Card>
+
+      <NotificationSettingsRow />
 
       <Card onPress={confirmAndSignOut} testID="profile-logout" accessibilityLabel="Sign out" style={styles.row}>
         <Icon name="logout" size={20} color={colors.danger} />

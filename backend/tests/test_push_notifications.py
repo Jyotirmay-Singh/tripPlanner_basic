@@ -1,0 +1,254 @@
+import asyncio
+from datetime import timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+from uuid import UUID
+
+import pytest
+from pydantic import ValidationError
+from pymongo.errors import DuplicateKeyError
+
+from models.push import PushDeviceUpsert
+from routes import push
+from services import push_notifications as notifications
+from utils.common import now_utc
+
+
+VALID_TOKEN = "ExpoPushToken[abcdefghijklmnopqrstuv]"
+
+
+def run(awaitable):
+    return asyncio.run(awaitable)
+
+
+class FakeCursor:
+    def __init__(self, rows):
+        self.rows = rows
+
+    async def to_list(self, length):
+        return self.rows[:length]
+
+
+def test_push_device_model_accepts_only_android_expo_tokens():
+    body = PushDeviceUpsert(token=f"  {VALID_TOKEN}  ", platform="android")
+    assert body.token == VALID_TOKEN
+    with pytest.raises(ValidationError):
+        PushDeviceUpsert(token="not-a-push-token", platform="android")
+    with pytest.raises(ValidationError):
+        PushDeviceUpsert(token=VALID_TOKEN, platform="ios")
+
+
+def test_register_reassigns_token_and_never_exposes_it(monkeypatch):
+    devices = SimpleNamespace(update_many=AsyncMock(), update_one=AsyncMock())
+    monkeypatch.setattr(push, "db", SimpleNamespace(push_devices=devices))
+    installation_id = UUID("12345678-1234-4678-9234-567812345678")
+
+    result = run(push.register_push_device(
+        installation_id,
+        PushDeviceUpsert(token=VALID_TOKEN, platform="android"),
+        user={"id": "u1"},
+    ))
+
+    assert result == {"ok": True}
+    deactivate_filter = devices.update_many.await_args.args[0]
+    assert deactivate_filter["token"] == VALID_TOKEN
+    upsert_filter, update = devices.update_one.await_args.args[:2]
+    assert upsert_filter == {"installation_id": str(installation_id)}
+    assert update["$set"]["user_id"] == "u1"
+    assert update["$set"]["active"] is True
+    # The API response deliberately contains no installation or token material.
+    assert VALID_TOKEN not in str(result)
+
+
+def test_unregister_is_idempotent_and_scoped_to_current_user(monkeypatch):
+    devices = SimpleNamespace(update_one=AsyncMock())
+    monkeypatch.setattr(push, "db", SimpleNamespace(push_devices=devices))
+    installation_id = UUID("12345678-1234-4678-9234-567812345678")
+
+    response = run(push.unregister_push_device(installation_id, user={"id": "u1"}))
+
+    assert response.status_code == 204
+    query = devices.update_one.await_args.args[0]
+    assert query == {"installation_id": str(installation_id), "user_id": "u1"}
+
+
+def test_recipient_resolution_excludes_actor_and_duplicates():
+    trip = {"user_ids": ["actor", "u2", "u2", "u3", "actor"]}
+    assert notifications.recipient_user_ids(trip, "actor") == ["u2", "u3"]
+
+
+def test_payload_is_generic_and_contains_only_validated_routing_data():
+    event = {
+        "event_key": "payment.recorded:p1",
+        "trip_id": "12345678-1234-4678-9234-567812345678",
+        "target": "settle_up",
+        "amount": 999,
+        "note": "private note",
+    }
+    message = notifications.build_expo_message(event, {"token": VALID_TOKEN})
+
+    assert message["title"] == "Trip Splitter"
+    assert message["body"] == "There's new activity in one of your trips."
+    assert message["channelId"] == "trip_activity"
+    assert message["data"] == {
+        "eventKey": "payment.recorded:p1",
+        "tripId": "12345678-1234-4678-9234-567812345678",
+        "target": "settle_up",
+    }
+    assert "999" not in str(message)
+    assert "private note" not in str(message)
+
+
+def test_enqueue_is_idempotent_and_schedules_immediate_dispatch(monkeypatch):
+    outbox = SimpleNamespace(insert_one=AsyncMock())
+    background = SimpleNamespace(add_task=Mock())
+    monkeypatch.setattr(notifications, "PUSH_NOTIFICATIONS_ENABLED", True)
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(notification_outbox=outbox))
+
+    inserted = run(notifications.enqueue_financial_event(
+        event_key="expense.created:e1",
+        event_type="expense.created",
+        source_id="e1",
+        trip_id="t1",
+        actor_user_id="u1",
+        target="trip_expenses",
+        background_tasks=background,
+    ))
+
+    assert inserted is True
+    stored = outbox.insert_one.await_args.args[0]
+    assert stored["event_key"] == "expense.created:e1"
+    assert stored["status"] == "pending"
+    assert stored["deliveries"] == []
+    background.add_task.assert_called_once_with(
+        notifications.dispatch_outbox_event, "expense.created:e1",
+    )
+
+    outbox.insert_one.side_effect = DuplicateKeyError("duplicate")
+    inserted_again = run(notifications.enqueue_financial_event(
+        event_key="expense.created:e1",
+        event_type="expense.created",
+        source_id="e1",
+        trip_id="t1",
+        actor_user_id="u1",
+        target="trip_expenses",
+        background_tasks=None,
+    ))
+    assert inserted_again is False
+
+
+def test_disabled_feature_does_not_accumulate_old_outbox_events(monkeypatch):
+    outbox = SimpleNamespace(insert_one=AsyncMock())
+    monkeypatch.setattr(notifications, "PUSH_NOTIFICATIONS_ENABLED", False)
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(notification_outbox=outbox))
+
+    assert run(notifications.enqueue_financial_event(
+        event_key="expense.created:e1",
+        event_type="expense.created",
+        source_id="e1",
+        trip_id="t1",
+        actor_user_id="u1",
+        target="trip_expenses",
+    )) is False
+    outbox.insert_one.assert_not_awaited()
+
+
+def test_enqueue_failure_is_contained_after_business_write(monkeypatch):
+    outbox = SimpleNamespace(insert_one=AsyncMock(side_effect=RuntimeError("database unavailable")))
+    monkeypatch.setattr(notifications, "PUSH_NOTIFICATIONS_ENABLED", True)
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(notification_outbox=outbox))
+
+    result = run(notifications.enqueue_financial_event(
+        event_key="payment.recorded:p1",
+        event_type="payment.recorded",
+        source_id="p1",
+        trip_id="t1",
+        actor_user_id="u1",
+        target="settle_up",
+    ))
+
+    assert result is False
+
+
+def test_delivery_snapshot_uses_current_membership_and_active_android_devices(monkeypatch):
+    timestamp = now_utc()
+    event = {
+        "event_key": "expense.created:e1",
+        "trip_id": "t1",
+        "actor_user_id": "u1",
+        "delivery_snapshot_at": None,
+    }
+    trips = SimpleNamespace(find_one=AsyncMock(return_value={"user_ids": ["u1", "u2", "u3"]}))
+    devices = SimpleNamespace(find=Mock(return_value=FakeCursor([
+        {"installation_id": "i2", "user_id": "u2", "token": VALID_TOKEN},
+    ])))
+    outbox = SimpleNamespace(update_one=AsyncMock())
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(
+        trips=trips, push_devices=devices, notification_outbox=outbox,
+    ))
+
+    assert run(notifications._prepare_deliveries(event, timestamp)) is True
+    query = devices.find.call_args.args[0]
+    assert query["user_id"]["$in"] == ["u2", "u3"]
+    assert query["active"] is True and query["platform"] == "android"
+    assert [delivery["user_id"] for delivery in event["deliveries"]] == ["u2"]
+
+
+def test_send_ticket_and_device_not_registered_receipt(monkeypatch):
+    timestamp = now_utc()
+    event = {
+        "event_key": "payment.recorded:p1",
+        "trip_id": "t1",
+        "target": "settle_up",
+        "created_at": timestamp,
+        "deliveries": [{
+            "installation_id": "i1", "user_id": "u2", "token": VALID_TOKEN,
+            "status": "pending", "attempts": 0, "receipt_attempts": 0,
+            "next_attempt_at": timestamp,
+        }],
+    }
+    expo_post = AsyncMock(return_value=(200, {"data": [{"status": "ok", "id": "ticket-1"}]}))
+    devices = SimpleNamespace(update_one=AsyncMock())
+    outbox = SimpleNamespace(update_one=AsyncMock())
+    monkeypatch.setattr(notifications, "_expo_post", expo_post)
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(
+        push_devices=devices, notification_outbox=outbox,
+    ))
+
+    run(notifications._send_due_deliveries(event, timestamp))
+    delivery = event["deliveries"][0]
+    assert delivery["status"] == "ticketed"
+    assert delivery["ticket_id"] == "ticket-1"
+    assert delivery["receipt_check_at"] == timestamp + timedelta(minutes=15)
+
+    receipt_time = timestamp + timedelta(minutes=15)
+    expo_post.return_value = (200, {"data": {
+        "ticket-1": {"status": "error", "details": {"error": "DeviceNotRegistered"}},
+    }})
+    run(notifications._poll_due_receipts(event, receipt_time))
+    assert delivery["status"] == "dead"
+    devices.update_one.assert_awaited_once()
+
+
+def test_retryable_http_failure_uses_bounded_backoff(monkeypatch):
+    timestamp = now_utc()
+    event = {
+        "event_key": "expense.created:e1",
+        "trip_id": "t1",
+        "target": "trip_expenses",
+        "created_at": timestamp,
+        "deliveries": [{
+            "installation_id": "i1", "user_id": "u2", "token": VALID_TOKEN,
+            "status": "pending", "attempts": 0, "next_attempt_at": timestamp,
+        }],
+    }
+    monkeypatch.setattr(notifications, "_expo_post", AsyncMock(return_value=(429, None)))
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(
+        notification_outbox=SimpleNamespace(update_one=AsyncMock()),
+    ))
+
+    run(notifications._send_due_deliveries(event, timestamp))
+    delivery = event["deliveries"][0]
+    assert delivery["status"] == "retry"
+    assert delivery["attempts"] == 1
+    assert delivery["next_attempt_at"] == timestamp + timedelta(minutes=1)

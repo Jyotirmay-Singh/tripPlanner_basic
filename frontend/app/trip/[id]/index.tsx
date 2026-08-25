@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Share, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -19,6 +19,7 @@ import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displ
 import { billLabel } from '../../../src/bill';
 import { sortExpensesDesc } from '../../../src/expenseSort';
 import { hasShareBreakdown, shareVerbs, type ExpenseShares } from '../../../src/expenseShares';
+import { tripTabFromParam, type TripTabKey } from '../../../src/tripTabs';
 import { isTripSettled } from '../../../src/tripSettled';
 import { formatCompactMoney, formatMoney } from '../../../src/format';
 import { formatTripDates } from '../../../src/date';
@@ -37,7 +38,7 @@ type Trip = { id: string; name: string; code: string; start_date?: string; end_d
 type Expense = { id: string; amount: number; category: string; description?: string; date: string; time?: string | null; created_at?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string; shares?: ExpenseShares };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[]; members?: { id: string; name: string; net: number }[] }[] };
 
-type TabKey = 'summary' | 'expenses' | 'balances' | 'members' | 'chat';
+type TabKey = TripTabKey;
 const TABS: { value: TabKey; label: string }[] = [
   { value: 'summary', label: 'Summary' },
   { value: 'expenses', label: 'Expenses' },
@@ -47,7 +48,7 @@ const TABS: { value: TabKey; label: string }[] = [
 ];
 
 export default function TripDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: string }>();
   const { colors, mode } = useTheme();
   const { user } = useAuth();
   const router = useRouter();
@@ -57,7 +58,12 @@ export default function TripDetail() {
   const [balances, setBalances] = useState<Balances | null>(null);
   const [spend, setSpend] = useState<SpendSummary | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [tab, setTab] = useState<TabKey>('summary');
+  const [tab, setTab] = useState<TabKey>(() => tripTabFromParam(tabParam));
+
+  // Handles both a cold notification launch and a tap while this trip screen is already mounted.
+  useEffect(() => {
+    setTab(tripTabFromParam(tabParam));
+  }, [tabParam]);
   const [token, setToken] = useState<string | null>(null);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
   // Per-expense "Split details" disclosure state (collapsed by default), keyed by expense id.

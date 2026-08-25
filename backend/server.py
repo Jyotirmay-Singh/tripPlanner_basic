@@ -13,7 +13,8 @@ from utils.members import demote_family_entity_email
 from utils.email_rules import is_allowed_email
 from utils.security import hash_secret
 from utils.emailer import sender_mode_summary
-from routes import auth, trips, members, expenses, balances, reports, meta, receipts, spend, payments, chat
+from routes import auth, trips, members, expenses, balances, reports, meta, receipts, spend, payments, chat, push
+from services.push_notifications import start_push_dispatcher, stop_push_dispatcher
 
 
 # ---------- Startup / Shutdown ----------
@@ -28,6 +29,18 @@ async def lifespan(app: FastAPI):
     await db.settlements.create_index([("trip_id", 1), ("created_at", -1)])
     # Phase 20: recorded (partial) payments list (newest-first) per trip.
     await db.payments.create_index([("trip_id", 1), ("created_at", -1)])
+    # Android push registrations and durable outbox. A token may exist in old inactive rows, but
+    # exactly one active installation can own it at a time.
+    await db.push_devices.create_index("installation_id", unique=True)
+    await db.push_devices.create_index(
+        "token", unique=True, partialFilterExpression={"active": True},
+    )
+    await db.push_devices.create_index([("user_id", 1), ("active", 1)])
+    await db.notification_outbox.create_index("event_key", unique=True)
+    await db.notification_outbox.create_index([("status", 1), ("next_attempt_at", 1)])
+    # Retain a month of delivery diagnostics without letting the free Mongo tier grow forever.
+    # Mongo's TTL monitor ignores active rows where completed_at is null.
+    await db.notification_outbox.create_index("completed_at", expireAfterSeconds=30 * 24 * 60 * 60)
     # Per-trip chat history, idempotent client retries, stable sequence pagination, and read state.
     await db.chat_messages.create_index([("trip_id", 1), ("sequence", -1)], unique=True)
     await db.chat_messages.create_index(
@@ -134,15 +147,18 @@ async def lifespan(app: FastAPI):
     # one-time, secret-free summary of how outbound email behaves in this process
     logger.info(sender_mode_summary())
 
-    yield
-
-    client.close()
+    await start_push_dispatcher()
+    try:
+        yield
+    finally:
+        await stop_push_dispatcher()
+        client.close()
 
 
 app = FastAPI(title="Trip Splitter", lifespan=lifespan)
 api = APIRouter(prefix="/api")
 
-for module in (auth, trips, members, expenses, balances, reports, meta, receipts, spend, payments, chat):
+for module in (auth, trips, members, expenses, balances, reports, meta, receipts, spend, payments, chat, push):
     api.include_router(module.router)
 
 
