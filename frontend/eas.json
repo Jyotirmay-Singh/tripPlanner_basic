@@ -8,7 +8,11 @@
       "developmentClient": true,
       "distribution": "internal",
       "environment": "development",
-      "android": { "buildType": "apk" }
+      "android": { "buildType": "apk" },
+      "env": {
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "307368957277-58jdf9opq70e195gm5n1pcf4ucfd7rlt.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "307368957277-19ho7nrl2drsdvkahh7nkqpi6f2tag9h.apps.googleusercontent.com"
+      }
     },
     "preview": {
       "distribution": "internal",
@@ -18,7 +22,7 @@
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://tripsplitter-api.onrender.com",
         "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "307368957277-58jdf9opq70e195gm5n1pcf4ucfd7rlt.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "307368957277-cc4k3o7or765v1g6tfi767stk23296nk.apps.googleusercontent.com"
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "307368957277-19ho7nrl2drsdvkahh7nkqpi6f2tag9h.apps.googleusercontent.com"
       }
     },
     "production": {
@@ -27,7 +31,7 @@
       "env": {
         "EXPO_PUBLIC_BACKEND_URL": "https://tripsplitter-api.onrender.com",
         "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "307368957277-58jdf9opq70e195gm5n1pcf4ucfd7rlt.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "307368957277-cc4k3o7or765v1g6tfi767stk23296nk.apps.googleusercontent.com"
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "307368957277-19ho7nrl2drsdvkahh7nkqpi6f2tag9h.apps.googleusercontent.com"
       }
     }
   },

@@ -3,7 +3,7 @@
 Distribute Trip Splitter to testers through the Play Store (up to 100 testers, **no
 "unknown source" / Play Protect warnings**, and **no review delay**). This reuses the same
 Expo project and the existing `production` EAS profile (which builds a Play-ready `.aab`
-with the prod backend URL + Google client IDs baked in). Nothing about the backend, split
+with the prod backend URL + public Google Web/iOS client IDs baked in). Nothing about the backend, split
 engine, auth, or the Vercel/Render deploys changes.
 
 App: **Trip Splitter** · package `com.tripsplitter.app` · Play App Signing (Google-managed).
@@ -68,20 +68,36 @@ Play Console → **Policy → App content**. Complete each required item:
 
 ## Step 6 — Google Sign-In on the Play build (SHA-1)  *(you + me)*
 
-Because Play re-signs the app, the delivered app's certificate is **Google's app-signing
+Android sign-in uses Credential Manager. The Web OAuth client ID is passed at runtime and becomes
+the ID token's audience, while an Android OAuth client authorizes the installed binary by exact
+package/SHA-1. There is no Android redirect URI.
+
+Because Play re-signs the app, the certificate on a Play-installed build is **Google's app-signing
 key**, whose SHA-1 differs from the EAS upload key. To keep "Continue with Google" working:
 
 1. After the first upload: Play Console → **Test and release → Setup → App signing**. Copy:
    - **App signing key certificate → SHA-1** (Google's key — what end users get)
    - **Upload key certificate → SHA-1** (should equal the EAS keystore below)
-2. In **Google Cloud Console → APIs & Services → Credentials → the Android OAuth client**
-   (`com.tripsplitter.app`), **add the App-signing-key SHA-1** (keep the EAS/upload one too).
+2. In the intended **Google Cloud Console → APIs & Services → Credentials** project, create or
+   verify an **Android** OAuth client for:
+   - Package `com.tripsplitter.app`
+   - The **App signing key certificate SHA-1** copied above
+3. Keep the EAS-preview registration as a separate Android OAuth client entry for the same package
+   plus the EAS SHA-1. Google Cloud models each package/certificate pair separately.
+4. Verify the same Cloud project contains the Web OAuth client referenced by
+   `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`, and verify Render's `GOOGLE_CLIENT_ID` accepted-audience list
+   includes that Web ID. Do not use an Android client ID as `webClientId` and do not add a client
+   secret to the app or backend.
 
 **EAS upload-key SHA-1** (already have this from the preview APK; the Play upload-key SHA-1
 should match it):
 ```
 B2:31:10:17:07:88:61:8B:0E:E7:15:32:81:D6:33:4E:62:53:7C:8B
 ```
+
+The upload key signs the bundle submitted to Play; it is **not** the certificate on the app users
+install from Play. The EAS SHA registration is useful for directly installed preview APKs, while
+the Play App Signing SHA registration is mandatory for internal/closed/production Play installs.
 
 ---
 

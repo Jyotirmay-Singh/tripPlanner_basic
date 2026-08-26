@@ -67,7 +67,7 @@ or admin login is unavailable.
 | `JWT_SECRET` | HS256 signing key for auth tokens (required) |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_PIN` | Seed superuser, created on startup if missing (email must be `@gmail.com`) |
 | `RESEND_API_KEY`, `SENDER_EMAIL`, `APP_URL` | Transactional email (forgot-PIN). If `RESEND_API_KEY` is unset, the reset token is logged instead of emailed |
-| `GOOGLE_CLIENT_ID` | OAuth client ID used to verify Google ID tokens for `POST /api/auth/google` |
+| `GOOGLE_CLIENT_ID` | Comma-separated accepted Google ID-token audiences for `POST /api/auth/google`; include the Web client (web + Android Credential Manager) and iOS client when iOS sign-in is enabled |
 
 ## Frontend
 
@@ -84,7 +84,12 @@ yarn lint
 | Variable | Purpose |
 |----------|---------|
 | `EXPO_PUBLIC_BACKEND_URL` | API base URL (default `http://localhost:8000`) |
-| `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`, `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`, `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID` | OAuth client IDs for "Sign in with Google" |
+| `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` | Web OAuth client used by web and as Android Credential Manager's server/Web audience |
+| `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` | iOS OAuth client used by the retained iOS AuthSession flow and to derive its reversed URL scheme |
+
+Android also requires a Google Cloud **Android** OAuth client for each installed build's exact
+`com.tripsplitter.app` package + signing SHA-1. That client is a package/signature registration,
+not a runtime environment variable or redirect URI. Never put a Google client secret in the app.
 
 > **Running on a physical device or Android emulator:** `http://localhost:8000` resolves
 > to the device itself, not your dev machine. Set `EXPO_PUBLIC_BACKEND_URL` to your

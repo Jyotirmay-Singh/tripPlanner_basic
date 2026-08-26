@@ -99,14 +99,16 @@ Backend (`backend/.env`):
 - `JWT_SECRET`: HS256 signing secret.
 - `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_PIN`: seeded administrator credentials; email must be Gmail.
 - `RESEND_API_KEY`, `SENDER_EMAIL`, `APP_URL`: transactional email and public-link configuration.
-- `GOOGLE_CLIENT_ID`: one accepted OAuth client ID or a comma-separated audience list.
+- `GOOGLE_CLIENT_ID`: one accepted OAuth audience or a comma-separated list; include the Web client
+  used by Android Credential Manager/web and the iOS client when iOS sign-in is enabled.
 
 Frontend (`frontend/.env` or build environment):
 
 - `EXPO_PUBLIC_BACKEND_URL`: complete API base URL.
-- `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`.
-- `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`.
-- `EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID`.
+- `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`: web and Android Credential Manager token audience.
+- `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID`: iOS AuthSession client and reversed URL-scheme source.
+
+Android OAuth clients are Google Cloud package/SHA registrations, not runtime environment values.
 
 If Resend is not configured, current backend behavior may log a link/token for development. Never expose those values in output.
 

@@ -179,12 +179,12 @@ class TestGoogleAuthUnit:
         assert decoded["type"] == "access"
 
     def test_comma_separated_audiences_passed_through(self, client, fake_users, monkeypatch):
-        """A comma-separated GOOGLE_CLIENT_ID (web,ios,android) is parsed into a list
-        and forwarded as the audience, so a token minted for any platform's client ID
-        still verifies. Without this, native (iOS/Android) logins would 401."""
+        """The Web audience used by Android Credential Manager/web and the iOS
+        audience are both forwarded. Android package/SHA clients are console-side
+        registrations and are not required as token audiences for the current flow."""
         monkeypatch.setattr(
             auth_module, "GOOGLE_CLIENT_ID",
-            " web.apps.googleusercontent.com , ios.apps.googleusercontent.com ,android.apps.googleusercontent.com ",
+            " web.apps.googleusercontent.com , ios.apps.googleusercontent.com ",
         )
         fake_users.find_one.return_value = None
         captured = {}
@@ -199,7 +199,6 @@ class TestGoogleAuthUnit:
         assert captured["audience"] == [
             "web.apps.googleusercontent.com",
             "ios.apps.googleusercontent.com",
-            "android.apps.googleusercontent.com",
         ]
 
     def test_real_verifier_rejects_malformed_token(self, client, configured, fake_users):

@@ -184,10 +184,12 @@ async def reset_pin_by_password(body: ResetPinByPasswordIn):
 @router.post("/auth/google")
 async def google_auth(body: GoogleAuthIn):
     # GOOGLE_CLIENT_ID may be a single client ID or a comma-separated list of
-    # accepted audiences (web + ios + android). expo-auth-session issues an
-    # id_token whose `aud` is the *current platform's* client ID, so the backend
-    # must accept every platform's client ID or native logins 401. google-auth's
-    # verify_oauth2_token forwards `audience` to verify_token, which accepts a list.
+    # accepted audiences. Web and Android Credential Manager both mint an ID token
+    # for the Web OAuth client passed as `webClientId`; the retained iOS AuthSession
+    # flow may mint for its iOS client. An Android OAuth client is still required for
+    # package/SHA registration, but is not the Android token audience in the current
+    # flow. google-auth verifies Google's signature, issuer, expiry, and one of these
+    # audiences; verify_oauth2_token accepts the parsed list directly.
     audiences = [c.strip() for c in GOOGLE_CLIENT_ID.split(",") if c.strip()]
     if not audiences:
         raise HTTPException(500, "Google sign-in is not configured")

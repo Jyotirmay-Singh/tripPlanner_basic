@@ -14,16 +14,12 @@ WebBrowser.maybeCompleteAuthSession();
 
 const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || undefined;
 const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || undefined;
-const ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || undefined;
 
-// The id-token auth hook validates that the client ID for the *current* platform is
-// defined and throws if it isn't (e.g. "Client Id property 'androidClientId' must be
-// defined to use Google auth on this platform"). Hooks can't be called conditionally,
-// so we gate the hook-bearing component behind this check in the parent: an
-// unconfigured platform hides the button instead of crashing the whole screen.
+// Android resolves GoogleSignInButton.android.tsx and uses Credential Manager. This implementation
+// remains the existing AuthSession flow for web/iOS. Hooks cannot be called conditionally, so an
+// unconfigured platform hides the hook-bearing component instead of crashing the whole screen.
 const PLATFORM_CLIENT_ID =
-  Platform.OS === 'android' ? ANDROID_CLIENT_ID
-  : Platform.OS === 'ios' ? IOS_CLIENT_ID
+  Platform.OS === 'ios' ? IOS_CLIENT_ID
   : WEB_CLIENT_ID;
 
 // True when the Google button will actually render on this platform. Lets callers (e.g. the login
@@ -41,7 +37,6 @@ function GoogleSignInInner() {
     clientId: WEB_CLIENT_ID,
     webClientId: WEB_CLIENT_ID,
     iosClientId: IOS_CLIENT_ID,
-    androidClientId: ANDROID_CLIENT_ID,
   });
 
   useEffect(() => {
