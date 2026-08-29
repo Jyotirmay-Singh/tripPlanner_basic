@@ -1,12 +1,14 @@
 import React, { useCallback, useRef, useState } from 'react';
+import { StyleSheet } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { api } from '../../src/api';
 import { useAuth } from '../../src/AuthContext';
 import { useTheme } from '../../src/ThemeContext';
-import { SPACING } from '../../src/theme';
+import { COMPONENT_SIZE, SPACING } from '../../src/theme';
 import T from '../../src/T';
 import { compositionLabel } from '../../src/composition';
 import { formatTripDates } from '../../src/date';
+import { formatMoney } from '../../src/format';
 import TabPageHeader from '../../src/TabPageHeader';
 import TripListCard from '../../src/TripListCard';
 import {
@@ -15,12 +17,27 @@ import {
   type TripBalancePayload,
   type TripBalanceState,
 } from '../../src/tripBalance';
-import { Screen, Card, Button, EmptyState, SkeletonCard, Icon } from '../../src/ui';
+import { Screen, Card, Button, EmptyState, SkeletonCard, Icon, IconButton } from '../../src/ui';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
-type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; members: Member[] };
+type Trip = { id: string; name: string; code?: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; members: Member[] };
 
 const UNAVAILABLE_BALANCE = tripBalanceState(null);
+
+function tripSubtitle(trip: Trip): string {
+  return [
+    formatTripDates(trip),
+    trip.currency,
+    trip.budget != null ? `Budget ${formatMoney(trip.budget)}` : null,
+  ].filter((value): value is string => Boolean(value)).join(' · ');
+}
+
+function tripMeta(trip: Trip): string {
+  return [
+    compositionLabel(trip.members),
+    trip.code ? `Code ${trip.code}` : null,
+  ].filter((value): value is string => Boolean(value)).join(' · ');
+}
 
 export default function Trips() {
   const { user } = useAuth();
@@ -68,10 +85,30 @@ export default function Trips() {
   }, [load]));
 
   return (
-    <Screen refreshing={refreshing} onRefresh={load}>
+    <Screen refreshing={refreshing} onRefresh={load} edges={['top', 'left', 'right']}>
       <TabPageHeader
         title="Trips"
-        action={<Button label="New" icon="plus" size="sm" onPress={() => router.push('/create-trip')} testID="trips-new-btn" />}
+        action={(
+          <Button
+            label="New"
+            icon="plus"
+            size="sm"
+            onPress={() => router.push('/create-trip')}
+            accessibilityLabel="Create new trip"
+            testID="trips-new-btn"
+            style={styles.headerAction}
+          />
+        )}
+        compactAction={(
+          <IconButton
+            name="plus"
+            variant="primary"
+            onPress={() => router.push('/create-trip')}
+            accessibilityLabel="Create new trip"
+            testID="trips-new-btn-compact"
+            touchSize={COMPONENT_SIZE.minTouchTarget}
+          />
+        )}
       />
 
       <Card onPress={() => router.push('/join-trip')} testID="trips-join-btn" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm }}>
@@ -99,8 +136,8 @@ export default function Trips() {
             balanceTestID={`trip-balance-${trip.id}`}
             settledTestID={`trip-settled-${trip.id}`}
             title={trip.name}
-            subtitle={`${formatTripDates(trip)} · ${trip.currency}${trip.budget ? ` · Budget ${trip.budget}` : ''}`}
-            meta={`${compositionLabel(trip.members)} · Code ${trip.code}`}
+            subtitle={tripSubtitle(trip)}
+            meta={tripMeta(trip)}
             currency={trip.currency}
             balance={balanceMap[trip.id] ?? UNAVAILABLE_BALANCE}
             onPress={() => router.push(`/trip/${trip.id}`)}
@@ -110,3 +147,7 @@ export default function Trips() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  headerAction: { minHeight: COMPONENT_SIZE.headerControl },
+});

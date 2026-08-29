@@ -9,23 +9,28 @@ import Badge from './Badge';
 import T from './T';
 import { formatMoney } from './format';
 import { useTheme } from './ThemeContext';
-import { FONTS, SPACING, TYPESCALE } from './theme';
+import { COMPONENT_SIZE, FONTS, SPACING, TYPESCALE } from './theme';
 import type { TripBalanceState } from './tripBalance';
 import Card from './ui/Card';
 import Icon from './ui/Icon';
 
-type CardLayout = 'inline' | 'stacked';
+export type TripCardLayout = 'trailing' | 'bottom';
+export type TripAmountSize = 'lg' | 'base' | 'xs';
 
 type TextMeasurements = {
   key: string;
   labelWidth: number;
-  amountWidth: number;
+  amountLgWidth: number;
+  amountBaseWidth: number;
+  amountXsWidth: number;
 };
+
+type MeasurementField = Exclude<keyof TextMeasurements, 'key'>;
 
 type Props = {
   title: string;
-  subtitle: string;
-  meta: string;
+  subtitle?: string;
+  meta?: string;
   currency: string;
   balance: TripBalanceState;
   onPress: () => void;
@@ -34,36 +39,55 @@ type Props = {
   settledTestID?: string;
 };
 
-const ICON_SIZE = 40;
-const CHEVRON_SIZE = 20;
 const CARD_HORIZONTAL_PADDING = SPACING.md;
-const INFORMATION_SHARE = 0.45;
+const CARD_BORDER_WIDTH = 1;
+const HIDDEN_FROM_ACCESSIBILITY = {
+  accessibilityElementsHidden: true,
+  importantForAccessibility: 'no-hide-descendants' as const,
+};
+
+const emptyMeasurements = (key: string): TextMeasurements => ({
+  key,
+  labelWidth: 0,
+  amountLgWidth: 0,
+  amountBaseWidth: 0,
+  amountXsWidth: 0,
+});
 
 export function chooseTripCardLayout(
   cardWidth: number,
   balanceWidth: number,
   fontScale: number,
-): CardLayout {
-  if (fontScale >= 1.5 || cardWidth <= 0 || balanceWidth <= 0) return 'stacked';
-  const innerWidth = Math.max(0, cardWidth - CARD_HORIZONTAL_PADDING * 2 - 2);
-  const fixedChrome = ICON_SIZE + CHEVRON_SIZE + SPACING.sm * 3;
-  const informationWidth = innerWidth - fixedChrome - balanceWidth;
-  return informationWidth >= innerWidth * INFORMATION_SHARE ? 'inline' : 'stacked';
+): TripCardLayout {
+  if (fontScale >= 1.5 || cardWidth <= 0 || balanceWidth <= 0) return 'bottom';
+
+  const innerWidth = Math.max(
+    0,
+    cardWidth - CARD_HORIZONTAL_PADDING * 2 - CARD_BORDER_WIDTH * 2,
+  );
+  const fixedChrome = (
+    COMPONENT_SIZE.tripIcon
+    + COMPONENT_SIZE.tripChevron
+    + SPACING.sm * 3
+  );
+  const balanceRail = Math.max(COMPONENT_SIZE.tripBalanceRail, balanceWidth);
+  const scaledInformationMinimum = (
+    COMPONENT_SIZE.tripInformationMin * Math.max(1, Math.min(fontScale, 1.3))
+  );
+
+  return innerWidth - fixedChrome - balanceRail >= scaledInformationMinimum
+    ? 'trailing'
+    : 'bottom';
 }
 
-export function shouldUseFullBalanceRow(
-  cardWidth: number,
-  balanceWidth: number,
-  fontScale: number,
-): boolean {
-  if (fontScale >= 1.5) return true;
-  if (cardWidth <= 0 || balanceWidth <= 0) return false;
-  const innerWidth = Math.max(0, cardWidth - CARD_HORIZONTAL_PADDING * 2 - 2);
-  const indentedBalanceWidth = Math.max(
-    0,
-    innerWidth - ICON_SIZE - CHEVRON_SIZE - SPACING.sm * 2,
-  );
-  return balanceWidth > indentedBalanceWidth;
+export function chooseTripAmountSize(
+  availableWidth: number,
+  widths: Record<TripAmountSize, number>,
+): TripAmountSize {
+  if (availableWidth <= 0 || widths.lg <= 0) return 'lg';
+  if (widths.lg <= availableWidth) return 'lg';
+  if (widths.base > 0 && widths.base <= availableWidth) return 'base';
+  return 'xs';
 }
 
 export function tripCardAccessibilityLabel(
@@ -73,31 +97,44 @@ export function tripCardAccessibilityLabel(
 ): string {
   if (balance.kind === 'settled') return `${title}, settled`;
   if (balance.kind === 'unavailable') return `${title}, balance unavailable`;
-  return `${title}, ${balance.label.toLowerCase()}, ${formatMoney(balance.amount, { currency })}`;
+  return `${title}, ${balance.label.toLowerCase()} ${formatMoney(balance.amount, { currency })}`;
 }
 
 function TripBalanceBlock({
   balance,
   currency,
   layout,
-  fontScale,
+  amountSize,
   balanceTestID,
   settledTestID,
 }: {
   balance: TripBalanceState;
   currency: string;
-  layout: CardLayout;
-  fontScale: number;
+  layout: TripCardLayout;
+  amountSize: TripAmountSize;
   balanceTestID?: string;
   settledTestID?: string;
 }) {
   const { colors } = useTheme();
+  const blockStyle = layout === 'trailing'
+    ? styles.trailingBalanceBlock
+    : styles.bottomBalanceBlock;
 
   if (balance.kind === 'settled') {
     return (
-      <View testID={balanceTestID} pointerEvents="none" style={styles.statusWrap}>
+      <View
+        testID={balanceTestID}
+        pointerEvents="none"
+        style={blockStyle}
+        {...HIDDEN_FROM_ACCESSIBILITY}
+      >
         <View testID={settledTestID}>
-          <Badge label={balance.label} color={colors.success} textColor={colors.textMain} />
+          <Badge
+            label={balance.label}
+            color={colors.success}
+            textColor={colors.textMain}
+            size="status"
+          />
         </View>
       </View>
     );
@@ -105,43 +142,42 @@ function TripBalanceBlock({
 
   if (balance.kind === 'unavailable') {
     return (
-      <View testID={balanceTestID} pointerEvents="none" style={styles.statusWrap}>
-        <T variant="caption" muted style={styles.trailingText}>{balance.label}</T>
+      <View
+        testID={balanceTestID}
+        pointerEvents="none"
+        style={blockStyle}
+        {...HIDDEN_FROM_ACCESSIBILITY}
+      >
+        <T variant="caption" muted style={styles.balanceText}>{balance.label}</T>
       </View>
     );
   }
 
   const amountColor = balance.kind === 'owed' ? colors.success : colors.danger;
-  const compactLargeType = layout === 'stacked' && fontScale >= 1.5;
+  const amountStyle = amountSize === 'lg'
+    ? styles.amountLg
+    : amountSize === 'base'
+      ? styles.amountBase
+      : styles.amountXs;
 
   return (
     <View
       testID={balanceTestID}
       pointerEvents="none"
-      style={layout === 'inline' ? styles.inlineBalance : styles.stackedBalance}
+      style={blockStyle}
+      {...HIDDEN_FROM_ACCESSIBILITY}
     >
-      {layout === 'inline' ? (
-        <>
-          <T variant="label" muted style={styles.trailingText}>{balance.label}</T>
-          <T variant="h3" color={amountColor} style={styles.amount}>
-            {formatMoney(balance.amount, { currency })}
-          </T>
-        </>
-      ) : (
-        <>
-          <View style={styles.stackedBalanceHeader}>
-            <T variant="label" muted style={styles.stackedLabel}>{balance.label}</T>
-            <T variant="label" muted>{currency}</T>
-          </View>
-          <T
-            variant="h3"
-            color={amountColor}
-            style={[styles.amount, compactLargeType && styles.amountAtLargeScale]}
-          >
-            {formatMoney(balance.amount)}
-          </T>
-        </>
-      )}
+      <T variant="label" muted style={styles.balanceText}>{balance.label}</T>
+      <T
+        variant="money"
+        color={amountColor}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.85}
+        style={[styles.amount, amountStyle, styles.visibleAmount]}
+      >
+        {formatMoney(balance.amount, { currency })}
+      </T>
     </View>
   );
 }
@@ -160,48 +196,66 @@ export default function TripListCard({
   const { colors } = useTheme();
   const { fontScale } = useWindowDimensions();
   const [cardWidth, setCardWidth] = useState(0);
-  const [measurements, setMeasurements] = useState<TextMeasurements>({
-    key: '',
-    labelWidth: 0,
-    amountWidth: 0,
-  });
-  const exactInlineAmount = balance.kind === 'owed' || balance.kind === 'owe'
+  const exactAmount = balance.kind === 'owed' || balance.kind === 'owe'
     ? formatMoney(balance.amount, { currency })
     : '';
-  const measurementKey = `${balance.kind}|${balance.label}|${exactInlineAmount}|${fontScale}`;
-  const labelWidth = measurements.key === measurementKey ? measurements.labelWidth : 0;
-  const amountWidth = measurements.key === measurementKey ? measurements.amountWidth : 0;
+  const measurementKey = `${balance.kind}|${balance.label}|${exactAmount}|${fontScale}`;
+  const [measurements, setMeasurements] = useState<TextMeasurements>(
+    () => emptyMeasurements(''),
+  );
+  const currentMeasurements = measurements.key === measurementKey
+    ? measurements
+    : emptyMeasurements(measurementKey);
 
   const recordCardWidth = useCallback((event: LayoutChangeEvent) => {
     const width = Math.ceil(event.nativeEvent.layout.width);
     setCardWidth((current) => current === width ? current : width);
   }, []);
-  const recordLabelWidth = useCallback((event: LayoutChangeEvent) => {
+
+  const recordMeasurement = useCallback((
+    field: MeasurementField,
+    event: LayoutChangeEvent,
+  ) => {
     const width = Math.ceil(event.nativeEvent.layout.width);
     setMeasurements((current) => {
       const next = current.key === measurementKey
         ? current
-        : { key: measurementKey, labelWidth: 0, amountWidth: 0 };
-      return next.labelWidth === width ? next : { ...next, labelWidth: width };
-    });
-  }, [measurementKey]);
-  const recordAmountWidth = useCallback((event: LayoutChangeEvent) => {
-    const width = Math.ceil(event.nativeEvent.layout.width);
-    setMeasurements((current) => {
-      const next = current.key === measurementKey
-        ? current
-        : { key: measurementKey, labelWidth: 0, amountWidth: 0 };
-      return next.amountWidth === width ? next : { ...next, amountWidth: width };
+        : emptyMeasurements(measurementKey);
+      return next[field] === width ? next : { ...next, [field]: width };
     });
   }, [measurementKey]);
 
+  const recordLabelWidth = useCallback((event: LayoutChangeEvent) => {
+    recordMeasurement('labelWidth', event);
+  }, [recordMeasurement]);
+  const recordAmountLgWidth = useCallback((event: LayoutChangeEvent) => {
+    recordMeasurement('amountLgWidth', event);
+  }, [recordMeasurement]);
+  const recordAmountBaseWidth = useCallback((event: LayoutChangeEvent) => {
+    recordMeasurement('amountBaseWidth', event);
+  }, [recordMeasurement]);
+  const recordAmountXsWidth = useCallback((event: LayoutChangeEvent) => {
+    recordMeasurement('amountXsWidth', event);
+  }, [recordMeasurement]);
+
+  const statusPadding = balance.kind === 'settled' ? SPACING.sm * 2 + 2 : 0;
   const balanceWidth = Math.max(
-    labelWidth + (balance.kind === 'settled' ? 14 : 0),
-    amountWidth,
+    currentMeasurements.labelWidth + statusPadding,
+    currentMeasurements.amountLgWidth,
   );
   const layout = chooseTripCardLayout(cardWidth, balanceWidth, fontScale);
-  const fullBalanceRow = shouldUseFullBalanceRow(cardWidth, balanceWidth, fontScale);
-  const metadataLines = layout === 'stacked' ? 2 : 1;
+  const innerCardWidth = Math.max(
+    0,
+    cardWidth - CARD_HORIZONTAL_PADDING * 2 - CARD_BORDER_WIDTH * 2,
+  );
+  const amountSize = layout === 'trailing'
+    ? 'lg'
+    : chooseTripAmountSize(innerCardWidth, {
+      lg: currentMeasurements.amountLgWidth,
+      base: currentMeasurements.amountBaseWidth,
+      xs: currentMeasurements.amountXsWidth,
+    });
+  const balanceRailWidth = Math.max(COMPONENT_SIZE.tripBalanceRail, balanceWidth);
   const accessibilityLabel = tripCardAccessibilityLabel(title, balance, currency);
 
   const icon = (
@@ -214,15 +268,31 @@ export default function TripListCard({
     </View>
   );
   const information = (
-    <View style={styles.information}>
+    <View
+      style={styles.information}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
       <T variant="h4" numberOfLines={2}>{title}</T>
-      <T variant="caption" muted numberOfLines={metadataLines} style={styles.subtitle}>{subtitle}</T>
-      <T variant="caption" muted numberOfLines={metadataLines} style={styles.meta}>{meta}</T>
+      {subtitle ? (
+        <T variant="caption" muted numberOfLines={2} style={styles.subtitle}>{subtitle}</T>
+      ) : null}
+      {meta ? (
+        <T variant="caption" muted numberOfLines={2} style={styles.meta}>{meta}</T>
+      ) : null}
     </View>
   );
   const chevron = (
-    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-      <Icon name="chevron-right" size={CHEVRON_SIZE} color={colors.textMuted} />
+    <View
+      style={styles.chevron}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      <Icon
+        name="chevron-right"
+        size={COMPONENT_SIZE.tripChevron}
+        color={colors.textMuted}
+      />
     </View>
   );
   const balanceBlock = (
@@ -230,7 +300,7 @@ export default function TripListCard({
       balance={balance}
       currency={currency}
       layout={layout}
-      fontScale={fontScale}
+      amountSize={amountSize}
       balanceTestID={balanceTestID}
       settledTestID={settledTestID}
     />
@@ -242,13 +312,18 @@ export default function TripListCard({
         onPress={onPress}
         testID={testID}
         accessibilityLabel={accessibilityLabel}
-        style={layout === 'inline' ? styles.inlineCard : styles.stackedCard}
+        style={layout === 'trailing' ? styles.trailingCard : styles.bottomCard}
       >
-        {layout === 'inline' ? (
+        {layout === 'trailing' ? (
           <>
             {icon}
             {information}
-            {balanceBlock}
+            <View
+              pointerEvents="none"
+              style={[styles.balanceRail, { width: balanceRailWidth }]}
+            >
+              {balanceBlock}
+            </View>
             {chevron}
           </>
         ) : (
@@ -256,15 +331,15 @@ export default function TripListCard({
             <View style={styles.topRow}>
               {icon}
               {information}
-            </View>
-            <View style={[styles.bottomRow, fullBalanceRow && styles.bottomRowFullWidth]}>
-              {balanceBlock}
               {chevron}
+            </View>
+            <View pointerEvents="none" style={styles.bottomBalanceRow}>
+              {balanceBlock}
             </View>
           </>
         )}
 
-        {/* Invisible intrinsic-size probes only; all visible card content stays in normal flow. */}
+        {/* Intrinsic-size probes only; visible card content remains in normal document flow. */}
         <View
           pointerEvents="none"
           style={styles.measurements}
@@ -274,10 +349,30 @@ export default function TripListCard({
           <T variant="label" style={styles.measurementText} onLayout={recordLabelWidth}>
             {balance.label}
           </T>
-          {exactInlineAmount ? (
-            <T variant="h3" style={[styles.amount, styles.measurementText]} onLayout={recordAmountWidth}>
-              {exactInlineAmount}
-            </T>
+          {exactAmount ? (
+            <>
+              <T
+                variant="money"
+                style={[styles.amount, styles.amountLg, styles.measurementText]}
+                onLayout={recordAmountLgWidth}
+              >
+                {exactAmount}
+              </T>
+              <T
+                variant="money"
+                style={[styles.amount, styles.amountBase, styles.measurementText]}
+                onLayout={recordAmountBaseWidth}
+              >
+                {exactAmount}
+              </T>
+              <T
+                variant="money"
+                style={[styles.amount, styles.amountXs, styles.measurementText]}
+                onLayout={recordAmountXsWidth}
+              >
+                {exactAmount}
+              </T>
+            </>
           ) : null}
         </View>
       </Card>
@@ -287,26 +382,25 @@ export default function TripListCard({
 
 const styles = StyleSheet.create({
   root: { width: '100%' },
-  inlineCard: {
-    minHeight: 76,
+  trailingCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.sm,
   },
-  stackedCard: { gap: SPACING.sm },
-  topRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
-  bottomRow: {
-    marginLeft: ICON_SIZE + SPACING.sm,
+  bottomCard: { gap: SPACING.sm },
+  topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-end',
     gap: SPACING.sm,
   },
-  bottomRowFullWidth: { marginLeft: 0 },
+  bottomBalanceRow: {
+    width: '100%',
+    alignItems: 'flex-end',
+  },
   iconBadge: {
-    width: ICON_SIZE,
-    height: ICON_SIZE,
-    borderRadius: ICON_SIZE / 2,
+    width: COMPONENT_SIZE.tripIcon,
+    height: COMPONENT_SIZE.tripIcon,
+    borderRadius: COMPONENT_SIZE.tripIcon / 2,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -314,25 +408,35 @@ const styles = StyleSheet.create({
   information: { flex: 1, minWidth: 0 },
   subtitle: { marginTop: 2 },
   meta: { marginTop: 1 },
-  inlineBalance: { alignItems: 'flex-end', flexShrink: 0, minWidth: 0 },
-  stackedBalance: { flex: 1, minWidth: 0, alignItems: 'stretch' },
-  stackedBalanceHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: SPACING.sm,
+  chevron: { flexShrink: 0 },
+  balanceRail: {
+    flexShrink: 0,
+    alignItems: 'stretch',
   },
-  stackedLabel: { flexShrink: 1 },
-  trailingText: { textAlign: 'right' },
-  statusWrap: { alignItems: 'flex-end', flexShrink: 0 },
+  trailingBalanceBlock: {
+    width: '100%',
+    minWidth: 0,
+    alignItems: 'flex-end',
+  },
+  bottomBalanceBlock: {
+    width: '100%',
+    minWidth: 0,
+    alignItems: 'flex-end',
+  },
+  balanceText: {
+    maxWidth: '100%',
+    textAlign: 'right',
+  },
   amount: {
+    maxWidth: '100%',
     fontFamily: FONTS.number,
-    fontSize: TYPESCALE.lg,
-    lineHeight: 24,
     fontVariant: ['tabular-nums'],
     textAlign: 'right',
   },
-  amountAtLargeScale: { fontSize: TYPESCALE.base, lineHeight: 20 },
+  visibleAmount: { alignSelf: 'stretch' },
+  amountLg: { fontSize: TYPESCALE.lg, lineHeight: 26 },
+  amountBase: { fontSize: TYPESCALE.base, lineHeight: 20 },
+  amountXs: { fontSize: TYPESCALE.xs, lineHeight: 16 },
   measurements: {
     position: 'absolute',
     left: 0,

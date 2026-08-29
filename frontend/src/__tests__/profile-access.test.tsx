@@ -63,7 +63,13 @@ describe('Profile access after removing its visible tab', () => {
     act(() => { button.props.onPress(); });
 
     expect(mockNavigate).toHaveBeenCalledWith('/(tabs)/profile');
-    expect(button.props.accessibilityLabel).toBe('Open profile');
+    expect(button.props.accessibilityLabel).toBe('Open profile for Ada Traveller');
+  });
+
+  it('shows initials without a redundant person icon when a name is available', () => {
+    const root = render(<ProfileAvatarButton />);
+    expect(root.findAllByType('T' as any).map((node: any) => node.props.children)).toContain('AT');
+    expect(root.findAllByType('Icon' as any)).toHaveLength(0);
   });
 
   it('preserves theme, password, and sign-out controls on Profile', () => {

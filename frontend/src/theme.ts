@@ -50,6 +50,18 @@ export type ColorScheme = { [K in keyof typeof COLORS.light]: string };
 export const SPACING = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32, xxl: 48 };
 export const RADIUS = { sm: 8, md: 12, lg: 16, xl: 20, pill: 999 };
 
+// Shared component dimensions. These keep frequently paired controls and list chrome optically
+// aligned without scattering one-off values through screen styles.
+export const COMPONENT_SIZE = {
+  minTouchTarget: 48,
+  headerControl: 48,
+  tripIcon: 40,
+  tripChevron: 20,
+  tripBalanceRail: 112,
+  tripInformationMin: 112,
+  statusPill: 32,
+} as const;
+
 // Shared layout metrics. `scrollBottomInset` clears the floating tab bar at the
 // bottom of every scroll screen; `screenPadding` is the standard screen gutter.
 export const LAYOUT = { screenPadding: SPACING.lg, scrollBottomInset: 120 } as const;

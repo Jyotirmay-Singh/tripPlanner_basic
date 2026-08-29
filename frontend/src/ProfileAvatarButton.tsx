@@ -8,15 +8,14 @@ import { useRouter } from 'expo-router';
 import { useAuth } from './AuthContext';
 import { useTheme } from './ThemeContext';
 import { initials } from './initials';
-import { RADIUS, PRESS_SCALE, TYPESCALE, FONTS } from './theme';
+import { COMPONENT_SIZE, RADIUS, PRESS_SCALE, TYPESCALE, FONTS } from './theme';
 import T from './T';
 import { Icon } from './ui';
 
-// Universal top-right header button (replaces the old LogoutButton). A filled circular avatar
-// showing a person icon with the user's initials below it; tapping it opens the Profile tab, where
+// Universal top-right header button (replaces the old LogoutButton). A circular avatar shows the
+// user's initials, or a person icon when no display name is available; tapping it opens Profile, where
 // the "Sign out" row still hosts the Step-21 logout flow. Mirrors ui/IconButton's cross-platform
 // care (Animated press-scale, native-only haptics, web focus outline) so it matches the app.
-const SIZE = 40;
 
 type Props = {
   /** Override the wrapper spacing when the avatar is rendered outside a navigator header. */
@@ -30,6 +29,9 @@ export default function ProfileAvatarButton({ containerStyle }: Props) {
   const scale = useRef(new Animated.Value(1)).current;
 
   const ini = initials(user?.name);
+  const profileLabel = user?.name?.trim()
+    ? `Open profile for ${user.name.trim()}`
+    : 'Open profile';
 
   const animate = (to: number) =>
     Animated.spring(scale, { toValue: to, useNativeDriver: Platform.OS !== 'web', speed: 50, bounciness: 0 }).start();
@@ -45,18 +47,16 @@ export default function ProfileAvatarButton({ containerStyle }: Props) {
         onPressIn={() => animate(PRESS_SCALE)}
         onPressOut={() => animate(1)}
         accessibilityRole="button"
-        accessibilityLabel="Open profile"
-        hitSlop={8}
+        accessibilityLabel={profileLabel}
         style={({ focused }: any) => [
           styles.circle,
-          { backgroundColor: colors.primary },
+          { backgroundColor: colors.surfaceMuted, borderColor: colors.border },
           focused && Platform.OS === 'web' && { outlineWidth: 2, outlineColor: colors.primary, outlineStyle: 'solid', outlineOffset: 2 } as any,
         ]}
       >
-        <Icon name="user-round" size={14} color={colors.primaryText} />
-        {ini !== '' && (
-          <T style={styles.initials} color={colors.primaryText}>{ini}</T>
-        )}
+        {ini !== ''
+          ? <T style={styles.initials} color={colors.primary}>{ini}</T>
+          : <Icon name="user-round" size={20} color={colors.primary} />}
       </Pressable>
     </Animated.View>
   );
@@ -66,12 +66,17 @@ const styles = StyleSheet.create({
   // Native navigation headers need a small trailing gutter. Inline consumers override it to 0.
   container: { marginRight: 6 },
   circle: {
-    width: SIZE, height: SIZE, borderRadius: RADIUS.pill,
+    width: COMPONENT_SIZE.headerControl,
+    height: COMPONENT_SIZE.headerControl,
+    borderRadius: RADIUS.pill,
+    borderWidth: 1,
     alignItems: 'center', justifyContent: 'center',
   },
-  // Compact uppercase initials tucked under the person icon; sized to the smallest type token.
+  // Initials are the avatar identity; the person glyph is reserved for a missing display name.
   initials: {
-    fontFamily: FONTS.bodyBold, fontSize: TYPESCALE.xs, lineHeight: 13,
-    letterSpacing: 0.5, marginTop: 1,
+    fontFamily: FONTS.bodyBold,
+    fontSize: TYPESCALE.base,
+    lineHeight: 20,
+    letterSpacing: 0.75,
   },
 });

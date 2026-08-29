@@ -17,13 +17,14 @@ type Props = {
   testID?: string;
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
+  touchSize?: number;
 };
 
 const HIT = 44; // min touch target
 
 export default function IconButton({
   name, onPress, accessibilityLabel, variant = 'plain', size = 22, color,
-  testID, disabled, style,
+  testID, disabled, style, touchSize = HIT,
 }: Props) {
   const { colors } = useTheme();
   const scale = useRef(new Animated.Value(1)).current;
@@ -51,7 +52,12 @@ export default function IconButton({
         hitSlop={8}
         style={({ focused }: any) => [
           styles.base,
-          { backgroundColor: bg, opacity: disabled ? 0.4 : 1 },
+          {
+            width: touchSize,
+            height: touchSize,
+            backgroundColor: bg,
+            opacity: disabled ? 0.4 : 1,
+          },
           focused && Platform.OS === 'web' && { outlineWidth: 2, outlineColor: colors.primary, outlineStyle: 'solid', outlineOffset: 2 } as any,
           style,
         ]}
@@ -64,7 +70,7 @@ export default function IconButton({
 
 const styles = StyleSheet.create({
   base: {
-    width: HIT, height: HIT, borderRadius: RADIUS.pill,
+    borderRadius: RADIUS.pill,
     alignItems: 'center', justifyContent: 'center',
   },
 });

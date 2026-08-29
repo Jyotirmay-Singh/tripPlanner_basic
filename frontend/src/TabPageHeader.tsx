@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import T from './T';
 import ProfileAvatarButton from './ProfileAvatarButton';
 import { SPACING } from './theme';
@@ -8,14 +8,24 @@ type Props = {
   title: string;
   eyebrow?: string;
   action?: React.ReactNode;
+  compactAction?: React.ReactNode;
 };
+
+export function shouldUseCompactHeaderAction(width: number, fontScale: number): boolean {
+  return width <= 360 || fontScale >= 1.3;
+}
 
 /**
  * Compact header for tab pages. The tabs deliberately have no navigator header, so this row
  * keeps the page identity, optional primary action, and profile shortcut inside the one safe-area
  * owner provided by Screen.
  */
-export default function TabPageHeader({ title, eyebrow, action }: Props) {
+export default function TabPageHeader({ title, eyebrow, action, compactAction }: Props) {
+  const { width, fontScale } = useWindowDimensions();
+  const visibleAction = compactAction && shouldUseCompactHeaderAction(width, fontScale)
+    ? compactAction
+    : action;
+
   return (
     <View style={styles.row}>
       <View style={styles.titleBlock}>
@@ -25,7 +35,7 @@ export default function TabPageHeader({ title, eyebrow, action }: Props) {
         </T>
       </View>
       <View style={styles.actions}>
-        {action}
+        {visibleAction}
         <ProfileAvatarButton containerStyle={styles.inlineAvatar} />
       </View>
     </View>
@@ -45,7 +55,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flexShrink: 0,
-    gap: SPACING.sm,
+    gap: SPACING.md,
   },
   inlineAvatar: { marginRight: 0 },
 });

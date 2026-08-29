@@ -37,6 +37,7 @@ jest.mock('../../ui', () => {
   return {
     __esModule: true,
     Screen: stub('Screen'), Card: stub('Card'), Button: stub('Button'),
+    IconButton: stub('IconButton'),
     EmptyState: stub('EmptyState'), SkeletonCard: stub('SkeletonCard'), Icon: stub('Icon'),
   };
 });
@@ -46,8 +47,8 @@ import { api } from '../../api';
 
 const apiMock = api as unknown as jest.Mock;
 const trips = [
-  { id: 'credit', name: 'Credit trip', code: 'AAAAAA', currency: 'INR', members: [] },
-  { id: 'debit', name: 'Debit trip', code: 'BBBBBB', currency: 'INR', members: [] },
+  { id: 'credit', name: 'Credit trip', code: 'AAAAAA', currency: 'INR', budget: 100000, members: [] },
+  { id: 'debit', name: 'Debit trip', currency: 'INR', members: [] },
   { id: 'zero', name: 'New empty trip', code: 'CCCCCC', currency: 'USD', members: [] },
 ];
 const initialValues: Record<string, number> = { credit: 1250, debit: -800, zero: 0 };
@@ -83,12 +84,35 @@ describe('Trips personal balance wiring', () => {
     expect(rows[0].props.balance.amount).toBe(1250);
     expect(rows[1].props.balance.amount).toBe(800);
     expect(rows[2].props.settledTestID).toBe('trip-settled-zero');
+    expect(rows[0].props.subtitle).toBe('01/01/2026 – 02/01/2026 · INR · Budget 100,000.00');
+    expect(rows[0].props.meta).toBe('2 individuals · Code AAAAAA');
+    expect(rows[1].props.meta).toBe('2 individuals');
 
     expect(apiMock.mock.calls.map(([path]) => path)).toEqual([
       '/trips',
       '/trips/credit/balances',
       '/trips/debit/balances',
       '/trips/zero/balances',
+    ]);
+
+    const screen = renderer.root.find((node: any) => node.type === 'Screen');
+    expect(screen.props.edges).toEqual(['top', 'left', 'right']);
+  });
+
+  it('preserves create and join navigation from both responsive header actions', async () => {
+    let renderer: any;
+    await act(async () => { renderer = TestRenderer.create(<Trips />); });
+
+    const header = renderer.root.find((node: any) => node.type === 'TabPageHeader');
+    const join = renderer.root.findByProps({ testID: 'trips-join-btn' });
+    act(() => header.props.action.props.onPress());
+    act(() => header.props.compactAction.props.onPress());
+    act(() => join.props.onPress());
+
+    expect(mockPush.mock.calls).toEqual([
+      ['/create-trip'],
+      ['/create-trip'],
+      ['/join-trip'],
     ]);
   });
 

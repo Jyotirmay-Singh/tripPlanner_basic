@@ -36,6 +36,7 @@ jest.mock('../ui', () => {
   const stub = (name: string) => (props: any) => R.createElement(name, props, props.children);
   return {
     Screen: stub('Screen'), Card: stub('Card'), Button: stub('Button'), StatCard: stub('StatCard'),
+    IconButton: stub('IconButton'),
     ListRow: stub('ListRow'), EmptyState: stub('EmptyState'), AmountText: stub('AmountText'),
     SkeletonCard: stub('SkeletonCard'), Icon: stub('Icon'), useToast: () => ({ show: jest.fn() }),
   };
@@ -63,6 +64,10 @@ describe('tab page headers', () => {
     const header = renderHeader(Trips);
     expect(header.props.title).toBe('Trips');
     expect(header.props.action.props.testID).toBe('trips-new-btn');
+    expect(header.props.action.props.accessibilityLabel).toBe('Create new trip');
+    expect(header.props.compactAction.props.testID).toBe('trips-new-btn-compact');
+    expect(header.props.compactAction.props.accessibilityLabel).toBe('Create new trip');
+    expect(header.props.compactAction.props.touchSize).toBe(48);
   });
 
   it.each([
