@@ -281,3 +281,31 @@ def test_websocket_rejects_missing_auth_frame(monkeypatch):
     socket = AuthSocket([{"type": "ping"}])
     run(chat.chat_websocket(socket, "t1"))
     assert socket.closed == [4401]
+
+
+def test_websocket_rejects_invalid_auth_without_logging_token(monkeypatch, caplog):
+    token = "sensitive-invalid-token"
+    socket = AuthSocket([{"type": "auth", "token": token}])
+
+    def reject_token(_token):
+        raise HTTPException(401, "Invalid token")
+
+    monkeypatch.setattr(chat, "decode_token", reject_token)
+    caplog.set_level("WARNING", logger="trip-splitter")
+    run(chat.chat_websocket(socket, "t1"))
+
+    assert socket.closed == [4401]
+    assert "reason=invalid_auth" in caplog.text
+    assert token not in caplog.text
+
+
+def test_websocket_stops_with_permission_denied_for_non_member(monkeypatch):
+    socket = AuthSocket([{"type": "auth", "token": "jwt"}])
+    users = SimpleNamespace(find_one=AsyncMock(return_value={"id": "u3"}))
+    trips = SimpleNamespace(find_one=AsyncMock(return_value={"id": "t1", "user_ids": ["u1"]}))
+    monkeypatch.setattr(chat, "db", SimpleNamespace(users=users, trips=trips))
+    monkeypatch.setattr(chat, "decode_token", lambda _token: {"sub": "u3"})
+
+    run(chat.chat_websocket(socket, "t1"))
+
+    assert socket.closed == [4403]

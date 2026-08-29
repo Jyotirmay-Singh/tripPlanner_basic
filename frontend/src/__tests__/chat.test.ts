@@ -1,5 +1,9 @@
 import {
+  chatMessageKey,
+  classifyChatError,
+  mergeChatEvent,
   mergeChatMessages,
+  reconnectDelay,
   resolveOptimisticSender,
   senderLabel,
   unreadBadge,
@@ -73,5 +77,55 @@ describe('chat message merging', () => {
       [message({ id: 'm1', client_message_id: 'c1', sequence: 1 })],
     );
     expect(result.map((item) => item.id)).toEqual(['m1', 'm2', 'pending:c3']);
+  });
+
+  it('scopes client message IDs to the sender', () => {
+    const first = message({ id: 'm1', sender_user_id: 'u1', client_message_id: 'same', sequence: 1 });
+    const second = message({ id: 'm2', sender_user_id: 'u2', client_message_id: 'same', sequence: 2 });
+    const result = mergeChatMessages([first], [second]);
+
+    expect(result).toHaveLength(2);
+    expect(result.map(chatMessageKey)).toEqual(['u1:same', 'u2:same']);
+  });
+
+  it('keeps the sender pending until the REST acknowledgement arrives', () => {
+    const pending: LocalChatMessage = {
+      ...message({ id: 'pending:c1', sequence: Number.MAX_SAFE_INTEGER }),
+      delivery: 'sending',
+    };
+    const announced = message({ id: 'server-id', sequence: 4 });
+
+    expect(mergeChatEvent([pending], announced, 'u1')).toEqual([{
+      ...announced,
+      delivery: 'sending',
+      error: undefined,
+      failure: undefined,
+    }]);
+  });
+});
+
+describe('chat failure and reconnect policy', () => {
+  it.each([
+    [401, 'authentication_required', false],
+    [403, 'permission_denied', false],
+    [404, 'unavailable', false],
+    [422, 'validation', false],
+    [503, 'server', true],
+  ])('classifies HTTP %s as %s (retryable=%s)', (status, code, retryable) => {
+    expect(classifyChatError({ status, message: 'server detail' })).toMatchObject({ code, retryable, status });
+  });
+
+  it('classifies transport failures without exposing implementation details', () => {
+    expect(classifyChatError({ code: 'timeout' })).toMatchObject({ code: 'timeout', retryable: true });
+    expect(classifyChatError({ code: 'network' })).toMatchObject({ code: 'network', retryable: true });
+    expect(classifyChatError({ code: 'configuration', message: 'bad endpoint' }))
+      .toMatchObject({ code: 'configuration', retryable: false });
+  });
+
+  it('uses bounded exponential delays with twenty-percent jitter', () => {
+    expect(reconnectDelay(0, () => 0)).toBe(800);
+    expect(reconnectDelay(0, () => 1)).toBe(1200);
+    expect(reconnectDelay(2, () => 0.5)).toBe(5000);
+    expect(reconnectDelay(99, () => 0.5)).toBe(30_000);
   });
 });

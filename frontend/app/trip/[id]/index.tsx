@@ -167,7 +167,7 @@ function BudgetUsageCard({ spent, budget, currency }: BudgetUsageCardProps) {
 export default function TripDetail() {
   const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: string }>();
   const { colors, mode } = useTheme();
-  const { user } = useAuth();
+  const { user, chatCapability, handleAuthenticationRequired } = useAuth();
   const router = useRouter();
   const toast = useToast();
   const [trip, setTrip] = useState<Trip | null>(null);
@@ -212,6 +212,8 @@ export default function TripDetail() {
     userId: user?.id,
     sender: optimisticSender,
     active: tab === 'chat',
+    capability: chatCapability,
+    onAuthenticationRequired: handleAuthenticationRequired,
   });
 
   const shareCode = async () => {

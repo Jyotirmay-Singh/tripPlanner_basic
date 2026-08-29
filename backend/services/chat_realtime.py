@@ -6,6 +6,8 @@ from typing import Iterable
 
 from fastapi import WebSocket
 
+from config import logger
+
 
 class ChatConnectionManager:
     def __init__(self) -> None:
@@ -36,6 +38,11 @@ class ChatConnectionManager:
             try:
                 await websocket.send_json(event)
             except Exception:
+                logger.warning(
+                    "chat.broadcast_failed trip_id=%s event_type=%s",
+                    trip_id,
+                    event.get("type", "unknown"),
+                )
                 await self.disconnect(trip_id, websocket)
 
     async def disconnect_users(self, trip_id: str, user_ids: Iterable[str]) -> None:

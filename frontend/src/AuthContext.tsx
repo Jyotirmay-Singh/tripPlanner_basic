@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, getToken, setToken } from './api';
+import type { ChatCapability } from './chat';
 import { unregisterCurrentPushInstallation } from './pushNotifications';
 
 export type User = {
@@ -23,6 +24,8 @@ type Ctx = {
   // "Forgot password?" link are hidden (those flows are ghosted until a deliverable domain exists).
   // Defaults to true so nothing is hidden while it loads or if the fetch fails.
   emailFeaturesEnabled: boolean;
+  chatCapability: ChatCapability;
+  handleAuthenticationRequired: () => Promise<void>;
   signIn: (email: string, password?: string, pin?: string) => Promise<void>;
   register: (email: string, pin: string, name: string, password?: string) => Promise<void>;
   signInWithGoogle: (idToken: string) => Promise<User>;
@@ -37,13 +40,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [savedEmail, setSavedEmail] = useState<string | null>(null);
   const [emailFeaturesEnabled, setEmailFeaturesEnabled] = useState(true);
+  const [chatCapability, setChatCapability] = useState<ChatCapability>('loading');
 
-  // Public, DB-free config fetch. Only an explicit `false` hides the email UI; any error or a
-  // missing field leaves it enabled (default true), so we never wrongly hide it.
+  // Public, DB-free capability fetch. A successful response without the chat protocol identifies
+  // an older backend; a request failure remains unknown so a temporary config outage does not
+  // incorrectly disable chat.
   useEffect(() => {
-    api<{ email_features_enabled?: boolean }>('/meta/config', { auth: false })
-      .then((c) => setEmailFeaturesEnabled(c?.email_features_enabled !== false))
-      .catch(() => {});
+    api<{ email_features_enabled?: boolean; chat_protocol_version?: number }>('/meta/config', { auth: false })
+      .then((config) => {
+        setEmailFeaturesEnabled(config?.email_features_enabled !== false);
+        setChatCapability(config?.chat_protocol_version === 1 ? 'supported' : 'unsupported');
+      })
+      .catch(() => setChatCapability('unknown'));
+  }, []);
+
+  const handleAuthenticationRequired = useCallback(async () => {
+    await setToken(null);
+    setUser(null);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -117,7 +130,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthCtx.Provider value={{ user, savedEmail, emailFeaturesEnabled, signIn, register, signInWithGoogle, signOut, forgetSavedEmail, refresh }}>
+    <AuthCtx.Provider value={{
+      user,
+      savedEmail,
+      emailFeaturesEnabled,
+      chatCapability,
+      handleAuthenticationRequired,
+      signIn,
+      register,
+      signInWithGoogle,
+      signOut,
+      forgetSavedEmail,
+      refresh,
+    }}>
       {children}
     </AuthCtx.Provider>
   );

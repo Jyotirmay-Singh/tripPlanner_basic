@@ -57,8 +57,11 @@ const baseController = (): TripChatController => ({
     },
   ],
   unreadCount: 0, loading: false, loadingOlder: false, hasMoreBefore: false, connected: true,
+  connection: { status: 'connected', attempt: 0 },
   refreshUnread: jest.fn(), loadLatest: jest.fn(), loadOlder: jest.fn(),
-  send: jest.fn().mockResolvedValue(true), retry: jest.fn(), edit: jest.fn(), remove: jest.fn(),
+  reconnect: jest.fn(),
+  send: jest.fn().mockResolvedValue({ created: true, sent: true }),
+  retry: jest.fn().mockResolvedValue(true), edit: jest.fn(), remove: jest.fn(),
   clear: jest.fn(), markThrough: jest.fn().mockResolvedValue(undefined),
 });
 
@@ -101,5 +104,88 @@ it('clears the composer and sends one trimmed message', async () => {
   expect(controller.send).toHaveBeenCalledTimes(1);
   expect(controller.send).toHaveBeenCalledWith('Meet at reception');
   expect(renderer.root.findByType(TextInput).props.value).toBe('');
+  act(() => renderer.unmount());
+});
+
+it('retains the draft when no durable local message could be created', async () => {
+  const controller = baseController();
+  (controller.send as jest.Mock).mockResolvedValue({
+    created: false,
+    sent: false,
+    error: 'Could not preserve this message for retry.',
+  });
+  let renderer: any;
+  await act(async () => {
+    renderer = TestRenderer.create(
+      <TripChat header={null} controller={controller} currentUserId="u1" isOwner={false} canSend />,
+    );
+  });
+  const input = renderer.root.findByType(TextInput);
+  act(() => input.props.onChangeText('Keep this draft'));
+  await act(async () => renderer.root.findByProps({ testID: 'chat-send' }).props.onPress());
+
+  expect(renderer.root.findByType(TextInput).props.value).toBe('Keep this draft');
+  expect(mockToastShow).toHaveBeenCalledWith('Could not preserve this message for retry.', 'error');
+  act(() => renderer.unmount());
+});
+
+it('shows fatal configuration state and disables the composer', async () => {
+  const controller = baseController();
+  controller.connected = false;
+  controller.connection = { status: 'unavailable', attempt: 0, reason: 'configuration' };
+  let renderer: any;
+  await act(async () => {
+    renderer = TestRenderer.create(
+      <TripChat header={null} controller={controller} currentUserId="u1" isOwner={false} canSend />,
+    );
+  });
+
+  expect(textContent(renderer)).toContain('Chat unavailable');
+  expect(textContent(renderer)).toContain('connected server does not support');
+  expect(renderer.root.findByType(TextInput).props.editable).toBe(false);
+  expect(renderer.root.findAllByProps({ testID: 'chat-reconnect' })).toHaveLength(0);
+  act(() => renderer.unmount());
+});
+
+it('keeps transient reconnects retryable without disabling new messages', async () => {
+  const controller = baseController();
+  controller.connected = false;
+  controller.connection = { status: 'reconnecting', attempt: 2, reason: 'network' };
+  let renderer: any;
+  await act(async () => {
+    renderer = TestRenderer.create(
+      <TripChat header={null} controller={controller} currentUserId="u1" isOwner={false} canSend />,
+    );
+  });
+
+  expect(textContent(renderer)).toContain('Reconnecting');
+  expect(renderer.root.findByType(TextInput).props.editable).toBe(true);
+  act(() => renderer.root.findByProps({ testID: 'chat-reconnect' }).props.onPress());
+  expect(controller.reconnect).toHaveBeenCalledTimes(1);
+  act(() => renderer.unmount());
+});
+
+it('retries the existing queued row instead of creating another message', async () => {
+  const controller = baseController();
+  const queued = {
+    ...controller.messages[1],
+    id: 'pending:c3',
+    client_message_id: 'c3',
+    sequence: Number.MAX_SAFE_INTEGER,
+    delivery: 'queued' as const,
+    failure: { code: 'offline' as const, retryable: true, message: 'Offline.' },
+  };
+  controller.messages = [...controller.messages, queued];
+  let renderer: any;
+  await act(async () => {
+    renderer = TestRenderer.create(
+      <TripChat header={null} controller={controller} currentUserId="u1" isOwner={false} canSend />,
+    );
+  });
+
+  const retry = renderer.root.findByProps({ accessibilityLabel: 'Retry sending message' });
+  await act(async () => retry.props.onPress());
+  expect(controller.retry).toHaveBeenCalledWith(queued);
+  expect(controller.send).not.toHaveBeenCalled();
   act(() => renderer.unmount());
 });

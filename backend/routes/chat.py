@@ -5,6 +5,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 from starlette.websockets import WebSocketDisconnect
 
+from config import logger
 from database import db
 from models.chat import ChatMessageCreate, ChatMessagePatch, ChatReadIn
 from services.chat import public_chat_message, resolve_chat_sender
@@ -101,6 +102,12 @@ async def create_chat_message(
         }
     )
     if existing:
+        logger.info(
+            "chat.message_ack trip_id=%s client_message_id=%s sequence=%s idempotent=true",
+            trip_id,
+            client_message_id,
+            existing.get("sequence"),
+        )
         return public_chat_message(existing)
 
     counter = await db.chat_counters.find_one_and_update(
@@ -137,6 +144,12 @@ async def create_chat_message(
             }
         )
         if existing:
+            logger.info(
+                "chat.message_ack trip_id=%s client_message_id=%s sequence=%s idempotent=true",
+                trip_id,
+                client_message_id,
+                existing.get("sequence"),
+            )
             return public_chat_message(existing)
         raise
 
@@ -148,6 +161,12 @@ async def create_chat_message(
 
     public = public_chat_message(doc)
     await _broadcast(trip, {"type": "message.created", "data": public})
+    logger.info(
+        "chat.message_ack trip_id=%s client_message_id=%s sequence=%s idempotent=false",
+        trip_id,
+        client_message_id,
+        sequence,
+    )
     return public
 
 
@@ -295,34 +314,60 @@ async def chat_websocket(websocket: WebSocket, trip_id: str):
         try:
             first = await asyncio.wait_for(websocket.receive_json(), timeout=10)
         except asyncio.TimeoutError:
+            logger.warning(
+                "chat.websocket_rejected trip_id=%s reason=auth_timeout close_code=4401",
+                trip_id,
+            )
             await websocket.close(code=4401)
             return
         if not isinstance(first, dict) or first.get("type") != "auth" or not first.get("token"):
+            logger.warning(
+                "chat.websocket_rejected trip_id=%s reason=missing_auth close_code=4401",
+                trip_id,
+            )
             await websocket.close(code=4401)
             return
         try:
             payload = decode_token(first["token"])
         except HTTPException:
+            logger.warning(
+                "chat.websocket_rejected trip_id=%s reason=invalid_auth close_code=4401",
+                trip_id,
+            )
             await websocket.close(code=4401)
             return
         user = await db.users.find_one({"id": payload.get("sub")}, {"_id": 0, "id": 1})
         if not user:
+            logger.warning(
+                "chat.websocket_rejected trip_id=%s reason=user_missing close_code=4401",
+                trip_id,
+            )
             await websocket.close(code=4401)
             return
         trip = await db.trips.find_one({"id": trip_id}, {"_id": 0, "user_ids": 1})
         if not trip or user["id"] not in trip.get("user_ids", []):
+            logger.warning(
+                "chat.websocket_rejected trip_id=%s reason=permission_denied close_code=4403",
+                trip_id,
+            )
             await websocket.close(code=4403)
             return
         await chat_connections.connect(trip_id, user["id"], websocket)
         connected = True
         await websocket.send_json({"type": "ready"})
+        logger.info("chat.websocket_ready trip_id=%s", trip_id)
         while True:
             incoming = await websocket.receive_json()
             if isinstance(incoming, dict) and incoming.get("type") == "ping":
                 await websocket.send_json({"type": "pong"})
-    except WebSocketDisconnect:
-        pass
+    except WebSocketDisconnect as error:
+        logger.info(
+            "chat.websocket_closed trip_id=%s close_code=%s",
+            trip_id,
+            getattr(error, "code", None),
+        )
     except Exception:
+        logger.exception("chat.websocket_error trip_id=%s close_code=1011", trip_id)
         try:
             await websocket.close(code=1011)
         except Exception:

@@ -18,8 +18,9 @@ you control. The code is already deployed and auto-builds from `main`:
 ## 0. Quick live health check
 
 ```bash
-# Backend up?
-curl -s https://tripsplitter-api.onrender.com/api/health        # -> {"status":"ok"}
+# Backend up and running the expected revision/protocol?
+curl -s https://tripsplitter-api.onrender.com/api/health
+# -> {"status":"ok","revision":"<12-char commit>","chat_protocol_version":1}
 
 # Web up?
 curl -s -o /dev/null -w "%{http_code}\n" https://tripsplitter-web.vercel.app/   # -> 200
@@ -31,6 +32,30 @@ curl -s -D - -o /dev/null -X OPTIONS https://tripsplitter-api.onrender.com/api/a
 ```
 
 Render free tier sleeps after inactivity — the first request after idle can take ~30–60s (cold start).
+
+### Trip Chat backend-first deployment gate
+
+Trip Chat spans REST routes and a WebSocket route, so a healthy process is not enough evidence that
+the deployed revision supports chat. Deploy the backend before publishing a web or Android client
+that expects a newer chat protocol, wait for Render to finish, then run:
+
+```bash
+cd backend
+python scripts/verify_chat_deployment.py https://tripsplitter-api.onrender.com
+```
+
+The credential-free verifier must pass all four gates:
+
+1. `/api/health` reports `chat_protocol_version: 1` and a redacted deployment revision.
+2. OpenAPI exposes all five chat REST paths with their required methods.
+3. An unauthenticated message submission reaches the route and returns `401` (not route-level `404`).
+4. The chat WebSocket upgrades and rejects a deliberately invalid first-frame credential with close
+   code `4401` (not an HTTP handshake rejection).
+
+Do not promote the frontend or APK while any gate fails. A route-level `404`, WebSocket handshake
+`403`, or missing protocol version means Render is still serving a pre-chat backend even when the
+basic health endpoint returns `200`. The verifier uses only a synthetic trip ID and invalid token; it
+does not require or print user credentials, messages, or access tokens.
 
 To confirm whether the **web Google client ID** is currently inlined in the live build:
 

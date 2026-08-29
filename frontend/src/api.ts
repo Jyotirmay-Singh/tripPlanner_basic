@@ -4,8 +4,41 @@ import type { SpendSummary } from './spend';
 import type { Payment } from './payments';
 import type { ChatMessage, ChatPage, ChatUnread } from './chat';
 
-const BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
+const BASE = process.env.EXPO_PUBLIC_BACKEND_URL?.trim().replace(/\/$/, '');
 const TOKEN_KEY = 'auth_token';
+
+export type ApiErrorCode = 'configuration' | 'network' | 'timeout' | 'http';
+
+export class ApiError extends Error {
+  status?: number;
+  data?: unknown;
+  code: ApiErrorCode;
+
+  constructor(message: string, options: { status?: number; data?: unknown; code: ApiErrorCode }) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = options.status;
+    this.data = options.data;
+    this.code = options.code;
+  }
+}
+
+type ApiOptions = {
+  method?: string;
+  body?: any;
+  auth?: boolean;
+  timeoutMs?: number;
+};
+
+function backendBase(): string {
+  if (!BASE) {
+    throw new ApiError('The backend URL is not configured', { code: 'configuration' });
+  }
+  if (!__DEV__ && !/^https:\/\//i.test(BASE)) {
+    throw new ApiError('Release builds require an HTTPS backend URL', { code: 'configuration' });
+  }
+  return BASE;
+}
 
 export async function getToken(): Promise<string | null> {
   return AsyncStorage.getItem(TOKEN_KEY);
@@ -26,28 +59,41 @@ function formatDetail(d: any): string {
 
 export async function api<T = any>(
   path: string,
-  opts: { method?: string; body?: any; auth?: boolean } = {}
+  opts: ApiOptions = {},
 ): Promise<T> {
-  const { method = 'GET', body, auth = true } = opts;
+  const { method = 'GET', body, auth = true, timeoutMs } = opts;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (auth) {
     const t = await getToken();
     if (t) headers['Authorization'] = `Bearer ${t}`;
   }
-  const res = await fetch(`${BASE}/api${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const base = backendBase();
+  const controller = timeoutMs ? new AbortController() : null;
+  const timeout = timeoutMs
+    ? setTimeout(() => controller?.abort(), timeoutMs)
+    : null;
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller?.signal,
+    });
+  } catch (error: any) {
+    if (error?.name === 'AbortError') {
+      throw new ApiError('The request timed out', { code: 'timeout' });
+    }
+    throw new ApiError('Could not reach the server', { code: 'network' });
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
   const text = await res.text();
   let data: any = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (!res.ok) {
     const msg = formatDetail(data?.detail ?? data);
-    const err: any = new Error(msg);
-    err.status = res.status;
-    err.data = data;
-    throw err;
+    throw new ApiError(msg, { status: res.status, data, code: 'http' });
   }
   return data as T;
 }
@@ -169,7 +215,9 @@ export function sendChatMessage(
   tripId: string,
   body: { client_message_id: string; text: string },
 ): Promise<ChatMessage> {
-  return api<ChatMessage>(`/trips/${tripId}/chat/messages`, { method: 'POST', body });
+  return api<ChatMessage>(`/trips/${tripId}/chat/messages`, {
+    method: 'POST', body, timeoutMs: 15_000,
+  });
 }
 
 export function editChatMessage(tripId: string, messageId: string, text: string): Promise<ChatMessage> {
@@ -197,7 +245,6 @@ export function clearChatHistory(tripId: string): Promise<{ ok: boolean; cleared
 }
 
 export function chatSocketUrl(tripId: string): string {
-  if (!BASE) throw new Error('EXPO_PUBLIC_BACKEND_URL is not configured');
-  const websocketBase = BASE.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:').replace(/\/$/, '');
+  const websocketBase = backendBase().replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
   return `${websocketBase}/api/trips/${encodeURIComponent(tripId)}/chat/ws`;
 }

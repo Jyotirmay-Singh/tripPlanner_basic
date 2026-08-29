@@ -16,10 +16,12 @@ import ConfirmModal from './ConfirmModal';
 import T from './T';
 import { useTheme } from './ThemeContext';
 import {
+  chatMessageKey,
   chatDateKey,
   formatChatClock,
   formatChatDate,
   senderLabel,
+  type ChatConnectionState,
   type LocalChatMessage,
 } from './chat';
 import { initials } from './initials';
@@ -43,6 +45,16 @@ type Props = {
 
 type ConfirmState = { kind: 'message'; messageId: string } | { kind: 'history' } | null;
 
+const CONNECTION_LABELS: Record<ChatConnectionState['status'], string> = {
+  connecting: 'Connecting',
+  connected: 'Live',
+  reconnecting: 'Reconnecting',
+  offline: 'Offline',
+  authentication_required: 'Sign in required',
+  permission_denied: 'Access removed',
+  unavailable: 'Chat unavailable',
+};
+
 export default function TripChat({
   header,
   controller,
@@ -64,6 +76,38 @@ export default function TripChat({
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [showJump, setShowJump] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  const { connection } = controller;
+  const permanentlyUnavailable = connection.status === 'unavailable' && connection.attempt === 0;
+  const composerBlocked = connection.status === 'authentication_required'
+    || connection.status === 'permission_denied'
+    || permanentlyUnavailable;
+  const composerEnabled = canSend && !composerBlocked;
+  const canManuallyReconnect = connection.status === 'reconnecting'
+    || (connection.status === 'unavailable' && connection.attempt > 0);
+  const connectionDescription = (() => {
+    switch (connection.status) {
+      case 'connecting': return 'Connecting to the trip conversation.';
+      case 'connected': return 'Everyone linked to this trip can join the conversation.';
+      case 'reconnecting': return 'Connection interrupted. Messages remain available while chat reconnects.';
+      case 'offline': return 'You are offline. Unsent messages stay on this device for retry.';
+      case 'authentication_required': return 'Sign in again to continue using Trip Chat.';
+      case 'permission_denied': return 'Your account no longer has access to this trip conversation.';
+      case 'unavailable': return connection.reason === 'configuration'
+        ? 'The connected server does not support this version of Trip Chat.'
+        : 'The chat service could not be reached. You can try connecting again.';
+      default: return 'Everyone linked to this trip can join the conversation.';
+    }
+  })();
+  const composerNotice = !canSend
+    ? 'Your account is not linked to a named person in this trip.'
+    : connection.status === 'authentication_required'
+      ? 'Sign in again before sending a message.'
+      : connection.status === 'permission_denied'
+        ? 'You no longer have permission to send messages in this trip.'
+        : permanentlyUnavailable
+          ? 'Trip Chat is unavailable on the connected server.'
+          : null;
 
   controllerRef.current = controller;
 
@@ -114,11 +158,23 @@ export default function TripChat({
       }
       return;
     }
-    setDraft('');
-    const accepted = await controller.send(text);
-    setSubmitting(false);
-    if (!accepted) toast.show('Message not sent. Tap Retry on the message to try again.', 'error');
-    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+    try {
+      const result = await controller.send(text);
+      if (result.created) {
+        setDraft('');
+        requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+      }
+      if (!result.sent && result.error) {
+        const message = connection.status === 'offline' && result.created
+          ? 'Message queued. Retry when you are back online.'
+          : result.error;
+        toast.show(message, 'error');
+      }
+    } catch (error: any) {
+      toast.show(error?.message || 'Message not sent.', 'error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const startEdit = () => {
@@ -155,6 +211,8 @@ export default function TripChat({
     const showDate = !previous || chatDateKey(previous.created_at) !== chatDateKey(item.created_at);
     const failed = item.delivery === 'failed';
     const pending = item.delivery === 'sending';
+    const queued = item.delivery === 'queued';
+    const canRetry = (failed || queued) && (item.failure?.retryable !== false || controller.connected);
     const label = senderLabel(item);
     return (
       <View style={styles.itemWrap}>
@@ -221,10 +279,18 @@ export default function TripChat({
               {pending ? (
                 <T variant="caption" color={colors.primaryText} style={{ opacity: 0.72 }}>Sending…</T>
               ) : null}
-              {failed ? (
+              {queued ? (
+                <T variant="caption" color={colors.primaryText} style={{ opacity: 0.72 }}>Queued</T>
+              ) : null}
+              {failed && !canRetry ? (
+                <T variant="caption" color={colors.primaryText} style={{ opacity: 0.72 }}>Not sent</T>
+              ) : null}
+              {canRetry ? (
                 <Pressable
                   onPress={() => controller.retry(item).then((ok) => {
                     if (!ok) toast.show('Message still could not be sent', 'error');
+                  }).catch((error: any) => {
+                    toast.show(error?.message || 'Message still could not be sent', 'error');
                   })}
                   accessibilityRole="button"
                   accessibilityLabel="Retry sending message"
@@ -255,10 +321,23 @@ export default function TripChat({
         <View style={{ flex: 1 }}>
           <View style={styles.chatTitleRow}>
             <T variant="h3">Trip chat</T>
-            <View style={[styles.liveDot, { backgroundColor: controller.connected ? colors.success : colors.textMuted }]} />
-            <T variant="caption" muted>{controller.connected ? 'Live' : 'Reconnecting'}</T>
+            <View style={[
+              styles.liveDot,
+              { backgroundColor: controller.connected ? colors.success : composerBlocked ? colors.danger : colors.textMuted },
+            ]} />
+            <T variant="caption" muted>{CONNECTION_LABELS[connection.status]}</T>
+            {canManuallyReconnect ? (
+              <Pressable
+                onPress={controller.reconnect}
+                accessibilityRole="button"
+                accessibilityLabel="Try connecting to Trip Chat again"
+                testID="chat-reconnect"
+              >
+                <T variant="caption" color={colors.primary} style={{ fontFamily: FONTS.bodyBold }}>Try again</T>
+              </Pressable>
+            ) : null}
           </View>
-          <T variant="caption" muted>Everyone linked to this trip can join the conversation.</T>
+          <T variant="caption" muted>{connectionDescription}</T>
         </View>
         {isOwner ? (
           <IconButton
@@ -303,7 +382,7 @@ export default function TripChat({
       <FlatList
         ref={listRef}
         data={controller.messages}
-        keyExtractor={(item) => item.client_message_id || item.id}
+        keyExtractor={chatMessageKey}
         renderItem={renderMessage}
         ListHeaderComponent={listHeader}
         contentContainerStyle={styles.listContent}
@@ -351,9 +430,9 @@ export default function TripChat({
               />
             </View>
           ) : null}
-          {!canSend ? (
+          {composerNotice ? (
             <T variant="caption" color={colors.danger} style={{ marginBottom: SPACING.xs }}>
-              Your account is not linked to a named person in this trip.
+              {composerNotice}
             </T>
           ) : null}
           <View style={[styles.composer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -364,7 +443,7 @@ export default function TripChat({
               placeholderTextColor={colors.textMuted}
               multiline
               maxLength={2000}
-              editable={canSend}
+              editable={composerEnabled}
               accessibilityLabel={editing ? 'Edit message' : 'Message the trip'}
               style={[styles.input, { color: colors.textMain }]}
               onKeyPress={(event: any) => {
@@ -379,7 +458,7 @@ export default function TripChat({
               name={editing ? 'check' : 'send'}
               variant="primary"
               onPress={submit}
-              disabled={submitting || !canSend || !draft.trim() || draft.trim().length > 2000}
+              disabled={submitting || !composerEnabled || !draft.trim() || draft.trim().length > 2000}
               accessibilityLabel={editing ? 'Save message changes' : 'Send message'}
               testID="chat-send"
             />
