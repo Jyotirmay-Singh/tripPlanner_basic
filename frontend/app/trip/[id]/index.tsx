@@ -5,7 +5,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo
 import { api, getToken, receiptUrl, spendSummary } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
-import { SPACING, RADIUS, LAYOUT, CONTENT_MAX_WIDTH } from '../../../src/theme';
+import { SPACING, RADIUS, LAYOUT, CONTENT_MAX_WIDTH, COMPONENT_SIZE, FONTS } from '../../../src/theme';
 import T from '../../../src/T';
 import Badge from '../../../src/Badge';
 import DonutChart, { paletteForMode } from '../../../src/DonutChart';
@@ -34,7 +34,7 @@ import {
 } from '../../../src/ui';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; family_member_ids?: string[] | null; family_member_emails?: (string | null)[] | null; family_member_user_ids?: (string | null)[] | null; user_id?: string | null; email?: string | null };
-type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
+type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number | null; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
 type Expense = { id: string; amount: number; category: string; description?: string; date: string; time?: string | null; created_at?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string; shares?: ExpenseShares };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[]; members?: { id: string; name: string; net: number }[] }[] };
 
@@ -46,6 +46,123 @@ const TABS: { value: TabKey; label: string }[] = [
   { value: 'members', label: 'Members' },
   { value: 'chat', label: 'Chat' },
 ];
+
+type TripIdentityHeaderProps = {
+  trip: Pick<Trip, 'name' | 'code' | 'start_date' | 'end_date' | 'travel_date' | 'members'>;
+  onShare: () => void;
+};
+
+/** Identity-only hero. Financial context belongs to BudgetUsageCard in the Summary tab. */
+function TripIdentityHeader({ trip, onShare }: TripIdentityHeaderProps) {
+  const { colors } = useTheme();
+
+  return (
+    <Card testID="trip-identity-header" variant="primary" padding="lg" radius={RADIUS.xl}>
+      <View style={styles.heroContent}>
+        <View style={styles.heroMetaRow}>
+          <T testID="trip-date-range" variant="label" color={colors.primaryText} style={styles.heroDate}>
+            {formatTripDates(trip)}
+          </T>
+          <TouchableOpacity
+            testID="trip-share"
+            onPress={onShare}
+            accessibilityRole="button"
+            accessibilityLabel={`Share trip code ${trip.code}`}
+            accessibilityHint="Opens sharing options for this trip"
+            style={[styles.codeChip, { backgroundColor: colors.overlayOnPrimary }]}
+          >
+            <Icon name="share" size={14} color={colors.primaryText} />
+            <T color={colors.primaryText} style={styles.codeText}>{trip.code}</T>
+          </TouchableOpacity>
+        </View>
+        <T testID="trip-name" variant="h1" color={colors.primaryText}>{trip.name}</T>
+        <View style={styles.compositionRow}>
+          <Icon name="users" size={14} color={colors.primaryText} />
+          <T testID="trip-participant-summary" color={colors.primaryText} style={styles.compositionText}>
+            {compositionLabel(trip.members)}
+          </T>
+        </View>
+      </View>
+    </Card>
+  );
+}
+
+type BudgetUsageCardProps = {
+  spent: number;
+  budget?: number | null;
+  currency: string;
+};
+
+/** The single authoritative spent-vs-budget presentation on the Trip screen. */
+function BudgetUsageCard({ spent, budget, currency }: BudgetUsageCardProps) {
+  const { colors } = useTheme();
+  const validSpent = Number.isFinite(spent);
+  const missingBudget = budget == null || budget === 0;
+  const validBudget = typeof budget === 'number' && Number.isFinite(budget) && budget > 0;
+  const spentLabel = validSpent ? formatMoney(spent, { currency }) : null;
+
+  if (!validSpent || !validBudget) {
+    const stateLabel = missingBudget && validSpent ? 'No budget set' : 'Budget usage unavailable';
+    return (
+      <Card testID="trip-budget-used-card">
+        <View style={styles.budgetUsageContent}>
+          <T variant="label" muted>Budget used</T>
+          {spentLabel ? (
+            <T testID="trip-budget-used-spent" variant="caption">{spentLabel} spent</T>
+          ) : null}
+          <T testID="trip-budget-used-state" variant="caption" muted>{stateLabel}</T>
+        </View>
+      </Card>
+    );
+  }
+
+  const ratio = spent / budget;
+  const overAmount = Math.max(0, spent - budget);
+  const budgetLabel = formatMoney(budget, { currency });
+  const overLabel = overAmount > 0 ? formatMoney(overAmount, { currency }) : null;
+  const accessibilityValueText = overLabel
+    ? `${spentLabel} of ${budgetLabel}; ${overLabel} over budget`
+    : `${spentLabel} of ${budgetLabel}`;
+
+  return (
+    <Card testID="trip-budget-used-card">
+      <View style={styles.budgetUsageContent}>
+        <T variant="label" muted>Budget used</T>
+        <View style={styles.budgetUsageValues}>
+          <T
+            testID="trip-budget-used-spent"
+            variant="caption"
+            color={overAmount > 0 ? colors.danger : colors.textMain}
+            style={styles.budgetAmountText}
+          >
+            {spentLabel}
+          </T>
+          <T variant="caption" muted>of</T>
+          <T
+            testID="trip-budget-used-total"
+            variant="caption"
+            color={overAmount > 0 ? colors.danger : colors.textMain}
+            style={styles.budgetAmountText}
+          >
+            {budgetLabel}
+          </T>
+        </View>
+        {overLabel ? (
+          <View testID="trip-budget-overage" style={styles.overBudgetRow}>
+            <Icon name="alert" size={14} color={colors.danger} />
+            <T variant="caption" color={colors.danger} style={styles.overBudgetText}>{overLabel} over budget</T>
+          </View>
+        ) : null}
+        <ProgressBar
+          testID="trip-budget-progress"
+          progress={ratio}
+          accessibilityLabel="Budget used"
+          accessibilityValueText={accessibilityValueText}
+        />
+      </View>
+    </Card>
+  );
+}
 
 export default function TripDetail() {
   const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: string }>();
@@ -143,7 +260,6 @@ export default function TripDetail() {
   const displayNames = memberDisplayNames(trip.members);
   // Signed totals: a negative transaction (money back) nets the total down.
   const totalSpent = expenses.reduce((s, e) => s + e.amount, 0);
-  const over = trip.budget ? totalSpent > trip.budget : false;
   // Trip-level "Settled" badge signal — reuses the SAME empty-transfers value the settle-up screen
   // uses for "All square!" (display-only; never recomputed). Every transaction card shows the badge
   // once the whole trip squares up.
@@ -164,61 +280,20 @@ export default function TripDetail() {
 
   const tripHeader = (
     <>
-      <Card variant="primary" padding="lg" radius={RADIUS.xl}>
-        <View style={styles.heroMetaRow}>
-          <T variant="label" color={colors.primaryText} style={styles.heroDate}>{formatTripDates(trip)}</T>
-          <TouchableOpacity testID="trip-share" onPress={shareCode} accessibilityRole="button" accessibilityLabel="Share trip code"
-            style={[styles.codeChip, { backgroundColor: colors.overlayOnPrimary }]}>
-            <Icon name="share" size={14} color={colors.primaryText} />
-            <T color={colors.primaryText} style={{ fontWeight: '700' }} numberOfLines={1}>{trip.code}</T>
-          </TouchableOpacity>
-        </View>
-        <T variant="h1" color={colors.primaryText} style={{ marginTop: SPACING.xs }}>{trip.name}</T>
-        <View style={styles.compositionRow}>
-          <Icon name="users" size={14} color={colors.primaryText} />
-          <T color={colors.primaryText} style={styles.compositionText}>{compositionLabel(trip.members)}</T>
-        </View>
-        <View style={styles.financialsRow}>
-          <View style={styles.financialMetric}>
-            <T variant="label" color={colors.primaryText} style={{ opacity: 0.7 }}>Spent</T>
-            <ResponsiveAmountText
-              value={totalSpent}
-              currency={trip.currency}
-              label="Spent"
-              color={colors.primaryText}
-              style={{ marginTop: 2 }}
-              testID="trip-spent-amount"
-            />
-          </View>
-          {trip.budget ? (
-            <View style={styles.financialMetric}>
-              <T variant="label" color={colors.primaryText} style={{ opacity: 0.7 }}>Budget</T>
-              <ResponsiveAmountText
-                value={trip.budget}
-                currency={trip.currency}
-                showCurrency={false}
-                label="Budget"
-                color={over ? colors.warning : colors.primaryText}
-                style={{ marginTop: 2 }}
-                testID="trip-budget-amount"
-              />
-            </View>
-          ) : null}
-        </View>
-      </Card>
+      <TripIdentityHeader trip={trip} onShare={shareCode} />
 
       <View style={styles.actionsRow}>
         <View style={styles.actionButton}>
-          <Button label="Expense" icon="plus" onPress={() => router.push(`/trip/${id}/add-expense`)} fullWidth testID="trip-add-expense" />
+          <Button label="Expense" icon="plus" onPress={() => router.push(`/trip/${id}/add-expense`)} fullWidth testID="trip-add-expense" style={styles.actionButtonControl} />
         </View>
         <View style={styles.actionButton}>
-          <Button label="Settle Up" icon="arrow-left-right" variant="secondary" onPress={() => router.push(`/trip/${id}/settle-up`)} fullWidth testID="trip-settle-up" />
+          <Button label="Settle Up" icon="arrow-left-right" variant="secondary" onPress={() => router.push(`/trip/${id}/settle-up`)} fullWidth testID="trip-settle-up" style={styles.actionButtonControl} />
         </View>
         {meCanEditSettings && (
-          <IconButton name="pencil" variant="surface" onPress={() => router.push(`/trip/${id}/edit`)} accessibilityLabel="Edit trip" testID="trip-edit" size={18} />
+          <IconButton name="pencil" variant="surface" onPress={() => router.push(`/trip/${id}/edit`)} accessibilityLabel="Edit trip" testID="trip-edit" size={18} touchSize={COMPONENT_SIZE.minTouchTarget} />
         )}
         {meCanDeleteTrip && (
-          <IconButton name="trash" variant="surface" color={colors.danger} onPress={onDelete} accessibilityLabel="Delete trip" testID="trip-delete" size={18} />
+          <IconButton name="trash" variant="surface" color={colors.danger} onPress={onDelete} accessibilityLabel="Delete trip" testID="trip-delete" size={18} touchSize={COMPONENT_SIZE.minTouchTarget} />
         )}
       </View>
 
@@ -279,7 +354,6 @@ export default function TripDetail() {
             const sortedCats = Object.entries(byCat).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
             const palette = paletteForMode(mode);
             const slices = sortedCats.map(([k, v], i) => ({ key: k, label: k, value: v, color: palette[i % palette.length] }));
-            const budgetPct = trip.budget ? totalSpent / trip.budget : 0;
             return (
               <View style={{ gap: SPACING.md }}>
                 {myMember && (
@@ -307,32 +381,7 @@ export default function TripDetail() {
                   </View>
                 )}
 
-                {trip.budget ? (
-                  <Card>
-                    <T variant="label" muted>Budget used</T>
-                    <View style={styles.budgetUsageValues}>
-                      <ResponsiveAmountText
-                        value={totalSpent}
-                        currency={trip.currency}
-                        label="Spent"
-                        variant="caption"
-                        color={over ? colors.danger : colors.textMain}
-                        testID="trip-budget-used-spent"
-                      />
-                      <T variant="caption" muted>of</T>
-                      <ResponsiveAmountText
-                        value={trip.budget}
-                        currency={trip.currency}
-                        showCurrency={false}
-                        label="Budget"
-                        variant="caption"
-                        color={over ? colors.danger : colors.textMain}
-                        testID="trip-budget-used-total"
-                      />
-                    </View>
-                    <ProgressBar progress={budgetPct} />
-                  </Card>
-                ) : null}
+                <BudgetUsageCard spent={totalSpent} budget={trip.budget} currency={trip.currency} />
 
                 <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
                   <StatCard label="Transactions" value={String(expenseCount)} icon="receipt" />
@@ -648,6 +697,7 @@ export default function TripDetail() {
 }
 
 const styles = StyleSheet.create({
+  heroContent: { gap: SPACING.sm },
   heroMetaRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -655,36 +705,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: SPACING.sm,
   },
-  heroDate: { opacity: 0.85, flexShrink: 1, minWidth: 0 },
+  heroDate: { opacity: 0.85, flexGrow: 1, flexShrink: 1, minWidth: 0 },
   codeChip: {
-    flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingVertical: 6,
-    borderRadius: RADIUS.pill, alignItems: 'center', maxWidth: '100%', flexShrink: 0,
+    minHeight: COMPONENT_SIZE.minTouchTarget,
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.pill,
+    alignItems: 'center',
+    maxWidth: '100%',
+    flexShrink: 1,
   },
+  codeText: { fontFamily: FONTS.bodyBold, flexShrink: 1, minWidth: 0 },
   compositionRow: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 6,
+    flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.sm,
   },
   compositionText: { opacity: 0.85, flex: 1, minWidth: 0 },
-  financialsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    columnGap: SPACING.xl,
-    rowGap: SPACING.md,
-    marginTop: SPACING.md,
-  },
-  financialMetric: { flexGrow: 1, flexShrink: 0, maxWidth: '100%' },
   actionsRow: {
     flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, alignItems: 'center',
   },
   actionButton: { flexGrow: 1, flexShrink: 0, maxWidth: '100%' },
+  actionButtonControl: { minHeight: COMPONENT_SIZE.minTouchTarget },
+  budgetUsageContent: { gap: SPACING.sm },
   budgetUsageValues: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'baseline',
     columnGap: SPACING.xs,
-    rowGap: 2,
-    marginTop: SPACING.xs,
-    marginBottom: 6,
+    rowGap: SPACING.xs,
   },
+  budgetAmountText: { maxWidth: '100%', flexShrink: 1, minWidth: 0 },
+  overBudgetRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.xs },
+  overBudgetText: { flex: 1, minWidth: 0 },
   rowCard: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
   catDot: { width: 10, height: 10, borderRadius: 5 },
   billThumb: { width: 44, height: 44, borderRadius: RADIUS.md, borderWidth: 1 },
