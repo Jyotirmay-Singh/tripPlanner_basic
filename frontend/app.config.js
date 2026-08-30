@@ -1,7 +1,7 @@
 // Keep Firebase's client configuration outside the repository/build until it is supplied as an
-// EAS file environment variable. app.json remains the readable source of truth for all other Expo
+// EAS file environment variable. app.base.json remains the readable source of truth for all other Expo
 // settings; this layer adds android.googleServicesFile only when the real file exists in the build.
-const base = require('./app.json');
+const base = require('./app.base.json');
 const { Buffer } = require('buffer');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -29,7 +29,7 @@ if (googleIosClientId) {
   )}`;
 }
 const notificationIconBase64 = fs.readFileSync(
-  path.join(path.dirname(require.resolve('./app.json')), 'assets/images/notification-icon.base64'),
+  path.join(path.dirname(require.resolve('./app.base.json')), 'assets/images/notification-icon.base64'),
   'utf8',
 ).trim();
 const notificationIconHash = crypto
