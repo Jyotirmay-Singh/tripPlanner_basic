@@ -3,7 +3,7 @@ import io
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from database import db
@@ -14,11 +14,10 @@ from utils.display_names import member_display_names
 from utils.ist_time import format_ist
 from utils.security import decode_token
 from services.report_builder import (
-    build_category_rows,
     build_expense_member_rows,
     build_members_families_rows,
+    build_spend_reconciliation,
     build_split_math_rows,
-    build_summary_spend_rows,
     composition_label,
     entity_ledger_components,
     settle_adj_by_entity,
@@ -30,10 +29,16 @@ router = APIRouter()
 # ---------- XLSX styling (Phase 16) ----------
 _BRAND = "1C3F39"
 _HEADER_FILL = PatternFill("solid", fgColor=_BRAND)
+_SUBSECTION_FILL = PatternFill("solid", fgColor="DDE9E5")
+_REIMBURSEMENT_FILL = PatternFill("solid", fgColor="EEF3F1")
+_TOTAL_FILL = PatternFill("solid", fgColor="EAF0EE")
+_NET_FILL = PatternFill("solid", fgColor="D7E5E0")
 _HEADER_FONT = Font(bold=True, color="FFFFFF")
 _TITLE_FONT = Font(bold=True, size=14, color=_BRAND)
 _BOLD = Font(bold=True)
 _RIGHT = Alignment(horizontal="right")
+_THIN_BRAND = Side(style="thin", color=_BRAND)
+_MEDIUM_BRAND = Side(style="medium", color=_BRAND)
 # Thousands separator, 2dp, negatives in red parentheses (professional accounting format).
 _MONEY_FMT = "#,##0.00;[Red](#,##0.00)"
 
@@ -57,11 +62,37 @@ def _set_widths(ws, widths) -> None:
         ws.column_dimensions[get_column_letter(i)].width = w
 
 
+def _style_subsection_row(ws, row: int, ncols: int, *, reimbursement: bool = False) -> None:
+    """Label a reconciliation subsection without relying only on colour."""
+    fill = _REIMBURSEMENT_FILL if reimbursement else _SUBSECTION_FILL
+    for col in range(1, ncols + 1):
+        cell = ws.cell(row=row, column=col)
+        cell.font = _BOLD
+        cell.fill = fill
+
+
+def _style_summary_total(ws, row: int, ncols: int, *, strong: bool = False) -> None:
+    """Style a subtotal or the final net row across its full table width."""
+    side = _MEDIUM_BRAND if strong else _THIN_BRAND
+    border = Border(top=side, bottom=side if strong else Side())
+    fill = _NET_FILL if strong else _TOTAL_FILL
+    for col in range(1, ncols + 1):
+        cell = ws.cell(row=row, column=col)
+        cell.font = _BOLD
+        cell.fill = fill
+        cell.border = border
+
+
+async def _load_report_expenses(trip_id: str) -> list:
+    """Load the complete transaction set for reports; never silently truncate reimbursements."""
+    return await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(length=None)
+
+
 # ---------- Reports ----------
 @router.get("/trips/{trip_id}/report")
 async def report(trip_id: str, user=Depends(get_current_user)):
     trip = ensure_date_range(await _trip_or_404(trip_id, user["id"]))
-    expenses = await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(5000)
+    expenses = await _load_report_expenses(trip_id)
     bal = await _compute_balances(trip_id)
     # category breakdown — signed amounts net together (a refund reduces its category + the total).
     by_cat = {}
@@ -90,13 +121,14 @@ async def report_xlsx(trip_id: str, token: str,
     if not user:
         raise HTTPException(401, "User not found")
     trip = await _trip_or_404(trip_id, user["id"])
-    expenses = await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(5000)
+    expenses = await _load_report_expenses(trip_id)
     bal = await _compute_balances(trip_id)
     # Disambiguated top-level labels (rule a + families) — one source of truth shared with the app.
     display = member_display_names(trip["members"])
 
     members = trip["members"]
     cur = trip.get("currency", "INR")
+    reconciliation = build_spend_reconciliation(members, expenses)
     # The SAME two overlays _compute_balances applies to `net` (read-only; no engine change): the
     # non-pending settlements AND every Phase-20 payment. Both must feed the Settlements column or it
     # diverges from the ledger `net` the sheet reconciles against. Fetched once and reused (the
@@ -127,47 +159,101 @@ async def report_xlsx(trip_id: str, token: str,
     else:
         s1.cell(row=row, column=2, value="N/A")
     row += 1
-    total_signed = round(sum(e["amount"] for e in expenses), 2)  # signed: refunds net it down
-    s1.cell(row=row, column=1, value="Total Spent").font = _BOLD
-    _money(s1.cell(row=row, column=2, value=total_signed))
+    s1.cell(row=row, column=1, value="Net spend").font = _BOLD
+    _money(s1.cell(row=row, column=2, value=reconciliation["totals"]["net"]))
     row += 2
 
-    # Spend by entity (gross amount paid, descending — mirrors the in-app SpendBarChart)
-    s1.cell(row=row, column=1, value="Spend by entity (gross amount paid)").font = _TITLE_FONT
+    # One reconciliation model feeds both dimensions: gross, reimbursements, then net.
+    s1.cell(row=row, column=1, value="Net spend by entity").font = _TITLE_FONT
+    row += 1
+    s1.cell(row=row, column=1, value="GROSS SPEND")
+    _style_subsection_row(s1, row, 3)
     row += 1
     s1.cell(row=row, column=1, value="Entity")
     s1.cell(row=row, column=2, value="Type")
-    s1.cell(row=row, column=3, value=f"Gross Spent ({cur})")
+    s1.cell(row=row, column=3, value=f"Amount ({cur})")
     _style_header_row(s1, row, 3)
     row += 1
-    spend = build_summary_spend_rows(members, expenses)
-    for sr in spend["rows"]:
-        s1.cell(row=row, column=1, value=sr["name"])
-        s1.cell(row=row, column=2, value=sr["type"])
-        _money(s1.cell(row=row, column=3, value=sr["paid"]))
+    gross_entities = [
+        item for item in reconciliation["entities"]
+        if item["gross"] != 0 or item["entity_id"] is not None
+    ]
+    for item in gross_entities:
+        s1.cell(row=row, column=1, value=item["name"])
+        s1.cell(row=row, column=2, value=item["type"])
+        _money(s1.cell(row=row, column=3, value=item["gross"]))
         row += 1
-    s1.cell(row=row, column=1, value="Subtotal").font = _BOLD
-    sc = s1.cell(row=row, column=3, value=spend["total"])
-    _money(sc)
-    sc.font = _BOLD
+    s1.cell(row=row, column=1, value="Gross spend subtotal")
+    _money(s1.cell(row=row, column=3, value=reconciliation["totals"]["gross"]))
+    _style_summary_total(s1, row, 3)
     row += 2
 
-    # By category (signed totals, kept as-is)
-    s1.cell(row=row, column=1, value="By category").font = _TITLE_FONT
+    s1.cell(row=row, column=1, value="REIMBURSEMENTS")
+    _style_subsection_row(s1, row, 3, reimbursement=True)
+    row += 1
+    s1.cell(row=row, column=1, value="Entity")
+    s1.cell(row=row, column=2, value="Type")
+    s1.cell(row=row, column=3, value=f"Amount ({cur})")
+    _style_header_row(s1, row, 3)
+    row += 1
+    reimbursement_entities = sorted(
+        (item for item in reconciliation["entities"] if item["reimbursements"] != 0),
+        key=lambda item: (-item["reimbursements"], item["name"]),
+    )
+    for item in reimbursement_entities:
+        s1.cell(row=row, column=1, value=item["name"])
+        s1.cell(row=row, column=2, value=item["type"])
+        _money(s1.cell(row=row, column=3, value=item["reimbursements"]))
+        row += 1
+    s1.cell(row=row, column=1, value="Total reimbursements")
+    _money(s1.cell(row=row, column=3, value=reconciliation["totals"]["reimbursements"]))
+    _style_summary_total(s1, row, 3)
+    row += 1
+    s1.cell(row=row, column=1, value="Net spend")
+    _money(s1.cell(row=row, column=3, value=reconciliation["totals"]["net"]))
+    _style_summary_total(s1, row, 3, strong=True)
+    row += 3
+
+    s1.cell(row=row, column=1, value="Net spend by category").font = _TITLE_FONT
+    row += 1
+    s1.cell(row=row, column=1, value="GROSS SPEND")
+    _style_subsection_row(s1, row, 2)
     row += 1
     s1.cell(row=row, column=1, value="Category")
     s1.cell(row=row, column=2, value=f"Amount ({cur})")
     _style_header_row(s1, row, 2)
     row += 1
-    cats = build_category_rows(expenses)  # shared with the PDF Summary — one source of truth
-    for cr in cats["rows"]:
-        s1.cell(row=row, column=1, value=cr["category"])
-        _money(s1.cell(row=row, column=2, value=cr["amount"]))
+    for item in reconciliation["categories"]:
+        if item["gross"] == 0:
+            continue
+        s1.cell(row=row, column=1, value=item["category"])
+        _money(s1.cell(row=row, column=2, value=item["gross"]))
         row += 1
-    s1.cell(row=row, column=1, value="Total").font = _BOLD
-    ct = s1.cell(row=row, column=2, value=cats["total"])
-    _money(ct)
-    ct.font = _BOLD
+    s1.cell(row=row, column=1, value="Gross spend subtotal")
+    _money(s1.cell(row=row, column=2, value=reconciliation["totals"]["gross"]))
+    _style_summary_total(s1, row, 2)
+    row += 2
+
+    s1.cell(row=row, column=1, value="REIMBURSEMENTS")
+    _style_subsection_row(s1, row, 2, reimbursement=True)
+    row += 1
+    s1.cell(row=row, column=1, value="Category")
+    s1.cell(row=row, column=2, value=f"Amount ({cur})")
+    _style_header_row(s1, row, 2)
+    row += 1
+    for item in reconciliation["categories"]:
+        if item["reimbursements"] == 0:
+            continue
+        s1.cell(row=row, column=1, value=item["category"])
+        _money(s1.cell(row=row, column=2, value=item["reimbursements"]))
+        row += 1
+    s1.cell(row=row, column=1, value="Total reimbursements")
+    _money(s1.cell(row=row, column=2, value=reconciliation["totals"]["reimbursements"]))
+    _style_summary_total(s1, row, 2)
+    row += 1
+    s1.cell(row=row, column=1, value="Net spend")
+    _money(s1.cell(row=row, column=2, value=reconciliation["totals"]["net"]))
+    _style_summary_total(s1, row, 2, strong=True)
     _set_widths(s1, [28, 22, 18])
 
     # ----- Tab 2: Members & Families (Paid | Share | Settlements | Net, reconciling) -----
@@ -338,7 +424,8 @@ async def report_pdf(trip_id: str, token: str,
         raise HTTPException(401, "User not found")
     trip = await _trip_or_404(trip_id, user["id"])
     members = trip["members"]
-    expenses = await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(5000)
+    expenses = await _load_report_expenses(trip_id)
+    reconciliation = build_spend_reconciliation(members, expenses)
     payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}) \
         .sort("created_at", 1).to_list(5000)
     # Members & Families rows — identical construction to the XLSX route (same builders + the same
@@ -350,8 +437,10 @@ async def report_pdf(trip_id: str, token: str,
     paid_map, _ = entity_ledger_components(expenses, members)
     settle_map = settle_adj_by_entity(settlements + payments)
     mf_rows = build_members_families_rows(bal["per_person"], paid_map, settle_map, display)
-    pdf_bytes = build_report_pdf(trip, members, expenses, trip.get("currency", "INR"),
-                                 payments=payments, mf_rows=mf_rows)
+    pdf_bytes = build_report_pdf(
+        trip, members, expenses, trip.get("currency", "INR"),
+        reconciliation=reconciliation, payments=payments, mf_rows=mf_rows,
+    )
     fname = f"{trip['name'].replace(' ','_')}_report.pdf"
     return StreamingResponse(
         io.BytesIO(pdf_bytes),

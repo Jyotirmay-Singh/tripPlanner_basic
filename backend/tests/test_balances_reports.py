@@ -4,6 +4,7 @@ import pytest
 import requests
 import os
 from openpyxl import load_workbook
+from pypdf import PdfReader
 
 from utils.ist_time import format_ist
 
@@ -217,6 +218,18 @@ class TestReports:
             "split_mode": "PER_FAMILY"
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
 
+        # A signed money-back row must remain separate in both Summary reconciliations.
+        api_client.post(f"{BASE_URL}/api/trips/{trip_id}/expenses", json={
+            "kind": "expense",
+            "amount": -20.0,
+            "category": "Travel",
+            "description": "Rail refund",
+            "date": "28-06-27",
+            "paid_by_member_id": member_id,
+            "split_member_ids": [member_id, fam_id],
+            "split_mode": "PER_FAMILY"
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+
         # Get XLSX report
         response = api_client.get(
             f"{BASE_URL}/api/trips/{trip_id}/report.xlsx?token={test_user['token']}"
@@ -231,11 +244,30 @@ class TestReports:
         wb = load_workbook(io.BytesIO(response.content))
         assert wb.sheetnames == ["Summary", "Members & Families", "Split Math", "Transactions", "Payments"]
 
-        # Summary carries the trip header, the per-entity Gross Spent block, and By category.
+        # Summary carries complete, structurally identical entity/category reconciliations.
         summary_vals = [str(c.value) for rowcells in wb["Summary"].iter_rows() for c in rowcells]
-        assert any("Gross Spent" in v for v in summary_vals)
-        assert any(v == "Total Spent" for v in summary_vals)
-        assert any(v == "By category" for v in summary_vals)
+        assert any(v == "Net spend by entity" for v in summary_vals)
+        assert any(v == "Net spend by category" for v in summary_vals)
+        assert summary_vals.count("GROSS SPEND") == 2
+        assert summary_vals.count("REIMBURSEMENTS") == 2
+        assert summary_vals.count("Gross spend subtotal") == 2
+        assert summary_vals.count("Total reimbursements") == 2
+
+        summary_rows = [tuple(c.value for c in rowcells[:3])
+                        for rowcells in wb["Summary"].iter_rows()]
+
+        def row_amounts(label):
+            return [next(v for v in values[1:] if isinstance(v, (int, float)))
+                    for values in summary_rows if values[0] == label]
+
+        assert row_amounts("Gross spend subtotal") == [270.0, 270.0]
+        assert row_amounts("Total reimbursements") == [20.0, 20.0]
+        assert row_amounts("Net spend") == [250.0, 250.0, 250.0]
+
+        # Travel appears once as gross (120) and again as a positive reimbursement magnitude (20).
+        travel_amounts = [next(v for v in values[1:] if isinstance(v, (int, float)))
+                          for values in summary_rows if values[0] == "Travel"]
+        assert travel_amounts == [120.0, 20.0]
 
         # Members & Families header has the four reconciling money columns.
         mf = wb["Members & Families"]
@@ -347,3 +379,12 @@ class TestReports:
         assert "application/pdf" in pdf.headers.get("Content-Type", "")
         assert pdf.content[:4] == b"%PDF"
         assert len(pdf.content) > 0
+        pdf_text = "\n".join(
+            page.extract_text() or "" for page in PdfReader(io.BytesIO(pdf.content)).pages
+        )
+        assert "Net spend by entity" in pdf_text
+        assert "Net spend by category" in pdf_text
+        assert pdf_text.count("GROSS SPEND") == 2
+        assert pdf_text.count("REIMBURSEMENTS") == 2
+        assert pdf_text.count("Gross spend subtotal") == 2
+        assert pdf_text.count("Total reimbursements") == 2

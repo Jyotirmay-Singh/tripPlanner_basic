@@ -1,9 +1,9 @@
 """Phase 18/23 — PDF rendering of the FULL trip report.
 
-View layer only: it renders the SAME pure-builder data the XLSX tabs show — ``build_summary_spend_rows``
-+ ``build_category_rows`` (Summary), ``build_members_families_rows`` (Members & Families, passed in by
+View layer only: it renders the SAME pure-builder data the XLSX tabs show: the shared spend
+reconciliation model (Summary), ``build_members_families_rows`` (Members & Families, passed in by
 the route because it needs the async ledger), and ``build_expense_member_rows`` (exploded Transactions +
-pivot) — so the PDF and the spreadsheet can never diverge in value. The Members & Families Settlements
+pivot), so the PDF and the spreadsheet cannot diverge in value. The Members & Families Settlements
 column therefore includes Phase-20 partial payments exactly like the ledger and the XLSX.
 
 Uses ONLY ``reportlab`` (pure-Python wheels, no cairo/pango/system libraries), so it runs within
@@ -19,13 +19,11 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 from reportlab.platypus import (
-    HRFlowable, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+    CondPageBreak, HRFlowable, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
 )
 
 from services.report_builder import (
-    build_category_rows,
     build_expense_member_rows,
-    build_summary_spend_rows,
     composition_label,
 )
 from utils.date_rules import trip_date_label
@@ -39,6 +37,9 @@ _SUBTLE = colors.HexColor("#5A6B67")
 _ZEBRA = colors.HexColor("#F4F7F6")      # even-row stripe
 _TOTAL_BG = colors.HexColor("#EAF0EE")   # subtotal / total row highlight
 _META_BG = colors.HexColor("#F4F7F6")    # meta label column
+_SUBSECTION_BG = colors.HexColor("#DDE9E5")
+_REIMBURSEMENT_BG = colors.HexColor("#EEF3F1")
+_NET_BG = colors.HexColor("#D7E5E0")
 
 # Free-text (user-entered) columns are wrapped in Paragraphs so long names wrap instead of overflowing.
 _CELL = ParagraphStyle("cell", fontSize=7.3, leading=8.6)
@@ -109,10 +110,11 @@ def _section(base, title):
 
 
 def _styled_table(data, col_widths, *, right_cols=(), center_cols=(), total_row=None,
-                  bold_rows=(), neg_cells=(), zebra=True, repeat=True, fontsize=7.3):
+                  bold_rows=(), strong_rows=(), neg_cells=(), nosplit_ranges=(),
+                  zebra=True, repeat=True, fontsize=7.3):
     """One consistent look for every report table: brand header, hairline grid, zebra body, right/center
     aligned columns, bold + ruled + highlighted total row, red negative cells, repeating header."""
-    t = Table(data, colWidths=col_widths, repeatRows=1 if repeat else 0)
+    t = Table(data, colWidths=col_widths, repeatRows=1 if repeat else 0, splitByRow=1)
     style = [
         ("FONTSIZE", (0, 0), (-1, -1), fontsize),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -139,17 +141,39 @@ def _styled_table(data, col_widths, *, right_cols=(), center_cols=(), total_row=
             ("LINEABOVE", (0, total_row), (-1, total_row), 0.9, _BRAND),
             ("BACKGROUND", (0, total_row), (-1, total_row), _TOTAL_BG),
         ]
+    for rr in strong_rows:
+        style += [
+            ("FONTNAME", (0, rr), (-1, rr), "Helvetica-Bold"),
+            ("LINEABOVE", (0, rr), (-1, rr), 1.4, _BRAND),
+            ("LINEBELOW", (0, rr), (-1, rr), 1.4, _BRAND),
+            ("BACKGROUND", (0, rr), (-1, rr), _NET_BG),
+            ("TOPPADDING", (0, rr), (-1, rr), 4),
+            ("BOTTOMPADDING", (0, rr), (-1, rr), 4),
+        ]
+    for start, end in nosplit_ranges:
+        style.append(("NOSPLIT", (0, start), (-1, end)))
     for (c, rr) in neg_cells:
         style.append(("TEXTCOLOR", (c, rr), (c, rr), _RED))
     t.setStyle(TableStyle(style))
     return t
 
 
-def _summary_section(base, trip, members, expenses, currency):
-    """Section 1 — trip meta + spend-by-entity + by-category (reuses the XLSX Summary builders)."""
-    flow = _section(base, "Summary")
+def _subsection_label(base, title, *, reimbursement=False):
+    """A visible, non-colour-only subsection band that stays with its following table."""
+    style = ParagraphStyle(
+        f"reconcile-{title}", parent=base["Normal"], fontName="Helvetica-Bold",
+        fontSize=8, leading=10, textColor=_BRAND,
+        backColor=_REIMBURSEMENT_BG if reimbursement else _SUBSECTION_BG,
+        borderPadding=3, spaceBefore=2, spaceAfter=3, keepWithNext=1,
+    )
+    return [CondPageBreak(15 * mm), Paragraph(title, style)]
 
-    total_signed = round(sum(e.get("amount", 0.0) for e in expenses), 2)  # signed: refunds net down
+
+def _summary_section(base, trip, members, reconciliation, currency):
+    """Section 1: trip metadata plus entity/category spend reconciliations."""
+    flow = _section(base, "Summary")
+    totals = reconciliation["totals"]
+
     budget = trip.get("budget")
     meta = [
         ["Dates", trip_date_label(trip)],
@@ -157,7 +181,7 @@ def _summary_section(base, trip, members, expenses, currency):
         ["Currency", currency],
         ["Members", composition_label(members)],
         ["Budget", _fmt_money(round(budget, 2)) if budget is not None else "N/A"],
-        ["Total Spent", _fmt_money(total_signed)],
+        ["Net spend", _fmt_money(totals["net"])],
     ]
     meta_tbl = Table([[_p(k, bold=True), _p(v)] for k, v in meta], colWidths=[90, 320])
     meta_tbl.setStyle(TableStyle([
@@ -170,35 +194,105 @@ def _summary_section(base, trip, members, expenses, currency):
     ]))
     flow += [meta_tbl, Spacer(1, 6 * mm)]
 
-    # Spend by entity (gross amount paid, descending — mirrors the in-app SpendBarChart).
-    spend = build_summary_spend_rows(members, expenses)
-    flow.append(Paragraph("Spend by entity (gross amount paid)", ParagraphStyle(
-        "subH", parent=base["Heading3"], fontSize=10, textColor=_BRAND, spaceAfter=3)))
-    sdata = [[_hp("Entity"), _hp("Type"), _hp(f"Gross Spent ({currency})")]]
-    sneg = []
-    for i, sr in enumerate(spend["rows"], start=1):
-        sdata.append([_p(sr["name"]), sr["type"], _fmt_money(sr["paid"])])
-        if sr["paid"] < 0:
-            sneg.append((2, i))
-    sdata.append([_p("Subtotal", bold=True), "", _fmt_money(spend["total"])])
-    flow += [_styled_table(sdata, [220, 90, 120], right_cols=(2,),
-                           total_row=len(sdata) - 1, neg_cells=sneg), Spacer(1, 6 * mm)]
+    dimension_style = ParagraphStyle(
+        "reconcileDimension", parent=base["Heading3"], fontSize=10,
+        textColor=_BRAND, spaceAfter=4, keepWithNext=1,
+    )
 
-    # By category (signed totals) — shared builder with the XLSX Summary tab.
-    cats = build_category_rows(expenses)
-    flow.append(Paragraph("By category", ParagraphStyle(
-        "subH2", parent=base["Heading3"], fontSize=10, textColor=_BRAND, spaceAfter=3)))
-    cdata = [[_hp("Category"), _hp(f"Amount ({currency})")]]
-    cneg = []
-    for i, cr in enumerate(cats["rows"], start=1):
-        cdata.append([_p(cr["category"]), _fmt_money(cr["amount"])])
-        if cr["amount"] < 0:
-            cneg.append((1, i))
-    cdata.append([_p("Total", bold=True), _fmt_money(cats["total"])])
-    if cats["total"] < 0:
-        cneg.append((1, len(cdata) - 1))
-    flow.append(_styled_table(cdata, [220, 130], right_cols=(1,),
-                              total_row=len(cdata) - 1, neg_cells=cneg))
+    # Entity reconciliation. Current roster entities remain in gross even at zero; an unresolved
+    # legacy payer appears only in a subsection where it has a non-zero amount.
+    flow += [CondPageBreak(24 * mm), Paragraph("Net spend by entity", dimension_style)]
+    flow += _subsection_label(base, "GROSS SPEND")
+    entity_gross = [
+        row for row in reconciliation["entities"]
+        if row["gross"] != 0 or row["entity_id"] is not None
+    ]
+    gross_data = [[_hp("Entity"), _hp("Type"), _hp(f"Amount ({currency})")]]
+    gross_data.extend([_p(row["name"]), row["type"], _fmt_money(row["gross"])]
+                      for row in entity_gross)
+    gross_data.append([_p("Gross spend subtotal", bold=True), "", _fmt_money(totals["gross"])])
+    gross_total_row = len(gross_data) - 1
+    gross_tail_start = max(1, gross_total_row - 1)
+    flow += [
+        _styled_table(
+            gross_data, [220, 90, 120], right_cols=(2,), total_row=gross_total_row,
+            nosplit_ranges=((gross_tail_start, gross_total_row),),
+        ),
+        Spacer(1, 4 * mm),
+    ]
+
+    flow += _subsection_label(base, "REIMBURSEMENTS", reimbursement=True)
+    entity_reimbursements = sorted(
+        (row for row in reconciliation["entities"] if row["reimbursements"] != 0),
+        key=lambda row: (-row["reimbursements"], row["name"]),
+    )
+    reimbursement_data = [[_hp("Entity"), _hp("Type"), _hp(f"Amount ({currency})")]]
+    reimbursement_data.extend(
+        [_p(row["name"]), row["type"], _fmt_money(row["reimbursements"])]
+        for row in entity_reimbursements
+    )
+    reimbursement_data.append([
+        _p("Total reimbursements", bold=True), "", _fmt_money(totals["reimbursements"]),
+    ])
+    entity_reimbursement_total = len(reimbursement_data) - 1
+    reimbursement_data.append([_p("Net spend", bold=True), "", _fmt_money(totals["net"])])
+    entity_net_row = len(reimbursement_data) - 1
+    entity_neg = [(2, entity_net_row)] if totals["net"] < 0 else []
+    entity_tail_start = max(1, entity_reimbursement_total - 1)
+    flow += [
+        _styled_table(
+            reimbursement_data, [220, 90, 120], right_cols=(2,),
+            total_row=entity_reimbursement_total, strong_rows=(entity_net_row,),
+            neg_cells=entity_neg, nosplit_ranges=((entity_tail_start, entity_net_row),),
+        ),
+        Spacer(1, 7 * mm),
+    ]
+
+    # Category reconciliation. A category can appear once in gross and again in reimbursements.
+    flow += [CondPageBreak(24 * mm), Paragraph("Net spend by category", dimension_style)]
+    flow += _subsection_label(base, "GROSS SPEND")
+    category_gross = [row for row in reconciliation["categories"] if row["gross"] != 0]
+    category_gross_data = [[_hp("Category"), _hp(f"Amount ({currency})")]]
+    category_gross_data.extend(
+        [_p(row["category"]), _fmt_money(row["gross"])] for row in category_gross
+    )
+    category_gross_data.append([
+        _p("Gross spend subtotal", bold=True), _fmt_money(totals["gross"]),
+    ])
+    category_gross_total = len(category_gross_data) - 1
+    category_gross_tail = max(1, category_gross_total - 1)
+    flow += [
+        _styled_table(
+            category_gross_data, [220, 130], right_cols=(1,), total_row=category_gross_total,
+            nosplit_ranges=((category_gross_tail, category_gross_total),),
+        ),
+        Spacer(1, 4 * mm),
+    ]
+
+    flow += _subsection_label(base, "REIMBURSEMENTS", reimbursement=True)
+    category_reimbursements = [
+        row for row in reconciliation["categories"] if row["reimbursements"] != 0
+    ]
+    category_reimbursement_data = [[_hp("Category"), _hp(f"Amount ({currency})")]]
+    category_reimbursement_data.extend(
+        [_p(row["category"]), _fmt_money(row["reimbursements"])]
+        for row in category_reimbursements
+    )
+    category_reimbursement_data.append([
+        _p("Total reimbursements", bold=True), _fmt_money(totals["reimbursements"]),
+    ])
+    category_reimbursement_total = len(category_reimbursement_data) - 1
+    category_reimbursement_data.append([
+        _p("Net spend", bold=True), _fmt_money(totals["net"]),
+    ])
+    category_net_row = len(category_reimbursement_data) - 1
+    category_neg = [(1, category_net_row)] if totals["net"] < 0 else []
+    category_tail_start = max(1, category_reimbursement_total - 1)
+    flow.append(_styled_table(
+        category_reimbursement_data, [220, 130], right_cols=(1,),
+        total_row=category_reimbursement_total, strong_rows=(category_net_row,),
+        neg_cells=category_neg, nosplit_ranges=((category_tail_start, category_net_row),),
+    ))
     return flow
 
 
@@ -314,12 +408,12 @@ def _payments_section(base, payments, members, currency):
 
 
 def build_report_pdf(trip: dict, members: list, expenses: list, currency: str,
-                     payments: list = None, mf_rows: list = None) -> bytes:
+                     reconciliation: dict, payments: list = None, mf_rows: list = None) -> bytes:
     """Render the FULL report (Summary, Members & Families, exploded Transactions, Payments) to PDF bytes.
 
-    ``mf_rows`` (Phase 23) is the ``build_members_families_rows`` output supplied by the route (it needs
-    the async ledger); when None the Members & Families section is skipped. ``payments`` (Phase 20)
-    appends the Payments log; when empty/None the Payments section is skipped.
+    ``reconciliation`` is the shared ``build_spend_reconciliation`` result used by XLSX and PDF.
+    ``mf_rows`` is supplied by the route because it needs the async ledger; when None the Members &
+    Families section is skipped. ``payments`` appends the payment log when non-empty.
     """
     tx = build_expense_member_rows(expenses, members)
     buf = io.BytesIO()
@@ -343,7 +437,7 @@ def build_report_pdf(trip: dict, members: list, expenses: list, currency: str,
     ]
 
     # ---------- Section 1: Summary ----------
-    story += _summary_section(base, trip, members, expenses, currency)
+    story += _summary_section(base, trip, members, reconciliation, currency)
 
     # ---------- Section 2: Members & Families ----------
     if mf_rows:

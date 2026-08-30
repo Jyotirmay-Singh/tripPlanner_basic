@@ -1,13 +1,15 @@
 # Pure unit tests for services.report_builder (Step 9 — Synchronize XLSX Export Report).
 # No HTTP, no server, no conftest fixtures - operates only on plain dicts/lists, exactly like
 # test_per_capita.py / test_per_family.py.
+import math
+
 from services.member_breakdown import family_member_ids
 from services.report_builder import (
-    build_category_rows,
     build_expense_member_rows,
     build_member_weight_map,
     build_per_capita_rows,
     build_per_family_rows,
+    build_spend_reconciliation,
     build_transaction_rows,
 )
 
@@ -263,36 +265,130 @@ class TestOptionalTime:
         assert all(r["date"] == "11-05-26 · 9:05 AM" for r in pf)
 
 
-class TestCategoryRows:
-    """Phase 23 — the shared 'By category' builder used by BOTH the XLSX Summary tab and the PDF."""
+class TestSpendReconciliation:
+    """Shared report model: gross and reimbursements stay visible and foot by both dimensions."""
 
-    def _exp_cat(self, cat, amount):
-        return {"id": cat + str(amount), "amount": amount, "split_member_ids": [],
-                "split_mode": "PER_CAPITA", "paid_by_member_id": "i1", "date": "1",
-                "category": cat, "description": ""}
+    @staticmethod
+    def _row(eid, amount, paid_by="i1", category="Food"):
+        return {
+            "id": eid,
+            "amount": amount,
+            "paid_by_member_id": paid_by,
+            "category": category,
+        }
 
-    def test_first_seen_order_and_signed_sums(self):
-        exps = [self._exp_cat("Food", 100.0), self._exp_cat("Travel", 60.0),
-                self._exp_cat("Food", -12.0)]  # refund nets Food down
-        out = build_category_rows(exps)
-        assert [r["category"] for r in out["rows"]] == ["Food", "Travel"]  # first-seen order
-        assert out["rows"][0]["amount"] == 88.0   # 100 - 12 signed
-        assert out["rows"][1]["amount"] == 60.0
-        assert out["total"] == 148.0
+    @staticmethod
+    def _assert_invariants(out):
+        totals = out["totals"]
+        for dimension in ("entities", "categories"):
+            assert round(sum(row["gross"] for row in out[dimension]), 2) == totals["gross"]
+            assert round(sum(row["reimbursements"] for row in out[dimension]), 2) == \
+                totals["reimbursements"]
+            assert round(sum(row["net"] for row in out[dimension]), 2) == totals["net"]
+        assert round(totals["gross"] - totals["reimbursements"], 2) == totals["net"]
 
-    def test_negative_category_total(self):
-        out = build_category_rows([self._exp_cat("Refunds", -40.0), self._exp_cat("Refunds", -10.0)])
-        assert out["rows"] == [{"category": "Refunds", "amount": -50.0}]
-        assert out["total"] == -50.0
+    def test_time_partial_reimbursement_remains_separate(self):
+        members = [_fam("time", 2, "Time")]
+        expenses = [
+            self._row("gross", 14_000, paid_by="time", category="Local Transportation"),
+            self._row("refund", -4_000, paid_by="time", category="Local Transportation"),
+        ]
+        out = build_spend_reconciliation(members, expenses)
 
-    def test_empty_input(self):
-        out = build_category_rows([])
-        assert out == {"rows": [], "total": 0.0}
+        assert out["entities"] == [{
+            "entity_id": "time", "name": "Time", "type": "Family",
+            "gross": 14_000.0, "reimbursements": 4_000.0, "net": 10_000.0,
+        }]
+        assert out["categories"] == [{
+            "category": "Local Transportation", "gross": 14_000.0,
+            "reimbursements": 4_000.0, "net": 10_000.0,
+        }]
+        assert out["totals"] == {
+            "gross": 14_000.0, "reimbursements": 4_000.0, "net": 10_000.0,
+        }
+        self._assert_invariants(out)
 
-    def test_rounding_to_two_places(self):
-        out = build_category_rows([self._exp_cat("Food", 10.005), self._exp_cat("Food", 0.004)])
-        assert out["rows"][0]["amount"] == round(10.005 + 0.004, 2)
-        assert out["total"] == out["rows"][0]["amount"]
+    def test_multiple_rows_group_once_and_reconcile_across_dimensions(self):
+        members = [_fam("f1", 2, "Family"), _ind("i1", "Ann"), _ind("i2", "Bob")]
+        expenses = [
+            self._row("a1", 70.10, "i1", "Food"),
+            self._row("a2", 29.90, "i1", "Food"),
+            self._row("b1", 50, "i2", "Travel"),
+            self._row("f1", 25, "f1", "Food"),
+            self._row("r1", -20, "i1", "Food"),
+            self._row("r2", -5, "i1", "Food"),
+            self._row("r3", -10, "f1", "Travel"),
+        ]
+        out = build_spend_reconciliation(members, expenses)
+        by_entity = {row["entity_id"]: row for row in out["entities"]}
+        by_category = {row["category"]: row for row in out["categories"]}
+
+        assert by_entity["i1"] == {
+            "entity_id": "i1", "name": "Ann", "type": "Individual",
+            "gross": 100.0, "reimbursements": 25.0, "net": 75.0,
+        }
+        assert by_entity["f1"]["type"] == "Family"
+        assert by_category["Food"] == {
+            "category": "Food", "gross": 125.0, "reimbursements": 25.0, "net": 100.0,
+        }
+        assert by_category["Travel"] == {
+            "category": "Travel", "gross": 50.0, "reimbursements": 10.0, "net": 40.0,
+        }
+        assert out["totals"] == {"gross": 175.0, "reimbursements": 35.0, "net": 140.0}
+        self._assert_invariants(out)
+
+    def test_no_full_and_over_reimbursement_cases(self):
+        members = [_ind("i1", "Ann")]
+        none = build_spend_reconciliation(members, [self._row("g", 100)])
+        assert none["totals"] == {"gross": 100.0, "reimbursements": 0.0, "net": 100.0}
+
+        full = build_spend_reconciliation(
+            members, [self._row("g", 100), self._row("r", -100)])
+        assert full["entities"][0]["net"] == 0.0
+
+        over = build_spend_reconciliation(
+            members, [self._row("g", 100), self._row("r", -150)])
+        assert over["entities"][0]["net"] == -50.0
+        assert over["totals"]["net"] == -50.0  # never clamped
+        self._assert_invariants(over)
+
+    def test_unassigned_attribution_is_visible_and_explicit_category_is_preserved(self):
+        members = [_ind("i1", "Ann")]
+        out = build_spend_reconciliation(members, [
+            self._row("legacy-gross", 30, "removed", "Legacy category"),
+            self._row("legacy-refund", -12, "removed", ""),
+        ])
+        unassigned = next(row for row in out["entities"] if row["entity_id"] is None)
+        assert unassigned == {
+            "entity_id": None, "name": "Unassigned entity", "type": "Unknown",
+            "gross": 30.0, "reimbursements": 12.0, "net": 18.0,
+        }
+        assert [row["category"] for row in out["categories"]] == [
+            "Legacy category", "Uncategorized",
+        ]
+        self._assert_invariants(out)
+
+    def test_cent_normalization_zero_legacy_values_and_input_immutability(self):
+        members = [_ind("i1", "Ann")]
+        expenses = [
+            self._row("a", 0.1), self._row("b", 0.2), self._row("r", -0.1),
+            self._row("rounds-zero", 0.004), self._row("invalid", float("nan")),
+        ]
+        snapshot = [dict(row) for row in expenses]
+        out = build_spend_reconciliation(members, expenses)
+        assert expenses[:4] == snapshot[:4]
+        assert math.isnan(expenses[4]["amount"])
+        assert out["totals"] == {"gross": 0.3, "reimbursements": 0.1, "net": 0.2}
+        self._assert_invariants(out)
+
+    def test_current_zero_spend_entities_are_retained_with_types(self):
+        members = [_fam("f1", 2, "Family"), _ind("i1", "Ann")]
+        out = build_spend_reconciliation(members, [])
+        assert [(row["name"], row["type"], row["gross"]) for row in out["entities"]] == [
+            ("Ann", "Individual", 0.0), ("Family", "Family", 0.0),
+        ]
+        assert out["categories"] == []
+        assert out["totals"] == {"gross": 0.0, "reimbursements": 0.0, "net": 0.0}
 
 
 class TestEmptyInputs:

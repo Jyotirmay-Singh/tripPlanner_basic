@@ -6,7 +6,6 @@ from utils.display_names import member_display_names
 from services.report_builder import (
     build_members_families_rows,
     build_split_math_rows,
-    build_summary_spend_rows,
     composition_label,
     entity_ledger_components,
     mode_label,
@@ -319,27 +318,3 @@ class TestMembersFamiliesWithPayments:
         by_name = {r["name"]: r for r in rows if r["kind"] == "individual"}
         assert round(by_name["Ann"]["net"], 2) == 0.0 and round(by_name["Bob"]["net"], 2) == 0.0
         assert round(by_name["Bob"]["settle"], 2) == 45.0
-
-
-class TestSummarySpend:
-    def test_descending_with_types_and_total(self):
-        members = [_fam("f1", 2, "Fam"), _ind("i1", "Ann"), _ind("i2", "Bob")]
-        expenses = [
-            _exp("e1", 100.0, [], paid_by="i1"),
-            _exp("e2", 60.0, [], paid_by="f1"),
-            _exp("e3", 30.0, [], paid_by="i1"),
-        ]
-        out = build_summary_spend_rows(members, expenses)
-        rows = out["rows"]
-        # Ann fronted 130, Fam 60, Bob 0 -> descending.
-        assert [r["name"] for r in rows] == ["Ann", "Fam", "Bob"]
-        assert [r["paid"] for r in rows] == [130.0, 60.0, 0.0]
-        assert rows[0]["type"] == "Individual" and rows[1]["type"] == "Family"
-        assert out["total"] == 190.0
-
-    def test_refunds_excluded_from_gross(self):
-        members = [_ind("i1", "Ann")]
-        out = build_summary_spend_rows(
-            members, [_exp("e1", 100.0, [], paid_by="i1"), _exp("e2", -40.0, [], paid_by="i1")])
-        assert out["rows"][0]["paid"] == 100.0   # gross positive only
-        assert out["total"] == 100.0

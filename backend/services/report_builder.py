@@ -5,11 +5,12 @@ calculator functions the ledger uses (`services.calculator`) so the report can n
 `utils.balances._compute_balances`.
 
 This module is intentionally pure (plain dicts/lists, no `async`, no `database`/`routes`/
-FastAPI/Motor imports — only `services.calculator` and the pure `utils.display_names`) so it is
-unit-testable exactly like `test_per_capita.py` / `test_per_family.py`. Rounding here touches ONLY
-the displayed cells; these builders never compute `net`, so they add no rounding to the settlement
-path.
+FastAPI/Motor imports — only pure service/display helpers) so it is unit-testable exactly like
+`test_per_capita.py` / `test_per_family.py`. Rounding here touches ONLY report values, so these
+builders never change the settlement path or stored transactions.
 """
+
+import math
 
 from services.calculator import (
     allocate_within_family,
@@ -20,7 +21,6 @@ from services.calculator import (
 from services.custom_split import exact_member_shares
 from services.expense_shares import entity_shares_raw
 from services.member_breakdown import family_member_ids
-from services.spend_summary import aggregate_spend
 from utils.display_names import family_member_display_names, member_display_names
 
 
@@ -177,8 +177,8 @@ def build_transaction_rows(expenses: list, members: list) -> list:
 # ---------- Phase 16: report restructure (concise, professional, CA-reviewable) ----------
 # Everything below is additive and PURE (plain dicts/lists). It only RESHAPES the engine's outputs
 # for the workbook — no new split/balance math. It reuses the SAME helpers the ledger uses
-# (`services.expense_shares.entity_shares_raw`, `services.spend_summary.aggregate_spend`, and the
-# `build_*_rows` builders above), so every displayed figure can never drift from
+# (`services.expense_shares.entity_shares_raw` and the `build_*_rows` builders above), so every
+# displayed figure can never drift from
 # `utils.balances._compute_balances`.
 
 _MODE_LABELS = {"PER_CAPITA": "Per-Person", "PER_FAMILY": "Per-Family", "EXACT": "Exact"}
@@ -270,40 +270,119 @@ def settle_adj_by_entity(settlements: list) -> dict:
     return out
 
 
-def build_category_rows(expenses: list) -> dict:
-    """'By category' table for the Summary tab: signed amount totals grouped by category.
+def _amount_cents(value) -> int:
+    """Normalize one stored signed amount at the report boundary.
 
-    Pure aggregation shared by BOTH the XLSX Summary tab and the PDF Summary section so the two can
-    never drift. Category order is first-seen (insertion order over ``expenses``), signed amounts net
-    together (a refund reduces its category and the total), each cell rounded to 2dp. Returns
-    ``{"rows": [{"category", "amount"}...], "total": <Σ rounded amounts>}``.
+    The ledger and exact-split helpers already use ``round(value * 100)`` when they need a stable
+    display/settlement grain. Reusing that convention here prevents entity/category float drift and
+    guarantees every rendered subtotal is the sum of its rendered rows. Invalid legacy values are
+    display-neutral instead of crashing an otherwise readable report.
     """
-    by_cat: dict = {}
-    for e in expenses:
-        cat = e.get("category", "")
-        by_cat[cat] = by_cat.get(cat, 0.0) + e.get("amount", 0.0)
-    rows = [{"category": k, "amount": round(v, 2)} for k, v in by_cat.items()]
-    total = round(sum(r["amount"] for r in rows), 2)
-    return {"rows": rows, "total": total}
+    if not isinstance(value, (int, float)) or not math.isfinite(value):
+        return 0
+    return int(round(float(value) * 100))
 
 
-def build_summary_spend_rows(members: list, expenses: list) -> dict:
-    """'Spend by entity' table for the Summary tab: gross amount PAID per entity, DESCENDING.
+def build_spend_reconciliation(members: list, expenses: list) -> dict:
+    """Build the shared gross/reimbursement/net model for both Summary breakdowns.
 
-    Wraps ``services.spend_summary.aggregate_spend`` (positive-only gross — the same figure the in-app
-    SpendBarChart shows), relabeled with disambiguated display names. Ties broken by name for a stable
-    order. Returns ``{"rows": [{"name","type","paid"}...], "total": <Σ rounded paids>}``.
+    Positive signed expenses contribute once to gross spend. Negative signed expenses contribute
+    once, as positive magnitudes, to reimbursements. Net is derived only after classification::
+
+        net = gross - reimbursements
+
+    Entity attribution comes from ``paid_by_member_id`` and category attribution from the expense's
+    own ``category``. The signed-expense model has no original-expense link or refund status to consult.
+    Unknown legacy payer ids remain visible under one ``Unassigned entity`` bucket; blank categories
+    remain visible under ``Uncategorized``. Current roster entities are initialized even with zero
+    spend, preserving the existing Summary convention. All accumulation is in integer cents.
     """
-    agg = aggregate_spend(members, expenses)
     names = _names(members)
-    rows = [
-        {"name": names.get(en["entity_id"], en.get("name", "?")),
-         "type": "Family" if en["entity_type"] == "family" else "Individual",
-         "paid": en["paid"]}
-        for en in agg["entities"]
-    ]
-    rows.sort(key=lambda r: (-r["paid"], r["name"]))
-    return {"rows": rows, "total": agg["total"]}
+    member_by_id = {m.get("id"): m for m in members if m.get("id") is not None}
+
+    entity_cents: dict = {}
+    for member in members:
+        member_id = member.get("id")
+        if member_id is None:
+            continue
+        entity_cents[member_id] = {
+            "entity_id": member_id,
+            "name": names.get(member_id, member.get("name") or "?"),
+            "type": "Family" if member.get("kind") == "family" else "Individual",
+            "gross_cents": 0,
+            "reimbursement_cents": 0,
+        }
+
+    category_cents: dict = {}
+    gross_total_cents = 0
+    reimbursement_total_cents = 0
+
+    for expense in expenses or []:
+        cents = _amount_cents(expense.get("amount", 0.0))
+        if cents == 0:
+            continue
+
+        payer_id = expense.get("paid_by_member_id")
+        entity_key = payer_id if payer_id in member_by_id else None
+        if entity_key not in entity_cents:
+            entity_cents[entity_key] = {
+                "entity_id": None,
+                "name": "Unassigned entity",
+                "type": "Unknown",
+                "gross_cents": 0,
+                "reimbursement_cents": 0,
+            }
+
+        raw_category = expense.get("category")
+        category = (
+            raw_category
+            if isinstance(raw_category, str) and raw_category.strip()
+            else "Uncategorized"
+        )
+        if category not in category_cents:
+            category_cents[category] = {"gross_cents": 0, "reimbursement_cents": 0}
+
+        if cents > 0:
+            entity_cents[entity_key]["gross_cents"] += cents
+            category_cents[category]["gross_cents"] += cents
+            gross_total_cents += cents
+        else:
+            magnitude = -cents
+            entity_cents[entity_key]["reimbursement_cents"] += magnitude
+            category_cents[category]["reimbursement_cents"] += magnitude
+            reimbursement_total_cents += magnitude
+
+    entities = []
+    for row in entity_cents.values():
+        gross = row["gross_cents"] / 100.0
+        reimbursements = row["reimbursement_cents"] / 100.0
+        entities.append({
+            "entity_id": row["entity_id"],
+            "name": row["name"],
+            "type": row["type"],
+            "gross": gross,
+            "reimbursements": reimbursements,
+            "net": (row["gross_cents"] - row["reimbursement_cents"]) / 100.0,
+        })
+    entities.sort(key=lambda row: (-row["gross"], row["name"]))
+
+    categories = []
+    for category, cents in category_cents.items():
+        gross = cents["gross_cents"] / 100.0
+        reimbursements = cents["reimbursement_cents"] / 100.0
+        categories.append({
+            "category": category,
+            "gross": gross,
+            "reimbursements": reimbursements,
+            "net": (cents["gross_cents"] - cents["reimbursement_cents"]) / 100.0,
+        })
+
+    totals = {
+        "gross": gross_total_cents / 100.0,
+        "reimbursements": reimbursement_total_cents / 100.0,
+        "net": (gross_total_cents - reimbursement_total_cents) / 100.0,
+    }
+    return {"entities": entities, "categories": categories, "totals": totals}
 
 
 def build_members_families_rows(per_person: list, paid: dict, settle: dict, display: dict) -> list:
