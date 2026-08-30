@@ -54,10 +54,10 @@ function renderHeader(Component: React.ComponentType) {
 }
 
 describe('tab page headers', () => {
-  it('renders the dashboard greeting in the shared header', () => {
+  it('renders the dashboard with the shared title-only header', () => {
     const header = renderHeader(Dashboard);
     expect(header.props.title).toBe('Dashboard');
-    expect(header.props.eyebrow).toBe('Hello, Ada');
+    expect(header.props.eyebrow).toBeUndefined();
   });
 
   it('keeps the Trips new-trip action in the shared header', () => {

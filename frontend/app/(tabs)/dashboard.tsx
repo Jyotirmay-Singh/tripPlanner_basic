@@ -87,10 +87,7 @@ export default function Dashboard() {
 
   return (
     <Screen refreshing={refreshing} onRefresh={load}>
-      <TabPageHeader
-        title="Dashboard"
-        eyebrow={`Hello, ${user?.name?.split(' ')[0] || 'traveller'}`}
-      />
+      <TabPageHeader title="Dashboard" />
 
       <UnverifiedBanner />
 
