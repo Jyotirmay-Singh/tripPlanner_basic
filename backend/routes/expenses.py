@@ -57,6 +57,13 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
                       force: bool = False,
                       user=Depends(get_current_user)):
     trip = await _trip_or_404(trip_id, user["id"])
+    trip_currency = trip.get("currency", "INR")
+    expense_currency = body.currency or trip_currency
+    if expense_currency != trip_currency:
+        raise HTTPException(
+            409,
+            "Exchange rate support is required to use a currency other than the trip's official currency",
+        )
     if body.category not in CATEGORIES:
         raise HTTPException(400, "Invalid category")
     member_ids = {m["id"] for m in trip["members"]}
@@ -96,7 +103,7 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
     eid = gen_id()
     doc = {
         "id": eid, "trip_id": trip_id,
-        "amount": float(body.amount), "category": body.category,
+        "amount": float(body.amount), "currency": expense_currency, "category": body.category,
         "description": body.description or "",
         "date": body.date,
         "time": body.time,  # optional wall-clock "HH:MM" (24h); None = no time
@@ -141,6 +148,7 @@ async def list_expenses(trip_id: str, user=Depends(get_current_user)):
     ])
     expenses = await cur.to_list(1000)
     for e in expenses:
+        e["currency"] = e.get("currency") or trip.get("currency", "INR")
         e["split_mode"] = e.get("split_mode", "PER_CAPITA")
         e["has_receipt"] = bool(e.get("has_receipt"))
         # Additive, DISPLAY-only: per-expense participant share breakdown, re-derived from the SAME
@@ -161,6 +169,15 @@ async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
     updates = {k: v for k, v in body.model_dump(exclude_unset=True).items() if k != "force"}
     if not updates:
         return expense
+    trip_currency = _trip.get("currency", "INR")
+    effective_currency = updates.get("currency") or expense.get("currency") or trip_currency
+    if effective_currency != trip_currency:
+        raise HTTPException(
+            409,
+            "Exchange rate support is required to use a currency other than the trip's official currency",
+        )
+    if "currency" in updates:
+        updates["currency"] = effective_currency
     # P4 — preserve backend-managed size-freeze pins across a client edit. When a member is removed
     # from the trip, its per-capita weight is pinned onto this expense's `weight_snapshots` (recorded
     # in `weight_frozen`) so balances stay neutral. The edit screen rebuilds `weight_snapshots` from

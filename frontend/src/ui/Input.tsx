@@ -55,7 +55,7 @@ const Input = forwardRef<TextInput, Props>(function Input(
             onPress={() => setReveal(toggleVisible)}
             hitSlop={8}
             accessibilityRole="button"
-            accessibilityLabel={secureA11yLabel(reveal, 'password')}
+            accessibilityLabel={secureA11yLabel(reveal)}
             style={styles.eyeBtn}
           >
             <Icon name={eyeIcon(reveal)} size={18} color={colors.textMain} />

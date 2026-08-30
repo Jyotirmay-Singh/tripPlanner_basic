@@ -9,8 +9,8 @@ export type User = {
   email: string;
   name: string;
   role: string;
-  // Phase 9 (additive, optional so older payloads stay valid): email verification + whether an
-  // OAuth user has chosen a real PIN/password yet.
+  // Phase 9 (additive, optional so older payloads stay valid): email verification + whether a
+  // Google-created account has configured its required local password.
   email_verified?: boolean;
   credentials_set?: boolean;
 };
@@ -26,8 +26,8 @@ type Ctx = {
   emailFeaturesEnabled: boolean;
   chatCapability: ChatCapability;
   handleAuthenticationRequired: () => Promise<void>;
-  signIn: (email: string, password?: string, pin?: string) => Promise<void>;
-  register: (email: string, pin: string, name: string, password?: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
+  register: (email: string, name: string, password: string) => Promise<void>;
   signInWithGoogle: (idToken: string) => Promise<User>;
   signOut: (clearSavedEmail?: boolean) => Promise<void>;
   forgetSavedEmail: () => Promise<void>;
@@ -74,12 +74,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const signIn = async (email: string, password?: string, pin?: string) => {
-    const body: any = { email };
-    if (password) body.password = password;
-    if (pin) body.pin = pin;
+  const signIn = async (email: string, password: string) => {
     const res = await api<{ access_token: string; user: User }>('/auth/login', {
-      method: 'POST', body, auth: false,
+      method: 'POST', body: { email, password }, auth: false,
     });
     await setToken(res.access_token);
     await AsyncStorage.setItem(SAVED_EMAIL_KEY, res.user.email);
@@ -87,11 +84,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(res.user);
   };
 
-  const register = async (email: string, pin: string, name: string, password?: string) => {
-    const body: any = { email, pin, name };
-    if (password) body.password = password;
+  const register = async (email: string, name: string, password: string) => {
     const res = await api<{ access_token: string; user: User }>('/auth/register', {
-      method: 'POST', body, auth: false,
+      method: 'POST', body: { email, name, password }, auth: false,
     });
     await setToken(res.access_token);
     await AsyncStorage.setItem(SAVED_EMAIL_KEY, res.user.email);
@@ -108,7 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSavedEmail(res.user.email);
     setUser(res.user);
     // Returned so the caller can route a first-time OAuth user (credentials_set === false)
-    // through the one-time "set PIN + password" step instead of straight to the dashboard.
+    // through mandatory local-password setup instead of straight to the dashboard.
     return res.user;
   };
 

@@ -7,17 +7,18 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
 ## 1. Getting Started
 
 ### 1.1 Create an account
-1. Open the app → **Create an account** at the bottom of the Sign-in screen.
+1. Open the app → **Create an account** at the bottom of the sign-in screen.
 2. Enter:
    - **Your name** (e.g. *Riddhi*)
-   - **Email** (used for login & PIN-reset emails)
-   - **4-digit PIN** (this is your **only** login credential — choose something memorable but private)
+   - **Gmail address** (used for login, verification, and password recovery)
+   - **Password** (at least 9 characters), entered twice for confirmation
 3. Tap **Create account**. You are signed in immediately.
+4. Alternatively, choose **Continue with Google**. A new Google user creates a local password once before entering the app.
 
 ### 1.2 Sign in (next time)
-- The app **remembers your email**. On subsequent launches you'll only see your 4-digit PIN field.
+- Sign in with **Google**, or use your remembered Gmail address and **password**.
 - Tap **Switch** if you want to sign in as a different user.
-- Forgot your PIN? Tap **Forgot PIN?** → enter your email → check your inbox for a reset link → set a new PIN.
+- If email delivery is enabled, tap **Forgot password?** to receive a single-use reset link.
 
 ### 1.3 Dark mode & sign out
 - Bottom-tab **Profile** → toggle **Dark mode**.
@@ -324,7 +325,7 @@ The download opens in your phone's browser; share or save it from there.
 
 - **Icons missing or "font is empty"?** Close Expo Go fully and reopen → re-scan the QR. Asset caches can corrupt; this re-downloads them.
 - **Reset emails not arriving?** The Resend account is in test mode — emails only deliver to the account owner. Verify a domain at resend.com/domains to send to anyone. Until then, the reset token is also printed in the backend logs (admin can fetch it).
-- **Forgot PIN?** Sign-in screen → *Forgot PIN?* → email link → set a new PIN. If email isn't delivering yet, ask the admin.
+- **Forgot password?** Sign-in screen → *Forgot password?* → email link → choose a new password. If the link is hidden, outbound email is currently disabled; use Google sign-in or contact the administrator.
 - **Want to edit a past family split?** Edit the family → choose **Re-split with new members** when prompted. To preserve the old splits, choose **Keep original**.
 - **Currency** is per-trip; the app does not auto-convert between currencies (manual entry only).
 - **Receipts** are stored in MongoDB GridFS and load on demand; legacy inline receipts remain readable.
@@ -333,9 +334,8 @@ The download opens in your phone's browser; share or save it from there.
 
 ## 12. Default Admin Account
 
-For demo & testing:
-- Email: `admin@trip.app`
-- PIN: `1234`
+For demo and testing, use the Gmail address and password configured through `ADMIN_EMAIL` and
+`ADMIN_PASSWORD`. There is no PIN credential.
 
 You can create as many additional users as needed via the registration screen.
 

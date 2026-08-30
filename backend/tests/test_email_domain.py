@@ -54,7 +54,6 @@ class TestRegisterLoginDomain:
         response = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": f"TEST_{uuid.uuid4().hex[:8]}@yahoo.com",
             "password": "test12345",
-            "pin": "4321",
             "name": "Non Gmail"
         })
         assert response.status_code == 400
@@ -64,7 +63,6 @@ class TestRegisterLoginDomain:
         response = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": email,
             "password": "test12345",
-            "pin": "4321",
             "name": "Gmail User"
         })
         assert response.status_code == 200, response.text
@@ -77,13 +75,13 @@ class TestRegisterLoginDomain:
         assert response.status_code == 400
 
     def test_forgot_password_non_gmail_rejected(self, api_client):
-        response = api_client.post(f"{BASE_URL}/api/auth/forgot-password", json={
+        response = api_client.post(f"{BASE_URL}/api/auth/request-password-reset", json={
             "email": "someone@yahoo.com"
         })
         assert response.status_code == 400
 
     def test_forgot_password_gmail_accepted(self, api_client):
-        response = api_client.post(f"{BASE_URL}/api/auth/forgot-password", json={
+        response = api_client.post(f"{BASE_URL}/api/auth/request-password-reset", json={
             "email": "admin@gmail.com"
         })
         assert response.status_code == 200

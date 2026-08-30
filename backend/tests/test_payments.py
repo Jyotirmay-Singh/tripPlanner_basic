@@ -20,7 +20,7 @@ def _register(api_client):
     """Register a fresh user; return {token, id, email}."""
     email = f"test_{uuid.uuid4().hex[:8]}@gmail.com"
     resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
-        "email": email, "password": "test12345", "pin": "4321", "name": "Pay Tester",
+        "email": email, "password": "test12345", "name": "Pay Tester",
     })
     if resp.status_code != 200:
         pytest.skip(f"User registration failed: {resp.status_code}")

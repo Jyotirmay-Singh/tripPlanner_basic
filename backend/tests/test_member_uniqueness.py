@@ -151,7 +151,6 @@ class TestMemberUniqueness:
         reg_resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": email2,
             "password": "test12345",
-            "pin": "5678",
             "name": owner_name
         })
         assert reg_resp.status_code == 200, reg_resp.text

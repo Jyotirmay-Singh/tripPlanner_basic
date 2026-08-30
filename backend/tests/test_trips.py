@@ -34,6 +34,17 @@ class TestTrips:
         assert data["members"][0]["name"] == test_user["name"]
         assert data["members"][0]["kind"] == "individual"
 
+    def test_official_currency_cannot_change(self, api_client, test_user):
+        create_resp = api_client.post(f"{BASE_URL}/api/trips", json={
+            "name": "TEST_Locked Currency", "currency": "INR",
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        trip_id = create_resp.json()["id"]
+
+        response = api_client.patch(f"{BASE_URL}/api/trips/{trip_id}", json={
+            "currency": "USD",
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        assert response.status_code == 409, response.text
+
     def test_list_trips(self, api_client, test_user):
         """Test GET /trips lists user trips"""
         # Create a trip first
@@ -133,7 +144,6 @@ class TestTrips:
         user2_resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": user2_email,
             "password": "test12345",
-            "pin": "5678",
             "name": "User Two"
         })
         user2_token = user2_resp.json()["access_token"]
@@ -173,7 +183,6 @@ class TestTrips:
         user2_resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": f"TEST_other_{uuid.uuid4().hex[:8]}@gmail.com",
             "password": "test12345",
-            "pin": "9999",
             "name": "Other User"
         })
         user2_token = user2_resp.json()["access_token"]
@@ -203,6 +212,28 @@ class TestTrips:
         data = response.json()
         assert data["start_date"] == "2026-12-11"
         assert data["end_date"] == "2026-12-11"
+
+    def test_create_trip_without_dates_allowed(self, api_client, test_user):
+        """Both trip dates may be omitted."""
+        response = api_client.post(f"{BASE_URL}/api/trips", json={
+            "name": "TEST_No Dates", "currency": "INR",
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["start_date"] is None
+        assert data["end_date"] is None
+
+    @pytest.mark.parametrize("date_field", ["start_date", "end_date"])
+    def test_create_trip_with_only_one_date_allowed(self, api_client, test_user, date_field):
+        """Start and end are independently optional."""
+        response = api_client.post(f"{BASE_URL}/api/trips", json={
+            "name": f"TEST_Only {date_field}", date_field: "2026-12-11", "currency": "INR",
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data[date_field] == "2026-12-11"
+        other_field = "end_date" if date_field == "start_date" else "start_date"
+        assert data[other_field] is None
 
     def test_create_trip_end_before_start_rejected(self, api_client, test_user):
         """End date before start date is rejected with 400."""
@@ -235,6 +266,22 @@ class TestTrips:
         data = response.json()
         assert data["start_date"] == "2026-01-12"
         assert data["end_date"] == "2026-01-20"
+
+    def test_update_trip_can_clear_dates(self, api_client, test_user):
+        """Optional dates can be explicitly cleared after creation."""
+        create_resp = api_client.post(f"{BASE_URL}/api/trips", json={
+            "name": "TEST_Clear Dates", "start_date": "2026-01-10", "end_date": "2026-01-15",
+            "currency": "INR",
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        trip_id = create_resp.json()["id"]
+
+        response = api_client.patch(f"{BASE_URL}/api/trips/{trip_id}", json={
+            "start_date": None, "end_date": None,
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["start_date"] is None
+        assert data["end_date"] is None
 
     def test_update_trip_inverting_range_rejected(self, api_client, test_user):
         """An edit that moves the start past the existing end is rejected with 400."""

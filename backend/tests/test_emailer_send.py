@@ -112,9 +112,9 @@ def test_verification_html_carries_token_link_and_24h():
     assert "Alice" in html
 
 
-def test_password_reset_html_carries_token_link_1h_and_pin_note():
+def test_password_reset_html_carries_token_link_and_one_hour_expiry():
     html = emailer.password_reset_html("Bob", "https://app/reset-password?token=xyz", "xyz")
     assert "https://app/reset-password?token=xyz" in html
     assert "xyz" in html
     assert "1 hour" in html
-    assert "PIN is not affected" in html  # reset never touches the PIN
+    assert "expires in 1 hour" in html

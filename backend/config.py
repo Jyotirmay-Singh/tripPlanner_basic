@@ -35,7 +35,7 @@ EXPO_PUSH_ACCESS_TOKEN = os.environ.get("EXPO_PUSH_ACCESS_TOKEN", "").strip()
 # new signups are marked verified up-front (no nag banner), no verification/reset emails are sent
 # (so nothing bounces), and the app hides the banner + "Forgot password?" link via GET /api/meta/config.
 # Re-enable later by setting it back to true (or removing it) and redeploying — no frontend rebuild.
-# PIN-based recovery (POST /auth/reset-pin-by-password) and in-app change-password are unaffected.
+# Signed-in password changes remain available regardless of this email-delivery flag.
 EMAIL_FEATURES_ENABLED = os.environ.get("EMAIL_FEATURES_ENABLED", "true").strip().lower() not in (
     "false", "0", "no", "off",
 )

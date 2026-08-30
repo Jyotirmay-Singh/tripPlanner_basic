@@ -25,12 +25,23 @@ def assert_valid_date(value: Optional[str], label: str = "Date") -> date:
         raise HTTPException(400, f"{label} must be a valid date (YYYY-MM-DD)")
 
 
-def assert_valid_range(start: Optional[str], end: Optional[str]) -> None:
-    """Both dates valid and end on/after start (same-day allowed), else HTTP 400."""
-    start_d = assert_valid_date(start, "Start date")
-    end_d = assert_valid_date(end, "End date")
-    if end_d < start_d:
+def normalize_optional_date(value: Optional[str], label: str = "Date") -> Optional[str]:
+    """Normalize an optional ISO date, treating None/blank as an omitted value."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    parsed = assert_valid_date(value, label)
+    return parsed.isoformat()
+
+
+def assert_valid_range(
+    start: Optional[str], end: Optional[str]
+) -> tuple[Optional[str], Optional[str]]:
+    """Validate supplied dates and their ordering; either date may be omitted."""
+    normalized_start = normalize_optional_date(start, "Start date")
+    normalized_end = normalize_optional_date(end, "End date")
+    if normalized_start and normalized_end and normalized_end < normalized_start:
         raise HTTPException(400, "End date must be the same as or after the start date")
+    return normalized_start, normalized_end
 
 
 def legacy_to_iso(value: Optional[str]) -> Optional[str]:
@@ -97,7 +108,7 @@ def ensure_date_range(trip: Optional[dict]) -> Optional[dict]:
         start = legacy_to_iso(trip.get("travel_date"))
         if start:
             trip["start_date"] = start
-    if start and not trip.get("end_date"):
+    if start and "end_date" not in trip:
         trip["end_date"] = start
     return trip
 

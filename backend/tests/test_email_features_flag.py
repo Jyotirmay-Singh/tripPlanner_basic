@@ -64,14 +64,14 @@ def test_meta_config_reports_enabled(client, monkeypatch):
     monkeypatch.setattr(meta_module, "EMAIL_FEATURES_ENABLED", True)
     r = client.get("/api/meta/config")
     assert r.status_code == 200
-    assert r.json() == {"email_features_enabled": True}
+    assert r.json()["email_features_enabled"] is True
 
 
 def test_meta_config_reports_disabled(client, monkeypatch):
     monkeypatch.setattr(meta_module, "EMAIL_FEATURES_ENABLED", False)
     r = client.get("/api/meta/config")
     assert r.status_code == 200
-    assert r.json() == {"email_features_enabled": False}
+    assert r.json()["email_features_enabled"] is False
 
 
 # --------------------------------------------------------------------------- #
@@ -79,7 +79,7 @@ def test_meta_config_reports_disabled(client, monkeypatch):
 # --------------------------------------------------------------------------- #
 def test_register_auto_verified_and_no_email_when_disabled(client, fake_users, patched_email, disabled):
     r = client.post("/api/auth/register", json={
-        "email": "ghost@gmail.com", "password": "password123", "pin": "1212", "name": "Ghost",
+        "email": "ghost@gmail.com", "password": "password123", "name": "Ghost",
     })
     assert r.status_code == 200, r.text
     assert r.json()["user"]["email_verified"] is True     # auto-verified, no nag banner

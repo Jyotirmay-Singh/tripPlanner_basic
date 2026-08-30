@@ -1,9 +1,7 @@
-"""Reusable transactional-email helper for the new verify-email + reset-password flows.
+"""Reusable transactional-email helper for verify-email and reset-password flows.
 
-Mirrors the existing forgot-PIN behavior: send via Resend off the event loop, and if Resend
-isn't configured (or the send fails) log the link/token so local + free-tier flows still work.
-The legacy forgot-PIN endpoint keeps its own inline send untouched -this helper is only used
-by the new flows.
+Send via Resend off the event loop. If Resend isn't configured (or the send fails), log the
+development link so local and free-tier testing remains possible.
 """
 import asyncio
 from typing import Optional
@@ -27,7 +25,7 @@ def sender_mode_summary() -> str:
 
 def build_link(path: str, token: str) -> str:
     """Build the app deep link for an emailed token. Falls back to the bare token when
-    APP_URL is unset (same fallback the forgot-PIN flow uses)."""
+    APP_URL is unset."""
     base = APP_URL.rstrip("/") if APP_URL else ""
     if not base:
         return token
@@ -78,8 +76,7 @@ def password_reset_html(name: str, link: str, token: str) -> str:
         f"<div style='font-family:sans-serif'>"
         f"<h2>Reset your password</h2>"
         f"<p>Hi {name},</p>"
-        f"<p>Tap below to choose a new password. This link expires in 1 hour. "
-        f"Your 4-digit PIN is not affected.</p>"
+        f"<p>Tap below to choose a new password. This link expires in 1 hour.</p>"
         f"{_button(link, 'Reset password')}"
         f"<p>Or paste this token in the app: <b>{token}</b></p>"
         f"<p style='color:#888;font-size:12px'>If you didn't request this, ignore this email.</p>"

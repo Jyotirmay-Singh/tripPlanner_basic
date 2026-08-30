@@ -11,7 +11,8 @@ export default function Index() {
 
   useEffect(() => {
     if (user === undefined) return;
-    if (user) router.replace('/(tabs)/dashboard');
+    if (user?.credentials_set === false) router.replace('/set-credentials');
+    else if (user) router.replace('/(tabs)/dashboard');
     else router.replace('/(auth)/login');
   }, [user, router]);
 

@@ -126,7 +126,8 @@ class TestGoogleAuthUnit:
         created = fake_users.insert_one.call_args.args[0]
         assert created["auth_provider"] == "google"
         assert created["email"] == "newbie@gmail.com"
-        assert "pin_hash" in created and "password_hash" in created  # random secrets set
+        assert created["credentials_set"] is False
+        assert "pin_hash" not in created and "password_hash" not in created
 
     def test_existing_user_not_duplicated(self, client, configured, fake_users, monkeypatch):
         existing = {"id": "u-123", "email": "back@gmail.com",

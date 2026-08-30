@@ -3,6 +3,7 @@ import {
   isPublicTokenRoute,
   AUTH_LOGIN_HREF,
   DASHBOARD_HREF,
+  PASSWORD_SETUP_HREF,
 } from '../authNav';
 
 const user = { id: 'u1', email: 'a@gmail.com', name: 'A', role: 'user' } as any;
@@ -28,6 +29,18 @@ describe('authRedirectTarget with isPublicRoute', () => {
     expect(authRedirectTarget(null, false, true)).toBeNull();   // logged out, not bounced to login
     expect(authRedirectTarget(user, true, true)).toBeNull();    // logged in, not bounced to dashboard
     expect(authRedirectTarget(user, false, true)).toBeNull();
+  });
+
+  it('requires unfinished Google accounts to complete password setup', () => {
+    const unfinished = { ...user, credentials_set: false };
+    expect(authRedirectTarget(unfinished, false)).toBe(PASSWORD_SETUP_HREF);
+    expect(authRedirectTarget(unfinished, true)).toBe(PASSWORD_SETUP_HREF);
+    expect(authRedirectTarget(unfinished, false, false, true)).toBeNull();
+  });
+
+  it('keeps completed and signed-out users away from the setup route', () => {
+    expect(authRedirectTarget(user, false, false, true)).toBe(DASHBOARD_HREF);
+    expect(authRedirectTarget(null, false, false, true)).toBe(AUTH_LOGIN_HREF);
   });
 
   it('still loads-guards on a public route (undefined session)', () => {

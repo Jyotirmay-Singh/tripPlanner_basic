@@ -44,14 +44,14 @@ MongoDB is accessed through Motor. Principal collections include `users`, `trips
 
 The frontend uses Expo SDK 54, React Native, TypeScript, and file-based `expo-router` routes under `frontend/app/`:
 
-- `(auth)`: login, registration, PIN login, verification, and credential-reset flows.
+- `(auth)`: password login, registration, verification, and password-reset flows.
 - `(tabs)`: dashboard, trips, add, reports, and profile.
 - `trip/[id]/`: trip summary, expenses, members, receipt gallery, settle-up, reports, and drill-down screens.
 
 Shared frontend code lives under `frontend/src/`. Important modules include:
 
 - `api.ts`: fetch wrapper, bearer-token attachment, API error normalization, and report URLs.
-- `AuthContext.tsx`: session lifecycle and remembered email for PIN login.
+- `AuthContext.tsx`: session lifecycle, remembered email, and mandatory Google password setup.
 - `permissions.ts`: UI mirror of backend permissions; backend permissions remain authoritative.
 - `ThemeContext.tsx` and `theme.ts`: persisted light/dark theme.
 - `exactSplit.ts`, `familyParticipation.ts`, `payments.ts`, `expenseSort.ts`: pure domain helpers.
@@ -97,7 +97,7 @@ Backend (`backend/.env`):
 
 - `MONGO_URL`, `DB_NAME`: MongoDB connection and database.
 - `JWT_SECRET`: HS256 signing secret.
-- `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_PIN`: seeded administrator credentials; email must be Gmail.
+- `ADMIN_EMAIL`, `ADMIN_PASSWORD`: seeded administrator credentials; email must be Gmail.
 - `RESEND_API_KEY`, `SENDER_EMAIL`, `APP_URL`: transactional email and public-link configuration.
 - `GOOGLE_CLIENT_ID`: one accepted OAuth audience or a comma-separated list; include the Web client
   used by Android Credential Manager/web and the iOS client when iOS sign-in is enabled.
@@ -127,7 +127,7 @@ Preserve these unless the task explicitly changes them. Changes require focused 
 
 - The backend is the source of truth for authentication and authorization.
 - JWT bearer tokens use HS256 and currently expire after 30 days.
-- Authentication supports password/PIN credentials and Google OAuth. Verification and reset tokens are hashed, single-use, and time-limited.
+- Authentication supports Gmail/password credentials and Google OAuth. New Google users must create a local password before entering protected screens. Verification and reset tokens are hashed, single-use, and time-limited.
 - All accepted identity emails must end in `@gmail.com`. Backend enforcement is in `backend/utils/email_rules.py`; `frontend/src/validation.ts` is only the UI mirror.
 - Within a trip, one Gmail address identifies at most one person.
 

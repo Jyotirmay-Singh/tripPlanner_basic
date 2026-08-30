@@ -18,7 +18,7 @@ class _Base:
     def _register(self, api_client, name="Joiner"):
         email = f"test_recon_{uuid.uuid4().hex[:10]}@gmail.com"
         resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
-            "email": email, "password": "test12345", "pin": "4321", "name": name,
+        "email": email, "password": "test12345", "name": name,
         })
         if resp.status_code != 200:
             pytest.skip(f"register failed: {resp.status_code} {resp.text}")

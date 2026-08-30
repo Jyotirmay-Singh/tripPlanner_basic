@@ -44,7 +44,7 @@ export default function ChangePassword() {
   return (
     <Screen edges={['bottom']}>
       <Card style={{ gap: SPACING.md }}>
-        <T muted>Choose a new password for signing in with your email. Your 4-digit PIN stays the same.</T>
+        <T muted>Choose a new password for signing in with your email.</T>
         <Input
           testID="cp-current"
           label="Current password"

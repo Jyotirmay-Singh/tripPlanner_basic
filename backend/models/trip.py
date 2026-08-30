@@ -1,12 +1,14 @@
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from utils.currency_rules import normalize_currency
 
 
 class TripIn(BaseModel):
     name: str
-    start_date: str  # YYYY-MM-DD (timezone-free calendar date)
-    end_date: str    # YYYY-MM-DD, must be >= start_date
+    start_date: Optional[str] = None  # YYYY-MM-DD (timezone-free calendar date)
+    end_date: Optional[str] = None    # YYYY-MM-DD; when both exist, must be >= start_date
     budget: Optional[float] = None
     currency: str = "INR"
     # Phase 26 — the creator's own identity in this trip. Default "individual" preserves the legacy
@@ -18,6 +20,11 @@ class TripIn(BaseModel):
     family_members: Optional[List[str]] = None
     self_index: Optional[int] = None
 
+    @field_validator("currency")
+    @classmethod
+    def _validate_currency(cls, value):
+        return normalize_currency(value)
+
 
 class TripUpdate(BaseModel):
     name: Optional[str] = None
@@ -25,6 +32,11 @@ class TripUpdate(BaseModel):
     end_date: Optional[str] = None
     budget: Optional[float] = None
     currency: Optional[str] = None
+
+    @field_validator("currency")
+    @classmethod
+    def _validate_currency(cls, value):
+        return normalize_currency(value, allow_none=True)
 
 
 class AdminGrant(BaseModel):

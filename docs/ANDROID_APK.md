@@ -98,7 +98,7 @@ SHA-1.
 2. When the browser/Files app asks, **allow "Install from unknown sources"** for that app
    (Settings → Apps → Special access → Install unknown apps → enable for your browser/Files).
 3. Tap the downloaded `.apk` → **Install** → **Open**.
-4. Register with a `@gmail.com` address (or use Google sign-in), set your PIN, and go.
+4. Register with a `@gmail.com` address and password, or use Google sign-in and complete password setup.
 
 > The app talks to the live production backend, so your data syncs across devices and with the
 > web app at the Vercel URL.
@@ -108,9 +108,9 @@ SHA-1.
 ## 3. Smoke-test checklist (per build)
 
 - [ ] App launches; icon + splash correct; dark-mode toggle (Profile) works.
-- [ ] Register a new gmail → email-verification link; PIN login; logout.
+- [ ] Register a new Gmail → email-verification link; password login; logout.
 - [ ] Google sign-in account selection completes (exact package/SHA registered and backend accepts
-      the Web audience); first-time Google user lands on set-credentials.
+      the Web audience); first-time Google user must complete password setup.
 - [ ] Create a trip; add expenses in **Per Person / Per Family / Exact** split modes.
 - [ ] On Trip Summary, tap a donut slice and a legend row; both open the category breakdown with payer bars, refunds, and transactions.
 - [ ] Receipt capture (camera) + upload from gallery; view receipt.

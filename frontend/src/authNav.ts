@@ -6,6 +6,7 @@ import type { User } from './AuthContext';
 
 export const AUTH_LOGIN_HREF = '/(auth)/login' as Href;
 export const DASHBOARD_HREF = '/(tabs)/dashboard' as Href;
+export const PASSWORD_SETUP_HREF = '/set-credentials' as Href;
 
 // Top-level routes reached from an emailed link (verify-email / reset-password). They must work
 // whether the visitor is signed in or out, so the guard never redirects away from them.
@@ -24,10 +25,13 @@ export function authRedirectTarget(
   user: User | null | undefined,
   inAuthGroup: boolean,
   isPublicRoute: boolean = false,
+  inPasswordSetup: boolean = false,
 ): Href | null {
   if (user === undefined) return null;
   if (isPublicRoute) return null;
   if (!user && !inAuthGroup) return AUTH_LOGIN_HREF;
+  if (user?.credentials_set === false && !inPasswordSetup) return PASSWORD_SETUP_HREF;
+  if (user && user.credentials_set !== false && inPasswordSetup) return DASHBOARD_HREF;
   if (user && inAuthGroup) return DASHBOARD_HREF;
   return null;
 }

@@ -32,7 +32,7 @@ class _Helpers:
 
     def _register(self, api_client, email):
         reg = api_client.post(f"{BASE_URL}/api/auth/register", json={
-            "email": email, "password": "test12345", "pin": "4321", "name": "Joiner"})
+        "email": email, "password": "test12345", "name": "Joiner"})
         assert reg.status_code == 200, reg.text
         return reg.json()["access_token"], reg.json()["user"]["id"]
 

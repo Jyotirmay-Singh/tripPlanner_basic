@@ -48,8 +48,7 @@ function GoogleSignInInner() {
     if (!idToken) return;
     setLoading(true);
     signInWithGoogle(idToken)
-      // A first-time Google user (credentials_set === false) has only random placeholder
-      // PIN/password — send them through the one-time setup so email+PIN login works later.
+      // A first-time Google user must create a local password before entering the app.
       .then((u) => router.replace(u.credentials_set === false ? '/set-credentials' : '/(tabs)/dashboard'))
       .catch((e: any) => toast.show(e.message || 'Google sign-in failed', 'error'))
       .finally(() => setLoading(false));

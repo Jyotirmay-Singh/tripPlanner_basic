@@ -24,13 +24,13 @@ import ConfirmModal from '../../../src/ConfirmModal';
 import { ddmmyyToDDMMYYYY, ddmmyyyyToDDMMYY } from '../../../src/date';
 import {
   Card, Button, Input, Pill, Icon, ActionSheet, SkeletonCard, useToast,
-  DateField, TimeField,
+  CurrencyPicker, DateField, TimeField,
 } from '../../../src/ui';
 
 type Member = { id: string; name: string; kind: string; family_members: string[]; family_member_ids?: string[] };
 type Trip = { id: string; name: string; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
 type Expense = {
-  id: string; amount: number; category: string;
+  id: string; amount: number; currency?: string; category: string;
   description?: string; date: string; time?: string | null; paid_by_member_id: string;
   split_member_ids: string[]; split_mode?: SplitMode;
   weight_snapshots?: Record<string, number> | null; receipt_base64?: string | null;
@@ -49,6 +49,7 @@ export default function EditExpense() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [createdBy, setCreatedBy] = useState<string | null | undefined>(undefined);
   const [amount, setAmount] = useState('');
+  const [expenseCurrency, setExpenseCurrency] = useState('INR');
   // Net of every OTHER transaction's signed amount — drives the soft "refund > spend" warning only.
   const [tripNetSpendExcl, setTripNetSpendExcl] = useState(0);
   const [desc, setDesc] = useState('');
@@ -74,14 +75,17 @@ export default function EditExpense() {
 
   useEffect(() => {
     (async () => {
-      const t = await api<Trip>(`/trips/${id}`);
+      const [t, exps] = await Promise.all([
+        api<Trip>(`/trips/${id}`),
+        api<Expense[]>(`/trips/${id}/expenses`),
+      ]);
       setTrip(t);
-      const exps = await api<Expense[]>(`/trips/${id}/expenses`);
       const e = exps.find((x) => x.id === eid);
       if (!e) return;
       setTripNetSpendExcl(exps.filter((x) => x.id !== eid).reduce((s, x) => s + x.amount, 0));
       setCreatedBy(e.created_by ?? null);
       setAmount(String(e.amount)); setDesc(e.description || '');
+      setExpenseCurrency(e.currency || t.currency || 'INR');
       setCat(e.category); setDateDisplay(ddmmyyToDDMMYYYY(e.date)); setTime(e.time || '');
       setPaidBy(e.paid_by_member_id);
       const allIds = t.members.map((m) => m.id);
@@ -128,6 +132,9 @@ export default function EditExpense() {
 
   const save = async () => {
     if (!trip || !paidBy) return;
+    if (expenseCurrency !== trip.currency) {
+      return toast.show('Use the official currency until exchange rates are available.', 'error');
+    }
     const a = parseAmount(amount);
     if (!isValidAmount(a)) return toast.show('Enter a non-zero amount', 'error');
     const date = ddmmyyyyToDDMMYY(dateDisplay);  // -> stored DD-MM-YY (format unchanged)
@@ -143,7 +150,7 @@ export default function EditExpense() {
         }
         const shares = resolveEntityShares(exactRows);
         body = {
-          amount: a, category: cat, description: desc, date, time: time || null,
+          amount: a, currency: expenseCurrency, category: cat, description: desc, date, time: time || null,
           paid_by_member_id: paidBy,
           split_member_ids: Object.keys(shares),
           split_mode: 'EXACT',
@@ -178,7 +185,7 @@ export default function EditExpense() {
           }
         }
         body = {
-          amount: a, category: cat, description: desc, date, time: time || null,
+          amount: a, currency: expenseCurrency, category: cat, description: desc, date, time: time || null,
           paid_by_member_id: paidBy,
           split_member_ids: allSelected ? [] : splitSel,
           split_mode: splitMode,
@@ -223,6 +230,7 @@ export default function EditExpense() {
   const displayNames = memberDisplayNames(trip.members);
   const parsedAmount = Number.isFinite(parseAmount(amount)) ? parseAmount(amount) : 0;
   const exactRec = reconcile(exactRows, parsedAmount);
+  const currencyBlocked = expenseCurrency !== trip.currency;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
@@ -240,10 +248,42 @@ export default function EditExpense() {
               </View>
             )}
 
+            <CurrencyPicker
+              testID="ee-currency"
+              label="Expense currency"
+              value={expenseCurrency}
+              onChange={setExpenseCurrency}
+              disabled={!canModify}
+              helper={`Official trip currency: ${trip.currency}`}
+            />
+            {currencyBlocked ? (
+              <View
+                testID="ee-currency-blocked"
+                style={[styles.currencyNotice, { backgroundColor: colors.surfaceMuted, borderColor: colors.warning }]}
+              >
+                <Icon name="info" size={18} color={colors.warning} />
+                <View style={{ flex: 1, gap: 3 }}>
+                  <T variant="label">Exchange rate required</T>
+                  <T variant="caption" muted>
+                    {expenseCurrency} expenses can be saved after currency conversion is added.
+                  </T>
+                </View>
+                {canModify ? (
+                  <TouchableOpacity
+                    onPress={() => setExpenseCurrency(trip.currency)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Use ${trip.currency}`}
+                  >
+                    <T color={colors.primary} style={{ fontFamily: FONTS.bodyBold }}>Use {trip.currency}</T>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ) : null}
+
             <Card padding="lg" radius={RADIUS.xl}>
-              <T variant="label" muted>{trip.currency} amount * (use a minus for money back)</T>
+              <T variant="label" muted>{expenseCurrency} amount * (use a minus for money back)</T>
               <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: SPACING.sm, marginTop: 6 }}>
-                <T style={{ fontFamily: FONTS.number, fontSize: 28, color: colors.textMuted }}>{trip.currency}</T>
+                <T style={{ fontFamily: FONTS.number, fontSize: 28, color: colors.textMuted }}>{expenseCurrency}</T>
                 <TextInput testID="ee-amount" value={amount} onChangeText={setAmount} keyboardType="numbers-and-punctuation"
                   editable={canModify}
                   style={[styles.amountInput, { color: colors.textMain }]} />
@@ -294,7 +334,7 @@ export default function EditExpense() {
               value={splitMode}
               onChange={setSplitMode}
               subLabel={splitPreviewLabel({
-                amount: parseFloat(amount), mode: splitMode, members: trip.members, splitSel, weightOverrides, currency: trip.currency, familyExcluded,
+                amount: parseFloat(amount), mode: splitMode, members: trip.members, splitSel, weightOverrides, currency: expenseCurrency, familyExcluded,
                 exactShares: resolveEntityShares(exactRows), names: displayNames,
               })}
             />
@@ -302,7 +342,7 @@ export default function EditExpense() {
             <View>
               {splitMode === 'EXACT' ? (
               <ExactSplitEditor
-                members={trip.members} currency={trip.currency} total={parsedAmount}
+                members={trip.members} currency={expenseCurrency} total={parsedAmount}
                 initialRows={exactRows} onChange={setExactRows} displayNames={displayNames}
               />
               ) : (
@@ -358,7 +398,7 @@ export default function EditExpense() {
                             <T variant="caption" color={colors.danger}>At least one member must take part.</T>
                           ) : includedCount < roster.length ? (
                             <T variant="caption" muted testID={`ee-fam-preview-${m.id}`}>
-                              {trip.currency} {formatMoney(familyShareEach(parseFloat(amount), trip.members, splitSel, weightOverrides, m.id, includedCount, splitMode, familyExcluded))} each (excluded owe 0)
+                              {expenseCurrency} {formatMoney(familyShareEach(parseFloat(amount), trip.members, splitSel, weightOverrides, m.id, includedCount, splitMode, familyExcluded))} each (excluded owe 0)
                             </T>
                           ) : null}
                         </View>
@@ -399,7 +439,7 @@ export default function EditExpense() {
 
             {canModify && (
               <>
-                <Button label="Save changes" icon="check" onPress={save} loading={saving} disabled={splitMode === 'EXACT' && !exactRec.isValid} fullWidth size="lg" testID="ee-save" style={{ marginTop: SPACING.sm }} />
+                <Button label="Save changes" icon="check" onPress={save} loading={saving} disabled={currencyBlocked || (splitMode === 'EXACT' && !exactRec.isValid)} fullWidth size="lg" testID="ee-save" style={{ marginTop: SPACING.sm }} />
                 <Button label="Delete transaction" icon="trash" variant="destructive" onPress={() => setConfirmDelete(true)} fullWidth testID="ee-delete" />
               </>
             )}
@@ -442,6 +482,10 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center',
   },
   readonlyNote: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
+    padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1,
+  },
+  currencyNotice: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
     padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1,
   },

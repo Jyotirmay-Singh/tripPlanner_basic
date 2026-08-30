@@ -1,34 +1,19 @@
-from typing import Optional
-
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, ConfigDict, Field, EmailStr
 
 
 class RegisterIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
-    pin: str = Field(min_length=4, max_length=4)
     name: str = Field(min_length=1)
     password: str = Field(min_length=1)  # required; length rule (>=9) enforced in route
 
 
 class LoginIn(BaseModel):
-    email: EmailStr
-    password: Optional[str] = None
-    pin: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
 
-
-class ForgotIn(BaseModel):
-    email: EmailStr
-
-
-class ResetPinIn(BaseModel):
-    token: str
-    new_pin: str = Field(min_length=4, max_length=4)
-
-
-class ResetPinByPasswordIn(BaseModel):
     email: EmailStr
     password: str
-    new_pin: str = Field(min_length=4, max_length=4)
 
 
 class GoogleAuthIn(BaseModel):
@@ -49,7 +34,8 @@ class ResetPasswordIn(BaseModel):
 
 
 class SetCredentialsIn(BaseModel):
-    pin: str = Field(min_length=4, max_length=4)
+    model_config = ConfigDict(extra="forbid")
+
     password: str = Field(min_length=1)  # length rule (>=9) enforced in route
 
 

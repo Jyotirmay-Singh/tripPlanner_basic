@@ -1,5 +1,5 @@
 # Forgot-PASSWORD (email link) endpoint tests: request-password-reset (no enumeration) and
-# reset-password (token validation, password rules, PIN untouched). In-process TestClient with
+# reset-password (token validation, password rules, and Google credential completion). In-process TestClient with
 # the users collection + token helpers + emailer mocked.
 import sys
 from datetime import timedelta
@@ -87,14 +87,15 @@ def test_reset_too_short_password_400_and_token_not_consumed(client, fake_users,
     fake_users.update_one.assert_not_called()
 
 
-def test_reset_valid_updates_password_only(client, fake_users, monkeypatch):
+def test_reset_valid_updates_password_and_completes_credentials(client, fake_users, monkeypatch):
     monkeypatch.setattr(auth_module, "consume_token", AsyncMock(return_value="u-1"))
     r = client.post("/api/auth/reset-password", json={"token": "good", "new_password": "brandnewpw1"})
     assert r.status_code == 200, r.text
     fake_users.update_one.assert_awaited_once()
     flt, update = fake_users.update_one.call_args.args
     assert flt == {"id": "u-1"}
-    assert set(update["$set"].keys()) == {"password_hash"}  # PIN untouched
+    assert set(update["$set"].keys()) == {"password_hash", "credentials_set"}
+    assert update["$set"]["credentials_set"] is True
 
 
 def test_reset_invalid_token_400(client, fake_users, monkeypatch):

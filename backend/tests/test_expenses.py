@@ -35,9 +35,28 @@ class TestExpenses:
         assert "expense" in data
         exp = data["expense"]
         assert exp["amount"] == 500.0
+        assert exp["currency"] == "INR"
         assert exp["category"] == "Food"
         assert exp["description"] == "Dinner at restaurant"
         assert exp["paid_by_member_id"] == member_id
+
+    def test_non_official_expense_currency_requires_exchange_rate_support(self, api_client, test_user):
+        trip_resp = api_client.post(f"{BASE_URL}/api/trips", json={
+            "name": "TEST_Currency Guard", "currency": "INR",
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+        trip = trip_resp.json()
+
+        response = api_client.post(f"{BASE_URL}/api/trips/{trip['id']}/expenses", json={
+            "amount": 10.0,
+            "currency": "USD",
+            "category": "Food",
+            "date": "11-05-26",
+            "paid_by_member_id": trip["members"][0]["id"],
+            "split_member_ids": [],
+        }, headers={"Authorization": f"Bearer {test_user['token']}"})
+
+        assert response.status_code == 409, response.text
+        assert "Exchange rate support" in response.json()["detail"]
 
     def test_add_expense_default_split(self, api_client, test_user):
         """Test expense with empty split_member_ids splits among all members"""

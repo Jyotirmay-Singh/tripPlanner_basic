@@ -96,7 +96,7 @@ function GoogleSignInInner() {
 
       try {
         const user = await signInWithGoogle(idToken);
-        // A first-time Google user still completes Trip Splitter's one-time PIN/password setup.
+        // A first-time Google user must create a local password before entering the app.
         router.replace(user.credentials_set === false ? '/set-credentials' : '/(tabs)/dashboard');
       } catch (error) {
         const message = error instanceof Error && error.message

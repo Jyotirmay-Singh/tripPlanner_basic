@@ -137,5 +137,3 @@ export const CATEGORIES = [
   'Shopping',
   'Other',
 ] as const;
-
-export const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'JPY', 'SGD', 'AUD'];

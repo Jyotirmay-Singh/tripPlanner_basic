@@ -20,6 +20,12 @@ from services.push_notifications import start_push_dispatcher, stop_push_dispatc
 # ---------- Startup / Shutdown ----------
 # Lifespan handler (the modern replacement for the deprecated @app.on_event hooks):
 # everything before `yield` runs on startup, everything after runs on shutdown.
+async def _remove_retired_pin_data() -> None:
+    """Idempotently remove the retired credential and its legacy raw reset-token store."""
+    await db.users.update_many({"pin_hash": {"$exists": True}}, {"$unset": {"pin_hash": ""}})
+    await db.drop_collection("password_reset_tokens")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.users.create_index("email", unique=True)
@@ -59,6 +65,9 @@ async def lifespan(app: FastAPI):
     # never lock anyone out. Idempotent: only touches docs missing the field.
     await db.users.update_many({"email_verified": {"$exists": False}}, {"$set": {"email_verified": True}})
     await db.users.update_many({"credentials_set": {"$exists": False}}, {"$set": {"credentials_set": True}})
+    # Password-only auth migration. Removing obsolete hashes and raw PIN-reset tokens is
+    # idempotent and ensures the retired credential cannot be used or recovered after cutover.
+    await _remove_retired_pin_data()
     # backfill admin_ids for legacy trips (root admin = owner)
     await db.trips.update_many(
         {"$or": [{"admin_ids": {"$exists": False}}, {"admin_ids": None}, {"admin_ids": []}]},
@@ -85,6 +94,17 @@ async def lifespan(app: FastAPI):
                 {"id": t["id"]},
                 {"$set": {"start_date": iso_date, "end_date": iso_date}},
             )
+    # Every expense now records the currency it was entered in. Legacy rows predate that field and
+    # were always interpreted as their trip's single currency, so stamp that code explicitly. The
+    # migration is idempotent and preserves any already-recorded expense currency.
+    async for t in db.trips.find({}, {"id": 1, "currency": 1}):
+        await db.expenses.update_many(
+            {
+                "trip_id": t["id"],
+                "$or": [{"currency": {"$exists": False}}, {"currency": None}],
+            },
+            {"$set": {"currency": t.get("currency") or "INR"}},
+        )
     # Intra-family per-member ids: backfill stable ids parallel to each family's family_members so
     # per-expense member participation survives roster edits. Idempotent — a trip is rewritten only
     # when a family member is missing ids or the parallel array length drifted.
@@ -130,7 +150,6 @@ async def lifespan(app: FastAPI):
     # seed admin
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@gmail.com").lower().strip()
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
-    admin_pin = os.environ.get("ADMIN_PIN", "1234")
     if not is_allowed_email(admin_email):
         logger.warning(f"ADMIN_EMAIL '{admin_email}' is not a @gmail.com address")
     existing = await db.users.find_one({"email": admin_email})
@@ -138,7 +157,6 @@ async def lifespan(app: FastAPI):
         await db.users.insert_one({
             "id": gen_id(), "email": admin_email, "name": "Admin",
             "password_hash": hash_secret(admin_password),
-            "pin_hash": hash_secret(admin_pin),
             "role": "admin", "created_at": now_utc().isoformat(),
             "email_verified": True, "credentials_set": True,
         })

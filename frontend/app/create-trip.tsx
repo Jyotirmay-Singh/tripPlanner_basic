@@ -5,10 +5,10 @@ import { useRouter } from 'expo-router';
 import { api } from '../src/api';
 import { useAuth } from '../src/AuthContext';
 import { useTheme } from '../src/ThemeContext';
-import { SPACING, RADIUS, CURRENCIES, CONTENT_MAX_WIDTH } from '../src/theme';
+import { SPACING, RADIUS, CONTENT_MAX_WIDTH } from '../src/theme';
 import T from '../src/T';
-import { Input, DateField, Button, Pill, Icon, SegmentedControl, useToast } from '../src/ui';
-import { fromISO, toISO, todayISO, isRangeValid, INVALID_DATE_MESSAGE, END_BEFORE_START_MESSAGE } from '../src/date';
+import { Input, DateField, Button, CurrencyPicker, Pill, Icon, SegmentedControl, useToast } from '../src/ui';
+import { toISO, isRangeValid, INVALID_DATE_MESSAGE, END_BEFORE_START_MESSAGE } from '../src/date';
 import { SelfKind, identityIssue, buildIdentityFields } from '../src/createIdentity';
 
 export default function CreateTrip() {
@@ -17,8 +17,8 @@ export default function CreateTrip() {
   const router = useRouter();
   const toast = useToast();
   const [name, setName] = useState('');
-  const [startDate, setStartDate] = useState(fromISO(todayISO()));
-  const [endDate, setEndDate] = useState(fromISO(todayISO()));
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [dateError, setDateError] = useState<string | null>(null);
   const [budget, setBudget] = useState('');
   const [currency, setCurrency] = useState('INR');
@@ -46,10 +46,16 @@ export default function CreateTrip() {
 
   const submit = async () => {
     if (!name.trim()) return toast.show('Trip name is required', 'error');
-    const startISO = toISO(startDate);
-    const endISO = toISO(endDate);
-    if (!startISO || !endISO) { setDateError(INVALID_DATE_MESSAGE); return; }
-    if (!isRangeValid(startISO, endISO)) { setDateError(END_BEFORE_START_MESSAGE); return; }
+    const startISO = startDate.trim() ? toISO(startDate) : null;
+    const endISO = endDate.trim() ? toISO(endDate) : null;
+    if ((startDate.trim() && !startISO) || (endDate.trim() && !endISO)) {
+      setDateError(INVALID_DATE_MESSAGE);
+      return;
+    }
+    if (startISO && endISO && !isRangeValid(startISO, endISO)) {
+      setDateError(END_BEFORE_START_MESSAGE);
+      return;
+    }
     setDateError(null);
     const idIssue = identityIssue({ self_kind: selfKind, familyName, memberNames, selfIndex });
     if (idIssue) return toast.show(idIssue, 'error');
@@ -76,20 +82,17 @@ export default function CreateTrip() {
             <T variant="h1">New Trip</T>
 
             <Input testID="ct-name" label="Trip name *" value={name} onChangeText={setName} placeholder="e.g. Goa December" icon="plane" />
-            <DateField testID="ct-start" label="Start date (dd/mm/yyyy) *" value={startDate} onChangeText={(v) => { setStartDate(v); setDateError(null); }} error={dateError} />
-            <DateField testID="ct-end" label="End date (dd/mm/yyyy) *" value={endDate} onChangeText={(v) => { setEndDate(v); setDateError(null); }} minISO={toISO(startDate) ?? undefined} />
+            <DateField testID="ct-start" label="Start date (optional)" value={startDate} onChangeText={(v) => { setStartDate(v); setDateError(null); }} error={dateError} />
+            <DateField testID="ct-end" label="End date (optional)" value={endDate} onChangeText={(v) => { setEndDate(v); setDateError(null); }} minISO={toISO(startDate) ?? undefined} />
             <Input testID="ct-budget" label="Budget (optional)" value={budget} onChangeText={setBudget} keyboardType="decimal-pad" placeholder="0" icon="wallet" />
 
-            <View>
-              <T variant="label" muted style={{ marginBottom: SPACING.xs }}>Currency</T>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
-                  {CURRENCIES.map((c) => (
-                    <Pill key={c} testID={`ct-cur-${c}`} label={c} active={currency === c} onPress={() => setCurrency(c)} />
-                  ))}
-                </View>
-              </ScrollView>
-            </View>
+            <CurrencyPicker
+              testID="ct-currency"
+              label="Official currency"
+              value={currency}
+              onChange={setCurrency}
+              helper="Choose carefully — the official currency is locked after the trip is created."
+            />
 
             <View style={{ gap: SPACING.sm }}>
               <T variant="label" muted>Who are you on this trip?</T>

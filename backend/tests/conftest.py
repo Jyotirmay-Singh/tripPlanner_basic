@@ -29,13 +29,11 @@ def test_user(api_client):
     import uuid
     email = f"test_{uuid.uuid4().hex[:8]}@gmail.com"
     password = "test12345"
-    pin = "4321"
     name = "Test User"
     
     response = api_client.post(f"{BASE_URL}/api/auth/register", json={
         "email": email,
         "password": password,
-        "pin": pin,
         "name": name
     })
     
@@ -46,7 +44,6 @@ def test_user(api_client):
     return {
         "email": email,
         "password": password,
-        "pin": pin,
         "name": name,
         "token": data["access_token"],
         "user": data["user"]

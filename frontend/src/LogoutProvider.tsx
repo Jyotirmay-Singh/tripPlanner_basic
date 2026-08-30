@@ -22,7 +22,7 @@ export function LogoutProvider({ children }: { children: React.ReactNode }) {
 
   const doSignOut = useCallback(() => {
     setVisible(false);
-    // signOut() keeps the saved email (clearSavedEmail defaults to false) for PIN quick-login.
+    // signOut() keeps the saved email (clearSavedEmail defaults to false) for faster sign-in.
     performSignOut(signOut, () => navResetTo(router, AUTH_LOGIN_HREF));
   }, [signOut, router]);
 
@@ -32,7 +32,7 @@ export function LogoutProvider({ children }: { children: React.ReactNode }) {
       <ConfirmModal
         visible={visible}
         title="Sign out?"
-        message="You'll need your PIN to sign back in."
+        message="You'll need your password or Google account to sign back in."
         onRequestClose={() => setVisible(false)}
         testID="logout-confirm"
         actions={[

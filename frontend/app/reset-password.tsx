@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { api } from '../src/api';
+import { useAuth } from '../src/AuthContext';
 import {
   isValidPassword, PASSWORD_TOO_SHORT_MESSAGE, PASSWORD_MISMATCH_MESSAGE,
 } from '../src/validation';
@@ -10,6 +11,7 @@ import { AuthShell, Input, Button, useToast } from '../src/ui';
 // password (same rules as registration) and posts the token + password to the reset endpoint.
 export default function ResetPassword() {
   const router = useRouter();
+  const { refresh } = useAuth();
   const toast = useToast();
   const params = useLocalSearchParams<{ token?: string }>();
   const [token, setToken] = useState((params.token as string) || '');
@@ -29,6 +31,7 @@ export default function ResetPassword() {
       await api('/auth/reset-password', {
         method: 'POST', body: { token: token.trim(), new_password: password }, auth: false,
       });
+      await refresh();
       toast.show('Password updated. Sign in with your new password.', 'success');
       setTimeout(() => router.replace('/(auth)/login'), 900);
     } catch (e: any) {
@@ -40,7 +43,7 @@ export default function ResetPassword() {
     <AuthShell
       brandIcon="lock"
       title="Reset password"
-      subtitle="Choose a new password. Your 4-digit PIN stays the same."
+      subtitle="Choose a secure new password for your account."
     >
       <Input
         testID="reset-pw-token"

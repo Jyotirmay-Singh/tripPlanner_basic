@@ -86,7 +86,7 @@ class TestPerMemberEmails:
         # A second real app user joins the trip; their account email is now "claimed" in-trip.
         e2 = _gmail()
         reg = api_client.post(f"{BASE_URL}/api/auth/register", json={
-            "email": e2, "password": "test12345", "pin": "4321", "name": "Joiner"})
+        "email": e2, "password": "test12345", "name": "Joiner"})
         assert reg.status_code == 200, reg.text
         t2 = reg.json()["access_token"]
         j = api_client.post(f"{BASE_URL}/api/trips/join", json={"code": code}, headers=_auth(t2))

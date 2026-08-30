@@ -4,9 +4,7 @@ import { api } from '../../src/api';
 import { isGmail, GMAIL_ONLY_MESSAGE } from '../../src/validation';
 import { AuthShell, Input, Button, useToast } from '../../src/ui';
 
-// Forgot-PASSWORD via email link (distinct from forgot.tsx, which resets the PIN using the
-// account password). Always shows the same generic confirmation — the backend never reveals
-// whether the account exists.
+// Forgot-password email flow. The generic confirmation never reveals whether an account exists.
 export default function ForgotPassword() {
   const router = useRouter();
   const toast = useToast();

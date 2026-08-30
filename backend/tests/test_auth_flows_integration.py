@@ -7,7 +7,7 @@
 #     persisted, only its SHA-256 hash is) is captured by wrapping issue_token.
 #
 # These cover the full chains the mock-level tests deliberately skip:
-#   A) Forgot-password:  register -> request-reset -> reset -> new pw logs in, old fails, PIN intact
+#   A) Forgot-password:  register -> request-reset -> reset -> new password works, old one fails
 #   B) Email verify:     register (unverified) -> login still works (soft gate) -> /me flips verified
 #   + endpoint-level single-use + expiry for both token types, and malformed-email 422.
 import asyncio
@@ -120,18 +120,45 @@ def _latest(captured, token_type):
     return toks[-1]
 
 
-def _register(client, email, password, pin, name="Flow"):
+def _register(client, email, password, name="Flow"):
     return client.post("/api/auth/register", json={
-        "email": email, "password": password, "pin": pin, "name": name,
+        "email": email, "password": password, "name": name,
     })
+
+
+def test_password_only_openapi_contract_removes_pin_surfaces(client):
+    schema = client.get("/openapi.json").json()
+    paths = schema["paths"]
+    assert "/api/auth/forgot-pin" not in paths
+    assert "/api/auth/reset-pin" not in paths
+    assert "/api/auth/reset-pin-by-password" not in paths
+    assert "/api/auth/forgot-password" not in paths
+    assert "pin" not in schema["components"]["schemas"]["RegisterIn"]["properties"]
+    assert "pin" not in schema["components"]["schemas"]["LoginIn"]["properties"]
+    assert set(schema["components"]["schemas"]["LoginIn"]["required"]) == {"email", "password"}
+
+
+def test_retired_pin_payloads_are_rejected(client, env):
+    register = client.post("/api/auth/register", json={
+        "email": "oldclient@gmail.com",
+        "name": "Old Client",
+        "password": "password123",
+        "pin": "1234",
+    })
+    login = client.post("/api/auth/login", json={
+        "email": "oldclient@gmail.com",
+        "pin": "1234",
+    })
+    assert register.status_code == 422
+    assert login.status_code == 422
 
 
 # --------------------------------------------------------------------------- #
 # A) Forgot-password full chain
 # --------------------------------------------------------------------------- #
-def test_forgot_password_full_chain_new_pw_works_old_fails_pin_intact(client, env):
+def test_forgot_password_full_chain_new_password_works_old_fails(client, env):
     fake, send, captured = env
-    assert _register(client, "flow@gmail.com", "origpass123", "1357").status_code == 200
+    assert _register(client, "flow@gmail.com", "origpass123").status_code == 200
 
     r = client.post("/api/auth/request-password-reset", json={"email": "flow@gmail.com"})
     assert r.status_code == 200
@@ -142,10 +169,9 @@ def test_forgot_password_full_chain_new_pw_works_old_fails_pin_intact(client, en
     r = client.post("/api/auth/reset-password", json={"token": token, "new_password": "brandnewpw1"})
     assert r.status_code == 200, r.text
 
-    # New password logs in; old password is rejected; the PIN is untouched and still works.
+    # New password logs in and the old password is rejected.
     assert client.post("/api/auth/login", json={"email": "flow@gmail.com", "password": "brandnewpw1"}).status_code == 200
     assert client.post("/api/auth/login", json={"email": "flow@gmail.com", "password": "origpass123"}).status_code == 401
-    assert client.post("/api/auth/login", json={"email": "flow@gmail.com", "pin": "1357"}).status_code == 200
 
 
 # --------------------------------------------------------------------------- #
@@ -153,13 +179,13 @@ def test_forgot_password_full_chain_new_pw_works_old_fails_pin_intact(client, en
 # --------------------------------------------------------------------------- #
 def test_verify_email_full_chain_and_soft_gate(client, env):
     fake, send, captured = env
-    reg = _register(client, "verify@gmail.com", "verifypass1", "2468", name="Verify")
+    reg = _register(client, "verify@gmail.com", "verifypass1", name="Verify")
     assert reg.status_code == 200, reg.text
     jwt_token = reg.json()["access_token"]
     assert reg.json()["user"]["email_verified"] is False  # new email/password user starts unverified
 
     # Soft gate: an unverified user can still log in (and the payload reflects unverified).
-    login = client.post("/api/auth/login", json={"email": "verify@gmail.com", "pin": "2468"})
+    login = client.post("/api/auth/login", json={"email": "verify@gmail.com", "password": "verifypass1"})
     assert login.status_code == 200
     assert login.json()["user"]["email_verified"] is False
 
@@ -179,7 +205,7 @@ def test_verify_email_full_chain_and_soft_gate(client, env):
 # --------------------------------------------------------------------------- #
 def test_reset_token_is_single_use(client, env):
     fake, send, captured = env
-    assert _register(client, "reuse@gmail.com", "origpass123", "1111").status_code == 200
+    assert _register(client, "reuse@gmail.com", "origpass123").status_code == 200
     assert client.post("/api/auth/request-password-reset", json={"email": "reuse@gmail.com"}).status_code == 200
     token = _latest(captured, RESET_PASSWORD)
     assert client.post("/api/auth/reset-password", json={"token": token, "new_password": "firstnewpw1"}).status_code == 200
@@ -189,7 +215,7 @@ def test_reset_token_is_single_use(client, env):
 
 def test_verify_token_is_single_use(client, env):
     fake, send, captured = env
-    assert _register(client, "vreuse@gmail.com", "verifypass1", "2222", name="VReuse").status_code == 200
+    assert _register(client, "vreuse@gmail.com", "verifypass1", name="VReuse").status_code == 200
     token = _latest(captured, VERIFY_EMAIL)
     assert client.post("/api/auth/verify-email", json={"token": token}).status_code == 200
     assert client.post("/api/auth/verify-email", json={"token": token}).status_code == 400
@@ -207,7 +233,7 @@ def _expire(fake, raw):
 
 def test_expired_reset_token_rejected(client, env):
     fake, send, captured = env
-    assert _register(client, "rexp@gmail.com", "origpass123", "3333").status_code == 200
+    assert _register(client, "rexp@gmail.com", "origpass123").status_code == 200
     assert client.post("/api/auth/request-password-reset", json={"email": "rexp@gmail.com"}).status_code == 200
     token = _latest(captured, RESET_PASSWORD)
     _expire(fake, token)
@@ -216,7 +242,7 @@ def test_expired_reset_token_rejected(client, env):
 
 def test_expired_verify_token_rejected(client, env):
     fake, send, captured = env
-    assert _register(client, "vexp@gmail.com", "verifypass1", "4444", name="VExp").status_code == 200
+    assert _register(client, "vexp@gmail.com", "verifypass1", name="VExp").status_code == 200
     token = _latest(captured, VERIFY_EMAIL)
     _expire(fake, token)
     assert client.post("/api/auth/verify-email", json={"token": token}).status_code == 400
@@ -242,7 +268,7 @@ def _find_user(fake, email):
 
 def test_verify_email_empty_and_unknown_token_rejected_no_crash(client, env):
     fake, send, captured = env
-    assert _register(client, "vbad@gmail.com", "verifypass1", "5551", name="VBad").status_code == 200
+    assert _register(client, "vbad@gmail.com", "verifypass1", name="VBad").status_code == 200
     assert client.post("/api/auth/verify-email", json={"token": ""}).status_code == 400
     assert client.post("/api/auth/verify-email", json={"token": "never-issued-xyz"}).status_code == 400
     # the account is untouched — still unverified
@@ -251,7 +277,7 @@ def test_verify_email_empty_and_unknown_token_rejected_no_crash(client, env):
 
 def test_reset_password_empty_and_unknown_token_rejected_no_crash(client, env):
     fake, send, captured = env
-    assert _register(client, "rbad@gmail.com", "origpass123", "6661").status_code == 200
+    assert _register(client, "rbad@gmail.com", "origpass123").status_code == 200
     # valid-length password so we clear the pw check and reach the token check (isolates the token 400)
     assert client.post("/api/auth/reset-password",
                        json={"token": "", "new_password": "brandnewpw1"}).status_code == 400
@@ -267,7 +293,7 @@ def test_reset_password_empty_and_unknown_token_rejected_no_crash(client, env):
 # --------------------------------------------------------------------------- #
 def test_verify_already_verified_is_idempotent(client, env):
     fake, send, captured = env
-    assert _register(client, "videm@gmail.com", "verifypass1", "7771", name="VIdem").status_code == 200
+    assert _register(client, "videm@gmail.com", "verifypass1", name="VIdem").status_code == 200
     token1 = _latest(captured, VERIFY_EMAIL)
     assert client.post("/api/auth/verify-email", json={"token": token1}).status_code == 200
     user = _find_user(fake, "videm@gmail.com")
@@ -290,7 +316,7 @@ def _backdate_verify_tokens(fake, seconds):
 
 def test_resend_after_cooldown_elapsed_issues_new_token(client, env):
     fake, send, captured = env
-    reg = _register(client, "rcool@gmail.com", "verifypass1", "8881", name="RCool")
+    reg = _register(client, "rcool@gmail.com", "verifypass1", name="RCool")
     assert reg.status_code == 200
     jwt_token = reg.json()["access_token"]
     before = sum(1 for (t, _) in captured if t == VERIFY_EMAIL)  # register issued one

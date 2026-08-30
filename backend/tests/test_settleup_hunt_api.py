@@ -29,7 +29,7 @@ def _auth(token):
 def _register(api_client):
     email = f"hunt_{uuid.uuid4().hex[:8]}@gmail.com"
     resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
-        "email": email, "password": "test12345", "pin": "4321", "name": "Hunt Tester",
+        "email": email, "password": "test12345", "name": "Hunt Tester",
     })
     if resp.status_code != 200:
         pytest.skip(f"registration failed: {resp.status_code}")

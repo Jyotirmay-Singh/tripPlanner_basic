@@ -109,7 +109,7 @@
     "This is an Expo React Native app. Apply these Tailwind concepts using NativeWind or your chosen styling solution. Map CSS variables to React Native theme objects if necessary.",
     "Implement the Dark Mode toggle logic robustly using React Context or Expo's Appearance API.",
     "For the 'Add Expense' screen, use a large, immersive numpad UI for the amount input rather than a standard tiny text input. It should feel tactile.",
-    "The JWT Auth + 4-digit PIN should feel like a premium banking app unlock screen (Archetype 1 style, calm not aggressive).",
+    "JWT authentication screens should feel like a premium finance app sign-in experience (Archetype 1 style, calm and professional).",
     "For the Splitwise logic (who owes whom), ensure the math is rock solid, but visually present it as a clean list of 'To Pay' and 'To Receive' cards.",
     "NEVER use default blue links. Use the Primary color.",
     "Ensure 'Settle Up' is prominently displayed in the Trip detail view.",

@@ -70,8 +70,8 @@ curl -s "https://tripsplitter-web.vercel.app$BUNDLE" | grep -c "307368957277-58j
 ## 1. Render — `APP_URL` (emailed verify/reset links)
 
 If `APP_URL` is blank, the verify-email / reset-password emails carry a **bare token** instead of a
-clickable link. Email+PIN login still works regardless, so this is polish — but required for the
-self-serve password-reset / email-verification flows to be usable.
+clickable link. Email/password login still works, but `APP_URL` is required for polished self-serve
+password-reset and email-verification flows.
 
 1. Render dashboard → **tripsplitter-api** → **Environment**.
 2. Set:
@@ -156,7 +156,7 @@ in `GOOGLE_CLIENT_ID` (comma-split — `backend/routes/auth.py:188`). So the web
 ### End-to-end check
 
 On the web site → **Continue with Google** → consent → you land on the dashboard (returning user) or
-`/set-credentials` (first-time Google user, who then sets a real 4-digit PIN + password).
+`/set-credentials` (first-time Google user, who must create a local password).
 
 ---
 
@@ -190,7 +190,7 @@ verify a sending domain in Resend and point `SENDER_EMAIL` at it. Full steps: **
 | `MONGO_URL` | Atlas SRV string (URL-encoded password) — secret |
 | `DB_NAME` | `tripsplitter` |
 | `JWT_SECRET` | long random string — secret |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_PIN` | seed admin (`@gmail.com`) — secret |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | seed admin (`@gmail.com`) — secret |
 | `APP_URL` | `https://tripsplitter-web.vercel.app` — **§1** |
 | `GOOGLE_CLIENT_ID` | comma-separated audiences incl. **web** ID — **§2c** |
 | `RESEND_API_KEY` / `SENDER_EMAIL` | email delivery — optional, see §4 |

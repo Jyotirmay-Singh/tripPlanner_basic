@@ -19,10 +19,9 @@ services:
       - { key: JWT_SECRET,       sync: false }   # SECRET — reuse local, or swap to generateValue: true
       - { key: ADMIN_EMAIL,      sync: false }   # must be a @gmail.com address
       - { key: ADMIN_PASSWORD,   sync: false }   # SECRET — seed admin
-      - { key: ADMIN_PIN,        sync: false }   # SECRET — seed admin
       - { key: RESEND_API_KEY,   sync: false }   # SECRET — optional (unset => reset token logged)
       - { key: SENDER_EMAIL,     sync: false }   # optional, defaults onboarding@resend.dev
-      - { key: APP_URL,          sync: false }   # set to the web URL (Resend forgot-PIN reset links)
+      - { key: APP_URL,          sync: false }   # set to the web URL (verification/password-reset links)
       - { key: GOOGLE_CLIENT_ID, sync: false }   # public client id(s), comma-separated audiences
       - { key: PUSH_NOTIFICATIONS_ENABLED, sync: false } # set true only after EAS/FCM setup
       - { key: EXPO_PUSH_ACCESS_TOKEN, sync: false }      # SECRET - Expo enhanced push security

@@ -19,9 +19,9 @@ def _gmail():
     return f"test_ef_{uuid.uuid4().hex[:8]}@gmail.com"
 
 
-def _register(api_client, email, password="verifypass1", pin="4321", name="EF User"):
+def _register(api_client, email, password="verifypass1", name="EF User"):
     return api_client.post(f"{BASE_URL}/api/auth/register", json={
-        "email": email, "password": password, "pin": pin, "name": name,
+        "email": email, "password": password, "name": name,
     })
 
 
@@ -39,13 +39,11 @@ def test_register_starts_unverified(api_client):
 
 def test_unverified_user_can_still_log_in_soft_gate(api_client):
     email = _gmail()
-    assert _register(api_client, email, password="verifypass1", pin="4321").status_code == 200
-    # both credential types work even though the email is unverified
-    by_pin = api_client.post(f"{BASE_URL}/api/auth/login", json={"email": email, "pin": "4321"})
-    assert by_pin.status_code == 200, by_pin.text
-    assert by_pin.json()["user"]["email_verified"] is False
+    assert _register(api_client, email, password="verifypass1").status_code == 200
+    # Password login works even though the email is unverified.
     by_pw = api_client.post(f"{BASE_URL}/api/auth/login", json={"email": email, "password": "verifypass1"})
     assert by_pw.status_code == 200, by_pw.text
+    assert by_pw.json()["user"]["email_verified"] is False
 
 
 # --------------------------------------------------------------------------- #

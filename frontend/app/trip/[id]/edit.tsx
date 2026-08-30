@@ -4,9 +4,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api } from '../../../src/api';
 import { useTheme } from '../../../src/ThemeContext';
-import { SPACING, CURRENCIES, CONTENT_MAX_WIDTH } from '../../../src/theme';
+import { SPACING, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
-import { Input, DateField, Button, Pill, useToast } from '../../../src/ui';
+import { Input, DateField, Button, CurrencyPicker, useToast } from '../../../src/ui';
 import { fromISO, toISO, isRangeValid, INVALID_DATE_MESSAGE, END_BEFORE_START_MESSAGE } from '../../../src/date';
 
 export default function EditTrip() {
@@ -31,16 +31,22 @@ export default function EditTrip() {
   }, [id]);
 
   const save = async () => {
-    const startISO = toISO(startDate);
-    const endISO = toISO(endDate);
-    if (!startISO || !endISO) { setDateError(INVALID_DATE_MESSAGE); return; }
-    if (!isRangeValid(startISO, endISO)) { setDateError(END_BEFORE_START_MESSAGE); return; }
+    const startISO = startDate.trim() ? toISO(startDate) : null;
+    const endISO = endDate.trim() ? toISO(endDate) : null;
+    if ((startDate.trim() && !startISO) || (endDate.trim() && !endISO)) {
+      setDateError(INVALID_DATE_MESSAGE);
+      return;
+    }
+    if (startISO && endISO && !isRangeValid(startISO, endISO)) {
+      setDateError(END_BEFORE_START_MESSAGE);
+      return;
+    }
     setDateError(null);
     setSaving(true);
     try {
       await api(`/trips/${id}`, {
         method: 'PATCH',
-        body: { name, start_date: startISO, end_date: endISO, budget: budget ? Number(budget) : null, currency },
+        body: { name, start_date: startISO, end_date: endISO, budget: budget ? Number(budget) : null },
       });
       router.back();
     } catch (e: any) { toast.show(e.message || 'Could not save', 'error'); }
@@ -59,16 +65,13 @@ export default function EditTrip() {
             <DateField testID="et-end" label="End date (dd/mm/yyyy)" value={endDate} onChangeText={(v) => { setEndDate(v); setDateError(null); }} minISO={toISO(startDate) ?? undefined} />
             <Input testID="et-budget" label="Budget" value={budget} onChangeText={setBudget} keyboardType="decimal-pad" icon="wallet" />
 
-            <View>
-              <T variant="label" muted style={{ marginBottom: SPACING.xs }}>Currency</T>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
-                  {CURRENCIES.map((c) => (
-                    <Pill key={c} label={c} active={currency === c} onPress={() => setCurrency(c)} />
-                  ))}
-                </View>
-              </ScrollView>
-            </View>
+            <CurrencyPicker
+              testID="et-currency"
+              label="Official currency"
+              value={currency}
+              disabled
+              helper="Locked when the trip was created so balances and settlements stay consistent."
+            />
 
             <Button label="Save" icon="check" onPress={save} loading={saving} fullWidth size="lg" testID="et-save" style={{ marginTop: SPACING.sm }} />
           </View>

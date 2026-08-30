@@ -59,8 +59,9 @@ def _build_owner_member(body: TripIn, user) -> dict:
 
 @router.post("/trips")
 async def create_trip(body: TripIn, user=Depends(get_current_user)):
-    # Calendar dates are stored as 'YYYY-MM-DD'; reject impossible dates and end-before-start.
-    assert_valid_range(body.start_date, body.end_date)
+    # Dates are optional. Supplied calendar dates are normalized to 'YYYY-MM-DD', and a complete
+    # range must still be chronological.
+    start_date, end_date = assert_valid_range(body.start_date, body.end_date)
     tid = gen_id()
     code = gen_trip_code()
     while await db.trips.find_one({"code": code}):
@@ -70,7 +71,7 @@ async def create_trip(body: TripIn, user=Depends(get_current_user)):
     owner_member = _build_owner_member(body, user)
     doc = {
         "id": tid, "code": code, "name": body.name,
-        "start_date": body.start_date.strip(), "end_date": body.end_date.strip(),
+        "start_date": start_date, "end_date": end_date,
         "budget": body.budget, "currency": body.currency or "INR",
         "owner_id": user["id"], "user_ids": [user["id"]],
         "admin_ids": [user["id"]],
@@ -100,17 +101,29 @@ async def get_trip(trip_id: str, user=Depends(get_current_user)):
 async def update_trip(trip_id: str, body: TripUpdate, user=Depends(get_current_user)):
     # Step 23: editing trip settings is an Owner/Admin capability; a plain member is rejected.
     trip = await _trip_admin_or_403(trip_id, user["id"])
-    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    supplied = body.model_dump(exclude_unset=True)
+    # Explicit null clears an optional date; other null fields retain the legacy "no change"
+    # behavior.
+    updates = {
+        k: v for k, v in supplied.items()
+        if v is not None or k in {"start_date", "end_date"}
+    }
+    # The currency selected at creation is the trip's permanent accounting currency. Reject at the
+    # API boundary as well as rendering it read-only in the client so older clients cannot mutate it.
+    if "currency" in updates:
+        if updates["currency"] != trip.get("currency", "INR"):
+            raise HTTPException(409, "Official currency cannot be changed after trip creation")
+        updates.pop("currency")
     # If either date is changing, validate the resulting range against the existing values.
     if "start_date" in updates or "end_date" in updates:
         existing = ensure_date_range(dict(trip))
         new_start = updates.get("start_date", existing.get("start_date"))
         new_end = updates.get("end_date", existing.get("end_date"))
-        assert_valid_range(new_start, new_end)
+        normalized_start, normalized_end = assert_valid_range(new_start, new_end)
         if "start_date" in updates:
-            updates["start_date"] = updates["start_date"].strip()
+            updates["start_date"] = normalized_start
         if "end_date" in updates:
-            updates["end_date"] = updates["end_date"].strip()
+            updates["end_date"] = normalized_end
     if updates:
         await db.trips.update_one({"id": trip_id}, {"$set": updates})
     return ensure_date_range(await db.trips.find_one({"id": trip_id}, {"_id": 0}))

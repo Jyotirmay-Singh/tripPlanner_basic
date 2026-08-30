@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Literal
 from pydantic import BaseModel, field_validator
 
 from utils.date_rules import normalize_time
+from utils.currency_rules import normalize_currency
 
 SplitMode = Literal["PER_CAPITA", "PER_FAMILY", "EXACT"]
 
@@ -21,6 +22,7 @@ def _validate_amount(v):
 
 class ExpenseIn(BaseModel):
     amount: float
+    currency: Optional[str] = None  # defaults to the trip's locked official currency
     category: str
     description: Optional[str] = ""
     date: str  # DD-MM-YY
@@ -49,9 +51,15 @@ class ExpenseIn(BaseModel):
     def _check_amount(cls, v):
         return _validate_amount(v)
 
+    @field_validator("currency")
+    @classmethod
+    def _check_currency(cls, v):
+        return normalize_currency(v, allow_none=True)
+
 
 class ExpenseUpdate(BaseModel):
     amount: Optional[float] = None
+    currency: Optional[str] = None
     category: Optional[str] = None
     description: Optional[str] = None
     date: Optional[str] = None
@@ -75,3 +83,8 @@ class ExpenseUpdate(BaseModel):
     @classmethod
     def _check_amount(cls, v):
         return _validate_amount(v)
+
+    @field_validator("currency")
+    @classmethod
+    def _check_currency(cls, v):
+        return normalize_currency(v, allow_none=True)

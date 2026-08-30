@@ -11,7 +11,10 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Not authenticated")
     payload = decode_token(authorization[7:])
-    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0, "pin_hash": 0})
+    # Keep excluding the retired hash defensively while every deployment completes its cleanup.
+    user = await db.users.find_one(
+        {"id": payload["sub"]}, {"_id": 0, "password_hash": 0, "pin_hash": 0}
+    )
     if not user:
         raise HTTPException(401, "User not found")
     return user

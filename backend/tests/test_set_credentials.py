@@ -1,6 +1,4 @@
-# OAuth one-time credential setup (POST /auth/set-credentials) endpoint tests. In-process
-# TestClient; the Bearer dependency is overridden to act as a given user and the users
-# collection is mocked.
+"""Tests for mandatory local-password setup after first-time Google authentication."""
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,7 +20,6 @@ def client():
 
 @pytest.fixture
 def fake_users(monkeypatch):
-    # find_one is called AFTER the update to build the response payload.
     users = SimpleNamespace(
         update_one=AsyncMock(return_value=None),
         find_one=AsyncMock(return_value={
@@ -38,49 +35,52 @@ def fake_users(monkeypatch):
 def as_user():
     def _set(user):
         app.dependency_overrides[get_current_user] = lambda: user
+
     yield _set
     app.dependency_overrides.pop(get_current_user, None)
 
 
-GOOGLE_USER = {"id": "u-1", "email": "g@gmail.com", "name": "G",
-               "email_verified": True, "credentials_set": False}
+GOOGLE_USER = {
+    "id": "u-1", "email": "g@gmail.com", "name": "G",
+    "email_verified": True, "credentials_set": False,
+}
 
 
-# --------------------------------------------------------------------------- #
 def test_set_credentials_without_auth_401(client):
-    r = client.post("/api/auth/set-credentials", json={"pin": "1234", "password": "password123"})
-    assert r.status_code == 401
+    response = client.post("/api/auth/set-credentials", json={"password": "password123"})
+    assert response.status_code == 401
 
 
 def test_set_credentials_valid(client, fake_users, as_user):
     as_user(GOOGLE_USER)
-    r = client.post("/api/auth/set-credentials", json={"pin": "1234", "password": "password123"})
-    assert r.status_code == 200, r.text
-    assert r.json()["user"]["credentials_set"] is True
+    response = client.post("/api/auth/set-credentials", json={"password": "password123"})
+    assert response.status_code == 200, response.text
+    assert response.json()["user"]["credentials_set"] is True
     fake_users.update_one.assert_awaited_once()
     _, update = fake_users.update_one.call_args.args
-    assert set(update["$set"].keys()) == {"pin_hash", "password_hash", "credentials_set"}
+    assert set(update["$set"].keys()) == {"password_hash", "credentials_set"}
     assert update["$set"]["credentials_set"] is True
 
 
-def test_set_credentials_non_digit_pin_422(client, fake_users, as_user):
-    # PIN must be exactly 4 chars (Pydantic) — a non-4-length value fails validation (422).
+def test_set_credentials_rejects_retired_pin_field(client, fake_users, as_user):
     as_user(GOOGLE_USER)
-    r = client.post("/api/auth/set-credentials", json={"pin": "12", "password": "password123"})
-    assert r.status_code == 422
+    response = client.post(
+        "/api/auth/set-credentials",
+        json={"password": "password123", "pin": "1234"},
+    )
+    assert response.status_code == 422
     fake_users.update_one.assert_not_called()
 
 
-def test_set_credentials_non_numeric_pin_400(client, fake_users, as_user):
-    # A 4-char but non-numeric PIN passes Pydantic length but fails the isdigit() route check.
+def test_set_credentials_missing_password_422(client, fake_users, as_user):
     as_user(GOOGLE_USER)
-    r = client.post("/api/auth/set-credentials", json={"pin": "abcd", "password": "password123"})
-    assert r.status_code == 400
+    response = client.post("/api/auth/set-credentials", json={})
+    assert response.status_code == 422
     fake_users.update_one.assert_not_called()
 
 
 def test_set_credentials_short_password_400(client, fake_users, as_user):
     as_user(GOOGLE_USER)
-    r = client.post("/api/auth/set-credentials", json={"pin": "1234", "password": "short"})
-    assert r.status_code == 400
+    response = client.post("/api/auth/set-credentials", json={"password": "short"})
+    assert response.status_code == 400
     fake_users.update_one.assert_not_called()

@@ -55,7 +55,7 @@ def as_user():
 # --------------------------------------------------------------------------- #
 def test_register_creates_unverified_user_and_sends_email(client, fake_users, patched_email):
     r = client.post("/api/auth/register", json={
-        "email": "newuser@gmail.com", "password": "password123", "pin": "1212", "name": "New User",
+        "email": "newuser@gmail.com", "password": "password123", "name": "New User",
     })
     assert r.status_code == 200, r.text
     user = r.json()["user"]
@@ -73,7 +73,7 @@ def test_register_creates_unverified_user_and_sends_email(client, fake_users, pa
 def test_register_verify_token_has_24h_ttl(client, fake_users, patched_email):
     # The verification link must live for 24h (VERIFY_TTL) — asserted on the TTL handed to issue_token.
     r = client.post("/api/auth/register", json={
-        "email": "ttl@gmail.com", "password": "password123", "pin": "1212", "name": "TTL",
+        "email": "ttl@gmail.com", "password": "password123", "name": "TTL",
     })
     assert r.status_code == 200, r.text
     ttl_arg = patched_email.issue.call_args.args[2]

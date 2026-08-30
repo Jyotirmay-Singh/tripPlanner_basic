@@ -16,7 +16,7 @@ class TestTripChat:
         email = f"TEST_chat_{uuid.uuid4().hex[:10]}@gmail.com"
         response = api_client.post(
             f"{BASE_URL}/api/auth/register",
-            json={"name": name, "email": email, "password": "test12345", "pin": "5678"},
+        json={"name": name, "email": email, "password": "test12345"},
         )
         assert response.status_code == 200, response.text
         return response.json()

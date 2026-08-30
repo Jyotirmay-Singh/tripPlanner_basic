@@ -58,7 +58,7 @@ Internal testing → **Testers** tab:
 Play Console → **Policy → App content**. Complete each required item:
 - **Privacy policy** — **required** (the app collects emails/names/accounts). See below.
 - **App access** — the app needs sign-in, so provide **test credentials** (a demo
-  `@gmail.com` + password + PIN) so reviewers/testers aren't blocked.
+  `@gmail.com` + password) so reviewers/testers aren't blocked.
 - **Ads** — declare **No ads** (assuming none).
 - **Content rating** — fill the questionnaire (utility app → typically *Everyone*).
 - **Target audience & content** — select age groups (not directed at children).

@@ -5,7 +5,7 @@ families, settling balances, and exporting reports.
 
 - **Frontend:** Expo SDK 54 / React Native (file-based routing via `expo-router`)
 - **Backend:** FastAPI + MongoDB (async access via Motor)
-- **Auth:** bcrypt-hashed password + 4-digit PIN, JWT bearer tokens, optional Google Sign-In
+- **Auth:** bcrypt-hashed passwords, JWT bearer tokens, and Google Sign-In
 
 See [`USER_GUIDE.md`](USER_GUIDE.md) for full feature documentation and
 [`memory/PRD.md`](memory/PRD.md) for the product spec.
@@ -23,7 +23,7 @@ See [`USER_GUIDE.md`](USER_GUIDE.md) for full feature documentation and
 - Receipt photo capture and save-to-gallery.
 - XLSX report export.
 
-> This project is **Gmail-only**: every email accepted (register, login, forgot-PIN,
+> This project is **Gmail-only**: every email accepted (register, login, password recovery,
 > linked member emails, Google sign-in) must end in `@gmail.com`, enforced server-side
 > by `backend/utils/email_rules.py` and client-side by `frontend/src/validation.ts`.
 
@@ -65,8 +65,8 @@ or admin login is unavailable.
 | `MONGO_URL` | MongoDB connection string (required) |
 | `DB_NAME` | Database name (required) |
 | `JWT_SECRET` | HS256 signing key for auth tokens (required) |
-| `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_PIN` | Seed superuser, created on startup if missing (email must be `@gmail.com`) |
-| `RESEND_API_KEY`, `SENDER_EMAIL`, `APP_URL` | Transactional email (forgot-PIN). If `RESEND_API_KEY` is unset, the reset token is logged instead of emailed |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Seed superuser, created on startup if missing (email must be `@gmail.com`) |
+| `RESEND_API_KEY`, `SENDER_EMAIL`, `APP_URL` | Verification/password-reset email. If `RESEND_API_KEY` is unset, development links are logged instead of emailed |
 | `GOOGLE_CLIENT_ID` | Comma-separated accepted Google ID-token audiences for `POST /api/auth/google`; include the Web client (web + Android Credential Manager) and iOS client when iOS sign-in is enabled |
 
 ## Frontend

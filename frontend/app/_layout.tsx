@@ -31,7 +31,12 @@ function Inner() {
   // reset the stack so back-navigation can't reach a signed-out screen. No-op while loading
   // (user === undefined) so the index splash shows.
   useEffect(() => {
-    const target = authRedirectTarget(user, segments[0] === '(auth)', isPublicTokenRoute(segments[0]));
+    const target = authRedirectTarget(
+      user,
+      segments[0] === '(auth)',
+      isPublicTokenRoute(segments[0]),
+      segments[0] === 'set-credentials',
+    );
     if (target) navResetTo(router, target);
   }, [user, segments, router]);
 

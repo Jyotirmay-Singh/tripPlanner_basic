@@ -24,7 +24,6 @@ class TestTripRBAC:
         resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
             "email": email,
             "password": "test12345",
-            "pin": "5678",
             "name": name
         })
         assert resp.status_code == 200, resp.text

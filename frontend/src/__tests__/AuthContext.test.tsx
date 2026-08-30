@@ -96,3 +96,41 @@ it('clears invalid authentication while retaining the saved login email', async 
   expect(latest.savedEmail).toBe('saved@gmail.com');
   expect(AsyncStorage.removeItem).not.toHaveBeenCalled();
 });
+
+it('signs in with an email and password payload only', async () => {
+  const user = { id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user' };
+  (apiModule.api as jest.Mock).mockImplementation((path: string) => {
+    if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
+    if (path === '/auth/login') return Promise.resolve({ access_token: 'jwt', user });
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+
+  await act(async () => latest.signIn('saved@gmail.com', 'password123'));
+
+  expect(apiModule.api).toHaveBeenCalledWith('/auth/login', {
+    method: 'POST',
+    body: { email: 'saved@gmail.com', password: 'password123' },
+    auth: false,
+  });
+  expect(latest.user).toEqual(user);
+});
+
+it('registers without a PIN field', async () => {
+  const user = { id: 'u2', email: 'new@gmail.com', name: 'New User', role: 'user' };
+  (apiModule.api as jest.Mock).mockImplementation((path: string) => {
+    if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
+    if (path === '/auth/register') return Promise.resolve({ access_token: 'jwt', user });
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+
+  await act(async () => latest.register('new@gmail.com', 'New User', 'password123'));
+
+  expect(apiModule.api).toHaveBeenCalledWith('/auth/register', {
+    method: 'POST',
+    body: { email: 'new@gmail.com', name: 'New User', password: 'password123' },
+    auth: false,
+  });
+  expect(latest.user).toEqual(user);
+});

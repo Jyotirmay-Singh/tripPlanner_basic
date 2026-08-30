@@ -1,8 +1,7 @@
 """Hardened, hashed, single-use, expiring email tokens (verify-email + password-reset).
 
-These back the email-verification and forgot-PASSWORD flows. They are intentionally kept
-separate from the legacy `db.password_reset_tokens` used by the forgot-PIN flow (which stores
-raw tokens + ISO-string expiries and is left byte-for-byte). Here we:
+These back the email-verification and forgot-password flows. The retired raw-token PIN recovery
+store is deleted during the password-only authentication migration. Here we:
   * store only a SHA-256 hash of the raw token (the raw value lives only in the email link);
   * tag every token with a `type` so a verify token can never be spent as a reset token;
   * store `expires_at` as a real UTC datetime so a TTL index can auto-purge expired rows;

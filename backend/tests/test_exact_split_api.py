@@ -19,7 +19,7 @@ def _h(token):
 def _register(api_client, name="Exact Tester"):
     email = f"test_{uuid.uuid4().hex[:8]}@gmail.com"
     resp = api_client.post(f"{BASE_URL}/api/auth/register", json={
-        "email": email, "password": "test12345", "pin": "4321", "name": name,
+        "email": email, "password": "test12345", "name": name,
     })
     if resp.status_code != 200:
         pytest.skip(f"User registration failed: {resp.status_code}")
