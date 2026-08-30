@@ -100,8 +100,12 @@ export default function TimePicker({ value, onApply }: Props) {
       </View>
 
       <View style={styles.actions}>
-        <Button label="Now" variant="secondary" icon="clock" onPress={setNow} style={{ flex: 1 }} />
-        <Button label="Done" icon="check" onPress={() => onApply(`${pad(h)}:${pad(m)}`)} style={{ flex: 1 }} />
+        <View style={styles.action}>
+          <Button label="Now" variant="secondary" icon="clock" onPress={setNow} fullWidth />
+        </View>
+        <View style={styles.action}>
+          <Button label="Done" icon="check" onPress={() => onApply(`${pad(h)}:${pad(m)}`)} fullWidth />
+        </View>
       </View>
     </View>
   );
@@ -119,4 +123,5 @@ const styles = StyleSheet.create({
   },
   rowText: { fontFamily: FONTS.number, fontSize: TYPESCALE.lg },
   actions: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.md },
+  action: { flex: 1, minWidth: 0 },
 });
