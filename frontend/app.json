@@ -30,6 +30,14 @@
         "READ_MEDIA_IMAGES"
       ]
     },
+    "androidStatusBar": {
+      "barStyle": "light-content",
+      "backgroundColor": "#0A0D0C",
+      "translucent": true
+    },
+    "androidNavigationBar": {
+      "barStyle": "light-content"
+    },
     "web": {
       "bundler": "metro",
       "output": "static",

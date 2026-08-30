@@ -62,9 +62,9 @@ export const COMPONENT_SIZE = {
   statusPill: 32,
 } as const;
 
-// Shared layout metrics. `scrollBottomInset` clears the floating tab bar at the
-// bottom of every scroll screen; `screenPadding` is the standard screen gutter.
-export const LAYOUT = { screenPadding: SPACING.lg, scrollBottomInset: 120 } as const;
+// Shared layout metrics. System and navigator insets are measured at runtime; this token is only
+// the visual gutter inside a safe content area.
+export const LAYOUT = { screenPadding: SPACING.lg } as const;
 
 // Shared metrics for text-input controls, so every form renders identically.
 export const CONTROL = { paddingY: 14, fontSize: 16, radius: RADIUS.md } as const;

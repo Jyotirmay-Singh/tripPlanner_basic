@@ -38,7 +38,7 @@ jest.mock('../TabPageHeader', () => {
 jest.mock('../ui', () => {
   const R = require('react');
   const stub = (name: string) => (props: any) => R.createElement(name, props, props.children);
-  return { Screen: stub('Screen'), Card: stub('Card'), Icon: stub('Icon') };
+  return { Screen: stub('Screen'), TabScreen: stub('Screen'), Card: stub('Card'), Icon: stub('Icon') };
 });
 
 import Profile from '../../app/(tabs)/profile';

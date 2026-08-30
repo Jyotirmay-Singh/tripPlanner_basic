@@ -41,7 +41,14 @@ export default function Sheet({ visible, onClose, title, children, testID }: Pro
   }, [visible, height, translateY, fade]);
 
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      onRequestClose={onClose}
+      statusBarTranslucent
+      navigationBarTranslucent
+    >
       <Animated.View style={[styles.scrim, { backgroundColor: colors.scrim, opacity: fade }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" accessibilityRole="button" />
         <Animated.View

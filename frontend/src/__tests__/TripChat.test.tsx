@@ -5,6 +5,10 @@ import TestRenderer, { act } from 'react-test-renderer';
 
 const mockToastShow = jest.fn();
 
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 24, left: 0 }),
+}));
+
 jest.mock('../ThemeContext', () => ({
   useTheme: () => ({
     colors: {

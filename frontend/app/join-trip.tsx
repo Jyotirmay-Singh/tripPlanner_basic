@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
 import {
-  View, TextInput, TouchableOpacity, StyleSheet, ScrollView,
-  KeyboardAvoidingView, Platform,
+  View, TextInput, TouchableOpacity, StyleSheet,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { previewJoin, joinTrip } from '../src/api';
 import { useTheme } from '../src/ThemeContext';
@@ -11,7 +9,7 @@ import { SPACING, RADIUS, FONTS, CONTENT_MAX_WIDTH } from '../src/theme';
 import T from '../src/T';
 import Badge from '../src/Badge';
 import ConfirmModal from '../src/ConfirmModal';
-import { Input, Button, Icon } from '../src/ui';
+import { FormScreen, Input, Button, Icon } from '../src/ui';
 import { IconName } from '../src/ui/Icon';
 import {
   JoinMatch, mustClaim, replacementNeeded, replacementNote,
@@ -147,9 +145,7 @@ export default function JoinTrip() {
   // ---------- Stage 1: code entry ----------
   if (stage === 'code') {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <ScrollView contentContainerStyle={{ padding: SPACING.lg, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
+      <FormScreen>
             <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
               <View style={[styles.brand, { backgroundColor: colors.primary }]}>
                 <Icon name="key" size={26} color={colors.primaryText} strokeWidth={2} />
@@ -171,9 +167,7 @@ export default function JoinTrip() {
 
               <Button label="Continue" iconRight="chevron-right" onPress={loadPreview} loading={busy} disabled={code.length !== 6} fullWidth size="lg" testID="jt-submit" />
             </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
+      </FormScreen>
     );
   }
 
@@ -186,8 +180,7 @@ export default function JoinTrip() {
         ? `${match.member_name} in the ${match.family_name} family`
         : match.member_name;
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
-        <ScrollView contentContainerStyle={{ padding: SPACING.lg, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
+      <FormScreen>
           <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
             <TouchableOpacity testID="jt-back" onPress={backToCode} disabled={busy}
               style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' }} accessibilityLabel="Back">
@@ -250,8 +243,7 @@ export default function JoinTrip() {
               </View>
             )}
           </View>
-        </ScrollView>
-      </SafeAreaView>
+      </FormScreen>
     );
   }
 
@@ -270,9 +262,8 @@ export default function JoinTrip() {
     || (mode === 'new_family' && (!familyName.trim() || parsedMembers().length === 0));
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={{ padding: SPACING.lg, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
+    <>
+      <FormScreen>
           <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
             <TouchableOpacity testID="jt-back" onPress={match ? () => { setError(null); setStage('identity'); } : backToCode} disabled={busy}
               style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' }} accessibilityLabel="Back">
@@ -389,8 +380,7 @@ export default function JoinTrip() {
 
             <Button label="Join trip" icon="check" onPress={submitJoin} loading={busy} disabled={confirmDisabled} fullWidth size="lg" testID="jt-join-confirm" />
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScreen>
 
       <ConfirmModal
         visible={pendingBody !== null}
@@ -405,7 +395,7 @@ export default function JoinTrip() {
             onPress: () => setPendingBody(null) },
         ]}
       />
-    </SafeAreaView>
+    </>
   );
 }
 

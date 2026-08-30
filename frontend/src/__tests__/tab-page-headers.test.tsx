@@ -35,7 +35,7 @@ jest.mock('../ui', () => {
   const R = require('react');
   const stub = (name: string) => (props: any) => R.createElement(name, props, props.children);
   return {
-    Screen: stub('Screen'), Card: stub('Card'), Button: stub('Button'), StatCard: stub('StatCard'),
+    Screen: stub('Screen'), TabScreen: stub('Screen'), Card: stub('Card'), Button: stub('Button'), StatCard: stub('StatCard'),
     IconButton: stub('IconButton'),
     ListRow: stub('ListRow'), EmptyState: stub('EmptyState'), AmountText: stub('AmountText'),
     SkeletonCard: stub('SkeletonCard'), Icon: stub('Icon'), useToast: () => ({ show: jest.fn() }),

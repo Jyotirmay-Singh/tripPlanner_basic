@@ -19,7 +19,7 @@ import {
   type TripBalancePayload,
 } from '../../src/tripBalance';
 import {
-  Screen, Card, Button, ListRow, EmptyState, AmountText, SkeletonCard,
+  TabScreen, Card, Button, ListRow, EmptyState, AmountText, SkeletonCard,
 } from '../../src/ui';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
@@ -86,7 +86,7 @@ export default function Dashboard() {
   const tripCount = `${trips.length} trip${trips.length === 1 ? '' : 's'}`;
 
   return (
-    <Screen refreshing={refreshing} onRefresh={load}>
+    <TabScreen refreshing={refreshing} onRefresh={load}>
       <TabPageHeader title="Dashboard" />
 
       <UnverifiedBanner />
@@ -171,7 +171,7 @@ export default function Dashboard() {
           />
         ))
       )}
-    </Screen>
+    </TabScreen>
   );
 }
 

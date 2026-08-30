@@ -40,6 +40,7 @@ jest.mock('../../ui', () => {
   return {
     __esModule: true,
     Screen: (p: any) => R.createElement('Screen', p, p.children),
+    TabScreen: (p: any) => R.createElement('Screen', p, p.children),
     Card: (p: any) => R.createElement('Card', p, p.children),
     Button: stub('Button'),
     StatCard: stub('StatCard'),

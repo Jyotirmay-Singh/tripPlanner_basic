@@ -5,7 +5,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo
 import { api, getToken, receiptUrl, spendSummary } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
-import { SPACING, RADIUS, LAYOUT, CONTENT_MAX_WIDTH, COMPONENT_SIZE, FONTS } from '../../../src/theme';
+import { SPACING, RADIUS, CONTENT_MAX_WIDTH, COMPONENT_SIZE, FONTS } from '../../../src/theme';
 import T from '../../../src/T';
 import Badge from '../../../src/Badge';
 import DonutChart, { paletteForMode } from '../../../src/DonutChart';
@@ -318,7 +318,7 @@ export default function TripDetail() {
 
   if (tab === 'chat') {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom', 'left', 'right']}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['left', 'right']}>
         <TripChat
           header={(
             <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, padding: SPACING.lg, paddingBottom: 0, gap: SPACING.md }}>
@@ -338,7 +338,7 @@ export default function TripDetail() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom', 'left', 'right']}>
       <ScrollView
-        contentContainerStyle={{ padding: SPACING.lg, paddingBottom: LAYOUT.scrollBottomInset, alignItems: 'center' }}
+        contentContainerStyle={{ padding: SPACING.lg, alignItems: 'center' }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor={colors.primary} />}
       >
         <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>

@@ -44,7 +44,7 @@ export default function Register() {
 
   return (
     <AuthShell
-      edges={['bottom']}
+      nativeHeader
       brandImage={require('../../assets/images/wordmark.png')}
       title="Let's get started"
       subtitle="Your trips, shared seamlessly."

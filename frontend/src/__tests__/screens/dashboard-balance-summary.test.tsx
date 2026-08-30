@@ -32,7 +32,7 @@ jest.mock('../../ui', () => {
   const stub = (name: string) => (props: any) => R.createElement(name, props, props?.children);
   return {
     __esModule: true,
-    Screen: stub('Screen'), Card: stub('Card'), Button: stub('Button'),
+    Screen: stub('Screen'), TabScreen: stub('Screen'), Card: stub('Card'), Button: stub('Button'),
     ListRow: stub('ListRow'), EmptyState: stub('EmptyState'),
     AmountText: stub('AmountText'), SkeletonCard: stub('SkeletonCard'),
   };

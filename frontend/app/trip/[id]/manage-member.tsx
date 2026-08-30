@@ -60,7 +60,7 @@ export default function ManageMember() {
   useEffect(() => { load(); }, [load]);
 
   if (!trip || !member) {
-    return <Screen edges={['bottom']}><T muted style={{ padding: SPACING.lg }}>Loading…</T></Screen>;
+    return <Screen edges={['left', 'right', 'bottom']}><T muted>Loading…</T></Screen>;
   }
 
   const memberLabel = memberDisplayNames(trip.members)[member.id] ?? member.name;
@@ -173,7 +173,7 @@ export default function ManageMember() {
   });
 
   return (
-    <Screen edges={['bottom']}>
+    <Screen edges={['left', 'right', 'bottom']}>
       <View>
         <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm }}>
           <T variant="h1">{memberLabel}{member.kind === 'family' ? ` (${member.family_members.length})` : ''}</T>

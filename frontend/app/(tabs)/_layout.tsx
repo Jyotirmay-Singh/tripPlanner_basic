@@ -1,11 +1,13 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { Platform, StyleSheet } from 'react-native';
+import { Platform, StyleSheet, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { useTheme } from '../../src/ThemeContext';
 import { FONTS, TYPESCALE } from '../../src/theme';
 import { Icon } from '../../src/ui';
 import { IconName } from '../../src/ui/Icon';
+import { tabBarMetrics } from '../../src/tabBarLayout';
 
 // Named so it carries a display name (lint) — the tab icon renderer.
 function TabIcon({ name, color, focused, base = 24 }: { name: IconName; color: string; focused: boolean; base?: number }) {
@@ -14,6 +16,9 @@ function TabIcon({ name, color, focused, base = 24 }: { name: IconName; color: s
 
 export default function TabsLayout() {
   const { colors, mode } = useTheme();
+  const { bottom } = useSafeAreaInsets();
+  const { fontScale } = useWindowDimensions();
+  const barMetrics = tabBarMetrics(bottom, fontScale);
 
   // Crystal-glass tab bar (design_guidelines.json): a translucent surface fallback with a
   // BlurView over it, so it reads as frosted glass where blur is supported and still legible
@@ -37,9 +42,9 @@ export default function TabsLayout() {
           backgroundColor: glassFallback,
           borderTopColor: colors.border,
           borderTopWidth: StyleSheet.hairlineWidth,
-          paddingTop: 8,
-          paddingBottom: Platform.OS === 'ios' ? 24 : 10,
-          height: Platform.OS === 'ios' ? 90 : 68,
+          paddingTop: barMetrics.paddingTop,
+          paddingBottom: barMetrics.paddingBottom,
+          height: barMetrics.height,
           elevation: 0,
         },
         // Keep the three visible destinations evenly distributed across the bar width.

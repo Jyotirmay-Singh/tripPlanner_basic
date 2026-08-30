@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
-import { View, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { api } from '../src/api';
 import { useAuth } from '../src/AuthContext';
 import { useTheme } from '../src/ThemeContext';
 import { SPACING, RADIUS, CONTENT_MAX_WIDTH } from '../src/theme';
 import T from '../src/T';
-import { Input, DateField, Button, CurrencyPicker, Pill, Icon, SegmentedControl, useToast } from '../src/ui';
+import { FormScreen, Input, DateField, Button, CurrencyPicker, Pill, Icon, SegmentedControl, useToast } from '../src/ui';
 import { toISO, isRangeValid, INVALID_DATE_MESSAGE, END_BEFORE_START_MESSAGE } from '../src/date';
 import { SelfKind, identityIssue, buildIdentityFields } from '../src/createIdentity';
 
@@ -75,9 +74,7 @@ export default function CreateTrip() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={{ padding: SPACING.lg, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
+    <FormScreen>
           <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
             <T variant="h1">New Trip</T>
 
@@ -174,8 +171,6 @@ export default function CreateTrip() {
 
             <Button label="Create trip" icon="check" onPress={submit} loading={saving} fullWidth size="lg" testID="ct-submit" style={{ marginTop: SPACING.sm }} />
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+    </FormScreen>
   );
 }

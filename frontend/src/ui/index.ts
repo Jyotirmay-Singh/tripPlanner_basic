@@ -24,5 +24,7 @@ export { default as Sheet } from './Sheet';
 export { default as ActionSheet } from './ActionSheet';
 export type { SheetAction } from './ActionSheet';
 export { default as Screen } from './Screen';
+export { default as TabScreen } from './TabScreen';
+export { default as FormScreen } from './FormScreen';
 export { default as AuthShell } from './AuthShell';
 export { ToastProvider, useToast } from './Toast';

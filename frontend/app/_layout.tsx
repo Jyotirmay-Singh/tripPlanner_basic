@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { initialWindowMetrics, SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
@@ -17,12 +16,14 @@ import { ToastProvider } from '../src/ui';
 import { FONTS } from '../src/theme';
 import { authRedirectTarget, navResetTo, isPublicTokenRoute } from '../src/authNav';
 import PushNotificationCoordinator from '../src/PushNotificationCoordinator';
+import AppSystemBars from '../src/AppSystemBars';
 
 // Keep the native splash up until our fonts are ready, so text never flashes in a fallback face.
 SplashScreen.preventAutoHideAsync().catch(() => {});
+SplashScreen.setOptions({ duration: 240, fade: true });
 
 function Inner() {
-  const { mode, colors } = useTheme();
+  const { colors } = useTheme();
   const { user } = useAuth();
   const router = useRouter();
   const segments = useSegments();
@@ -44,7 +45,6 @@ function Inner() {
   return (
     <LogoutProvider>
       <PushNotificationCoordinator />
-      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
       <Stack screenOptions={{
         headerStyle: { backgroundColor: colors.background },
         headerTintColor: colors.textMain,
@@ -100,13 +100,15 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
         <ThemeProvider>
-          <ToastProvider>
-            <AuthProvider>
-              <Inner />
-            </AuthProvider>
-          </ToastProvider>
+          <AppSystemBars>
+            <ToastProvider>
+              <AuthProvider>
+                <Inner />
+              </AuthProvider>
+            </ToastProvider>
+          </AppSystemBars>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

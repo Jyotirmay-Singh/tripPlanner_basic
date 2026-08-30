@@ -1,5 +1,6 @@
 import React from 'react';
 import { Modal, View, TouchableOpacity, StyleSheet, Pressable } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from './ThemeContext';
 import { SPACING, RADIUS } from './theme';
 import T from './T';
@@ -24,6 +25,7 @@ type Props = {
 // ThemeContext so it follows light/dark mode. Actions render as a vertical button stack.
 export default function ConfirmModal({ visible, title, message, actions, onRequestClose, testID }: Props) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const btnStyle = (variant: ConfirmAction['variant']) => {
     if (variant === 'primary') return { backgroundColor: colors.primary };
@@ -38,8 +40,26 @@ export default function ConfirmModal({ visible, title, message, actions, onReque
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onRequestClose}>
-      <Pressable style={styles.scrim} onPress={onRequestClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onRequestClose}
+      statusBarTranslucent
+      navigationBarTranslucent
+    >
+      <Pressable
+        style={[
+          styles.scrim,
+          {
+            paddingTop: insets.top + SPACING.lg,
+            paddingBottom: insets.bottom + SPACING.lg,
+            paddingLeft: insets.left + SPACING.lg,
+            paddingRight: insets.right + SPACING.lg,
+          },
+        ]}
+        onPress={onRequestClose}
+      >
         <Pressable
           testID={testID}
           onPress={() => {}}
@@ -68,7 +88,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
-    padding: SPACING.lg,
   },
   card: { borderRadius: RADIUS.lg, borderWidth: 1, padding: SPACING.lg },
   btn: { paddingVertical: 14, borderRadius: RADIUS.pill, alignItems: 'center' },

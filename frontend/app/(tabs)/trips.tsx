@@ -17,7 +17,7 @@ import {
   type TripBalancePayload,
   type TripBalanceState,
 } from '../../src/tripBalance';
-import { Screen, Card, Button, EmptyState, SkeletonCard, Icon, IconButton } from '../../src/ui';
+import { TabScreen, Card, Button, EmptyState, SkeletonCard, Icon, IconButton } from '../../src/ui';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
 type Trip = { id: string; name: string; code?: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; members: Member[] };
@@ -85,7 +85,7 @@ export default function Trips() {
   }, [load]));
 
   return (
-    <Screen refreshing={refreshing} onRefresh={load} edges={['top', 'left', 'right']}>
+    <TabScreen refreshing={refreshing} onRefresh={load}>
       <TabPageHeader
         title="Trips"
         action={(
@@ -144,7 +144,7 @@ export default function Trips() {
           />
         ))
       )}
-    </Screen>
+    </TabScreen>
   );
 }
 

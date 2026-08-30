@@ -29,7 +29,7 @@ export default function ForgotPassword() {
   if (sent) {
     return (
       <AuthShell
-        edges={['bottom']}
+        nativeHeader
         brandIcon="mail"
         title="Check your email"
         subtitle="If an account exists for that address, we've sent a link to reset your password."
@@ -41,7 +41,7 @@ export default function ForgotPassword() {
 
   return (
     <AuthShell
-      edges={['bottom']}
+      nativeHeader
       brandIcon="lock"
       title="Forgot password"
       subtitle="Enter your email and we'll send you a link to reset your password."

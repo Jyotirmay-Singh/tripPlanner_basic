@@ -8,7 +8,7 @@ import { initials } from '../../src/initials';
 import { SPACING, RADIUS } from '../../src/theme';
 import T from '../../src/T';
 import TabPageHeader from '../../src/TabPageHeader';
-import { Screen, Card, Icon } from '../../src/ui';
+import { TabScreen, Card, Icon } from '../../src/ui';
 import NotificationSettingsRow from '../../src/NotificationSettingsRow';
 
 export default function Profile() {
@@ -18,7 +18,7 @@ export default function Profile() {
   const router = useRouter();
 
   return (
-    <Screen scroll={false}>
+    <TabScreen>
       <TabPageHeader title="Profile" />
 
       <Card style={styles.row}>
@@ -61,7 +61,7 @@ export default function Profile() {
         <T color={colors.danger} style={{ flex: 1, fontWeight: '700' }}>Sign out</T>
         <Icon name="chevron-right" size={18} color={colors.textMuted} />
       </Card>
-    </Screen>
+    </TabScreen>
   );
 }
 

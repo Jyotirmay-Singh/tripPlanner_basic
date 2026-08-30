@@ -12,6 +12,10 @@ import React from 'react';
 import { StyleSheet } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 24, right: 0, bottom: 30, left: 0 }),
+}));
+
 jest.mock('expo-router', () => ({ useFocusEffect: () => {}, useLocalSearchParams: () => ({ id: 't1' }) }));
 jest.mock('../../api', () => ({
   api: jest.fn(), listPayments: jest.fn(), recordPayment: jest.fn(), editPayment: jest.fn(), deletePayment: jest.fn(),

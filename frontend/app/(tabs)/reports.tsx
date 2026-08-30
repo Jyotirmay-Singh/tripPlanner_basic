@@ -4,7 +4,7 @@ import { useFocusEffect } from 'expo-router';
 import { api, getToken, xlsxUrl, pdfUrl } from '../../src/api';
 import T from '../../src/T';
 import TabPageHeader from '../../src/TabPageHeader';
-import { Screen, Card, Button, EmptyState, SkeletonCard, useToast } from '../../src/ui';
+import { TabScreen, Card, Button, EmptyState, SkeletonCard, useToast } from '../../src/ui';
 
 type Trip = { id: string; name: string; currency: string };
 
@@ -35,7 +35,7 @@ export default function Reports() {
   };
 
   return (
-    <Screen refreshing={refreshing} onRefresh={load}>
+    <TabScreen refreshing={refreshing} onRefresh={load}>
       <TabPageHeader title="Reports" />
       <T muted>Download an expense report for any trip as XLSX or PDF.</T>
 
@@ -60,6 +60,6 @@ export default function Reports() {
           </Card>
         ))
       )}
-    </Screen>
+    </TabScreen>
   );
 }

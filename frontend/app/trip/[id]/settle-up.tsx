@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { View, StyleSheet, Modal, Pressable, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { api, listPayments, recordPayment, editPayment, deletePayment } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
@@ -233,7 +234,7 @@ export default function SettleUp() {
   };
 
   return (
-    <Screen edges={['bottom']}>
+    <Screen edges={['left', 'right', 'bottom']}>
       <T variant="h1">Settle Up</T>
       <T muted>The fewest transfers to zero everyone out. Tap Settle up to record a payment.</T>
 
@@ -343,6 +344,7 @@ export function AmountModal({
   onSubmit: (amount: number, note: string) => void;
 }) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const [amountStr, setAmountStr] = useState(String(round2(initial)));
   const [noteStr, setNoteStr] = useState(initialNote);
   const [error, setError] = useState<string | null>(null);
@@ -355,14 +357,29 @@ export function AmountModal({
   };
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
+    <Modal
+      visible
+      transparent
+      animationType="fade"
+      onRequestClose={onCancel}
+      statusBarTranslucent
+      navigationBarTranslucent
+    >
       {/* Tap-outside-to-dismiss (kept). The KeyboardAvoidingView lifts the centered card above the
           keyboard so the pinned Cancel/Continue footer stays reachable; the body scrolls if it can't
           fit (small screens / keyboard open). */}
       <Pressable style={styles.scrim} onPress={onCancel}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.modalKav}
+          style={[
+            styles.modalKav,
+            {
+              paddingTop: insets.top + SPACING.lg,
+              paddingBottom: insets.bottom + SPACING.lg,
+              paddingLeft: insets.left + SPACING.lg,
+              paddingRight: insets.right + SPACING.lg,
+            },
+          ]}
         >
           <Pressable
             onPress={() => {}}
@@ -444,7 +461,7 @@ const styles = StyleSheet.create({
   scrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
   // KAV owns the centering + outer padding so `behavior:'padding'` can add keyboard-height inset
   // and slide the card up on iOS.
-  modalKav: { flex: 1, justifyContent: 'center', padding: SPACING.lg },
+  modalKav: { flex: 1, justifyContent: 'center' },
   // maxHeight bounds the card so the body ScrollView can scroll; header + footer stay pinned.
   modalCard: { borderRadius: RADIUS.lg, borderWidth: 1, padding: SPACING.lg, maxHeight: '90%' },
   modalHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.xs },

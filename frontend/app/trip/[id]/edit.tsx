@@ -1,17 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { View, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api } from '../../../src/api';
-import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
-import { Input, DateField, Button, CurrencyPicker, useToast } from '../../../src/ui';
+import { FormScreen, Input, DateField, Button, CurrencyPicker, useToast } from '../../../src/ui';
 import { fromISO, toISO, isRangeValid, INVALID_DATE_MESSAGE, END_BEFORE_START_MESSAGE } from '../../../src/date';
 
 export default function EditTrip() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { colors } = useTheme();
   const router = useRouter();
   const toast = useToast();
   const [name, setName] = useState('');
@@ -54,9 +51,7 @@ export default function EditTrip() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={{ padding: SPACING.lg, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
+    <FormScreen>
           <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
             <T variant="h1">Edit trip</T>
 
@@ -75,8 +70,6 @@ export default function EditTrip() {
 
             <Button label="Save" icon="check" onPress={save} loading={saving} fullWidth size="lg" testID="et-save" style={{ marginTop: SPACING.sm }} />
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+    </FormScreen>
   );
 }

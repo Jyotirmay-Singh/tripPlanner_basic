@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Image, ImageSourcePropType } from 'react-native';
-import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../ThemeContext';
 import { SPACING, RADIUS, CONTENT_MAX_WIDTH } from '../theme';
 import T from '../T';
@@ -14,8 +14,8 @@ type Props = {
    *  screens show the "TRIP SPLITTER" wordmark). Transparent PNG ⇒ theme-agnostic. */
   brandImage?: ImageSourcePropType;
   children: React.ReactNode;
-  /** Visible navigator headers already own the top inset; pass bottom-only on those routes. */
-  edges?: Edge[];
+  /** Visible navigator headers already own the top inset. */
+  nativeHeader?: boolean;
 };
 
 /**
@@ -23,10 +23,15 @@ type Props = {
  * brand medallion (or a wide wordmark, see brandImage), title/subtitle, and a keyboard-aware
  * scroll. Caps width on web/tablet.
  */
-export default function AuthShell({ title, subtitle, brandIcon = 'wallet', brandImage, children, edges }: Props) {
+export default function AuthShell({
+  title, subtitle, brandIcon = 'wallet', brandImage, children, nativeHeader = false,
+}: Props) {
   const { colors } = useTheme();
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={edges}>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: colors.background }}
+      edges={nativeHeader ? ['left', 'right', 'bottom'] : ['top', 'left', 'right', 'bottom']}
+    >
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <View style={styles.column}>

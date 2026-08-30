@@ -36,7 +36,13 @@ jest.mock('../../ui', () => {
   const stub = (name: string) => (props: any) => R.createElement(name, props, props?.children);
   return {
     __esModule: true,
-    Screen: stub('Screen'), Card: stub('Card'), Button: stub('Button'),
+    Screen: stub('Screen'),
+    TabScreen: (props: any) => R.createElement(
+      'Screen',
+      { ...props, edges: ['top', 'left', 'right'] },
+      props?.children,
+    ),
+    Card: stub('Card'), Button: stub('Button'),
     IconButton: stub('IconButton'),
     EmptyState: stub('EmptyState'), SkeletonCard: stub('SkeletonCard'), Icon: stub('Icon'),
   };

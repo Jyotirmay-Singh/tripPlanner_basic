@@ -53,7 +53,7 @@ export default function MemberSpendDetail() {
   const ordered = sortExpensesDesc(rows);
 
   return (
-    <Screen edges={['bottom']} refreshing={refreshing} onRefresh={load}>
+    <Screen edges={['left', 'right', 'bottom']} refreshing={refreshing} onRefresh={load}>
       <Card variant="primary" padding="lg" radius={RADIUS.xl}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Icon name={isFamily ? 'users' : 'user'} size={16} color={colors.primaryText} />

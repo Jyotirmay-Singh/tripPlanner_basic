@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, TextInput, TouchableOpacity, StyleSheet, ScrollView,
-  KeyboardAvoidingView, Platform, Image,
+  Image, Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { api, uploadReceipt, deleteReceipt, receiptUrl, getToken } from '../../../src/api';
@@ -23,7 +22,7 @@ import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { ddmmyyToDDMMYYYY, ddmmyyyyToDDMMYY } from '../../../src/date';
 import {
-  Card, Button, Input, Pill, Icon, ActionSheet, SkeletonCard, useToast,
+  FormScreen, Screen, Card, Button, Input, Pill, Icon, ActionSheet, SkeletonCard, useToast,
   CurrencyPicker, DateField, TimeField,
 } from '../../../src/ui';
 
@@ -213,9 +212,7 @@ export default function EditExpense() {
 
   if (!trip) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
-        <View style={{ padding: SPACING.lg, gap: SPACING.md }}><SkeletonCard count={4} /></View>
-      </SafeAreaView>
+      <Screen edges={['left', 'right', 'bottom']}><SkeletonCard count={4} /></Screen>
     );
   }
 
@@ -233,9 +230,8 @@ export default function EditExpense() {
   const currencyBlocked = expenseCurrency !== trip.currency;
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={{ padding: SPACING.lg, paddingBottom: 80, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
+    <>
+      <FormScreen>
           <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
             <T variant="h1">Edit transaction</T>
 
@@ -444,8 +440,7 @@ export default function EditExpense() {
               </>
             )}
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScreen>
 
       <ActionSheet
         visible={sourceSheet}
@@ -467,7 +462,7 @@ export default function EditExpense() {
           { label: 'Delete', variant: 'destructive', onPress: doDelete, testID: 'ee-delete-confirm' },
         ]}
       />
-    </SafeAreaView>
+    </>
   );
 }
 

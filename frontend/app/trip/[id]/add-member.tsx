@@ -1,19 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { View, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api } from '../../../src/api';
-import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
 import { isGmail, GMAIL_ONLY_MESSAGE, isEmailTaken, DUPLICATE_EMAIL_MESSAGE } from '../../../src/validation';
 import FamilyMembersEditor from '../../../src/FamilyMembersEditor';
 import { FamilyRow, rowsToPayload, familyEmailIssue, tripMemberEmails } from '../../../src/familyParticipation';
-import { Input, Button, SegmentedControl, useToast } from '../../../src/ui';
+import { FormScreen, Input, Button, SegmentedControl, useToast } from '../../../src/ui';
 
 export default function AddMember() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { colors } = useTheme();
   const router = useRouter();
   const toast = useToast();
   const [name, setName] = useState('');
@@ -66,9 +63,7 @@ export default function AddMember() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={{ padding: SPACING.lg, alignItems: 'center' }} keyboardShouldPersistTaps="handled">
+    <FormScreen>
           <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
             <T variant="h1">Add member</T>
 
@@ -109,8 +104,6 @@ export default function AddMember() {
 
             <Button label="Add member" icon="plus" onPress={submit} loading={saving} fullWidth size="lg" testID="mem-submit" style={{ marginTop: SPACING.sm }} />
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+    </FormScreen>
   );
 }

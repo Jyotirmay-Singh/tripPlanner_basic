@@ -12,6 +12,7 @@ import { useTheme } from './ThemeContext';
 import { SPACING, RADIUS } from './theme';
 import T from './T';
 import { parseDataUri } from './receipt';
+import { useSystemBarsOverride } from './AppSystemBars';
 
 type Props = { uri: string | null; visible: boolean; onClose: () => void };
 
@@ -22,6 +23,7 @@ type Props = { uri: string | null; visible: boolean; onClose: () => void };
  */
 export default function ReceiptViewer({ uri, visible, onClose }: Props) {
   const { colors } = useTheme();
+  useSystemBarsOverride(visible, { status: 'light', navigation: 'light' });
   const [saving, setSaving] = useState(false);
 
   const saveToGallery = async () => {
@@ -71,11 +73,18 @@ export default function ReceiptViewer({ uri, visible, onClose }: Props) {
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+      statusBarTranslucent
+      navigationBarTranslucent
+    >
       {/* Image lightboxes are conventionally dark in both themes for contrast;
           all chrome below uses theme tokens so it reads in light & dark mode. */}
       <View style={styles.backdrop}>
-        <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
+        <SafeAreaView style={{ flex: 1 }} edges={['top', 'left', 'right', 'bottom']}>
           <View style={styles.topBar}>
             <TouchableOpacity testID="receipt-close" onPress={onClose}
               style={[styles.iconBtn, { backgroundColor: colors.surface }]}>

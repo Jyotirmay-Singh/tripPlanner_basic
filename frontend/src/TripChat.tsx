@@ -11,6 +11,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ConfirmModal from './ConfirmModal';
 import T from './T';
@@ -63,6 +64,7 @@ export default function TripChat({
   canSend,
 }: Props) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const toast = useToast();
   const listRef = useRef<FlatList<LocalChatMessage>>(null);
   const initialScrollDone = useRef(false);
@@ -387,6 +389,7 @@ export default function TripChat({
         ListHeaderComponent={listHeader}
         contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         onScroll={onScroll}
         scrollEventThrottle={100}
         onViewableItemsChanged={onViewableItemsChanged}
@@ -395,6 +398,11 @@ export default function TripChat({
           if (!initialScrollDone.current && controller.messages.length) {
             initialScrollDone.current = true;
             listRef.current?.scrollToEnd({ animated: false });
+          }
+        }}
+        onLayout={() => {
+          if (initialScrollDone.current && nearBottom.current) {
+            requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
           }
         }}
         testID="trip-chat-list"
@@ -414,7 +422,14 @@ export default function TripChat({
         </Pressable>
       ) : null}
 
-      <View style={[styles.composerShell, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
+      <View style={[
+        styles.composerShell,
+        {
+          backgroundColor: colors.background,
+          borderTopColor: colors.border,
+          paddingBottom: insets.bottom + SPACING.sm,
+        },
+      ]}>
         <View style={[styles.composerInner, { maxWidth: CONTENT_MAX_WIDTH }]}>
           {editing ? (
             <View style={[styles.editingBar, { backgroundColor: colors.surfaceMuted }]}>
@@ -446,6 +461,11 @@ export default function TripChat({
               editable={composerEnabled}
               accessibilityLabel={editing ? 'Edit message' : 'Message the trip'}
               style={[styles.input, { color: colors.textMain }]}
+              onFocus={() => {
+                if (nearBottom.current) {
+                  requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+                }
+              }}
               onKeyPress={(event: any) => {
                 if (Platform.OS === 'web' && event.nativeEvent.key === 'Enter' && !event.nativeEvent.shiftKey) {
                   event.preventDefault?.();
@@ -554,7 +574,7 @@ const styles = StyleSheet.create({
     position: 'absolute', alignSelf: 'center', bottom: 92, paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.sm, borderRadius: RADIUS.pill,
   },
-  composerShell: { borderTopWidth: 1, paddingHorizontal: SPACING.md, paddingTop: SPACING.sm, paddingBottom: SPACING.sm },
+  composerShell: { borderTopWidth: 1, paddingHorizontal: SPACING.md, paddingTop: SPACING.sm },
   composerInner: { width: '100%', alignSelf: 'center' },
   composer: {
     minHeight: 54, maxHeight: 132, borderWidth: 1, borderRadius: RADIUS.xl,

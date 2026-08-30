@@ -14,6 +14,9 @@ jest.mock('expo-blur', () => {
   const R = require('react');
   return { BlurView: (props: any) => R.createElement('BlurView', props) };
 });
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 24, right: 0, bottom: 30, left: 0 }),
+}));
 jest.mock('../ThemeContext', () => ({
   useTheme: () => ({
     mode: 'light',

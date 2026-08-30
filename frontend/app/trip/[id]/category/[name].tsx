@@ -73,7 +73,7 @@ export default function CategoryDetail() {
   );
 
   return (
-    <Screen edges={['bottom']} refreshing={refreshing} onRefresh={load} testID="category-detail-screen">
+    <Screen edges={['left', 'right', 'bottom']} refreshing={refreshing} onRefresh={load} testID="category-detail-screen">
       <Stack.Screen options={{ title: decoded || 'Category' }} />
       {!loaded ? (
         <SkeletonCard count={4} />

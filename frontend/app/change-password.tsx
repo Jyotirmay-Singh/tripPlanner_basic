@@ -6,7 +6,7 @@ import T from '../src/T';
 import {
   isValidPassword, PASSWORD_TOO_SHORT_MESSAGE, PASSWORD_MISMATCH_MESSAGE, PASSWORD_HINT_MESSAGE,
 } from '../src/validation';
-import { Screen, Card, Input, Button, useToast } from '../src/ui';
+import { FormScreen, Card, Input, Button, useToast } from '../src/ui';
 
 // In-app "change my password" for a signed-in user (Bearer). Sibling to reset-password /
 // set-credentials, but proves ownership with the current password instead of an email link.
@@ -42,7 +42,7 @@ export default function ChangePassword() {
   };
 
   return (
-    <Screen edges={['bottom']}>
+    <FormScreen>
       <Card style={{ gap: SPACING.md }}>
         <T muted>Choose a new password for signing in with your email.</T>
         <Input
@@ -96,6 +96,6 @@ export default function ChangePassword() {
           testID="cp-submit"
         />
       </Card>
-    </Screen>
+    </FormScreen>
   );
 }
