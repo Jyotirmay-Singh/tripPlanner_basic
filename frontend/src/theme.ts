@@ -88,6 +88,7 @@ export const FONTS = {
 
 // The only font sizes allowed in the app. Pick from these — no ad-hoc values.
 export const TYPESCALE = {
+  micro: 11,
   xs: 12,
   sm: 13,
   base: 14,

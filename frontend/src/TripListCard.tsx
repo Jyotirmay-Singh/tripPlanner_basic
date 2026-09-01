@@ -167,7 +167,9 @@ function TripBalanceBlock({
       style={blockStyle}
       {...HIDDEN_FROM_ACCESSIBILITY}
     >
-      <T variant="label" muted style={styles.balanceText}>{balance.label}</T>
+      <T variant="label" muted style={[styles.balanceText, styles.balanceLabel]}>
+        {balance.label}
+      </T>
       <T
         variant="money"
         color={amountColor}
@@ -346,7 +348,11 @@ export default function TripListCard({
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         >
-          <T variant="label" style={styles.measurementText} onLayout={recordLabelWidth}>
+          <T
+            variant="label"
+            style={[styles.balanceLabel, styles.measurementText]}
+            onLayout={recordLabelWidth}
+          >
             {balance.label}
           </T>
           {exactAmount ? (
@@ -427,6 +433,7 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
     textAlign: 'right',
   },
+  balanceLabel: { fontSize: TYPESCALE.micro, lineHeight: 14 },
   amount: {
     maxWidth: '100%',
     fontFamily: FONTS.number,
@@ -434,7 +441,7 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   visibleAmount: { alignSelf: 'stretch' },
-  amountLg: { fontSize: TYPESCALE.lg, lineHeight: 26 },
+  amountLg: { fontSize: TYPESCALE.md, lineHeight: 22 },
   amountBase: { fontSize: TYPESCALE.base, lineHeight: 20 },
   amountXs: { fontSize: TYPESCALE.xs, lineHeight: 16 },
   measurements: {

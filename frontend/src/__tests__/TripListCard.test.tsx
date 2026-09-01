@@ -1,5 +1,6 @@
 /* eslint-disable import/first */
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 
 const mockColors = {
@@ -18,6 +19,7 @@ import TripListCard, {
   tripCardAccessibilityLabel,
 } from '../TripListCard';
 import { tripBalanceState } from '../tripBalance';
+import { TYPESCALE } from '../theme';
 
 const baseProps = {
   title: 'Lakshadweep',
@@ -78,8 +80,10 @@ describe('TripListCard balance states', () => {
       adjustsFontSizeToFit: true,
       minimumFontScale: 0.85,
     });
-    expect(renderer.root.findAllByType(T).some((node: any) => node.props.children === "You're owed"))
-      .toBe(true);
+    const balanceLabel = renderer.root.findAllByType(T)
+      .find((node: any) => node.props.children === "You're owed" && node.props.muted);
+    expect(StyleSheet.flatten(balanceLabel?.props.style).fontSize).toBe(TYPESCALE.micro);
+    expect(StyleSheet.flatten(amount?.props.style).fontSize).toBe(TYPESCALE.md);
 
     const card = renderer.root.findAll((node: any) => (
       node.props.testID === 'trip-item-t1' && typeof node.props.onPress === 'function'
