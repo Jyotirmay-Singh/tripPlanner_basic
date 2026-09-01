@@ -24,6 +24,8 @@ type Expense = {
   time?: string | null;
   created_at?: string | null;
   paid_by_member_id: string;
+  original_amount?: string | number | null;
+  original_currency?: string | null;
 };
 
 function payerRowDetail(paid: number, expenseCount: number, grossPaid: number): string {
@@ -141,7 +143,7 @@ export default function CategoryDetail() {
               key={expense.id}
               testID={`category-transaction-${expense.id}`}
               title={expense.description || decoded}
-              subtitle={`${expense.date}${expense.time ? ` · ${formatTime12h(expense.time)}` : ''} · by ${memberById(expense.paid_by_member_id)}`}
+              subtitle={`${expense.date}${expense.time ? ` · ${formatTime12h(expense.time)}` : ''} · by ${memberById(expense.paid_by_member_id)}${expense.original_currency && expense.original_currency !== trip?.currency && expense.original_amount != null ? ` · originally ${formatMoney(Number(expense.original_amount), { currency: expense.original_currency })}` : ''}`}
               meta={expense.amount < 0 ? 'Refund' : undefined}
               right={<AmountText value={expense.amount} currency={trip?.currency} />}
               onPress={() => router.push({ pathname: '/trip/[id]/edit-expense', params: { id: id as string, eid: expense.id } })}

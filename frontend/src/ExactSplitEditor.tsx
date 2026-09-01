@@ -85,7 +85,7 @@ export default function ExactSplitEditor({ members, currency, total, initialRows
     if (blanks.length === 0) return;
     let assignedC = 0;
     for (const r of rows) if (r.included && r.amount != null) assignedC += Math.round(r.amount * 100);
-    const remainingC = Math.max(0, Math.round(total * 100) - assignedC);
+    const remainingC = Math.max(0, Math.round(Math.abs(total) * 100) - assignedC);
     const base = Math.floor(remainingC / blanks.length);
     setTexts((s) => {
       const o = { ...s };
@@ -172,7 +172,7 @@ export default function ExactSplitEditor({ members, currency, total, initialRows
 
       {/* live reconciliation bar — mirror of the backend save-gate */}
       <View style={{ marginTop: SPACING.xs, gap: 6 }}>
-        <ProgressBar progress={total > 0 ? rec.assigned / total : 0} color={barColor} />
+        <ProgressBar progress={Math.abs(total) > 0 ? rec.assigned / Math.abs(total) : 0} color={barColor} />
         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
           <T variant="caption" muted testID="exact-assigned">Assigned {currency} {formatMoney(rec.assigned)}</T>
           <T variant="caption" color={rec.isValid ? colors.success : colors.danger} testID="exact-remaining">

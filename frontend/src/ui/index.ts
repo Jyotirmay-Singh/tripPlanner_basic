@@ -10,6 +10,8 @@ export { default as Input } from './Input';
 export { default as DateField } from './DateField';
 export { default as TimeField } from './TimeField';
 export { default as CurrencyPicker } from './CurrencyPicker';
+export { default as ExchangeRatePanel } from './ExchangeRatePanel';
+export type { ApprovedConversion, LockedConversion } from './ExchangeRatePanel';
 export { default as AmountText } from './AmountText';
 export { default as ResponsiveAmountText } from './ResponsiveAmountText';
 export { default as Pill } from './Pill';

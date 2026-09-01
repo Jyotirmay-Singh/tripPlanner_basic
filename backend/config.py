@@ -30,6 +30,13 @@ PUSH_NOTIFICATIONS_ENABLED = os.environ.get("PUSH_NOTIFICATIONS_ENABLED", "false
 )
 EXPO_PUSH_ACCESS_TOKEN = os.environ.get("EXPO_PUSH_ACCESS_TOKEN", "").strip()
 
+# Multi-currency expense conversion is deliberately rollout-gated. The backend can be deployed
+# first (including its read compatibility and cache indexes), followed by the client, before this
+# switch is enabled. Frankfurter v2 needs no API key.
+MULTI_CURRENCY_EXPENSES_ENABLED = os.environ.get(
+    "MULTI_CURRENCY_EXPENSES_ENABLED", "false"
+).strip().lower() in ("true", "1", "yes", "on")
+
 # Master switch for the Phase-9 email flows (email verification + forgot-PASSWORD). Default ON.
 # Set EMAIL_FEATURES_ENABLED=false to "ghost" them until a deliverable sender domain exists:
 # new signups are marked verified up-front (no nag banner), no verification/reset emails are sent

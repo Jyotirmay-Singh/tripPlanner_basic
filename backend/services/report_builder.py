@@ -24,6 +24,23 @@ from services.member_breakdown import family_member_ids
 from utils.display_names import family_member_display_names, member_display_names
 
 
+def _decimal_text(value, default="") -> str:
+    """Stringify Decimal128/Decimal/number metadata without losing its stored precision."""
+    if value is None:
+        return default
+    if hasattr(value, "to_decimal"):
+        value = value.to_decimal()
+    return str(value)
+
+
+def _decimal_float(value, default=0.0) -> float:
+    if value is None:
+        return float(default)
+    if hasattr(value, "to_decimal"):
+        value = value.to_decimal()
+    return float(value)
+
+
 def _to_12h(value) -> str:
     """'14:30' -> '2:30 PM'; blank/invalid -> ''. Inlined here (no datetime needed) to keep this
     module pure (it must import only `services.calculator`, never `utils`)."""
@@ -554,6 +571,14 @@ def build_expense_member_rows(expenses: list, members: list) -> dict:
         m["id"]: list(zip(family_member_ids(m), family_member_display_names(m)))
         for m in members if m.get("kind") == "family"
     }
+    person_names = {}
+    for member in members:
+        if member.get("kind") == "family":
+            family_label = names.get(member["id"], member.get("name", "?"))
+            for person_id, person_name in fam_roster.get(member["id"], []):
+                person_names[person_id] = f"{family_label} / {person_name}"
+        else:
+            person_names[member["id"]] = names.get(member["id"], member.get("name", "?"))
     sorted_expenses = sorted(expenses, key=lambda x: x.get("date", ""))
     blocks: list = []
     pivot: dict = {}  # person id -> {"name", "total"}
@@ -602,12 +627,33 @@ def build_expense_member_rows(expenses: list, members: list) -> dict:
                 block_payable += share
                 _add_pivot(mid, label, share)
         block_payable = round(block_payable, 2)
+        original_amount = _decimal_float(e.get("original_amount"), amount)
+        original_currency = e.get("original_currency") or e.get("currency") or ""
+        canonical_currency = e.get("currency") or original_currency
+        exchange_rate = _decimal_text(e.get("exchange_rate"), "1")
+        exchange_date = e.get("exchange_rate_date") or e.get("exchange_rate_requested_date") \
+            or e.get("date", "")
+        exchange_provider = e.get("exchange_rate_provider") or "identity"
+        exchange_mode = e.get("exchange_rate_mode") or "automatic"
+        original_exact = e.get("original_custom_amounts") or {}
+        original_exact_label = "; ".join(
+            f"{person_names.get(person_id, person_id)}: {_decimal_text(value)} {original_currency}"
+            for person_id, value in original_exact.items()
+        )
         blocks.append({
             "sr_no": sr,
             "category": e.get("category", ""),
             "description": e.get("description", ""),
             "date": _date_cell(e),
             "amount": amount,
+            "canonical_currency": canonical_currency,
+            "original_amount": original_amount,
+            "original_currency": original_currency,
+            "exchange_rate": exchange_rate,
+            "exchange_rate_date": exchange_date,
+            "exchange_rate_provider": exchange_provider,
+            "exchange_rate_mode": exchange_mode,
+            "original_exact_allocations": original_exact_label,
             "mode": mode_label(e.get("split_mode")),
             "paid_by": names.get(e.get("paid_by_member_id"), "?"),
             "rows": rows,

@@ -7,19 +7,25 @@ import type { ChatMessage, ChatPage, ChatUnread } from './chat';
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL?.trim().replace(/\/$/, '');
 const TOKEN_KEY = 'auth_token';
 
-export type ApiErrorCode = 'configuration' | 'network' | 'timeout' | 'http';
+export type ApiErrorCode = 'configuration' | 'network' | 'timeout' | 'aborted' | 'http';
 
 export class ApiError extends Error {
   status?: number;
   data?: unknown;
   code: ApiErrorCode;
+  detailCode?: string;
+  retryable?: boolean;
 
-  constructor(message: string, options: { status?: number; data?: unknown; code: ApiErrorCode }) {
+  constructor(message: string, options: {
+    status?: number; data?: unknown; code: ApiErrorCode; detailCode?: string; retryable?: boolean;
+  }) {
     super(message);
     this.name = 'ApiError';
     this.status = options.status;
     this.data = options.data;
     this.code = options.code;
+    this.detailCode = options.detailCode;
+    this.retryable = options.retryable;
   }
 }
 
@@ -28,6 +34,7 @@ type ApiOptions = {
   body?: any;
   auth?: boolean;
   timeoutMs?: number;
+  signal?: AbortSignal;
 };
 
 function backendBase(): string {
@@ -53,6 +60,7 @@ function formatDetail(d: any): string {
   if (d == null) return 'Something went wrong';
   if (typeof d === 'string') return d;
   if (Array.isArray(d)) return d.map((e) => (e?.msg ? e.msg : JSON.stringify(e))).join(' ');
+  if (d?.message) return d.message;
   if (d?.msg) return d.msg;
   return JSON.stringify(d);
 }
@@ -61,7 +69,7 @@ export async function api<T = any>(
   path: string,
   opts: ApiOptions = {},
 ): Promise<T> {
-  const { method = 'GET', body, auth = true, timeoutMs } = opts;
+  const { method = 'GET', body, auth = true, timeoutMs, signal } = opts;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (auth) {
     const t = await getToken();
@@ -69,6 +77,11 @@ export async function api<T = any>(
   }
   const base = backendBase();
   const controller = timeoutMs ? new AbortController() : null;
+  const abortFromCaller = () => controller?.abort();
+  if (controller && signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', abortFromCaller, { once: true });
+  }
   const timeout = timeoutMs
     ? setTimeout(() => controller?.abort(), timeoutMs)
     : null;
@@ -78,24 +91,122 @@ export async function api<T = any>(
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
-      signal: controller?.signal,
+      signal: controller?.signal ?? signal,
     });
   } catch (error: any) {
     if (error?.name === 'AbortError') {
+      if (signal?.aborted) {
+        throw new ApiError('The request was cancelled', { code: 'aborted' });
+      }
       throw new ApiError('The request timed out', { code: 'timeout' });
     }
     throw new ApiError('Could not reach the server', { code: 'network' });
   } finally {
     if (timeout) clearTimeout(timeout);
+    if (controller && signal) signal.removeEventListener('abort', abortFromCaller);
   }
   const text = await res.text();
   let data: any = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (!res.ok) {
     const msg = formatDetail(data?.detail ?? data);
-    throw new ApiError(msg, { status: res.status, data, code: 'http' });
+    const detail = data?.detail;
+    throw new ApiError(msg, {
+      status: res.status,
+      data,
+      code: 'http',
+      detailCode: typeof detail === 'object' ? detail?.code : undefined,
+      retryable: typeof detail === 'object' ? detail?.retryable : undefined,
+    });
   }
   return data as T;
+}
+
+export type ExchangeRateMode = 'automatic' | 'manual';
+export type ManualExchangeInput = 'rate' | 'target_amount';
+
+export type ExchangeRateQuote = {
+  quote_id: string;
+  mode: ExchangeRateMode;
+  source_amount: string;
+  source_currency: string;
+  target_amount: string;
+  target_currency: string;
+  rate: string;
+  requested_date: string | null;
+  effective_rate_date: string | null;
+  provider: string;
+  provider_sources: { key: string; date?: string | null; rate: string }[];
+  cache_hit: boolean;
+  stale: boolean;
+  manual: boolean;
+  manual_input_type?: ManualExchangeInput | null;
+  manual_input_value?: string | null;
+  requires_confirmation: boolean;
+  expires_at: string;
+};
+
+export type ExchangeRateQuoteParams = {
+  from: string;
+  to: string;
+  amount: string | number;
+  date?: string | null;
+  mode?: ExchangeRateMode;
+  manualInputType?: ManualExchangeInput | null;
+  manualRate?: string | number | null;
+  manualTargetAmount?: string | number | null;
+  refresh?: boolean;
+};
+
+export type ExpenseConversionRequest = {
+  mode: ExchangeRateMode;
+  quote_id: string;
+  approved: true;
+  allow_stale: boolean;
+  manual_input_type?: ManualExchangeInput;
+  manual_rate?: string;
+  manual_target_amount?: string;
+};
+
+export function quoteExchangeRate(
+  params: ExchangeRateQuoteParams,
+  signal?: AbortSignal,
+): Promise<ExchangeRateQuote> {
+  const query = new URLSearchParams({
+    from: params.from,
+    to: params.to,
+    amount: String(params.amount),
+    mode: params.mode ?? 'automatic',
+  });
+  if (params.date) query.set('date', params.date);
+  if (params.manualInputType) query.set('manual_input_type', params.manualInputType);
+  if (params.manualRate != null) query.set('manual_rate', String(params.manualRate));
+  if (params.manualTargetAmount != null) {
+    query.set('manual_target_amount', String(params.manualTargetAmount));
+  }
+  if (params.refresh) query.set('refresh', 'true');
+  return api<ExchangeRateQuote>(`/exchange-rates/quote?${query.toString()}`, {
+    signal,
+    timeoutMs: 12_000,
+  });
+}
+
+export function getExpense<T = any>(tripId: string, expenseId: string): Promise<T> {
+  return api<T>(`/trips/${tripId}/expenses/${expenseId}`);
+}
+
+export function reconvertExpense<T = any>(
+  tripId: string,
+  expenseId: string,
+  body: {
+    quote_id: string;
+    expected_conversion_version: number;
+    approved: boolean;
+    allow_stale?: boolean;
+    force?: boolean;
+  },
+): Promise<T> {
+  return api<T>(`/trips/${tripId}/expenses/${expenseId}/reconvert`, { method: 'POST', body });
 }
 
 // Phase 11 — thin wrappers over api() for the join-identity flow. previewJoin returns the

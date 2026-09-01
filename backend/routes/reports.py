@@ -321,8 +321,12 @@ async def report_xlsx(trip_id: str, token: str,
     # Payable. All figures come from build_expense_member_rows (reuses the ledger split math).
     s4 = wb.create_sheet("Transactions")
     tx = build_expense_member_rows(expenses, members)
-    tx_headers = ["Sr No", "Category", "Description", "Date", f"Amount ({cur})", "Split Mode",
-                  "Paid By", "Family", "Person Name", f"Total Payable ({cur})"]
+    tx_headers = [
+        "Sr No", "Category", "Description", "Date", f"Canonical Amount ({cur})",
+        "Original Amount", "Original Currency", "Exchange Rate", "Effective Rate Date",
+        "Rate Provider", "Rate Mode", "Original EXACT Allocations", "Split Mode", "Paid By",
+        "Family", "Person Name", f"Total Payable ({cur})",
+    ]
     s4.append(tx_headers)
     _style_header_row(s4, 1, len(tx_headers))
     for blk in tx["blocks"]:
@@ -334,6 +338,13 @@ async def report_xlsx(trip_id: str, token: str,
                 blk["description"] if first else None,
                 blk["date"] if first else None,
                 round(blk["amount"], 2) if first else None,
+                round(blk["original_amount"], 2) if first else None,
+                blk["original_currency"] if first else None,
+                blk["exchange_rate"] if first else None,
+                blk["exchange_rate_date"] if first else None,
+                blk["exchange_rate_provider"] if first else None,
+                blk["exchange_rate_mode"] if first else None,
+                blk["original_exact_allocations"] if first else None,
                 blk["mode"] if first else None,
                 blk["paid_by"] if first else None,
                 r["family"], r["person"],
@@ -342,22 +353,23 @@ async def report_xlsx(trip_id: str, token: str,
             rr = s4.max_row
             if first:
                 _money(s4.cell(row=rr, column=5))
-            pc = s4.cell(row=rr, column=10)
+                _money(s4.cell(row=rr, column=6))
+            pc = s4.cell(row=rr, column=17)
             if r["participates"]:
                 _money(pc)
             else:
                 pc.alignment = _RIGHT
     # Grand Total row (Sum(Amount) == Sum(Total Payable))
     s4.append(["Grand Total", None, None, None, tx["grand_amount"], None, None, None, None,
-               tx["grand_payable"]])
+               None, None, None, None, None, None, None, tx["grand_payable"]])
     gr = s4.max_row
-    for col in (1, 5, 10):
+    for col in (1, 5, 17):
         s4.cell(row=gr, column=col).font = _BOLD
     _money(s4.cell(row=gr, column=5))
-    _money(s4.cell(row=gr, column=10))
+    _money(s4.cell(row=gr, column=17))
 
     # Right-side pivot (Person Name | Sum of Total Payable), one blank column after the main table.
-    PV_NAME, PV_SUM = 12, 13
+    PV_NAME, PV_SUM = 19, 20
     s4.cell(row=1, column=PV_NAME, value="Person Name")
     s4.cell(row=1, column=PV_SUM, value=f"Sum of Total Payable ({cur})")
     for c in (PV_NAME, PV_SUM):
@@ -375,7 +387,9 @@ async def report_xlsx(trip_id: str, token: str,
     gt.font = _BOLD
 
     s4.freeze_panes = "A2"
-    _set_widths(s4, [8, 14, 20, 16, 14, 12, 16, 16, 16, 16, 4, 18, 20])
+    _set_widths(s4, [
+        8, 14, 20, 16, 18, 16, 14, 16, 18, 24, 12, 42, 12, 16, 16, 16, 18, 4, 18, 20,
+    ])
 
     # ----- Tab 5: Payments (Phase 20) — every recorded (partial) payment, one row each -----
     # A flat log of the settle-up payments: three partial payments = three rows. Names are the same

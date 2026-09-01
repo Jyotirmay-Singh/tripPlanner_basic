@@ -33,12 +33,17 @@ Ignore generated, dependency, cache, and build-output directories unless a task 
 
 - `backend/models/`: Pydantic request and domain models.
 - `backend/routes/`: `/api` routers for auth, trips, members, expenses, balances, settlements, payments, spend, reports, receipts, and metadata.
-- `backend/services/`: split calculations, report construction, receipts, payments, reallocation, and related business logic.
+- `backend/services/`: split calculations, server-authoritative expense conversion, Frankfurter v2
+  rate retrieval/caching, report construction, receipts, payments, reallocation, and related
+  business logic.
 - `backend/utils/`: authentication dependencies, permissions, balance computation, identity helpers, email validation, and supporting utilities.
 - `backend/config.py`: environment configuration.
 - `backend/database.py`: Motor client and database handle.
 
-MongoDB is accessed through Motor. Principal collections include `users`, `trips`, `expenses`, `settlements`, `payments`, `chat_messages`, `chat_reads`, `chat_counters`, and `auth_tokens`. Receipts use GridFS. Startup creates indexes, seeds the configured admin, and runs idempotent legacy-data backfills.
+MongoDB is accessed through Motor. Principal collections include `users`, `trips`, `expenses`,
+`exchange_rates`, `exchange_rate_aliases`, `exchange_rate_quotes`, `settlements`, `payments`,
+`chat_messages`, `chat_reads`, `chat_counters`, and `auth_tokens`. Receipts use GridFS. Startup
+creates indexes, seeds the configured admin, and runs idempotent legacy-data backfills.
 
 ### Frontend
 
@@ -54,7 +59,10 @@ Shared frontend code lives under `frontend/src/`. Important modules include:
 - `AuthContext.tsx`: session lifecycle, remembered email, and mandatory Google password setup.
 - `permissions.ts`: UI mirror of backend permissions; backend permissions remain authoritative.
 - `ThemeContext.tsx` and `theme.ts`: persisted light/dark theme.
-- `exactSplit.ts`, `familyParticipation.ts`, `payments.ts`, `expenseSort.ts`: pure domain helpers.
+- `exactSplit.ts`, `expenseConversionPayload.ts`, `familyParticipation.ts`, `payments.ts`,
+  `expenseSort.ts`: pure domain helpers.
+- `useExchangeRateQuote.ts` and `ui/ExchangeRatePanel.tsx`: debounced/cancelled backend quote
+  previews, explicit approval, manual/card conversions, and locked-rate editing UI.
 - `chat.ts`, `useTripChat.ts`, and `TripChat.tsx`: chat contracts/identity helpers, realtime state, unread synchronization, and the trip Chat tab.
 - `ui/`: shared UI components.
 
@@ -101,6 +109,8 @@ Backend (`backend/.env`):
 - `RESEND_API_KEY`, `SENDER_EMAIL`, `APP_URL`: transactional email and public-link configuration.
 - `GOOGLE_CLIENT_ID`: one accepted OAuth audience or a comma-separated list; include the Web client
   used by Android Credential Manager/web and the iOS client when iOS sign-in is enabled.
+- `MULTI_CURRENCY_EXPENSES_ENABLED`: runtime rollout flag for expense conversion; defaults to
+  `false`. Frankfurter v2 requires no API key or new secret.
 
 Frontend (`frontend/.env` or build environment):
 
@@ -122,6 +132,32 @@ Preserve these unless the task explicitly changes them. Changes require focused 
 - Documents expose `id`; normal queries exclude Mongo `_id`.
 - Trip members are embedded in the trip document. `user_ids` controls trip access, and `admin_ids` stores app-user IDs with admin rights.
 - Legacy migrations and startup backfills must remain idempotent.
+
+### Currency and Expense Conversion
+
+- A trip's official currency is selected at creation and is immutable. Create separate trips when
+  different official/reporting currencies are required.
+- Existing expense `amount` and `currency` fields are canonical ledger values in the trip's
+  official currency. Budgets, balances, settlements, spend summaries, notifications, and reports
+  must use those canonical fields only.
+- Foreign expenses retain `original_amount`, `original_currency`, locked rate/effective-date/source
+  metadata, a conversion version/history, and original-currency Exact allocations when applicable.
+  Legacy rows without that metadata remain valid same-currency rows and must not be destructively
+  migrated.
+- The backend is authoritative for conversion. The client may preview a quote but must never submit
+  a trusted canonical foreign amount. A foreign write requires an explicit approved automatic or
+  manual quote; same-currency writes use rate 1 without provider I/O.
+- Automatic conversion uses the expense-date Frankfurter v2 reference rate. Preserve the provider's
+  actual effective date for weekend/holiday fallback. Never fail over to another provider silently.
+- Saved rates and converted amounts are locked. Unrelated edits must not reconvert; changing a
+  conversion input or explicitly requesting reconversion increments `conversion_version` and appends
+  audit history.
+- Backend rate/original metadata arithmetic uses `Decimal`/Mongo `Decimal128`. The compatibility
+  ledger boundary remains two-decimal floats, including for currencies whose ISO minor unit differs;
+  currency-specific minor units are deferred.
+- Exact allocations are entered as positive magnitudes in the original currency, validated against
+  `abs(original_amount)`, converted with the locked rate, and largest-remainder rounded so canonical
+  shares sum exactly to canonical `amount`. Refund shares receive the transaction's negative sign.
 
 ### Authentication and Gmail Identity
 
@@ -243,6 +279,8 @@ Broadly implemented areas include:
 - trip creation/joining with person-level family account linking;
 - owner/admin/member RBAC;
 - `PER_CAPITA`, `PER_FAMILY`, and `EXACT` expenses;
+- historical and manual multi-currency expense conversion with locked audit metadata and a guarded
+  runtime rollout flag;
 - receipts and gallery support;
 - balance calculation, legacy settlements, and partial-payment ledger;
 - spend/category/member drill-downs and date/time expense ordering;

@@ -60,7 +60,10 @@ Settled trips remain tappable and can still be opened normally.
    - **Trip name** (required) — e.g. *Goa December 2026*
    - **Travel date** (DD-MM-YY) — required
    - **Budget** (optional) — used for the over-budget warning
-   - **Currency** — INR by default; swipe horizontally to pick another
+   - **Official currency** — INR by default; choose the currency used for every balance, budget,
+     settlement, and report on this trip. It is locked after creation. Normally create separate
+     trips for different reporting currencies (for example, an LKR Sri Lanka trip and an NPR Nepal
+     trip).
    - **Who are you on this trip?** — choose **I'm an individual** (default) or **I'm in a family**.
      If you pick *family*, enter the **family name**, add a row per member (your name is pre-filled on
      the first row), and tap **"This is me"** on your own row. Your login email + account attach to
@@ -165,7 +168,20 @@ across standalone individuals, family entries, and joined app users.
 
 ### 5.1 Add an expense (or money back)
 1. Trip page → **Expense (+)** button (or bottom-tab **Add → pick trip**).
-2. Enter the **amount** in the trip's currency. **Use a leading minus** (e.g. `-500`) for *money coming back to the group* — a refund, reimbursement, cancellation, or offer. A negative amount is the exact mirror of an expense: the person who **received** the money is debited, and everyone it's split among is credited their share. If the money-back is larger than the trip's spend so far, a non-blocking note appears (you can still save).
+2. Enter the **amount in the currency that was actually paid**. **Use a leading minus** (e.g.
+   `-500`) for *money coming back to the group* — a refund, reimbursement, cancellation, or offer.
+   A negative amount is the exact mirror of an expense: the person who **received** the money is
+   debited, and everyone it's split among is credited their share. If the money-back is larger than
+   the trip's spend so far, a non-blocking note appears (you can still save).
+3. Choose the transaction's **currency**. When it differs from the trip's official currency:
+   - **Reference rate** previews the historical Frankfurter v2 rate for the expense date. On a
+     weekend or bank holiday, the preview shows the previous available rate and its actual date.
+   - **Manual / card** lets you enter either the bank/card rate or the final charged/refunded amount
+     in the trip currency (as a positive magnitude; the original minus sign is preserved).
+   - Check the original amount, converted amount, rate, effective date, provider/cache status, then
+     tap **Use this conversion**. A foreign transaction cannot be saved without this confirmation.
+   - A same-currency transaction uses rate 1 and never contacts the rate service. If the server's
+     rollout flag is off, foreign-currency saving stays disabled until it is enabled.
 4. Write a short **description** (e.g. *Dinner at Leela*).
 5. Pick from the horizontal **Travel / Accommodation / Local Transportation / Local Sightseeing / Food / Shopping / Other** chips.
 6. Set the **date** (DD-MM-YY).
@@ -173,7 +189,15 @@ across standalone individuals, family entries, and joined app users.
 8. **Split among** — **all members are pre-selected by default**. Uncheck any member you don't want to include.
 9. **Who took part (partial family)**: for any **family** you have checked, a *"Who took part?"* row lists its members — uncheck anyone who didn't share this expense (default = everyone). In **Per Person** mode this reduces the family's headcount for that expense: the cost is divided by the total *involved* people and each sharer owes that per-person amount (the unchecked members owe 0, and the family's total shrinks accordingly). In **Per Family** mode the family's flat share is unchanged and is simply split among those who took part.
 10. **Split mode** — a three-way selector: **Per Person**, **Per Family**, or **Exact**.
-    - **Exact amounts**: assign a specific amount to specific people. Families are collapsed with a live subtotal — tap to expand and give each member their own amount (or untick anyone to leave them at 0); standalone individuals get an amount directly. A **reconciliation bar** shows *Assigned* vs *Remaining* and turns green when the amounts add up to the total. **Split remaining equally** fills the ticked-but-blank rows for you. **Save stays disabled until the amounts exactly equal the total** — the same rule is re-checked on the server, so an unbalanced Exact expense can never be saved. Balances, per-member breakdowns, and reports all use the exact amounts you typed.
+    - **Exact amounts**: assign a specific amount to specific people in the transaction's original
+      currency. Families are collapsed with a live subtotal — tap to expand and give each member
+      their own amount (or untick anyone to leave them at 0); standalone individuals get an amount
+      directly. For a refund, allocations remain positive magnitudes even though the transaction
+      total is negative. A **reconciliation bar** shows *Assigned* vs *Remaining* and turns green
+      when the amounts add up to the original total's magnitude. **Split remaining equally** fills
+      the ticked-but-blank rows for you. **Save stays disabled until the amounts exactly equal the
+      total**. The server converts the allocations with the locked rate and distributes any rounding
+      cents deterministically, so their trip-currency sum exactly matches the converted total.
 11. **Receipt (optional)** — *Attach image* picks a photo; it's stored as base64 with the transaction.
 11. Tap **Save transaction**.
 12. If the running total now exceeds the trip budget, a warning dialog asks you to **Cancel** or **Save anyway**.
@@ -181,6 +205,11 @@ across standalone individuals, family entries, and joined app users.
 ### 5.2 Edit or delete a transaction
 - The **Expenses** tab lists transactions **newest first**, ordered by each transaction's own **date and time**. A transaction with a time sorts by that time; one with only a date sorts by when it was added, so a freshly added expense appears at the top.
 - **Expenses** tab → tap any transaction → opens the **Edit Transaction** screen with the same form pre-filled.
+- Converted transactions retain both the original and official-currency values. Editing only the
+  description, category, payer, receipt, or participants keeps the locked rate and converted amount.
+  Changing the original amount, currency, date, or rate mode requires a new approved preview. Use
+  **Fetch a new reference rate** only when you intentionally want to reconvert; saved transactions
+  are never silently revalued.
 - Or use the **🗑** icon on the transaction row for a quick delete.
 - Inside the edit screen there's also a red **Delete transaction** button.
 
@@ -285,8 +314,10 @@ device push notifications.
      **Allocated** amount, with a per-expense **Subtotal**. Per-Person divides by the total involved
      people; Per-Family divides by the number of entities.
   4. **Transactions** — an itemised breakdown that expands **every expense into one row per person**,
-     showing each member's **Total Payable** (their share of that expense). Amount, split mode, and who
-     paid appear once per expense; a person not included in an expense shows **"–"**. A right-side
+     showing each member's **Total Payable** (their share of that expense). The canonical amount is
+     accompanied by the original amount/currency, locked rate, effective date, provider, mode, and
+     original Exact allocations when applicable. Split mode and who paid appear once per expense; a
+     person not included in an expense shows **"–"**. A right-side
      pivot totals each person across the whole trip, and a bold **Grand Total** row footers both the
      Amount and Total Payable columns — so **Sum(Amount) = Sum(Total Payable)** and every person's
      pivot total reconciles to the trip total.
@@ -327,7 +358,13 @@ The download opens in your phone's browser; share or save it from there.
 - **Reset emails not arriving?** The Resend account is in test mode — emails only deliver to the account owner. Verify a domain at resend.com/domains to send to anyone. Until then, the reset token is also printed in the backend logs (admin can fetch it).
 - **Forgot password?** Sign-in screen → *Forgot password?* → email link → choose a new password. If the link is hidden, outbound email is currently disabled; use Google sign-in or contact the administrator.
 - **Want to edit a past family split?** Edit the family → choose **Re-split with new members** when prompted. To preserve the old splits, choose **Keep original**.
-- **Currency** is per-trip; the app does not auto-convert between currencies (manual entry only).
+- **Currency conversion unavailable?** The backend rollout flag may still be off, the historical rate
+  may be unavailable, or the provider may be temporarily unreachable. Retry, use an already cached
+  result when offered, or enter a manually confirmed bank/card conversion; the app never switches
+  providers silently and never saves an unconverted foreign amount.
+- **Precision:** the current ledger stores all official-currency amounts at two decimal places. This
+  is correct for LKR and NPR. Zero-decimal and three-decimal currencies are still displayed and
+  accounted for with two decimals until currency-specific minor units are implemented.
 - **Receipts** are stored in MongoDB GridFS and load on demand; legacy inline receipts remain readable.
 
 ---

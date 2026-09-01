@@ -55,6 +55,14 @@ def legacy_to_iso(value: Optional[str]) -> Optional[str]:
         return None
 
 
+def expense_date_to_iso(value: Optional[str]) -> str:
+    """Strict bridge for expense conversion: stored DD-MM-YY -> provider YYYY-MM-DD."""
+    converted = legacy_to_iso(value)
+    if not converted:
+        raise ValueError("Expense date must be a valid DD-MM-YY date")
+    return converted
+
+
 def iso_to_display(value: Optional[str]) -> str:
     """'YYYY-MM-DD' -> 'DD/MM/YYYY' for human-facing output (passthrough if unparseable)."""
     if not value or not isinstance(value, str):

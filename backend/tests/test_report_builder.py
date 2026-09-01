@@ -3,6 +3,8 @@
 # test_per_capita.py / test_per_family.py.
 import math
 
+from bson.decimal128 import Decimal128
+
 from services.member_breakdown import family_member_ids
 from services.report_builder import (
     build_expense_member_rows,
@@ -448,6 +450,43 @@ class TestExplodedTransactions:
     @staticmethod
     def _rowmap(block):
         return {r["person"]: r for r in block["rows"]}
+
+    def test_conversion_audit_metadata_preserves_canonical_ledger_amount(self):
+        members = [_ind("ann", "Ann")]
+        expenses = [{
+            "id": "fx-1",
+            "amount": 3520.40,
+            "currency": "LKR",
+            "original_amount": Decimal128("1000.00"),
+            "original_currency": "INR",
+            "exchange_rate": Decimal128("3.5204"),
+            "exchange_rate_requested_date": "2026-08-30",
+            "exchange_rate_date": "2026-08-28",
+            "exchange_rate_provider": "frankfurter_v2_blended",
+            "exchange_rate_mode": "automatic",
+            "original_custom_amounts": {"ann": Decimal128("1000.00")},
+            "custom_amounts": {"ann": 3520.40},
+            "split_member_ids": ["ann"],
+            "split_mode": "EXACT",
+            "paid_by_member_id": "ann",
+            "date": "30-08-26",
+            "category": "Food",
+            "description": "Weekend dinner",
+        }]
+
+        result = build_expense_member_rows(expenses, members)
+        block = result["blocks"][0]
+
+        assert block["amount"] == 3520.40
+        assert block["canonical_currency"] == "LKR"
+        assert result["grand_amount"] == 3520.40
+        assert block["original_amount"] == 1000.0
+        assert block["original_currency"] == "INR"
+        assert block["exchange_rate"] == "3.5204"
+        assert block["exchange_rate_date"] == "2026-08-28"
+        assert block["exchange_rate_provider"] == "frankfurter_v2_blended"
+        assert block["exchange_rate_mode"] == "automatic"
+        assert block["original_exact_allocations"] == "Ann: 1000.00 INR"
 
     def test_pivot_and_grand_totals_match_oracle(self):
         members, expenses = self._oracle()

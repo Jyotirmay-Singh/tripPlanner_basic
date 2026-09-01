@@ -13,8 +13,9 @@ from utils.members import demote_family_entity_email
 from utils.email_rules import is_allowed_email
 from utils.security import hash_secret
 from utils.emailer import sender_mode_summary
-from routes import auth, trips, members, expenses, balances, reports, meta, receipts, spend, payments, chat, push
+from routes import auth, trips, members, expenses, balances, reports, meta, receipts, spend, payments, chat, push, exchange_rates
 from services.push_notifications import start_push_dispatcher, stop_push_dispatcher
+from services.exchange_rates import start_exchange_rate_client, stop_exchange_rate_client
 
 
 # ---------- Startup / Shutdown ----------
@@ -31,6 +32,14 @@ async def lifespan(app: FastAPI):
     await db.users.create_index("email", unique=True)
     await db.trips.create_index("code", unique=True)
     await db.expenses.create_index([("trip_id", 1), ("created_at", -1)])
+    await db.exchange_rates.create_index([
+        ("provider", 1), ("source_currency", 1), ("target_currency", 1), ("effective_date", 1)
+    ], unique=True)
+    await db.exchange_rate_aliases.create_index([
+        ("provider", 1), ("source_currency", 1), ("target_currency", 1), ("requested_key", 1)
+    ], unique=True)
+    await db.exchange_rate_quotes.create_index("id", unique=True)
+    await db.exchange_rate_quotes.create_index("expires_at", expireAfterSeconds=0)
     # Phase 10: settlement history list (newest-first) per trip.
     await db.settlements.create_index([("trip_id", 1), ("created_at", -1)])
     # Phase 20: recorded (partial) payments list (newest-first) per trip.
@@ -165,18 +174,20 @@ async def lifespan(app: FastAPI):
     # one-time, secret-free summary of how outbound email behaves in this process
     logger.info(sender_mode_summary())
 
+    await start_exchange_rate_client()
     await start_push_dispatcher()
     try:
         yield
     finally:
         await stop_push_dispatcher()
+        await stop_exchange_rate_client()
         client.close()
 
 
 app = FastAPI(title="Trip Splitter", lifespan=lifespan)
 api = APIRouter(prefix="/api")
 
-for module in (auth, trips, members, expenses, balances, reports, meta, receipts, spend, payments, chat, push):
+for module in (auth, trips, members, expenses, balances, reports, meta, receipts, spend, payments, chat, push, exchange_rates):
     api.include_router(module.router)
 
 

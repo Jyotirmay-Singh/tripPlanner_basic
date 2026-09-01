@@ -2,6 +2,7 @@
 
 import io
 
+from bson.decimal128 import Decimal128
 from pypdf import PdfReader
 
 from services.report_builder import build_spend_reconciliation
@@ -95,6 +96,31 @@ def test_empty_reimbursements_and_negative_net_keep_the_full_structure():
     assert credit_summary.count("(50.00)") >= 3  # metadata plus both final net rows
     assert "150.00" in credit_summary
     assert "(150.00)" not in credit_summary
+
+
+def test_transactions_render_original_amount_and_locked_fx_audit_metadata():
+    members = [_member("ann", "Ann")]
+    expense = _expense("fx-dinner", 3520.40, "ann", description="Weekend dinner")
+    expense.update({
+        "currency": "INR",
+        "original_amount": Decimal128("1000.00"),
+        "original_currency": "NPR",
+        "exchange_rate": Decimal128("3.5204"),
+        "exchange_rate_requested_date": "2026-08-30",
+        "exchange_rate_date": "2026-08-28",
+        "exchange_rate_provider": "frankfurter_v2_blended",
+        "exchange_rate_mode": "automatic",
+    })
+
+    _, pdf_bytes, pages = _render(members, [expense], "FX audit")
+    transaction_text = "\n".join(pages).split("Transactions", 1)[-1]
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert "NPR 1,000.00" in transaction_text
+    assert "1 NPR = 3.5204 INR" in transaction_text
+    assert "2026-08-28" in transaction_text
+    assert "frankfurter_v2_blended" in transaction_text
+    assert "automatic" in transaction_text
 
 
 def test_long_reconciliation_repeats_headers_and_keeps_totals_with_net_across_pages():

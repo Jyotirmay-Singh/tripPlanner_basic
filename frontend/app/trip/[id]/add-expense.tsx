@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, TextInput, TouchableOpacity, StyleSheet, ScrollView,
   Image, Platform,
@@ -6,6 +6,8 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { api, uploadReceipt } from '../../../src/api';
+import type { ExchangeRateQuote } from '../../../src/api';
+import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, FONTS, CATEGORIES, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
@@ -16,13 +18,15 @@ import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displ
 import { buildFamilyParticipants, familyMemberIds, familyShareEach } from '../../../src/familyParticipation';
 import { formatMoney } from '../../../src/format';
 import { parseAmount, isValidAmount, refundExceedsSpend, REFUND_WARNING } from '../../../src/signedAmount';
+import { createExpenseAmountFields } from '../../../src/expenseConversionPayload';
 import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
-import { formatDDMMYYYY, partsFromLocalDate, ddmmyyyyToDDMMYY } from '../../../src/date';
+import { formatDDMMYYYY, partsFromLocalDate, ddmmyyyyToDDMMYY, toISO } from '../../../src/date';
 import {
   FormScreen, Screen, Card, Button, Input, Pill, Icon, ActionSheet, SkeletonCard, useToast,
-  CurrencyPicker, DateField, TimeField,
+  CurrencyPicker, DateField, TimeField, ExchangeRatePanel,
 } from '../../../src/ui';
+import type { ApprovedConversion } from '../../../src/ui';
 
 type Member = { id: string; name: string; kind: string; family_members: string[]; family_member_ids?: string[] };
 type Trip = { id: string; name: string; currency: string; members: Member[] };
@@ -30,6 +34,7 @@ type Trip = { id: string; name: string; currency: string; members: Member[] };
 export default function AddExpense() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
+  const { multiCurrencyExpensesEnabled } = useAuth();
   const router = useRouter();
   const toast = useToast();
   const [trip, setTrip] = useState<Trip | null>(null);
@@ -60,6 +65,14 @@ export default function AddExpense() {
   const [saving, setSaving] = useState(false);
   const [sourceSheet, setSourceSheet] = useState(false);
   const [budgetWarn, setBudgetWarn] = useState<string | null>(null);
+  const [approvedConversion, setApprovedConversion] = useState<ApprovedConversion | null>(null);
+  const [previewCanonicalAmount, setPreviewCanonicalAmount] = useState<number | null>(null);
+  const handleApprovalChange = useCallback((value: ApprovedConversion | null) => {
+    setApprovedConversion(value);
+  }, []);
+  const handleQuoteChange = useCallback((quote: ExchangeRateQuote | null) => {
+    setPreviewCanonicalAmount(quote ? Number(quote.target_amount) : null);
+  }, []);
 
   useEffect(() => {
     api<Trip>(`/trips/${id}`).then((t) => {
@@ -107,15 +120,26 @@ export default function AddExpense() {
 
   const submit = async (force = false) => {
     if (!trip || !paidBy) return;
-    if (expenseCurrency !== trip.currency) {
+    const isForeign = expenseCurrency !== trip.currency;
+    if (isForeign && !multiCurrencyExpensesEnabled) {
       return toast.show('Use the official currency until exchange rates are available.', 'error');
     }
     const a = parseAmount(amount);
     if (!isValidAmount(a)) return toast.show('Enter a non-zero amount', 'error');
     const date = ddmmyyyyToDDMMYY(dateDisplay);  // -> stored DD-MM-YY (format unchanged)
     if (!date) return toast.show('Enter a valid date as dd/mm/yyyy', 'error');
+    if (isForeign && !approvedConversion) {
+      return toast.show('Review and approve the conversion before saving.', 'error');
+    }
     setSaving(true);
     try {
+      const amountFields = createExpenseAmountFields({
+        multiCurrencyEnabled: multiCurrencyExpensesEnabled,
+        originalAmount: a,
+        sourceCurrency: expenseCurrency,
+        tripCurrency: trip.currency,
+        approvedConversion: approvedConversion?.request,
+      });
       let body: any;
       if (splitMode === 'EXACT') {
         // Phase 22 hard rule (mirror of the backend 422): amounts must add up to the total.
@@ -125,13 +149,16 @@ export default function AddExpense() {
         }
         const shares = resolveEntityShares(exactRows);
         body = {
-          amount: a, currency: expenseCurrency, category: cat, description: desc, date, time: time || null,
+          ...amountFields, category: cat, description: desc, date, time: time || null,
           paid_by_member_id: paidBy,
           split_member_ids: Object.keys(shares),
           split_mode: 'EXACT',
           weight_snapshots: null,
           family_participants: null,
-          custom_amounts: rowsToCustomAmounts(exactRows),
+          original_custom_amounts: multiCurrencyExpensesEnabled
+            ? rowsToCustomAmounts(exactRows) : undefined,
+          custom_amounts: multiCurrencyExpensesEnabled
+            ? undefined : rowsToCustomAmounts(exactRows),
         };
       } else {
         const allSelected = trip.members.length > 0 && splitSel.length === trip.members.length;
@@ -148,7 +175,7 @@ export default function AddExpense() {
           }
         }
         body = {
-          amount: a, currency: expenseCurrency, category: cat, description: desc, date, time: time || null,
+          ...amountFields, category: cat, description: desc, date, time: time || null,
           paid_by_member_id: paidBy,
           split_member_ids: allSelected ? [] : splitSel,
           split_mode: splitMode,
@@ -191,7 +218,10 @@ export default function AddExpense() {
   const displayNames = memberDisplayNames(trip.members);
   const parsedAmount = Number.isFinite(parseAmount(amount)) ? parseAmount(amount) : 0;
   const exactRec = reconcile(exactRows, parsedAmount);
-  const currencyBlocked = expenseCurrency !== trip.currency;
+  const isForeign = expenseCurrency !== trip.currency;
+  const currencyBlocked = isForeign && !multiCurrencyExpensesEnabled;
+  const conversionPending = isForeign && multiCurrencyExpensesEnabled && !approvedConversion;
+  const canonicalPreview = isForeign ? previewCanonicalAmount : parsedAmount;
 
   return (
     <>
@@ -237,7 +267,7 @@ export default function AddExpense() {
                   keyboardType="numbers-and-punctuation" placeholder="0.00" placeholderTextColor={colors.textMuted}
                   style={[styles.amountInput, { color: colors.textMain }]} />
               </View>
-              {refundExceedsSpend(parseAmount(amount), tripNetSpend) ? (
+              {canonicalPreview != null && refundExceedsSpend(canonicalPreview, tripNetSpend) ? (
                 <T testID="ae-refund-warn" variant="caption" color={colors.warning} style={{ marginTop: 6 }}>{REFUND_WARNING}</T>
               ) : null}
             </Card>
@@ -261,6 +291,19 @@ export default function AddExpense() {
               <DateField testID="ae-date" label="Date *" value={dateDisplay} onChangeText={setDateDisplay} containerStyle={{ flex: 1 }} />
               <TimeField testID="ae-time" label="Time" value={time} onChange={setTime} containerStyle={{ flex: 1 }} />
             </View>
+
+            {multiCurrencyExpensesEnabled || !isForeign ? (
+              <ExchangeRatePanel
+                testID="ae-exchange-rate"
+                enabled={multiCurrencyExpensesEnabled}
+                amount={amount}
+                sourceCurrency={expenseCurrency}
+                targetCurrency={trip.currency}
+                date={toISO(dateDisplay)}
+                onApprovalChange={handleApprovalChange}
+                onQuoteChange={handleQuoteChange}
+              />
+            ) : null}
 
             {/* Paid by */}
             <View>
@@ -391,7 +434,7 @@ export default function AddExpense() {
 
             <ReceiptViewer uri={receiptAsset?.uri ?? null} visible={viewerOpen} onClose={() => setViewerOpen(false)} />
 
-            <Button label="Save transaction" icon="check" onPress={() => submit(false)} loading={saving} disabled={currencyBlocked || (splitMode === 'EXACT' && !exactRec.isValid)} fullWidth size="lg" testID="ae-submit" style={{ marginTop: SPACING.sm }} />
+            <Button label="Save transaction" icon="check" onPress={() => submit(false)} loading={saving} disabled={currencyBlocked || conversionPending || (splitMode === 'EXACT' && !exactRec.isValid)} fullWidth size="lg" testID="ae-submit" style={{ marginTop: SPACING.sm }} />
           </View>
       </FormScreen>
 

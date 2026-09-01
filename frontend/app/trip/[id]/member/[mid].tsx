@@ -74,7 +74,7 @@ export default function MemberSpendDetail() {
           <ListRow
             key={r.id}
             title={r.description || r.category}
-            subtitle={`${r.date}${r.time ? ` · ${formatTime12h(r.time)}` : ''} · ${r.category} · ${r.split_mode === 'PER_FAMILY' ? 'Per family' : 'Per person'}`}
+            subtitle={`${r.date}${r.time ? ` · ${formatTime12h(r.time)}` : ''} · ${r.category} · ${r.split_mode === 'PER_FAMILY' ? 'Per family' : 'Per person'}${r.original_currency && r.original_currency !== trip?.currency && r.original_amount != null ? ` · originally ${formatMoney(Number(r.original_amount), { currency: r.original_currency })}` : ''}`}
             meta={r.share != null ? `their share ${formatMoney(r.share, { currency: trip?.currency })}` : undefined}
             right={<AmountText value={r.amount} currency={trip?.currency} />}
             onPress={() => router.push({ pathname: '/trip/[id]/edit-expense', params: { id: id as string, eid: r.id } })}

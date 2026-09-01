@@ -57,7 +57,7 @@ export function reconcile(
 ): { assigned: number; remaining: number; isValid: boolean } {
   let assignedC = 0;
   for (const r of rows) if (has(r)) assignedC += cents(r.amount as number);
-  const totalC = cents(total);
+  const totalC = cents(Math.abs(total));
   return {
     assigned: assignedC / 100,
     remaining: (totalC - assignedC) / 100,
@@ -92,7 +92,7 @@ export function splitRemainingEqually(rows: ExactRow[], total: number): ExactRow
 
   let assignedC = 0;
   for (const r of out) if (has(r)) assignedC += cents(r.amount as number);
-  const remainingC = Math.max(0, cents(total) - assignedC);
+  const remainingC = Math.max(0, cents(Math.abs(total)) - assignedC);
   const base = Math.floor(remainingC / blanks.length);
 
   blanks.forEach((r, i) => {

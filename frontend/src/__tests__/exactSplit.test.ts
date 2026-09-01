@@ -38,6 +38,10 @@ describe('reconcile', () => {
   it('is invalid when total is 0 even if it "matches"', () => {
     expect(reconcile([row({ memberId: 'a', amount: 0 })], 0).isValid).toBe(false);
   });
+  it('accepts positive allocation magnitudes for a negative refund total', () => {
+    const rows = [row({ memberId: 'a', amount: 80 }), row({ memberId: 'b', amount: 20 })];
+    expect(reconcile(rows, -100)).toEqual({ assigned: 100, remaining: 0, isValid: true });
+  });
   it('ignores unticked and blank rows', () => {
     const rows = [
       row({ memberId: 'a', amount: 100 }),
@@ -77,6 +81,10 @@ describe('splitRemainingEqually', () => {
   it('fills only the blanks and leaves set amounts alone', () => {
     const rows = [row({ memberId: 'a', amount: 40 }), row({ memberId: 'b' }), row({ memberId: 'c' })];
     expect(splitRemainingEqually(rows, 100).map((r) => r.amount)).toEqual([40, 30, 30]);
+  });
+  it('splits the positive magnitude of a negative refund', () => {
+    const rows = [row({ memberId: 'a' }), row({ memberId: 'b' })];
+    expect(splitRemainingEqually(rows, -100).map((r) => r.amount)).toEqual([50, 50]);
   });
   it('does not mutate the input', () => {
     const rows = [row({ memberId: 'a' }), row({ memberId: 'b' })];

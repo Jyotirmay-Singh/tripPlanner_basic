@@ -1,11 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, TextInput, TouchableOpacity, StyleSheet, ScrollView,
   Image, Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { api, uploadReceipt, deleteReceipt, receiptUrl, getToken } from '../../../src/api';
+import {
+  api, uploadReceipt, deleteReceipt, receiptUrl, getToken, getExpense,
+} from '../../../src/api';
+import type { ExchangeRateMode, ExchangeRateQuote, ManualExchangeInput } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, FONTS, CATEGORIES, CONTENT_MAX_WIDTH } from '../../../src/theme';
@@ -18,13 +21,15 @@ import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displ
 import { buildFamilyParticipants, excludedFromParticipants, familyMemberIds, familyShareEach } from '../../../src/familyParticipation';
 import { formatMoney } from '../../../src/format';
 import { parseAmount, isValidAmount, refundExceedsSpend, REFUND_WARNING } from '../../../src/signedAmount';
+import { applyExpenseEditConversionContract } from '../../../src/expenseConversionPayload';
 import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
-import { ddmmyyToDDMMYYYY, ddmmyyyyToDDMMYY } from '../../../src/date';
+import { ddmmyyToDDMMYYYY, ddmmyyyyToDDMMYY, toISO } from '../../../src/date';
 import {
   FormScreen, Screen, Card, Button, Input, Pill, Icon, ActionSheet, SkeletonCard, useToast,
-  CurrencyPicker, DateField, TimeField,
+  CurrencyPicker, DateField, TimeField, ExchangeRatePanel,
 } from '../../../src/ui';
+import type { ApprovedConversion, LockedConversion } from '../../../src/ui';
 
 type Member = { id: string; name: string; kind: string; family_members: string[]; family_member_ids?: string[] };
 type Trip = { id: string; name: string; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
@@ -37,16 +42,41 @@ type Expense = {
   custom_amounts?: Record<string, number> | null;
   receipt_id?: string | null; has_receipt?: boolean;
   created_by?: string | null;
+  original_amount?: string | number | null;
+  original_currency?: string | null;
+  original_custom_amounts?: Record<string, string | number> | null;
+  exchange_rate?: string | number | null;
+  exchange_rate_requested_date?: string | null;
+  exchange_rate_date?: string | null;
+  exchange_rate_provider?: string | null;
+  exchange_rate_mode?: ExchangeRateMode | null;
+  exchange_rate_stale?: boolean;
+  manual_input_type?: ManualExchangeInput | null;
+  manual_input_value?: string | number | null;
+  conversion_version?: number;
 };
+
+function numericMap(values?: Record<string, string | number> | null): Record<string, number> | null {
+  if (!values) return null;
+  return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, Number(value)]));
+}
+
+function exactMapKey(values?: Record<string, string | number> | null): string {
+  return JSON.stringify(Object.entries(values || {})
+    .map(([key, value]) => [key, Number(value).toFixed(2)])
+    .sort(([left], [right]) => String(left).localeCompare(String(right))));
+}
 
 export default function EditExpense() {
   const { id, eid } = useLocalSearchParams<{ id: string; eid: string }>();
   const { colors } = useTheme();
-  const { user } = useAuth();
+  const { user, multiCurrencyExpensesEnabled } = useAuth();
   const router = useRouter();
-  const toast = useToast();
+  const { show: showToast } = useToast();
   const [trip, setTrip] = useState<Trip | null>(null);
   const [createdBy, setCreatedBy] = useState<string | null | undefined>(undefined);
+  const [loadedExpense, setLoadedExpense] = useState<Expense | null>(null);
+  const [lockedConversion, setLockedConversion] = useState<LockedConversion | null>(null);
   const [amount, setAmount] = useState('');
   const [expenseCurrency, setExpenseCurrency] = useState('INR');
   // Net of every OTHER transaction's signed amount — drives the soft "refund > spend" warning only.
@@ -71,20 +101,35 @@ export default function EditExpense() {
   const [saving, setSaving] = useState(false);
   const [sourceSheet, setSourceSheet] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [budgetWarn, setBudgetWarn] = useState<string | null>(null);
+  const [approvedConversion, setApprovedConversion] = useState<ApprovedConversion | null>(null);
+  const [previewCanonicalAmount, setPreviewCanonicalAmount] = useState<number | null>(null);
+  const [requoteRequired, setRequoteRequired] = useState(false);
+  const handleApprovalChange = useCallback((value: ApprovedConversion | null) => {
+    setApprovedConversion(value);
+  }, []);
+  const handleQuoteChange = useCallback((quote: ExchangeRateQuote | null) => {
+    setPreviewCanonicalAmount(quote ? Number(quote.target_amount) : null);
+  }, []);
+  const handleRequoteRequired = useCallback((required: boolean) => {
+    setRequoteRequired(required);
+  }, []);
 
   useEffect(() => {
     (async () => {
-      const [t, exps] = await Promise.all([
+      const [t, e, exps] = await Promise.all([
         api<Trip>(`/trips/${id}`),
+        getExpense<Expense>(id, eid),
         api<Expense[]>(`/trips/${id}/expenses`),
       ]);
       setTrip(t);
-      const e = exps.find((x) => x.id === eid);
-      if (!e) return;
+      setLoadedExpense(e);
       setTripNetSpendExcl(exps.filter((x) => x.id !== eid).reduce((s, x) => s + x.amount, 0));
       setCreatedBy(e.created_by ?? null);
-      setAmount(String(e.amount)); setDesc(e.description || '');
-      setExpenseCurrency(e.currency || t.currency || 'INR');
+      const sourceAmount = e.original_amount ?? e.amount;
+      const sourceCurrency = e.original_currency || e.currency || t.currency || 'INR';
+      setAmount(String(sourceAmount)); setDesc(e.description || '');
+      setExpenseCurrency(sourceCurrency);
       setCat(e.category); setDateDisplay(ddmmyyToDDMMYYYY(e.date)); setTime(e.time || '');
       setPaidBy(e.paid_by_member_id);
       const allIds = t.members.map((m) => m.id);
@@ -92,15 +137,38 @@ export default function EditExpense() {
       setSplitMode(e.split_mode || 'PER_CAPITA');
       setWeightOverrides(e.weight_snapshots || {});
       setFamilyExcluded(excludedFromParticipants(t.members, e.family_participants));
-      setExactRows(buildExactRows(t.members, e.custom_amounts));
+      const originalCustom = numericMap(e.original_custom_amounts)
+        || (e.custom_amounts
+          ? Object.fromEntries(Object.entries(e.custom_amounts).map(([key, value]) => [key, Math.abs(value)]))
+          : null);
+      setExactRows(buildExactRows(t.members, originalCustom));
+      if (e.conversion_version != null) {
+        setLockedConversion({
+          version: e.conversion_version,
+          sourceAmount: String(sourceAmount),
+          sourceCurrency,
+          targetAmount: e.amount,
+          targetCurrency: t.currency || 'INR',
+          requestedDate: e.exchange_rate_requested_date || toISO(ddmmyyToDDMMYYYY(e.date)) || '',
+          effectiveDate: e.exchange_rate_date || e.exchange_rate_requested_date || null,
+          rate: String(e.exchange_rate ?? 1),
+          provider: e.exchange_rate_provider || 'identity',
+          mode: e.exchange_rate_mode || 'automatic',
+          stale: !!e.exchange_rate_stale,
+          manualInputType: e.manual_input_type || null,
+          manualInputValue: e.manual_input_value == null ? null : String(e.manual_input_value),
+        });
+      } else {
+        setLockedConversion(null);
+      }
       const has = !!(e.has_receipt || e.receipt_id || e.receipt_base64);
       setHadReceipt(has);
       if (has) {
         const token = await getToken();
         if (token) setReceiptUri(receiptUrl(id, eid, token));
       }
-    })();
-  }, [id, eid]);
+    })().catch((error) => showToast(error?.message || 'Could not load transaction', 'error'));
+  }, [id, eid, showToast]);
 
   const applyAsset = (r: ImagePicker.ImagePickerResult) => {
     if (!r.canceled && r.assets[0]?.uri) {
@@ -113,14 +181,14 @@ export default function EditExpense() {
   const pickFromLibrary = async () => {
     setSourceSheet(false);
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) return toast.show('Allow photo access to attach a receipt.', 'error');
+    if (!perm.granted) return showToast('Allow photo access to attach a receipt.', 'error');
     applyAsset(await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.4, allowsEditing: true }));
   };
 
   const takePhoto = async () => {
     setSourceSheet(false);
     const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) return toast.show('Allow camera access to capture a receipt.', 'error');
+    if (!perm.granted) return showToast('Allow camera access to capture a receipt.', 'error');
     applyAsset(await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.4, allowsEditing: true }));
   };
 
@@ -129,15 +197,26 @@ export default function EditExpense() {
     setSourceSheet(true);
   };
 
-  const save = async () => {
-    if (!trip || !paidBy) return;
-    if (expenseCurrency !== trip.currency) {
-      return toast.show('Use the official currency until exchange rates are available.', 'error');
+  const save = async (force = false) => {
+    if (!trip || !paidBy || !loadedExpense) return;
+    const isForeign = expenseCurrency !== trip.currency;
+    if (isForeign && !multiCurrencyExpensesEnabled) {
+      return showToast('Use the official currency until exchange rates are available.', 'error');
     }
     const a = parseAmount(amount);
-    if (!isValidAmount(a)) return toast.show('Enter a non-zero amount', 'error');
+    if (!isValidAmount(a)) return showToast('Enter a non-zero amount', 'error');
     const date = ddmmyyyyToDDMMYY(dateDisplay);  // -> stored DD-MM-YY (format unchanged)
-    if (!date) return toast.show('Enter a valid date as dd/mm/yyyy', 'error');
+    if (!date) return showToast('Enter a valid date as dd/mm/yyyy', 'error');
+    const baselineAmount = Number(loadedExpense.original_amount ?? loadedExpense.amount);
+    const baselineCurrency = loadedExpense.original_currency
+      || loadedExpense.currency || trip.currency;
+    const amountChanged = Number(a.toFixed(2)) !== Number(baselineAmount.toFixed(2));
+    const currencyChanged = expenseCurrency !== baselineCurrency;
+    const dateChanged = date !== loadedExpense.date;
+    const conversionInputsChanged = amountChanged || currencyChanged || dateChanged;
+    if (isForeign && (conversionInputsChanged || requoteRequired) && !approvedConversion) {
+      return showToast('Review and approve the updated conversion before saving.', 'error');
+    }
     setSaving(true);
     try {
       let body: any;
@@ -145,7 +224,7 @@ export default function EditExpense() {
         // Phase 22 hard rule (mirror of the backend 422): amounts must add up to the total.
         if (!reconcile(exactRows, a).isValid) {
           setSaving(false);
-          return toast.show('Assigned amounts must add up to the total.', 'error');
+          return showToast('Assigned amounts must add up to the total.', 'error');
         }
         const shares = resolveEntityShares(exactRows);
         body = {
@@ -179,7 +258,7 @@ export default function EditExpense() {
             const excl = familyExcluded[sid] || [];
             if (fam.length > 1 && fam.every((rid) => excl.includes(rid))) {
               setSaving(false);
-              return toast.show(`At least one member of ${m.name} must take part.`, 'error');
+              return showToast(`At least one member of ${m.name} must take part.`, 'error');
             }
           }
         }
@@ -193,21 +272,50 @@ export default function EditExpense() {
           custom_amounts: null,  // clear any stale EXACT amounts when saving in another mode
         };
       }
-      await api(`/trips/${id}/expenses/${eid}`, { method: 'PATCH', body });
+      const currentExact = splitMode === 'EXACT' ? rowsToCustomAmounts(exactRows) : null;
+      const baselineExact = loadedExpense.original_custom_amounts
+        || (loadedExpense.custom_amounts
+          ? Object.fromEntries(Object.entries(loadedExpense.custom_amounts)
+            .map(([key, value]) => [key, Math.abs(value)]))
+          : null);
+      const exactChanged = splitMode === 'EXACT'
+        && (loadedExpense.split_mode !== 'EXACT' || exactMapKey(currentExact) !== exactMapKey(baselineExact));
+      body = applyExpenseEditConversionContract({
+        body,
+        multiCurrencyEnabled: multiCurrencyExpensesEnabled,
+        originalAmount: a,
+        sourceCurrency: expenseCurrency,
+        conversionInputsChanged,
+        amountChanged,
+        currencyChanged,
+        dateChanged,
+        splitMode,
+        exactChanged,
+        originalCustomAmounts: currentExact,
+        approvedConversion: approvedConversion?.request,
+        expectedConversionVersion: loadedExpense.conversion_version ?? 0,
+      });
+      if (force) body.force = true;
+      const result = await api<any>(`/trips/${id}/expenses/${eid}`, { method: 'PATCH', body });
+      if (result?.requires_confirmation) {
+        setSaving(false);
+        setBudgetWarn(result.warning || 'This exceeds the trip budget.');
+        return;
+      }
       if (newAsset) {
         await uploadReceipt(id, eid, newAsset);
       } else if (hadReceipt && !receiptUri) {
         await deleteReceipt(id, eid);
       }
       router.back();
-    } catch (e: any) { toast.show(e.message || 'Could not save', 'error'); }
+    } catch (e: any) { showToast(e.message || 'Could not save', 'error'); }
     finally { setSaving(false); }
   };
 
   const doDelete = async () => {
     setConfirmDelete(false);
     try { await api(`/trips/${id}/expenses/${eid}`, { method: 'DELETE' }); router.back(); }
-    catch (e: any) { toast.show(e.message || 'Delete failed', 'error'); }
+    catch (e: any) { showToast(e.message || 'Delete failed', 'error'); }
   };
 
   if (!trip) {
@@ -227,7 +335,13 @@ export default function EditExpense() {
   const displayNames = memberDisplayNames(trip.members);
   const parsedAmount = Number.isFinite(parseAmount(amount)) ? parseAmount(amount) : 0;
   const exactRec = reconcile(exactRows, parsedAmount);
-  const currencyBlocked = expenseCurrency !== trip.currency;
+  const isForeign = expenseCurrency !== trip.currency;
+  const currencyBlocked = isForeign && !multiCurrencyExpensesEnabled;
+  const conversionPending = isForeign && multiCurrencyExpensesEnabled
+    && requoteRequired && !approvedConversion;
+  const canonicalPreview = isForeign
+    ? (previewCanonicalAmount ?? (!requoteRequired ? lockedConversion?.targetAmount ?? null : null))
+    : parsedAmount;
 
   return (
     <>
@@ -284,7 +398,7 @@ export default function EditExpense() {
                   editable={canModify}
                   style={[styles.amountInput, { color: colors.textMain }]} />
               </View>
-              {refundExceedsSpend(parseAmount(amount), tripNetSpendExcl) ? (
+              {canonicalPreview != null && refundExceedsSpend(canonicalPreview, tripNetSpendExcl) ? (
                 <T testID="ee-refund-warn" variant="caption" color={colors.warning} style={{ marginTop: 6 }}>{REFUND_WARNING}</T>
               ) : null}
             </Card>
@@ -307,6 +421,21 @@ export default function EditExpense() {
               <DateField testID="ee-date" label="Date *" value={dateDisplay} onChangeText={canModify ? setDateDisplay : () => {}} containerStyle={{ flex: 1 }} />
               <TimeField testID="ee-time" label="Time" value={time} onChange={setTime} editable={canModify} containerStyle={{ flex: 1 }} />
             </View>
+
+            {multiCurrencyExpensesEnabled || !isForeign ? (
+              <ExchangeRatePanel
+                testID="ee-exchange-rate"
+                enabled={multiCurrencyExpensesEnabled}
+                amount={amount}
+                sourceCurrency={expenseCurrency}
+                targetCurrency={trip.currency}
+                date={toISO(dateDisplay)}
+                locked={lockedConversion}
+                onApprovalChange={handleApprovalChange}
+                onQuoteChange={handleQuoteChange}
+                onRequoteRequiredChange={handleRequoteRequired}
+              />
+            ) : null}
 
             <View>
               <T variant="label" muted style={{ marginBottom: SPACING.xs }}>Paid by *</T>
@@ -435,7 +564,7 @@ export default function EditExpense() {
 
             {canModify && (
               <>
-                <Button label="Save changes" icon="check" onPress={save} loading={saving} disabled={currencyBlocked || (splitMode === 'EXACT' && !exactRec.isValid)} fullWidth size="lg" testID="ee-save" style={{ marginTop: SPACING.sm }} />
+                <Button label="Save changes" icon="check" onPress={() => save(false)} loading={saving} disabled={currencyBlocked || conversionPending || (splitMode === 'EXACT' && !exactRec.isValid)} fullWidth size="lg" testID="ee-save" style={{ marginTop: SPACING.sm }} />
                 <Button label="Delete transaction" icon="trash" variant="destructive" onPress={() => setConfirmDelete(true)} fullWidth testID="ee-delete" />
               </>
             )}
@@ -460,6 +589,19 @@ export default function EditExpense() {
         actions={[
           { label: 'Cancel', variant: 'cancel', onPress: () => setConfirmDelete(false) },
           { label: 'Delete', variant: 'destructive', onPress: doDelete, testID: 'ee-delete-confirm' },
+        ]}
+      />
+      <ConfirmModal
+        visible={!!budgetWarn}
+        title="Budget warning"
+        message={budgetWarn || undefined}
+        onRequestClose={() => setBudgetWarn(null)}
+        actions={[
+          { label: 'Cancel', variant: 'cancel', onPress: () => setBudgetWarn(null) },
+          {
+            label: 'Save anyway', variant: 'primary',
+            onPress: () => { setBudgetWarn(null); save(true); },
+          },
         ]}
       />
     </>

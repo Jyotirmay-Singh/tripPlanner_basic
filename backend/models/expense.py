@@ -1,10 +1,12 @@
 import math
+from decimal import Decimal
 from typing import Dict, List, Optional, Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from utils.date_rules import normalize_time
 from utils.currency_rules import normalize_currency
+from models.exchange_rate import ConversionRequest, finite_decimal
 
 SplitMode = Literal["PER_CAPITA", "PER_FAMILY", "EXACT"]
 
@@ -21,8 +23,14 @@ def _validate_amount(v):
 
 
 class ExpenseIn(BaseModel):
-    amount: float
+    # Legacy clients send amount/currency and are supported for same-currency writes. New clients
+    # send original_amount/original_currency; the response's existing amount/currency fields remain
+    # the canonical trip-currency ledger values.
+    amount: Optional[float] = None
     currency: Optional[str] = None  # defaults to the trip's locked official currency
+    original_amount: Optional[Decimal] = None
+    original_currency: Optional[str] = None
+    conversion: Optional[ConversionRequest] = None
     category: str
     description: Optional[str] = ""
     date: str  # DD-MM-YY
@@ -38,6 +46,7 @@ class ExpenseIn(BaseModel):
     # untouched.
     family_participants: Optional[Dict[str, List[str]]] = None
     custom_amounts: Optional[Dict[str, float]] = None  # EXACT mode: person-level member_id -> exact amount
+    original_custom_amounts: Optional[Dict[str, Decimal]] = None
     receipt_id: Optional[str] = None  # GridFS receipt id (Step 22); set via the upload endpoint
     receipt_base64: Optional[str] = None  # legacy/read-only inline receipt (superseded by receipt_id)
 
@@ -56,10 +65,46 @@ class ExpenseIn(BaseModel):
     def _check_currency(cls, v):
         return normalize_currency(v, allow_none=True)
 
+    @field_validator("original_currency")
+    @classmethod
+    def _check_original_currency(cls, v):
+        return normalize_currency(v, allow_none=True)
+
+    @field_validator("original_amount", mode="before")
+    @classmethod
+    def _check_original_amount(cls, v):
+        if v is None:
+            return None
+        parsed = finite_decimal(v, label="original amount")
+        if parsed == 0:
+            raise ValueError("original amount must be non-zero")
+        return parsed
+
+    @field_validator("original_custom_amounts", mode="before")
+    @classmethod
+    def _check_original_custom_amounts(cls, v):
+        if v is None:
+            return None
+        if not isinstance(v, dict):
+            raise ValueError("original custom amounts must be an object")
+        return {str(k): finite_decimal(value, label="exact amount") for k, value in v.items()}
+
+    @model_validator(mode="after")
+    def _one_amount_contract(self):
+        if self.amount is None and self.original_amount is None:
+            raise ValueError("amount or original_amount is required")
+        if self.amount is not None and self.original_amount is not None:
+            raise ValueError("Use original_amount for converted expenses; do not also send amount")
+        return self
+
 
 class ExpenseUpdate(BaseModel):
     amount: Optional[float] = None
     currency: Optional[str] = None
+    original_amount: Optional[Decimal] = None
+    original_currency: Optional[str] = None
+    conversion: Optional[ConversionRequest] = None
+    expected_conversion_version: Optional[int] = None
     category: Optional[str] = None
     description: Optional[str] = None
     date: Optional[str] = None
@@ -70,6 +115,7 @@ class ExpenseUpdate(BaseModel):
     weight_snapshots: Optional[dict] = None
     family_participants: Optional[Dict[str, List[str]]] = None
     custom_amounts: Optional[Dict[str, float]] = None  # EXACT mode: person-level member_id -> exact amount
+    original_custom_amounts: Optional[Dict[str, Decimal]] = None
     receipt_id: Optional[str] = None  # GridFS receipt id (Step 22); set via the upload endpoint
     receipt_base64: Optional[str] = None  # legacy/read-only inline receipt (superseded by receipt_id)
     force: Optional[bool] = False
@@ -88,3 +134,27 @@ class ExpenseUpdate(BaseModel):
     @classmethod
     def _check_currency(cls, v):
         return normalize_currency(v, allow_none=True)
+
+    @field_validator("original_currency")
+    @classmethod
+    def _check_original_currency(cls, v):
+        return normalize_currency(v, allow_none=True)
+
+    @field_validator("original_amount", mode="before")
+    @classmethod
+    def _check_original_amount(cls, v):
+        if v is None:
+            return None
+        parsed = finite_decimal(v, label="original amount")
+        if parsed == 0:
+            raise ValueError("original amount must be non-zero")
+        return parsed
+
+    @field_validator("original_custom_amounts", mode="before")
+    @classmethod
+    def _check_original_custom_amounts(cls, v):
+        if v is None:
+            return None
+        if not isinstance(v, dict):
+            raise ValueError("original custom amounts must be an object")
+        return {str(k): finite_decimal(value, label="exact amount") for k, value in v.items()}

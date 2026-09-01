@@ -24,6 +24,7 @@ type Ctx = {
   // "Forgot password?" link are hidden (those flows are ghosted until a deliverable domain exists).
   // Defaults to true so nothing is hidden while it loads or if the fetch fails.
   emailFeaturesEnabled: boolean;
+  multiCurrencyExpensesEnabled: boolean;
   chatCapability: ChatCapability;
   handleAuthenticationRequired: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
@@ -40,15 +41,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [savedEmail, setSavedEmail] = useState<string | null>(null);
   const [emailFeaturesEnabled, setEmailFeaturesEnabled] = useState(true);
+  const [multiCurrencyExpensesEnabled, setMultiCurrencyExpensesEnabled] = useState(false);
   const [chatCapability, setChatCapability] = useState<ChatCapability>('loading');
 
   // Public, DB-free capability fetch. A successful response without the chat protocol identifies
   // an older backend; a request failure remains unknown so a temporary config outage does not
   // incorrectly disable chat.
   useEffect(() => {
-    api<{ email_features_enabled?: boolean; chat_protocol_version?: number }>('/meta/config', { auth: false })
+    api<{
+      email_features_enabled?: boolean;
+      chat_protocol_version?: number;
+      multi_currency_expenses_enabled?: boolean;
+    }>('/meta/config', { auth: false })
       .then((config) => {
         setEmailFeaturesEnabled(config?.email_features_enabled !== false);
+        setMultiCurrencyExpensesEnabled(config?.multi_currency_expenses_enabled === true);
         setChatCapability(config?.chat_protocol_version === 1 ? 'supported' : 'unsupported');
       })
       .catch(() => setChatCapability('unknown'));
@@ -129,6 +136,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       savedEmail,
       emailFeaturesEnabled,
+      multiCurrencyExpensesEnabled,
       chatCapability,
       handleAuthenticationRequired,
       signIn,

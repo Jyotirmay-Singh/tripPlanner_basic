@@ -58,10 +58,12 @@ it('marks the deployed chat protocol as supported', async () => {
   (apiModule.api as jest.Mock).mockResolvedValue({
     email_features_enabled: true,
     chat_protocol_version: 1,
+    multi_currency_expenses_enabled: true,
   });
   await mount();
 
   expect(latest.chatCapability).toBe('supported');
+  expect(latest.multiCurrencyExpensesEnabled).toBe(true);
   expect(latest.user).toBeNull();
 });
 
@@ -70,6 +72,7 @@ it('identifies a successful old-server config response as unsupported', async ()
   await mount();
 
   expect(latest.chatCapability).toBe('unsupported');
+  expect(latest.multiCurrencyExpensesEnabled).toBe(false);
 });
 
 it('leaves capability unknown when public config cannot be reached', async () => {
@@ -77,6 +80,7 @@ it('leaves capability unknown when public config cannot be reached', async () =>
   await mount();
 
   expect(latest.chatCapability).toBe('unknown');
+  expect(latest.multiCurrencyExpensesEnabled).toBe(false);
 });
 
 it('clears invalid authentication while retaining the saved login email', async () => {

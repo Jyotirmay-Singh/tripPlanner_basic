@@ -330,8 +330,11 @@ def _members_families_section(base, mf_rows, currency):
 def _transactions_section(base, tx, currency):
     """Section 3 — exploded per-member Transactions + per-person pivot (unchanged data/totals)."""
     flow = _section(base, "Transactions")
-    headers = ["Sr", "Category", "Description", "Date", f"Amount ({currency})", "Split Mode",
-               "Paid By", "Family", "Person", f"Total Payable ({currency})"]
+    headers = [
+        "Sr", "Category", "Description", "Date", f"Canonical ({currency})", "Original",
+        "FX audit", "Split Mode", "Paid By", "Family", "Person",
+        f"Total Payable ({currency})",
+    ]
     data = [[_hp(h) for h in headers]]
     neg_cells = []
     r = 1
@@ -339,12 +342,28 @@ def _transactions_section(base, tx, currency):
         for i, row in enumerate(blk["rows"]):
             first = i == 0
             participates = row["participates"]
+            original = (
+                f"{blk['original_currency']} {_fmt_money(blk['original_amount'])}" if first else ""
+            )
+            fx_parts = []
+            if first:
+                fx_parts.append(
+                    f"1 {blk['original_currency']} = {blk['exchange_rate']} {currency}"
+                )
+                fx_parts.append(
+                    f"{blk['exchange_rate_date']} · {blk['exchange_rate_provider']} · "
+                    f"{blk['exchange_rate_mode']}"
+                )
+                if blk["original_exact_allocations"]:
+                    fx_parts.append(f"EXACT: {blk['original_exact_allocations']}")
             data.append([
                 str(blk["sr_no"]) if first else "",
                 _p(blk["category"] if first else ""),
                 _p(blk["description"] if first else ""),
                 blk["date"] if first else "",
                 _fmt_money(round(blk["amount"], 2)) if first else "",
+                _p(original),
+                _p("<br/>".join(fx_parts)),
                 blk["mode"] if first else "",
                 _p(blk["paid_by"] if first else ""),
                 _p(row["family"]),
@@ -354,18 +373,20 @@ def _transactions_section(base, tx, currency):
             if first and blk["amount"] < 0:
                 neg_cells.append((4, r))
             if participates and row["payable"] < 0:
-                neg_cells.append((9, r))
+                neg_cells.append((11, r))
             r += 1
-    data.append([_p("Grand Total", bold=True), "", "", "", _fmt_money(tx["grand_amount"]), "", "",
-                 "", "", _fmt_money(tx["grand_payable"])])
+    data.append([
+        _p("Grand Total", bold=True), "", "", "", _fmt_money(tx["grand_amount"]), "", "",
+        "", "", "", "", _fmt_money(tx["grand_payable"]),
+    ])
     gt_row = r
     if tx["grand_amount"] < 0:
         neg_cells.append((4, gt_row))
     if tx["grand_payable"] < 0:
-        neg_cells.append((9, gt_row))
+        neg_cells.append((11, gt_row))
     flow.append(_styled_table(
-        data, [20, 60, 86, 82, 66, 58, 92, 92, 62, 76],
-        right_cols=(4, 9), center_cols=(0, 5), total_row=gt_row, neg_cells=neg_cells))
+        data, [18, 45, 65, 55, 55, 60, 95, 45, 65, 70, 55, 65],
+        right_cols=(4, 11), center_cols=(0, 7), total_row=gt_row, neg_cells=neg_cells))
     flow.append(Spacer(1, 8 * mm))
 
     # Per-person pivot.

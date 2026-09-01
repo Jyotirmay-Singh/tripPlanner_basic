@@ -25,3 +25,4 @@ services:
       - { key: GOOGLE_CLIENT_ID, sync: false }   # public client id(s), comma-separated audiences
       - { key: PUSH_NOTIFICATIONS_ENABLED, sync: false } # set true only after EAS/FCM setup
       - { key: EXPO_PUSH_ACCESS_TOKEN, sync: false }      # SECRET - Expo enhanced push security
+      - { key: MULTI_CURRENCY_EXPENSES_ENABLED, sync: false } # rollout flag; Frankfurter needs no key

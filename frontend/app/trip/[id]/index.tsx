@@ -35,7 +35,7 @@ import {
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; family_member_ids?: string[] | null; family_member_emails?: (string | null)[] | null; family_member_user_ids?: (string | null)[] | null; user_id?: string | null; email?: string | null };
 type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number | null; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
-type Expense = { id: string; amount: number; category: string; description?: string; date: string; time?: string | null; created_at?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string; shares?: ExpenseShares };
+type Expense = { id: string; amount: number; currency?: string; original_amount?: string | number | null; original_currency?: string | null; category: string; description?: string; date: string; time?: string | null; created_at?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string; shares?: ExpenseShares };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[]; members?: { id: string; name: string; net: number }[] }[] };
 
 type TabKey = TripTabKey;
@@ -453,6 +453,12 @@ export default function TripDetail() {
                       label="Transaction amount"
                       color={e.amount < 0 ? colors.success : colors.textMain}
                     />
+                    {e.original_currency && e.original_currency !== trip.currency
+                      && e.original_amount != null ? (
+                      <T variant="caption" muted testID={`expense-original-${e.id}`}>
+                        originally {formatMoney(Number(e.original_amount), { currency: e.original_currency })}
+                      </T>
+                    ) : null}
                     </View>
                     {canModifyExpense(e, user?.id, trip) && (
                       <IconButton name="trash" onPress={() => deleteExpense(e)} accessibilityLabel="Delete transaction" testID={`expense-del-${e.id}`} size={18} color={colors.danger} />
