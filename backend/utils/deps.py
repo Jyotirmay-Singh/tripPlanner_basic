@@ -75,10 +75,7 @@ def can_mark_settlement_paid(trip: dict, settlement: dict, user_id: str) -> bool
     # seeded into admin_ids) or by the LENDER — the app user linked to the creditor member
     # (to_member_id). The lender is who actually knows the money arrived; this stops a borrower
     # from self-marking their own debt paid. Returns False for unmatched/missing ids.
-    if is_trip_admin(trip, user_id):
-        return True
-    lender = next((m for m in trip.get("members", []) if m["id"] == settlement.get("to_member_id")), None)
-    return bool(lender and lender.get("user_id") == user_id)
+    return can_record_payment(trip, settlement.get("to_member_id"), user_id)
 
 
 async def _settlement_mark_paid_or_403(trip_id: str, settlement_id: str, user_id: str) -> tuple[dict, dict]:

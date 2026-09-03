@@ -57,6 +57,14 @@ def _fmt_money(v) -> str:
     return f"({s})" if v < 0 else s
 
 
+def _fmt_whole(v) -> str:
+    """Whole-unit accounting format for rounded settlement values."""
+    if v is None:
+        return ""
+    s = f"{abs(int(v)):,}"
+    return f"({s})" if v < 0 else s
+
+
 def _p(text, bold=False):
     return Paragraph(str(text) if text is not None else "", _CELL_BOLD if bold else _CELL)
 
@@ -428,8 +436,54 @@ def _payments_section(base, payments, members, currency):
     return flow
 
 
+def _rounded_settlement_section(base, projection, transfers, members, currency):
+    """Auditable exact-versus-rounded balances and the derived whole-unit route."""
+
+    names = member_display_names(members)
+    flow = _section(base, "Whole-rupee settlement projection")
+    route_label = "Minimum payment plan" if projection.get("routing", {}).get("optimal") \
+        else "Simplified payment plan"
+    flow.append(_p(
+        "Payments are rounded together so the group stays balanced. Exact balances are kept "
+        "for records and future expenses."
+    ))
+    flow.append(Spacer(1, 3 * mm))
+    flow.append(_p(
+        f"Currency: {currency}  |  Increment: {projection.get('increment', '1')}  |  "
+        f"Status: {projection.get('status', '')}  |  {route_label}",
+        bold=True,
+    ))
+    flow.append(Spacer(1, 3 * mm))
+    data = [[_hp("Entity"), _hp("Exact balance"), _hp("Rounded balance"),
+             _hp("Rounding adjustment")]]
+    for member in members:
+        member_id = member["id"]
+        data.append([
+            _p(names.get(member_id, member.get("name", "?"))),
+            _p(projection.get("precise_net", {}).get(member_id, "")),
+            _fmt_whole(projection.get("rounded_net", {}).get(member_id, 0)),
+            _p(projection.get("rounding_adjustments", {}).get(member_id, "")),
+        ])
+    flow.append(_styled_table(data, [155, 130, 120, 140], right_cols=(1, 2, 3)))
+
+    if transfers:
+        flow.append(Spacer(1, 4 * mm))
+        route_data = [[_hp("Suggested payer"), _hp("Suggested receiver"),
+                       _hp(f"Whole amount ({currency})")]]
+        for transfer in transfers:
+            route_data.append([
+                _p(names.get(transfer["from_member_id"], "?")),
+                _p(names.get(transfer["to_member_id"], "?")),
+                _fmt_whole(transfer["amount"]),
+            ])
+        flow.append(_styled_table(route_data, [190, 190, 130], right_cols=(2,)))
+    return flow
+
+
 def build_report_pdf(trip: dict, members: list, expenses: list, currency: str,
-                     reconciliation: dict, payments: list = None, mf_rows: list = None) -> bytes:
+                     reconciliation: dict, payments: list = None, mf_rows: list = None,
+                     settlement_projection: dict = None,
+                     settlement_transfers: list = None) -> bytes:
     """Render the FULL report (Summary, Members & Families, exploded Transactions, Payments) to PDF bytes.
 
     ``reconciliation`` is the shared ``build_spend_reconciliation`` result used by XLSX and PDF.
@@ -464,6 +518,12 @@ def build_report_pdf(trip: dict, members: list, expenses: list, currency: str,
     if mf_rows:
         story.append(Spacer(1, 8 * mm))
         story += _members_families_section(base, mf_rows, currency)
+
+    if settlement_projection and settlement_projection.get("enabled"):
+        story.append(Spacer(1, 8 * mm))
+        story += _rounded_settlement_section(
+            base, settlement_projection, settlement_transfers or [], members, currency
+        )
 
     # ---------- Section 3: Transactions (wide — start on a fresh page) ----------
     story.append(PageBreak())

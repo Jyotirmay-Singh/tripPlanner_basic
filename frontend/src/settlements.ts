@@ -16,7 +16,7 @@ export type Settlement = {
   note?: string | null;
 };
 
-/** A live greedy suggestion from GET /balances (before any pending record exists). */
+/** A backend-authoritative live suggestion from GET /balances. */
 export type Transfer = {
   from_member_id: string;
   to_member_id: string;

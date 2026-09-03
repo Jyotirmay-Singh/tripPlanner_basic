@@ -7,7 +7,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from database import db
-from utils.deps import get_current_user, _trip_or_404
+from utils.deps import get_current_user, _trip_or_404, is_trip_admin
 from utils.date_rules import ensure_date_range, trip_date_label
 from utils.balances import _compute_balances
 from utils.display_names import member_display_names
@@ -41,6 +41,7 @@ _THIN_BRAND = Side(style="thin", color=_BRAND)
 _MEDIUM_BRAND = Side(style="medium", color=_BRAND)
 # Thousands separator, 2dp, negatives in red parentheses (professional accounting format).
 _MONEY_FMT = "#,##0.00;[Red](#,##0.00)"
+_WHOLE_MONEY_FMT = "#,##0;[Red](#,##0)"
 
 
 def _style_header_row(ws, row: int, ncols: int) -> None:
@@ -54,6 +55,12 @@ def _style_header_row(ws, row: int, ncols: int) -> None:
 def _money(cell) -> None:
     """Right-align a numeric cell and apply the currency number format."""
     cell.number_format = _MONEY_FMT
+    cell.alignment = _RIGHT
+
+
+def _whole_money(cell) -> None:
+    """Right-align a whole settlement unit without displaying decimal places."""
+    cell.number_format = _WHOLE_MONEY_FMT
     cell.alignment = _RIGHT
 
 
@@ -93,7 +100,7 @@ async def _load_report_expenses(trip_id: str) -> list:
 async def report(trip_id: str, user=Depends(get_current_user)):
     trip = ensure_date_range(await _trip_or_404(trip_id, user["id"]))
     expenses = await _load_report_expenses(trip_id)
-    bal = await _compute_balances(trip_id)
+    bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user["id"]))
     # category breakdown — signed amounts net together (a refund reduces its category + the total).
     by_cat = {}
     by_date = {}
@@ -122,7 +129,7 @@ async def report_xlsx(trip_id: str, token: str,
         raise HTTPException(401, "User not found")
     trip = await _trip_or_404(trip_id, user["id"])
     expenses = await _load_report_expenses(trip_id)
-    bal = await _compute_balances(trip_id)
+    bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user["id"]))
     # Disambiguated top-level labels (rule a + families) — one source of truth shared with the app.
     display = member_display_names(trip["members"])
 
@@ -134,9 +141,9 @@ async def report_xlsx(trip_id: str, token: str,
     # diverges from the ledger `net` the sheet reconciles against. Fetched once and reused (the
     # Payments tab below renders the same `payments` list).
     settlements = await db.settlements.find(
-        {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}).to_list(5000)
+        {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}).to_list(None)
     payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}) \
-        .sort("created_at", 1).to_list(5000)
+        .sort("created_at", 1).to_list(None)
 
     wb = Workbook()
 
@@ -411,8 +418,54 @@ async def report_xlsx(trip_id: str, token: str,
     for col in range(1, len(pay_headers) + 1):
         s5.cell(row=tr, column=col).font = _BOLD
     _money(s5.cell(row=tr, column=3))
+
+    projection = bal.get("settlement_projection") or {}
+    if projection.get("enabled"):
+        row = s5.max_row + 2
+        s5.cell(row=row, column=1, value="Whole-rupee settlement projection").font = _TITLE_FONT
+        row += 1
+        s5.cell(row=row, column=1, value=(
+            "Payments are rounded together so the group stays balanced. "
+            "Exact balances remain authoritative."
+        ))
+        row += 1
+        for label, value in (
+            ("Settlement currency", projection.get("currency")),
+            ("Increment", projection.get("increment")),
+            ("Status", projection.get("status")),
+            ("Routing", "Minimum payment plan" if projection.get("routing", {}).get("optimal")
+             else "Simplified payment plan"),
+            ("Policy version", projection.get("policy_version")),
+        ):
+            s5.cell(row=row, column=1, value=label).font = _BOLD
+            s5.cell(row=row, column=2, value=value)
+            row += 1
+        row += 1
+        headers = ["Entity", "Exact balance", "Rounded balance", "Rounding adjustment"]
+        for column, header in enumerate(headers, 1):
+            s5.cell(row=row, column=column, value=header)
+        _style_header_row(s5, row, len(headers))
+        for member in members:
+            member_id = member["id"]
+            row += 1
+            s5.cell(row=row, column=1, value=display.get(member_id, member.get("name", "?")))
+            s5.cell(row=row, column=2, value=projection["precise_net"].get(member_id))
+            s5.cell(row=row, column=3, value=projection["rounded_net"].get(member_id))
+            s5.cell(row=row, column=4, value=projection["rounding_adjustments"].get(member_id))
+            _whole_money(s5.cell(row=row, column=3))
+        row += 2
+        transfer_headers = ["Suggested payer", "Suggested receiver", f"Whole amount ({cur})"]
+        for column, header in enumerate(transfer_headers, 1):
+            s5.cell(row=row, column=column, value=header)
+        _style_header_row(s5, row, len(transfer_headers))
+        for transfer in bal.get("transfers", []):
+            row += 1
+            s5.cell(row=row, column=1, value=display.get(transfer["from_member_id"], "?"))
+            s5.cell(row=row, column=2, value=display.get(transfer["to_member_id"], "?"))
+            s5.cell(row=row, column=3, value=transfer["amount"])
+            _whole_money(s5.cell(row=row, column=3))
     s5.freeze_panes = "A2"
-    _set_widths(s5, [24, 24, 16, 20, 30])
+    _set_widths(s5, [32, 32, 22, 24, 30])
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -441,19 +494,21 @@ async def report_pdf(trip_id: str, token: str,
     expenses = await _load_report_expenses(trip_id)
     reconciliation = build_spend_reconciliation(members, expenses)
     payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}) \
-        .sort("created_at", 1).to_list(5000)
+        .sort("created_at", 1).to_list(None)
     # Members & Families rows — identical construction to the XLSX route (same builders + the same
     # settlements + payments overlay), so the PDF's Settlements column and reconciliation match.
-    bal = await _compute_balances(trip_id)
+    bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user["id"]))
     display = member_display_names(members)
     settlements = await db.settlements.find(
-        {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}).to_list(5000)
+        {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}).to_list(None)
     paid_map, _ = entity_ledger_components(expenses, members)
     settle_map = settle_adj_by_entity(settlements + payments)
     mf_rows = build_members_families_rows(bal["per_person"], paid_map, settle_map, display)
     pdf_bytes = build_report_pdf(
         trip, members, expenses, trip.get("currency", "INR"),
         reconciliation=reconciliation, payments=payments, mf_rows=mf_rows,
+        settlement_projection=bal.get("settlement_projection"),
+        settlement_transfers=bal.get("transfers"),
     )
     fname = f"{trip['name'].replace(' ','_')}_report.pdf"
     return StreamingResponse(

@@ -1,4 +1,4 @@
-import { formatCompactMoney, formatMoney, pluralize } from '../format';
+import { formatCompactMoney, formatMoney, formatWholeMoney, pluralize } from '../format';
 
 describe('formatMoney', () => {
   it('formats with grouped thousands and 2 decimals', () => {
@@ -55,5 +55,13 @@ describe('pluralize', () => {
   it('respects an explicit plural form', () => {
     expect(pluralize(2, 'person', 'people')).toBe('2 people');
     expect(pluralize(1, 'person', 'people')).toBe('1 person');
+  });
+});
+
+describe('formatWholeMoney', () => {
+  it('renders LKR/NPR settlement units without decimal places', () => {
+    expect(formatWholeMoney(1250, { currency: 'LKR' })).toBe('LKR 1,250');
+    expect(formatWholeMoney(-1250, { currency: 'NPR' })).toBe('NPR -1,250');
+    expect(formatWholeMoney(4, { signed: true })).toBe('+4');
   });
 });

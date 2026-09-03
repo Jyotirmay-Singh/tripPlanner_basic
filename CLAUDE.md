@@ -111,6 +111,8 @@ Backend (`backend/.env`):
   used by Android Credential Manager/web and the iOS client when iOS sign-in is enabled.
 - `MULTI_CURRENCY_EXPENSES_ENABLED`: runtime rollout flag for expense conversion; defaults to
   `false`. Frankfurter v2 requires no API key or new secret.
+- `WHOLE_UNIT_SETTLEMENTS_ENABLED`: runtime rollout flag for conserving whole-rupee LKR/NPR
+  recommendations and new/amount-edited payment writes; defaults to `false`.
 
 Frontend (`frontend/.env` or build environment):
 
@@ -152,9 +154,11 @@ Preserve these unless the task explicitly changes them. Changes require focused 
 - Saved rates and converted amounts are locked. Unrelated edits must not reconvert; changing a
   conversion input or explicitly requesting reconversion increments `conversion_version` and appends
   audit history.
-- Backend rate/original metadata arithmetic uses `Decimal`/Mongo `Decimal128`. The compatibility
-  ledger boundary remains two-decimal floats, including for currencies whose ISO minor unit differs;
-  currency-specific minor units are deferred.
+- Backend rate/original metadata arithmetic uses `Decimal`/Mongo `Decimal128`; the persisted canonical
+  expense amount remains the immutable trip-currency source. Settlement parses stored values through
+  decimal strings into 12-place scaled integers, preserving split fractions without fetching or
+  mutating FX history. The compatibility `net` field remains a jointly rounded two-decimal numeric
+  view; currency-specific ledger minor units beyond the LKR/NPR settlement projection are deferred.
 - Exact allocations are entered as positive magnitudes in the original currency, validated against
   `abs(original_amount)`, converted with the locked rate, and largest-remainder rounded so canonical
   shares sum exactly to canonical `amount`. Refund shares receive the transaction's negative sign.
@@ -230,11 +234,31 @@ Divide equally among selected root entities: each family counts as one and each 
 
 ### Balances, Settlements, and Payments
 
-- `backend/utils/balances.py::_compute_balances` is the ledger source of truth.
-- Entity shares feed the existing greedy `minimize_transfers` settlement calculation.
+- `backend/utils/balances.py::_compute_balances` is the read-time ledger source of truth;
+  `backend/services/settlement_engine.py` owns canonical scaled arithmetic, joint rounding, and routing.
+- The precise signed member vector must sum to zero. Never independently round member balances or
+  transfers. Material imbalance is HTTP 409; only admins receive the diagnostic code/detail.
+- `settlement_projection` is derived, not persisted. It exposes the immutable trip currency,
+  increment, exact/rounded member nets, per-member adjustments, policy/tie-break metadata, route
+  algorithm, optimality, state count, fallback reason, and greedy transfer-count bound.
+- With `WHOLE_UNIT_SETTLEMENTS_ENABLED=true`, only LKR/NPR use a one-rupee increment. Joint
+  largest-remainder rounding is deterministic (equal remainders prefer moving a negative balance
+  toward zero, then stable member ID) and conserves the group total. Other currencies retain a
+  conserving cent projection.
+- Routing is dependency-free: exact zero-sum partition search proves the minimum transfer count for
+  at most 12 non-zero entities within 100,000 deterministic states; otherwise heap-greedy routing
+  emits at most debtors + creditors - 1 transfers. Never describe the fallback as globally minimal.
 - Only non-pending legacy settlements offset balances; pending settlements do not.
-- Payments are persistent directed ledger overlays. They reduce the current obligation, and the balance engine re-derives residual pairs after later expenses.
-- Partial/Paid labels are derived from current balances and recorded payments; do not store them as independent truth.
+- Historical expenses may retain a removed entity ID. They remain replayable only when that
+  entity's complete precise position is exactly zero; whole-entity removal must not orphan a
+  disclosed sub-cent residual.
+- Payments are persistent directed ledger overlays. They reduce the current obligation, and the
+  balance engine re-derives and may reroute residual pairs after any payment or later expense.
+- Enabled LKR/NPR trips require whole rupees for new payments/settlements and amount edits. Legacy
+  decimals remain valid; marking a legacy pending record paid and note-only legacy payment edits must
+  preserve the original amount exactly.
+- The backend recommendation list is authoritative. Payment history is chronological and separate
+  from the live route; do not reattach old payments to newly derived pairs.
 - Chronological family-member breakdown replays expenses plus effective settlement/payment events and scales running member positions. It is display-only and must always sum to the family entity net.
 - Reports' settlement adjustment must include the same effective overlay used by the balance engine, including payments.
 
@@ -282,7 +306,8 @@ Broadly implemented areas include:
 - historical and manual multi-currency expense conversion with locked audit metadata and a guarded
   runtime rollout flag;
 - receipts and gallery support;
-- balance calculation, legacy settlements, and partial-payment ledger;
+- precise conserving balance calculation, optional whole-rupee LKR/NPR settlement projection,
+  legacy settlements, and partial-payment ledger;
 - spend/category/member drill-downs and date/time expense ordering;
 - XLSX and PDF reporting;
 - hosted-build configuration for Render, Vercel, Expo, and EAS.

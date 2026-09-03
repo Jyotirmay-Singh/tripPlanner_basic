@@ -5,6 +5,8 @@
 # `services.calculator` allocates (PER_CAPITA *and* PER_FAMILY), honor `weight_snapshots` and
 # `family_participants`, and the DISPLAYED 2dp shares sum EXACTLY to the expense amount (and each
 # family's member sub-shares sum EXACTLY to that family's shown entity share).
+import pytest
+
 from services.calculator import (
     resolve_weights,
     split_per_capita,
@@ -51,7 +53,7 @@ class TestEntitySharesEqualCalculator:
         members = _members_5a()
         e = _expense()
         weights = resolve_weights([m["id"] for m in members], _weight_map(members), None)
-        assert entity_shares_raw(e, members) == split_per_capita(130.0, weights)
+        assert entity_shares_raw(e, members) == pytest.approx(split_per_capita(130.0, weights))
 
     def test_per_capita_section5a_values(self):
         members = _members_5a()
@@ -75,7 +77,7 @@ class TestEntitySharesEqualCalculator:
         snaps = {"f1": 2}  # partial-family override: count f1 as 2 humans, not 4
         e = _expense(weight_snapshots=snaps)
         weights = resolve_weights([m["id"] for m in members], _weight_map(members), snaps)
-        assert entity_shares_raw(e, members) == split_per_capita(130.0, weights)
+        assert entity_shares_raw(e, members) == pytest.approx(split_per_capita(130.0, weights))
         # sanity: f1 now weighs 2, so total humans drops 13 -> 11.
         assert sum(weights.values()) == 11
 

@@ -1,14 +1,17 @@
 """BREAK-IT-ALL QA campaign — pure Settle-Up engine probes (no server / DB needed).
 
-Exercises the greedy engine (services.calculator.minimize_transfers) and the pure per-pair
-payment roll-up (services.payments) against adversarial inputs: exact ±0.01 residuals, cyclic
-debt, large fan-outs, and cent-snapping leaks. Mirrors the style of test_calculator.py /
+Exercises the conserving compatibility entry point (services.calculator.minimize_transfers) and the
+pure per-pair payment roll-up (services.payments) against adversarial inputs: exact ±0.01 residuals,
+cyclic debt, large fan-outs, and cent-snapping leaks. Mirrors the style of test_calculator.py /
 test_payments_rollup.py.
 
 Tests carrying a ``FINDING`` comment DOCUMENT a suspected imprecision — they assert the OBSERVED
 behavior (so the run stays green) while the comment/name surface the defect for the report.
 """
+import pytest
+
 from services.calculator import minimize_transfers
+from services.settlement_engine import SettlementLedgerError
 from services.payments import pair_blocks, payment_status
 
 
@@ -21,22 +24,23 @@ def _positive_net(net):
 
 
 class TestCentSnapTermination:
-    """Hypothesis 6: the greedy loop must resolve cleanly (never hang) around the 0.01 threshold."""
+    """Cent projection must resolve cleanly and retain values on the old 0.01 boundary."""
 
-    def test_exact_one_cent_residual_is_dropped_not_looped(self):
-        # A ±0.01 imbalance sits ON the strict filter boundary (< -0.01 / > 0.01), so BOTH members
-        # are excluded and the cent silently vanishes. The important invariant: it returns (no hang).
-        assert minimize_transfers({"a": -0.01, "b": 0.01}) == []
+    def test_exact_one_cent_residual_is_settled(self):
+        # Regression: the former strict filter dropped both members at exactly ±0.01.
+        assert minimize_transfers({"a": -0.01, "b": 0.01}) == [
+            {"from_member_id": "a", "to_member_id": "b", "amount": 0.01}
+        ]
 
     def test_just_beyond_one_cent_produces_a_transfer(self):
         assert minimize_transfers({"a": -0.02, "b": 0.02}) == [
             {"from_member_id": "a", "to_member_id": "b", "amount": 0.02}
         ]
 
-    def test_half_cent_residual_absorbed_silently(self):
+    def test_half_cent_ledger_imbalance_is_rejected(self):
         # -10.005 vs +10.0: 0.005 leftover on the debtor must not spawn a spurious micro-transfer.
-        transfers = minimize_transfers({"a": -10.005, "b": 10.0})
-        assert transfers == [{"from_member_id": "a", "to_member_id": "b", "amount": 10.0}]
+        with pytest.raises(SettlementLedgerError, match="imbalanced"):
+            minimize_transfers({"a": -10.005, "b": 10.0})
 
     def test_pathological_many_tiny_values_terminate(self):
         # 50 debtors of -0.03 and 50 creditors of +0.03 — proves the pointer always advances
@@ -67,7 +71,7 @@ class TestCyclicDebt:
     def test_four_node_cycle_with_residual(self):
         net = {"A": -100.0, "B": -50.0, "C": 90.0, "D": 60.0}
         transfers = minimize_transfers(net)
-        # greedy optimum for 2 debtors / 2 creditors is at most 3 transfers
+        # Any conserving route for 2 debtors / 2 creditors needs at most 3 transfers.
         assert len(transfers) <= 3
         assert _sum_transfers(transfers) == 150.0
 
@@ -87,20 +91,16 @@ class TestReconciliation:
         assert _sum_transfers(transfers) == _positive_net(net) == 66.67
 
     def test_balanced_ledger_reconciles_to_the_cent(self):
-        # Post-fix guarantee (integer-cents greedy, BUG-6): for a BALANCED 2dp ledger the suggested
-        # transfers reconcile EXACTLY to the total owed -- the debtor is never under-collected by
-        # float drift inside the loop.
+        # A balanced cent ledger reconciles exactly; routing never loses money to float drift.
         net = {"a": -100.00, "b": 33.33, "c": 33.33, "d": 33.34}
         transfers = minimize_transfers(net)
         assert _sum_transfers(transfers) == _positive_net(net) == 100.00
 
-    def test_imbalanced_input_residual_is_upstream_not_a_loop_leak(self):
-        # When the net itself does NOT sum to 0 at cent granularity (an artifact of _compute_balances
-        # rounding each member independently), one cent stays undistributed. That residual is UPSTREAM
-        # of minimize_transfers -- the greedy loop still neither invents nor drops money beyond it.
+    def test_precise_thirds_are_jointly_rounded_without_a_residual(self):
+        # The precise vector sums to zero even though independently rounded member values would not.
         net = {"a": -0.10, "b": 0.033333, "c": 0.033333, "d": 0.033334}  # cents: -10 vs 3+3+3 = 9
         transfers = minimize_transfers(net)
-        assert _sum_transfers(transfers) == 0.09  # exactly the 9 reconcilable cents
+        assert _sum_transfers(transfers) == 0.10
 
 
 class TestPaymentRollupBoundaries:

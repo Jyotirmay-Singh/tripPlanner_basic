@@ -10,16 +10,13 @@ before, so converting them DOES change historical balances for income-containing
 compute exactly which trips/members change so a human can sign off before any write.
 """
 
-from services.calculator import resolve_weights, split_per_capita, split_per_family
-from services.custom_split import resolve_exact_entity_shares
-from services.member_breakdown import family_member_ids
+from services.settlement_engine import (
+    CENT_INCREMENT_SCALED,
+    build_precise_net,
+    joint_round,
+    scaled_number,
+)
 from utils.settlement_gate import is_settled
-
-
-def _weight_of_member(m: dict) -> int:
-    if m.get("kind") == "family":
-        return max(1, len(m.get("family_members", [])))
-    return 1
 
 
 def compute_net(members: list, expenses: list, settlements: list) -> dict:
@@ -31,30 +28,12 @@ def compute_net(members: list, expenses: list, settlements: list) -> dict:
     PER_CAPITA honors ``family_participants`` exactly like the ledger: a family restricted to a subset
     of its roster counts as its involved-member count. The migration uses this symmetrically (before
     and after both go through here), so the income->negative deltas are unaffected by it."""
-    net = {m["id"]: 0.0 for m in members}
-    weight_map = {m["id"]: _weight_of_member(m) for m in members}
-    rosters = {m["id"]: family_member_ids(m) for m in members if m.get("kind") == "family"}
-    all_ids = [m["id"] for m in members]
-    for e in expenses:
-        split_ids = e.get("split_member_ids") or all_ids
-        mode = e.get("split_mode", "PER_CAPITA")
-        if mode == "PER_CAPITA":
-            weights = resolve_weights(split_ids, weight_map, e.get("weight_snapshots"),
-                                      e.get("family_participants"), rosters)
-            shares = split_per_capita(e["amount"], weights)
-        elif mode == "EXACT":
-            shares = resolve_exact_entity_shares(e.get("custom_amounts"), members)
-        else:
-            shares = split_per_family(e["amount"], split_ids)
-        if not shares:
-            continue
-        for sid, share in shares.items():
-            net[sid] = net.get(sid, 0) - share
-        net[e["paid_by_member_id"]] = net.get(e["paid_by_member_id"], 0) + e["amount"]
-    for s in settlements:
-        net[s["from_member_id"]] = net.get(s["from_member_id"], 0) + s["amount"]
-        net[s["to_member_id"]] = net.get(s["to_member_id"], 0) - s["amount"]
-    return {k: round(v, 2) for k, v in net.items()}
+    precise = build_precise_net(members, expenses, settlements)
+    rounded = joint_round(precise, CENT_INCREMENT_SCALED)
+    return {
+        member_id: scaled_number(value * CENT_INCREMENT_SCALED)
+        for member_id, value in rounded.items()
+    }
 
 
 def to_negative_expense(row: dict) -> dict:

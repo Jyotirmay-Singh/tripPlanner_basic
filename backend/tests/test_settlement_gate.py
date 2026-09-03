@@ -6,6 +6,7 @@ test_calculator.py exercises the math helpers.
 from utils.settlement_gate import (
     SETTLED_EPS,
     is_settled,
+    is_precisely_settled,
     entity_net,
     family_rows,
     family_member_net,
@@ -58,6 +59,25 @@ class TestEntityNet:
 
     def test_missing_net_key_defaults_zero(self):
         assert entity_net({}, "anything") == 0.0
+
+
+class TestPreciseEntitySettlement:
+    def test_precise_zero_is_removable(self):
+        balances = {
+            "net": {"member": 0.0},
+            "settlement_projection": {"precise_net": {"member": "0.000000000000"}},
+        }
+        assert is_precisely_settled(balances, "member")
+
+    def test_subcent_residual_is_not_orphaned_by_removal(self):
+        balances = {
+            "net": {"member": 0.0},
+            "settlement_projection": {"precise_net": {"member": "0.001000000000"}},
+        }
+        assert not is_precisely_settled(balances, "member")
+
+    def test_legacy_response_falls_back_to_display_gate(self):
+        assert is_precisely_settled({"net": {"member": 0.0}}, "member")
 
 
 class TestFamilyRows:

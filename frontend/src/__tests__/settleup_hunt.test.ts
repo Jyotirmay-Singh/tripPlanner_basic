@@ -34,7 +34,7 @@ describe('badge state machine (open -> partial -> paid)', () => {
   it('walks a pair through every badge as payments land', () => {
     // open
     expect(paymentStatus(100, 0)).toBe('open');
-    // partial (greedy residual 60 after paying 40)
+    // partial (current residual 60 after paying 40)
     expect(paymentStatus(60, 40)).toBe('partial');
     // paid (residual cleared)
     expect(paymentStatus(0, 100)).toBe('paid');

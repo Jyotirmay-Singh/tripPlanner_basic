@@ -27,6 +27,7 @@ class TestMeta:
         assert config["chat_protocol_version"] == meta.CHAT_PROTOCOL_VERSION == 1
         assert isinstance(config["email_features_enabled"], bool)
         assert isinstance(config["multi_currency_expenses_enabled"], bool)
+        assert isinstance(config["whole_unit_settlements_enabled"], bool)
 
     def test_runtime_config_reports_multi_currency_rollout_flag(self, monkeypatch):
         monkeypatch.setattr(meta, "MULTI_CURRENCY_EXPENSES_ENABLED", True)
@@ -34,6 +35,13 @@ class TestMeta:
 
         monkeypatch.setattr(meta, "MULTI_CURRENCY_EXPENSES_ENABLED", False)
         assert asyncio.run(meta.get_config())["multi_currency_expenses_enabled"] is False
+
+    def test_runtime_config_reports_whole_unit_settlement_rollout_flag(self, monkeypatch):
+        monkeypatch.setattr(meta, "WHOLE_UNIT_SETTLEMENTS_ENABLED", True)
+        assert asyncio.run(meta.get_config())["whole_unit_settlements_enabled"] is True
+
+        monkeypatch.setattr(meta, "WHOLE_UNIT_SETTLEMENTS_ENABLED", False)
+        assert asyncio.run(meta.get_config())["whole_unit_settlements_enabled"] is False
 
     def test_health_reports_redacted_deployment_revision(self, monkeypatch):
         monkeypatch.setenv("GIT_COMMIT", "fallback-commit")

@@ -68,7 +68,7 @@ def _transfer_amount(bal, from_id, to_id):
 
 class TestPaymentLedger:
     def test_partial_payment_reduces_pair_payable(self, api_client, test_user):
-        # Owner paid 200 split between two -> m_b owes m_owner 100. Greedy m_b->m_owner 100.
+        # Owner paid 200 split between two -> m_b owes m_owner 100.
         trip_id, m_owner, m_b, _b = _make_trip_two_members(api_client, test_user["token"])
         _add_expense(api_client, test_user["token"], trip_id, paid_by=m_owner, amount=200.0)
         before = _balances(api_client, test_user["token"], trip_id)
@@ -107,7 +107,7 @@ class TestPaymentLedger:
 
 class TestPaymentValidation:
     def _setup_debt(self, api_client, token):
-        # m_b owes m_owner 100 (greedy m_b -> m_owner).
+        # m_b owes m_owner 100.
         trip_id, m_owner, m_b, user_b = _make_trip_two_members(api_client, token)
         _add_expense(api_client, token, trip_id, paid_by=m_owner, amount=200.0)
         return trip_id, m_owner, m_b, user_b

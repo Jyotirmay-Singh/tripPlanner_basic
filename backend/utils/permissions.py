@@ -75,4 +75,8 @@ def can_record_payment(trip: dict, to_member_id: Optional[str], user_id: Optiona
     if role_of(trip, user_id) in ("owner", "admin"):
         return True
     receiver = next((m for m in trip.get("members", []) if m["id"] == to_member_id), None)
-    return bool(receiver and receiver.get("user_id") == user_id)
+    if not receiver:
+        return False
+    if receiver.get("kind") == "family":
+        return user_id in (receiver.get("family_member_user_ids") or [])
+    return receiver.get("user_id") == user_id

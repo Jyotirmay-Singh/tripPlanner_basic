@@ -32,6 +32,15 @@ describe('responsive money presentation', () => {
     expect(candidates.at(-1)?.detachedCurrency).toBe(true);
   });
 
+  it('uses a whole-number exact candidate for whole-unit settlement amounts', () => {
+    const candidates = responsiveMoneyCandidates(1_250, {
+      currency: 'LKR',
+      showCurrency: true,
+      whole: true,
+    });
+    expect(candidates[0]).toEqual({ text: 'LKR 1,250', detachedCurrency: false });
+  });
+
   it('chooses the first measured fit and otherwise the shortest candidate', () => {
     expect(firstFittingCandidate([false, true, true], 3)).toBe(1);
     expect(firstFittingCandidate([false, false, false], 3)).toBe(2);

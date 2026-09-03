@@ -2,7 +2,12 @@ import os
 
 from fastapi import APIRouter
 
-from config import CATEGORIES, EMAIL_FEATURES_ENABLED, MULTI_CURRENCY_EXPENSES_ENABLED
+from config import (
+    CATEGORIES,
+    EMAIL_FEATURES_ENABLED,
+    MULTI_CURRENCY_EXPENSES_ENABLED,
+    WHOLE_UNIT_SETTLEMENTS_ENABLED,
+)
 
 router = APIRouter()
 CHAT_PROTOCOL_VERSION = 1
@@ -28,6 +33,7 @@ async def get_config():
     return {
         "email_features_enabled": EMAIL_FEATURES_ENABLED,
         "multi_currency_expenses_enabled": MULTI_CURRENCY_EXPENSES_ENABLED,
+        "whole_unit_settlements_enabled": WHOLE_UNIT_SETTLEMENTS_ENABLED,
         "chat_protocol_version": CHAT_PROTOCOL_VERSION,
     }
 

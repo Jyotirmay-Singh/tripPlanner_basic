@@ -12,7 +12,7 @@ from utils.members import (
     align_family_member_user_ids,
 )
 from utils.settlement_gate import (
-    is_settled, entity_net, family_member_net, unsettled_family_members,
+    is_precisely_settled, is_settled, family_member_net, unsettled_family_members,
 )
 from services.member_breakdown import family_member_ids
 from services.reallocation import run_member_update_with_reallocation, freeze_and_remove_member
@@ -192,19 +192,19 @@ async def _settlement_block_reason(trip_id: str, target: dict):
     """Return a 409 message if ``target`` is NOT fully settled, else None (re-reads balances).
 
     Single source of truth for the entity-removal gate, used both for the upfront fast-fail and for
-    the write-time re-check (P5). "Fully settled" == net rounds to 0.00 in the EXISTING engine. For a
-    family the gate is strict: EVERY family member's displayed net AND the family entity net must be
-    settled. This only READS balances; it never changes them.
+    the write-time re-check (P5). A whole entity must have an exactly-zero canonical balance so its
+    precise residual is never orphaned after removal. For a family, every display-level member row
+    must also be settled. This only reads balances; it never changes them.
     """
     bal = await _compute_balances(trip_id)
     member_id = target["id"]
     name = target.get("name") or "This member"
     if target.get("kind") == "family":
         unsettled = unsettled_family_members(bal, member_id)
-        if unsettled or not is_settled(entity_net(bal, member_id)):
+        if unsettled or not is_precisely_settled(bal, member_id):
             who = ", ".join(r["name"] for r in unsettled) or name
             return f"Cannot remove {name}: outstanding balance for {who}. Settle up first."
-    elif not is_settled(entity_net(bal, member_id)):
+    elif not is_precisely_settled(bal, member_id):
         return f"{name} has an outstanding balance. Settle up before removing."
     return None
 
@@ -213,8 +213,8 @@ async def _settlement_block_reason(trip_id: str, target: dict):
 async def delete_member(trip_id: str, member_id: str, user=Depends(get_current_user)):
     """Remove an individual OR a whole family (a family is a single member doc), gated by settlement.
 
-    A target may be removed only when fully settled (net rounds to 0.00) in the EXISTING balance
-    engine — removal is gated by balances and never changes them. Past expense records are kept; the
+    A target may be removed only when its canonical entity balance is exactly zero — removal is
+    gated by balances and never changes those balances. Past expense records are kept; the
     family's weight is pinned onto its past PER_CAPITA expenses so every other balance stays
     byte-identical (see ``freeze_and_remove_member``). An app-user member is also evicted from trip
     access + admin rights (P2), and the gate is re-checked at write time to close the TOCTOU window

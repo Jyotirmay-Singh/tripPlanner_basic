@@ -1,48 +1,102 @@
-"""Settlement gate for member / family removal.
+"""Currency-policy helpers shared by payment and settlement write routes."""
 
-PURE helpers that read an already-computed ``_compute_balances`` result (the authoritative ledger
-from ``utils.balances``) and answer "is this entity / family member fully settled?". They never
-touch the database and never change any balance — removal is *gated* by balances, it never alters
-them — so they unit-test exactly like ``services/calculator.py``.
+from decimal import Decimal, InvalidOperation
 
-"Fully settled" == the net balance rounds to 0.00. ``_compute_balances`` already rounds ``net`` and
-every per-member breakdown row to 2dp, so ``abs(x) < SETTLED_EPS`` is equivalent to "rounds to 0.00"
-while tolerating float dust.
+from fastapi import HTTPException
 
-Shapes consumed (produced by ``utils.balances._compute_balances``):
-  balances["net"]:        {member_id: float}
-  balances["per_person"]: [{"member_id", ..., "members": [{"id", "name", "net"}, ...]}, ...]
-"""
+from config import WHOLE_UNIT_SETTLEMENTS_ENABLED
+from services.settlement_engine import POLICY_VERSION, settlement_increment
 
-SETTLED_EPS = 0.005  # net is rounded to 2dp upstream; |x| < 0.005 <=> rounds to 0.00
+
+# Compatibility removal gate: the API's legacy numeric net is jointly rounded to cents, so values
+# whose magnitude is below half a cent still display as settled.
+SETTLED_EPS = 0.005
 
 
 def is_settled(net_value: float) -> bool:
-    """True iff ``net_value`` rounds to 0.00 (neither a debtor nor a creditor)."""
     return abs(net_value) < SETTLED_EPS
 
 
 def entity_net(balances: dict, member_id: str) -> float:
-    """The ledger net for an entity (individual or family). Unknown id -> 0.0."""
     return balances.get("net", {}).get(member_id, 0.0)
 
 
+def precise_entity_net(balances: dict, member_id: str) -> Decimal | None:
+    """Return the canonical balance when projection metadata is available."""
+
+    value = balances.get("settlement_projection", {}).get("precise_net", {}).get(member_id)
+    if value is None:
+        return None
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    return parsed if parsed.is_finite() else None
+
+
+def is_precisely_settled(balances: dict, member_id: str) -> bool:
+    """A removable entity cannot leave a precise residual with no owner in the live roster."""
+
+    precise = precise_entity_net(balances, member_id)
+    return is_settled(entity_net(balances, member_id)) if precise is None else precise == 0
+
+
 def family_rows(balances: dict, family_id: str) -> list:
-    """The display-only per-member breakdown rows ([{"id","name","net"}]) for a family, or []."""
-    for pp in balances.get("per_person", []):
-        if pp.get("member_id") == family_id:
-            return pp.get("members") or []
+    for row in balances.get("per_person", []):
+        if row.get("member_id") == family_id:
+            return row.get("members") or []
     return []
 
 
-def family_member_net(balances: dict, family_id: str, fm_id: str):
-    """Net for one family member from the breakdown, or ``None`` if the family/member is absent."""
+def family_member_net(balances: dict, family_id: str, family_member_id: str):
     for row in family_rows(balances, family_id):
-        if row.get("id") == fm_id:
+        if row.get("id") == family_member_id:
             return row.get("net", 0.0)
     return None
 
 
 def unsettled_family_members(balances: dict, family_id: str) -> list:
-    """Breakdown rows for a family whose net does NOT round to 0.00 (the blockers)."""
-    return [row for row in family_rows(balances, family_id) if not is_settled(row.get("net", 0.0))]
+    return [
+        row for row in family_rows(balances, family_id)
+        if not is_settled(row.get("net", 0.0))
+    ]
+
+
+def decimal_amount(value: object) -> Decimal:
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise HTTPException(400, "Amount must be a finite number") from exc
+    if not amount.is_finite():
+        raise HTTPException(400, "Amount must be a finite number")
+    return amount
+
+
+def whole_unit_policy_enabled(trip: dict) -> bool:
+    _increment, enabled = settlement_increment(
+        trip.get("currency", "INR"), WHOLE_UNIT_SETTLEMENTS_ENABLED
+    )
+    return enabled
+
+
+def validate_new_amount(trip: dict, value: object) -> tuple[Decimal, dict]:
+    """Validate a newly recorded or amount-edited value and return audit fields."""
+
+    amount = decimal_amount(value)
+    if amount <= 0:
+        raise HTTPException(400, "Amount must be greater than zero")
+    if not whole_unit_policy_enabled(trip):
+        return amount, {}
+    if amount != amount.to_integral_value():
+        currency = str(trip.get("currency", "LKR")).upper()
+        raise HTTPException(400, f"{currency} payments must be whole-rupee amounts")
+    return amount, {
+        "settlement_policy_version": POLICY_VERSION,
+        "settlement_increment": "1",
+    }
+
+
+def payable_tolerance(trip: dict) -> Decimal:
+    """Legacy clients retain the old cent tolerance; whole-unit writes are exact."""
+
+    return Decimal("0") if whole_unit_policy_enabled(trip) else Decimal("0.01")

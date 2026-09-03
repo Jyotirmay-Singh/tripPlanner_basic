@@ -82,13 +82,9 @@ export function canMarkSettlementPaid(
   trip: RoleTrip,
   settlement: { to_member_id: string },
   userId: string | undefined,
-  members: { id: string; user_id?: string | null }[],
+  members: { id: string; kind?: string; user_id?: string | null; family_member_user_ids?: (string | null)[] }[],
 ): boolean {
-  if (!userId) return false;
-  const r = roleOf(trip, userId);
-  if (r === 'owner' || r === 'admin') return true;
-  const lender = members.find((m) => m.id === settlement.to_member_id);
-  return !!(lender && lender.user_id && lender.user_id === userId);
+  return canRecordPayment(trip, settlement.to_member_id, userId, members);
 }
 
 /**
@@ -102,13 +98,17 @@ export function canRecordPayment(
   trip: RoleTrip,
   toMemberId: string,
   userId: string | undefined,
-  members: { id: string; user_id?: string | null }[],
+  members: { id: string; kind?: string; user_id?: string | null; family_member_user_ids?: (string | null)[] }[],
 ): boolean {
   if (!userId) return false;
   const r = roleOf(trip, userId);
   if (r === 'owner' || r === 'admin') return true;
   const receiver = members.find((m) => m.id === toMemberId);
-  return !!(receiver && receiver.user_id && receiver.user_id === userId);
+  if (!receiver) return false;
+  if (receiver.kind === 'family') {
+    return (receiver.family_member_user_ids ?? []).includes(userId);
+  }
+  return !!(receiver.user_id && receiver.user_id === userId);
 }
 
 // Owner only

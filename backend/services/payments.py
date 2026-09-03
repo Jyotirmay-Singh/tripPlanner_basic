@@ -1,10 +1,9 @@
 """Pure per-pair roll-up of recorded partial payments (Phase 20) — DISPLAY-only.
 
 Payments are directed money movements overlaid onto ``net`` in ``_compute_balances`` exactly like a
-non-pending settlement, so the greedy ``minimize_transfers`` already re-derives the residual pairs and
-this module never touches the ledger. It only groups payment records by their ``(from -> to)``
-direction so the UI/report can show, per suggested pair, the current payable (the greedy amount, which
-is already net of payments), what has been paid along that direction, and a derived status.
+non-pending settlement, so the authoritative engine already re-derives (and may reroute) the residual
+plan. This compatibility helper never touches the ledger; it only groups payment records by their
+``(from -> to)`` direction for legacy pair-block consumers.
 
 Pure (plain dicts/lists, no DB/IO), mirroring ``frontend/src/payments.ts`` and the other pure service
 helpers (``services/spend_summary.py`` etc.). Reused by reconciliation tests.
@@ -28,7 +27,7 @@ def payment_status(current_payable: float, paid: float) -> str:
 def pair_blocks(transfers: list, payments: list) -> list:
     """Roll payment records up per debtor->creditor direction.
 
-    ``transfers``: the current greedy suggestions (``[{from_member_id,to_member_id,amount}]``) — each
+    ``transfers``: the current backend suggestions (``[{from_member_id,to_member_id,amount}]``) — each
     ``amount`` is already the RESIDUAL after payments (they were overlaid into ``net`` upstream).
     ``payments``: every payment record for the trip (``{from_member_id,to_member_id,amount,created_at}``).
 

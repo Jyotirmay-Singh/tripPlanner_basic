@@ -94,15 +94,15 @@ class TestEntityLedgerComponents:
         # net == paid - share reconstructs the ledger net (pre-settlement).
         assert abs((paid["i1"] - share["i1"]) - 100.0 / 3 * 2) < 1e-9
 
-    def test_skips_rows_that_split_to_nothing(self):
-        # An expense with empty roster split (no members) contributes nothing — like the ledger.
+    def test_historical_split_member_is_ignored_in_current_entity_columns(self):
+        # Removed members remain in historical expenses. Report columns cover the current roster;
+        # the balance engine separately rejects the report unless the removed position nets to zero.
         members = [_ind("i1")]
         paid, share = entity_ledger_components(
             [{"id": "e", "amount": 50.0, "split_member_ids": ["ghost"], "split_mode": "PER_CAPITA",
               "paid_by_member_id": "i1", "date": "1", "category": "c", "description": ""}], members)
-        # 'ghost' isn't a member so its share isn't tracked, but i1 (payer) IS credited (the split is
-        # non-empty: ghost defaults to weight 1), so paid[i1] == 50.
-        assert paid["i1"] == 50.0
+        assert paid == {"i1": 50.0}
+        assert share == {"i1": 0.0}
 
 
 class TestSplitMath:

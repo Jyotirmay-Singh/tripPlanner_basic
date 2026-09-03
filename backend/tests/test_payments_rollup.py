@@ -37,7 +37,7 @@ class TestPairBlocks:
         assert blk["payments"] == []
 
     def test_partial_pair_reduces_headline(self):
-        # Greedy already shows the residual (300 after a 200 payment); the block reports paid=200
+        # The backend plan already shows the residual (300 after a 200 payment); the block reports paid=200
         # and reconstructs the original 500.
         transfers = [{"from_member_id": "ram", "to_member_id": "shyam", "amount": 300.0}]
         payments = [{"from_member_id": "ram", "to_member_id": "shyam", "amount": 200.0,
@@ -111,3 +111,13 @@ class TestCanRecordPayment:
 
     def test_unknown_creditor_denied_for_non_admin(self):
         assert can_record_payment(self._trip(), "ghost", "creditor-u") is False
+
+    def test_linked_family_people_can_confirm_for_the_family_wallet(self):
+        trip = self._trip()
+        trip["members"].append({
+            "id": "family", "kind": "family", "user_id": None,
+            "family_member_user_ids": ["family-u-1", None, "family-u-2"],
+        })
+        assert can_record_payment(trip, "family", "family-u-1") is True
+        assert can_record_payment(trip, "family", "family-u-2") is True
+        assert can_record_payment(trip, "family", "debtor-u") is False

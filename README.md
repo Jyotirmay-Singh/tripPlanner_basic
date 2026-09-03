@@ -16,7 +16,8 @@ See [`USER_GUIDE.md`](USER_GUIDE.md) for full feature documentation and
   existing family, or by starting a new family).
 - Split expenses two ways: **per person** (divide by total people) or **per family**
   (divide by entity), selectable per transaction.
-- Greedy minimum-transaction settle-up that shows who owes whom.
+- Deterministic, conserving settle-up: LKR/NPR can use whole-rupee recommendations, with exact
+  minimum-payment routing for bounded groups and an efficient deterministic fallback for large ones.
 - Role-based access: trip admins manage members/families; expenses are editable by
   their creator or a trip admin.
 - Retroactive rebalancing when a family's size changes.
@@ -68,6 +69,7 @@ or admin login is unavailable.
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Seed superuser, created on startup if missing (email must be `@gmail.com`) |
 | `RESEND_API_KEY`, `SENDER_EMAIL`, `APP_URL` | Verification/password-reset email. If `RESEND_API_KEY` is unset, development links are logged instead of emailed |
 | `GOOGLE_CLIENT_ID` | Comma-separated accepted Google ID-token audiences for `POST /api/auth/google`; include the Web client (web + Android Credential Manager) and iOS client when iOS sign-in is enabled |
+| `WHOLE_UNIT_SETTLEMENTS_ENABLED` | Runtime rollout flag; when `true`, LKR/NPR recommendations and newly recorded/amount-edited payments use whole rupees while exact ledger balances remain auditable |
 
 ## Frontend
 

@@ -57,7 +57,7 @@ def test_xlsx_summary_renders_time_gross_reimbursement_and_net_separately(monkey
         "name": "Time report",
         "start_date": "2026-01-01",
         "end_date": "2026-01-02",
-        "currency": "INR",
+        "currency": "LKR",
         "code": "TIME",
         "members": members,
     }
@@ -98,7 +98,21 @@ def test_xlsx_summary_renders_time_gross_reimbursement_and_net_separately(monkey
     monkeypatch.setattr(reports, "_trip_or_404", AsyncMock(return_value=trip))
     monkeypatch.setattr(reports, "_load_report_expenses", AsyncMock(return_value=expenses))
     monkeypatch.setattr(
-        reports, "_compute_balances", AsyncMock(return_value={"per_person": per_person}),
+        reports, "_compute_balances", AsyncMock(return_value={
+            "per_person": per_person,
+            "transfers": [],
+            "settlement_projection": {
+                "enabled": True,
+                "currency": "LKR",
+                "increment": "1",
+                "status": "settled_exactly",
+                "policy_version": "whole_unit_v1",
+                "precise_net": {"time": "0.000000000000"},
+                "rounded_net": {"time": 0},
+                "rounding_adjustments": {"time": "0.000000000000"},
+                "routing": {"optimal": True},
+            },
+        }),
     )
     monkeypatch.setattr(reports, "db", SimpleNamespace(
         users=SimpleNamespace(find_one=AsyncMock(return_value={"id": "user-1"})),
@@ -134,3 +148,12 @@ def test_xlsx_summary_renders_time_gross_reimbursement_and_net_separately(monkey
             for row in rows if row[0] == "Total reimbursements"] == [4_000.0, 4_000.0]
     assert [next(value for value in row[1:] if isinstance(value, (int, float)))
             for row in rows if row[0] == "Net spend"] == [10_000.0, 10_000.0, 10_000.0]
+
+    payment_rows = [tuple(cell.value for cell in row[:4])
+                    for row in workbook["Payments"].iter_rows()]
+    assert any(row[0] == "Whole-rupee settlement projection" for row in payment_rows)
+    assert ("Settlement currency", "LKR", None, None) in payment_rows
+    assert ("Entity", "Exact balance", "Rounded balance", "Rounding adjustment") in payment_rows
+    assert ("Time", "0.000000000000", 0, "0.000000000000") in payment_rows
+    time_row = next(row for row in workbook["Payments"].iter_rows() if row[0].value == "Time")
+    assert time_row[2].number_format == "#,##0;[Red](#,##0)"

@@ -49,12 +49,17 @@ const hasHost = (r: any, id: string) =>
 const buttonByLabel = (r: any, label: string) =>
   r.root.find((n: any) => n.type === 'Button' && n.props && n.props.label === label);
 
-function mount(onCancel: jest.Mock, onSubmit: jest.Mock) {
+function mount(
+  onCancel: jest.Mock,
+  onSubmit: jest.Mock,
+  overrides: Partial<React.ComponentProps<typeof AmountModal>> = {},
+) {
   let r: any;
   act(() => {
     r = TestRenderer.create(React.createElement(AmountModal, {
       title: 'Record payment', subtitle: 'Ram pays Shyam', initial: 100, max: 100, currency: 'INR',
       initialNote: '', submitLabel: 'Continue', onCancel, onSubmit,
+      ...overrides,
     }));
   });
   return r;
@@ -100,5 +105,24 @@ describe('settle-up AmountModal (✕ close + reachable footer)', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit.mock.calls[0][0]).toBe(100); // amount
     expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it('preserves an unchanged legacy decimal exactly for a note-only edit', () => {
+    const onSubmit = jest.fn();
+    const legacyAmount = 1.234567;
+    const r = mount(jest.fn(), onSubmit, {
+      initial: legacyAmount,
+      max: legacyAmount,
+      currency: 'LKR',
+      wholeUnit: true,
+      allowLegacyDecimal: true,
+    });
+
+    expect(host(r, 'payment-amount-input').props.helper).toContain(
+      'Keep the current decimal for a note-only edit',
+    );
+    act(() => { host(r, 'payment-amount-continue').props.onPress(); });
+
+    expect(onSubmit).toHaveBeenCalledWith(legacyAmount, '');
   });
 });

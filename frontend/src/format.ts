@@ -25,6 +25,18 @@ export function formatMoney(
   return opts.currency ? `${opts.currency} ${body}` : body;
 }
 
+/** Whole-unit settlement formatting; callers use this only after backend policy validation. */
+export function formatWholeMoney(
+  value: number,
+  opts: { signed?: boolean; currency?: string } = {},
+): string {
+  const n = Number.isFinite(value) ? Math.round(value) : 0;
+  const absolute = Math.abs(n);
+  const sign = n < 0 ? '-' : opts.signed ? '+' : '';
+  const body = `${sign}${String(absolute).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+  return opts.currency ? `${opts.currency} ${body}` : body;
+}
+
 type CompactMoneyOptions = {
   signed?: boolean;
   currency?: string;

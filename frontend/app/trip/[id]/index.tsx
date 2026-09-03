@@ -21,7 +21,9 @@ import { sortExpensesDesc } from '../../../src/expenseSort';
 import { hasShareBreakdown, shareVerbs, type ExpenseShares } from '../../../src/expenseShares';
 import { tripTabFromParam, type TripTabKey } from '../../../src/tripTabs';
 import { isTripSettled } from '../../../src/tripSettled';
-import { formatCompactMoney, formatMoney } from '../../../src/format';
+import { formatPreciseMoney } from '../../../src/settlementProjection';
+import type { SettlementProjection } from '../../../src/settlementProjection';
+import { formatCompactMoney, formatMoney, formatWholeMoney } from '../../../src/format';
 import { formatTripDates } from '../../../src/date';
 import { formatTime12h } from '../../../src/time';
 import { categoryDetailPath } from '../../../src/categoryRoute';
@@ -36,7 +38,7 @@ import {
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; family_member_ids?: string[] | null; family_member_emails?: (string | null)[] | null; family_member_user_ids?: (string | null)[] | null; user_id?: string | null; email?: string | null };
 type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number | null; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
 type Expense = { id: string; amount: number; currency?: string; original_amount?: string | number | null; original_currency?: string | null; category: string; description?: string; date: string; time?: string | null; created_at?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string; shares?: ExpenseShares };
-type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[]; members?: { id: string; name: string; net: number }[] }[] };
+type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; settlement_projection?: SettlementProjection; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[]; members?: { id: string; name: string; net: number }[] }[] };
 
 type TabKey = TripTabKey;
 const TABS: { value: TabKey; label: string }[] = [
@@ -517,6 +519,20 @@ export default function TripDetail() {
 
           {tab === 'balances' && balances && (
             <View style={{ gap: SPACING.sm }}>
+              {balances.settlement_projection?.enabled ? (
+                <Card style={{ gap: SPACING.xs }}>
+                  <T variant="h3">
+                    {balances.settlement_projection.status === 'settled_within_rounding'
+                      ? 'Settled within rounding'
+                      : 'Whole-rupee recommendations'}
+                  </T>
+                  <T muted>
+                    {balances.settlement_projection.status === 'settled_within_rounding'
+                      ? 'No whole-rupee payment remains. Small exact balances are kept for future expenses.'
+                      : 'Exact balances stay in the ledger; suggested payments are rounded together.'}
+                  </T>
+                </Card>
+              ) : null}
               {balances.per_person.map((pp) => {
                 const mine = pp.member_id === trip.members.find((m) => m.user_id === user?.id)?.id;
                 return (
@@ -545,6 +561,27 @@ export default function TripDetail() {
                         )}
                       </View>
                     </View>
+                    {balances.settlement_projection?.enabled ? (
+                      <View style={{ marginTop: SPACING.sm, gap: 2 }}>
+                        <T variant="caption" muted>
+                          Exact balance: {formatPreciseMoney(
+                            balances.settlement_projection.precise_net[pp.member_id], trip.currency,
+                          )}
+                        </T>
+                        <T variant="caption" muted>
+                          Rounded to pay/receive: {formatWholeMoney(
+                            balances.settlement_projection.rounded_net[pp.member_id],
+                            { currency: trip.currency, signed: true },
+                          )}
+                        </T>
+                        <T variant="caption" muted>
+                          Rounding adjustment: {formatPreciseMoney(
+                            balances.settlement_projection.rounding_adjustments[pp.member_id],
+                            trip.currency,
+                          )}
+                        </T>
+                      </View>
+                    ) : null}
                     {pp.kind === 'family' && pp.family_members.length > 0 && (
                       <View style={{ marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
                         {(pp.members && pp.members.length > 0
@@ -566,7 +603,11 @@ export default function TripDetail() {
               })}
               {balances.transfers.length > 0 && (
                 <>
-                  <T variant="label" muted style={{ marginTop: SPACING.md }}>Suggested settlements</T>
+                  <T variant="label" muted style={{ marginTop: SPACING.md }}>
+                    {balances.settlement_projection?.enabled
+                      ? 'Whole-rupee recommendations'
+                      : 'Suggested settlements'}
+                  </T>
                   {balances.transfers.map((tr, i) => (
                     <Card key={i} style={styles.rowCard}>
                       <View style={[styles.transferIcon, { backgroundColor: colors.surfaceMuted }]}>
@@ -583,6 +624,7 @@ export default function TripDetail() {
                     value={tr.amount}
                     currency={trip.currency}
                     showCurrency={false}
+                    whole={balances.settlement_projection?.enabled}
                     label="Settlement amount"
                   />
                     </Card>

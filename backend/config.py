@@ -37,6 +37,11 @@ MULTI_CURRENCY_EXPENSES_ENABLED = os.environ.get(
     "MULTI_CURRENCY_EXPENSES_ENABLED", "false"
 ).strip().lower() in ("true", "1", "yes", "on")
 
+# Deployable runtime gate. Only LKR/NPR use whole-unit settlement when this is enabled.
+WHOLE_UNIT_SETTLEMENTS_ENABLED = os.environ.get(
+    "WHOLE_UNIT_SETTLEMENTS_ENABLED", "false"
+).strip().lower() in ("true", "1", "yes", "on")
+
 # Master switch for the Phase-9 email flows (email verification + forgot-PASSWORD). Default ON.
 # Set EMAIL_FEATURES_ENABLED=false to "ghost" them until a deliverable sender domain exists:
 # new signups are marked verified up-front (no nag banner), no verification/reset emails are sent

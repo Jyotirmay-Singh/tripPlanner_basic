@@ -9,22 +9,31 @@ import { SPACING, RADIUS } from '../../../src/theme';
 import T from '../../../src/T';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { memberDisplayNames } from '../../../src/displayNames';
-import { canRecordPayment, RoleTrip } from '../../../src/permissions';
-import { Transfer } from '../../../src/settlements';
-import { Payment, PairBlock, buildPairBlocks, validatePaymentAmount } from '../../../src/payments';
-import { formatMoney } from '../../../src/format';
+import { canRecordPayment } from '../../../src/permissions';
+import type { RoleTrip } from '../../../src/permissions';
+import type { Transfer } from '../../../src/settlements';
+import { validatePaymentAmount } from '../../../src/payments';
+import type { Payment } from '../../../src/payments';
+import {
+  currentSuggestedAmount,
+  formatPreciseMoney,
+  usesWholeUnits,
+} from '../../../src/settlementProjection';
+import type { BalanceResponse } from '../../../src/settlementProjection';
+import { formatMoney, formatWholeMoney } from '../../../src/format';
 import { formatIST } from '../../../src/istTime';
 import {
-  Screen, Card, Button, Icon, IconButton, Input, EmptyState, AmountText, SkeletonCard, ProgressBar, useToast,
+  Screen, Card, Button, Icon, IconButton, Input, EmptyState, AmountText, SkeletonCard, useToast,
 } from '../../../src/ui';
 
-type Member = { id: string; name: string; user_id?: string | null };
-type Balances = {
-  net: Record<string, number>;
-  transfers: Transfer[];
-  members: Member[];
-  currency: string;
+type Member = {
+  id: string;
+  name: string;
+  kind?: string;
+  user_id?: string | null;
+  family_member_user_ids?: (string | null)[];
 };
+type Balances = BalanceResponse<Member>;
 type Trip = RoleTrip & { members: Member[] };
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -38,12 +47,14 @@ export default function SettleUp() {
   const [payments, setPayments] = useState<Payment[] | null>(null);
   const [trip, setTrip] = useState<Trip | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showRounding, setShowRounding] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // The amount editor (record OR edit); when set, its Modal is mounted fresh.
   const [editor, setEditor] = useState<
     | null
     | { mode: 'record' | 'edit'; fromId: string; toId: string; fromName: string; toName: string;
-        initial: number; max: number; paymentId?: string; note?: string }
+        initial: number; max: number; paymentId?: string; note?: string; originalAmount?: number }
   >(null);
   // The shared themed guard-rail (native Alert renders no buttons on web).
   const [confirm, setConfirm] = useState<
@@ -54,6 +65,7 @@ export default function SettleUp() {
 
   const load = useCallback(async () => {
     try {
+      setLoadError(null);
       const [b, p, t] = await Promise.all([
         api<Balances>(`/trips/${id}/balances`),
         listPayments(id),
@@ -62,7 +74,9 @@ export default function SettleUp() {
       setBal(b);
       setPayments(p);
       setTrip(t);
-    } catch {}
+    } catch (error: any) {
+      setLoadError(error?.message || 'Settlement is temporarily unavailable.');
+    }
   }, [id]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -73,9 +87,12 @@ export default function SettleUp() {
   const currency = bal?.currency ?? '';
   const loading = !bal || !payments || !trip;
 
-  const blocks = buildPairBlocks(bal?.transfers ?? [], payments ?? []);
-  const active = blocks.filter((b) => b.current_payable > 0.01);
-  const settled = blocks.filter((b) => b.current_payable <= 0.01);
+  const recommendations = bal?.transfers ?? [];
+  const history = [...(payments ?? [])].sort((a, b) =>
+    (a.created_at || '') < (b.created_at || '') ? 1 : -1,
+  );
+  const projection = bal?.settlement_projection;
+  const wholeUnit = usesWholeUnits(projection);
 
   const allow = (toId: string) => !!trip && canRecordPayment(trip, toId, user?.id, members);
 
@@ -93,10 +110,14 @@ export default function SettleUp() {
       setBusy(false);
     }
   };
-  const doEdit = async (paymentId: string, amount: number, note?: string) => {
+  const doEdit = async (paymentId: string, amount: number, originalAmount: number, note?: string) => {
     setBusy(true);
     try {
-      await editPayment(id, paymentId, { amount, note: note ?? '' });
+      const body: { amount?: number; note: string } = { note: note ?? '' };
+      // Omitting an unchanged amount lets a legacy decimal record receive a note-only edit after
+      // whole-unit policy is enabled. Any actual amount edit must satisfy the new policy.
+      if (amount !== originalAmount) body.amount = amount;
+      await editPayment(id, paymentId, body);
       toast.show('Payment updated', 'success');
       await load();
     } catch (e: any) {
@@ -120,20 +141,29 @@ export default function SettleUp() {
   };
 
   // ---- Flows: editor -> guard-rail -> mutation ----
-  const openRecord = (b: PairBlock) =>
+  const openRecord = (transfer: Transfer) =>
     setEditor({
-      mode: 'record', fromId: b.from_member_id, toId: b.to_member_id,
-      fromName: nameOf(b.from_member_id), toName: nameOf(b.to_member_id),
-      initial: b.current_payable, max: b.current_payable,
+      mode: 'record', fromId: transfer.from_member_id, toId: transfer.to_member_id,
+      fromName: nameOf(transfer.from_member_id), toName: nameOf(transfer.to_member_id),
+      initial: transfer.amount, max: transfer.amount,
     });
 
-  const openEdit = (b: PairBlock, p: Payment) =>
+  const openEdit = (payment: Payment) =>
     setEditor({
-      mode: 'edit', fromId: b.from_member_id, toId: b.to_member_id,
-      fromName: nameOf(b.from_member_id), toName: nameOf(b.to_member_id),
+      mode: 'edit', fromId: payment.from_member_id, toId: payment.to_member_id,
+      fromName: nameOf(payment.from_member_id), toName: nameOf(payment.to_member_id),
       // Cap on edit = current residual + this payment's own effect (mirrors the backend).
-      initial: p.amount, max: round2(b.current_payable + p.amount), paymentId: p.id,
-      note: p.note ?? '',
+      initial: payment.amount,
+      max: wholeUnit
+        ? currentSuggestedAmount(
+          recommendations, payment.from_member_id, payment.to_member_id,
+        ) + payment.amount
+        : round2(currentSuggestedAmount(
+          recommendations, payment.from_member_id, payment.to_member_id,
+        ) + payment.amount),
+      paymentId: payment.id,
+      note: payment.note ?? '',
+      originalAmount: payment.amount,
     });
 
   const onEditorSubmit = (amount: number, note: string) => {
@@ -143,26 +173,30 @@ export default function SettleUp() {
     setEditor(null);
     setConfirm({
       title: e.mode === 'edit' ? 'Update payment?' : 'Confirm payment',
-      message: `Confirm ${e.fromName} paid ${formatMoney(amount, { currency })} to ${e.toName}?`,
+      message: `Confirm ${e.fromName} paid ${wholeUnit && Number.isInteger(amount)
+        ? formatWholeMoney(amount, { currency })
+        : formatMoney(amount, { currency })} to ${e.toName}?`,
       yesLabel: e.mode === 'edit' ? 'Update' : 'Confirm',
       yesVariant: 'primary',
       yesId: 'payment-confirm',
       onYes: () => {
         setConfirm(null);
-        if (e.mode === 'edit' && e.paymentId) doEdit(e.paymentId, amount, remark);
+        if (e.mode === 'edit' && e.paymentId) {
+          doEdit(e.paymentId, amount, e.originalAmount ?? e.initial, remark);
+        }
         else doRecord(e.fromId, e.toId, amount, remark);
       },
     });
   };
 
-  const askDelete = (b: PairBlock, p: Payment) =>
+  const askDelete = (payment: Payment) =>
     setConfirm({
       title: 'Remove this payment?',
-      message: `This deletes "${nameOf(b.from_member_id)} paid ${formatMoney(p.amount, { currency })} to ${nameOf(b.to_member_id)}" and re-opens that much of the balance.`,
+      message: `This deletes "${nameOf(payment.from_member_id)} paid ${formatMoney(payment.amount, { currency })} to ${nameOf(payment.to_member_id)}" and re-opens that much of the balance.`,
       yesLabel: 'Remove',
       yesVariant: 'destructive',
-      yesId: `payment-delete-${p.id}`,
-      onYes: () => { setConfirm(null); doDelete(p.id); },
+      yesId: `payment-delete-${payment.id}`,
+      onYes: () => { setConfirm(null); doDelete(payment.id); },
     });
 
   // ---- Presentational pieces ----
@@ -197,106 +231,141 @@ export default function SettleUp() {
     </View>
   );
 
-  const PaymentLog = ({ b }: { b: PairBlock }) => {
-    if (b.payments.length === 0) return null;
-    const canEdit = allow(b.to_member_id);
-    return (
-      <View style={[styles.log, { borderTopColor: colors.border }]}>
-        {b.payments.map((p) => (
-          <View key={p.id} style={styles.logRow}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <T variant="caption">
-                {nameOf(b.from_member_id)} paid {formatMoney(p.amount, { currency })} to {nameOf(b.to_member_id)}
-              </T>
-              <T variant="caption" muted>{formatIST(p.created_at)}</T>
-              {p.note && p.note.trim() ? (
-                <T variant="caption" muted numberOfLines={2}>{p.note.trim()}</T>
-              ) : null}
-            </View>
-            {canEdit ? (
-              <View style={styles.logActions}>
-                <IconButton
-                  name="pencil" size={16} variant="plain"
-                  accessibilityLabel="Edit payment"
-                  onPress={() => openEdit(b, p)} testID={`payment-edit-${p.id}`}
-                />
-                <IconButton
-                  name="trash" size={16} color={colors.danger}
-                  accessibilityLabel="Delete payment"
-                  onPress={() => askDelete(b, p)} testID={`payment-delete-btn-${p.id}`}
-                />
-              </View>
-            ) : null}
-          </View>
-        ))}
-      </View>
-    );
-  };
-
   return (
     <Screen edges={['left', 'right', 'bottom']}>
       <T variant="h1">Settle Up</T>
-      <T muted>The fewest transfers to zero everyone out. Tap Settle up to record a payment.</T>
+      <T muted>
+        {wholeUnit
+          ? 'Whole-rupee recommendations. Payments are rounded together so the group stays balanced.'
+          : 'A deterministic payment plan calculated from the trip ledger.'}
+      </T>
+      {projection ? (
+        <T variant="caption" muted>
+          {projection.routing.optimal ? 'Minimum payment plan' : 'Simplified payment plan'}
+          {' · '}Recommendations recalculate after every recorded payment, so the remaining recipient may change.
+        </T>
+      ) : null}
 
-      {loading ? (
+      {loadError ? (
+        <EmptyState
+          icon="alert"
+          title="Settlement unavailable"
+          body={loadError}
+          ctaLabel="Try again"
+          onCta={load}
+          testID="settle-error"
+        />
+      ) : loading ? (
         <SkeletonCard count={3} />
-      ) : active.length === 0 && settled.length === 0 ? (
-        <EmptyState icon="check-circle" title="All square!" body="No one owes anything on this trip." testID="settle-empty" />
+      ) : recommendations.length === 0 ? (
+        <EmptyState
+          icon="check-circle"
+          title={projection?.status === 'settled_within_rounding' ? 'Settled within rounding' : 'All square!'}
+          body={projection?.status === 'settled_within_rounding'
+            ? (wholeUnit
+              ? 'No whole-rupee payment remains. Small exact balances are kept and will carry into future expenses.'
+              : 'No 0.01-unit payment remains. Small exact balances are kept and will carry into future expenses.')
+            : 'No one owes anything on this trip.'}
+          testID="settle-empty"
+        />
       ) : (
-        <>
-          {active.map((b, i) => (
-            <Card key={`active-${b.from_member_id}-${b.to_member_id}`} style={styles.card}>
+        recommendations.map((transfer, index) => (
+          <Card key={`${transfer.from_member_id}-${transfer.to_member_id}-${index}`} style={styles.card}>
+            <View style={styles.cardTop}>
+              <Parties from={transfer.from_member_id} to={transfer.to_member_id} />
+              <View style={{ alignItems: 'flex-end', gap: SPACING.sm }}>
+                <AmountText
+                  value={transfer.amount}
+                  currency={currency}
+                  whole={wholeUnit}
+                  variant="money"
+                  testID={`payable-${index}`}
+                />
+                {allow(transfer.to_member_id) ? (
+                  <Button
+                    label="Settle up"
+                    size="sm"
+                    loading={busy}
+                    onPress={() => openRecord(transfer)}
+                    testID={`settle-${index}`}
+                  />
+                ) : null}
+              </View>
+            </View>
+          </Card>
+        ))
+      )}
+
+      {projection?.enabled ? (
+        <Card style={styles.detailsCard}>
+          <T variant="h3">Whole-rupee recommendations</T>
+          <T muted>
+            Exact balances are kept for records and future expenses. Only the payment plan is rounded.
+          </T>
+          <Button
+            label={showRounding ? 'Hide rounding details' : 'How rounding was applied'}
+            variant="secondary"
+            size="sm"
+            onPress={() => setShowRounding((shown) => !shown)}
+            testID="rounding-details-toggle"
+          />
+          {showRounding ? members.map((member) => (
+            <View key={member.id} style={[styles.detailRow, { borderTopColor: colors.border }]}>
+              <T variant="h4">{nameOf(member.id)}</T>
+              <View style={styles.detailValues}>
+                <T variant="caption" muted>Exact balance</T>
+                <T variant="caption">{formatPreciseMoney(projection.precise_net[member.id], currency)}</T>
+                <T variant="caption" muted>Rounded to pay/receive</T>
+                <T variant="caption">{formatWholeMoney(
+                  projection.rounded_net[member.id], { currency, signed: true },
+                )}</T>
+                <T variant="caption" muted>Rounding adjustment</T>
+                <T variant="caption">{formatPreciseMoney(projection.rounding_adjustments[member.id], currency)}</T>
+              </View>
+            </View>
+          )) : null}
+        </Card>
+      ) : null}
+
+      {history.length > 0 ? (
+        <View style={styles.historySection}>
+          <T variant="h3">Payment history</T>
+          <T muted>Recorded payments stay in chronological history even when the current plan reroutes.</T>
+          {history.map((payment) => (
+            <Card key={payment.id} style={styles.card}>
               <View style={styles.cardTop}>
-                <Parties from={b.from_member_id} to={b.to_member_id} />
+                <Parties from={payment.from_member_id} to={payment.to_member_id} />
                 <View style={{ alignItems: 'flex-end', gap: SPACING.sm }}>
-                  <AmountText value={b.current_payable} variant="money" testID={`payable-${i}`} />
-                  <T variant="caption" muted>{currency}</T>
-                  {b.status === 'partial' ? (
-                    <Badge label="Partially Paid" color={colors.warning} icon="clock" />
-                  ) : null}
-                  {allow(b.to_member_id) ? (
-                    <Button
-                      label="Settle up"
-                      size="sm"
-                      loading={busy}
-                      onPress={() => openRecord(b)}
-                      testID={`settle-${i}`}
-                    />
+                  <T variant="caption" muted>{formatMoney(payment.amount, { currency })}</T>
+                  <Badge label="Paid" color={colors.success} icon="check-circle" />
+                </View>
+              </View>
+              <View style={[styles.log, { borderTopColor: colors.border }]}>
+                <View style={styles.logRow}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <T variant="caption" muted>{formatIST(payment.created_at)}</T>
+                    {payment.note?.trim() ? (
+                      <T variant="caption" muted numberOfLines={2}>{payment.note.trim()}</T>
+                    ) : null}
+                  </View>
+                  {allow(payment.to_member_id) ? (
+                    <View style={styles.logActions}>
+                      <IconButton
+                        name="pencil" size={16} variant="plain" accessibilityLabel="Edit payment"
+                        onPress={() => openEdit(payment)} testID={`payment-edit-${payment.id}`}
+                      />
+                      <IconButton
+                        name="trash" size={16} color={colors.danger} accessibilityLabel="Delete payment"
+                        onPress={() => askDelete(payment)} testID={`payment-delete-btn-${payment.id}`}
+                      />
+                    </View>
                   ) : null}
                 </View>
               </View>
-              {b.status === 'partial' ? (
-                <View style={{ marginTop: SPACING.sm }}>
-                  <ProgressBar progress={b.original_payable > 0 ? b.paid / b.original_payable : 0} />
-                  <T variant="caption" muted style={{ marginTop: 4 }}>
-                    {formatMoney(b.paid, { currency })} paid of {formatMoney(b.original_payable, { currency })}
-                  </T>
-                </View>
-              ) : null}
-              <PaymentLog b={b} />
             </Card>
           ))}
-
-          {settled.length > 0 ? (
-            <View style={{ marginTop: SPACING.lg, gap: SPACING.sm }}>
-              <T variant="h3">Settled</T>
-              <T muted>Fully paid off. Recorded payments are listed below.</T>
-              {settled.map((b) => (
-                <Card key={`settled-${b.from_member_id}-${b.to_member_id}`} style={styles.card}>
-                  <View style={styles.cardTop}>
-                    <Parties from={b.from_member_id} to={b.to_member_id} />
-                    <View style={{ alignItems: 'flex-end', gap: SPACING.sm }}>
-                      <T variant="caption" muted>{formatMoney(b.paid, { currency })}</T>
-                      <Badge label="Paid" color={colors.success} icon="check-circle" />
-                    </View>
-                  </View>
-                  <PaymentLog b={b} />
-                </Card>
-              ))}
-            </View>
-          ) : null}
-        </>
-      )}
+        </View>
+      ) : null}
 
       {editor ? (
         <AmountModal
@@ -305,6 +374,8 @@ export default function SettleUp() {
           initial={editor.initial}
           max={editor.max}
           currency={currency}
+          wholeUnit={wholeUnit}
+          allowLegacyDecimal={editor.mode === 'edit' && !Number.isInteger(editor.initial)}
           initialNote={editor.note ?? ''}
           submitLabel={editor.mode === 'edit' ? 'Continue' : 'Continue'}
           onCancel={() => setEditor(null)}
@@ -337,21 +408,25 @@ export default function SettleUp() {
 // Exported (named) for a focused render test of the ✕/footer wiring — expo-router only consumes
 // the file's default export, so this does not register a route.
 export function AmountModal({
-  title, subtitle, initial, max, currency, initialNote, submitLabel, onCancel, onSubmit,
+  title, subtitle, initial, max, currency, initialNote, submitLabel, wholeUnit = false,
+  allowLegacyDecimal = false, onCancel, onSubmit,
 }: {
   title: string; subtitle: string; initial: number; max: number; currency: string;
-  initialNote: string; submitLabel: string; onCancel: () => void;
+  initialNote: string; submitLabel: string; wholeUnit?: boolean; allowLegacyDecimal?: boolean;
+  onCancel: () => void;
   onSubmit: (amount: number, note: string) => void;
 }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const [amountStr, setAmountStr] = useState(String(round2(initial)));
+  const [amountStr, setAmountStr] = useState(String(wholeUnit ? initial : round2(initial)));
   const [noteStr, setNoteStr] = useState(initialNote);
   const [error, setError] = useState<string | null>(null);
 
   const submit = () => {
-    const amt = round2(Number(amountStr));
-    const v = validatePaymentAmount(amt, max);
+    const parsed = Number(amountStr);
+    const unchangedLegacy = allowLegacyDecimal && parsed === initial;
+    const amt = unchangedLegacy ? parsed : (wholeUnit ? parsed : round2(parsed));
+    const v = validatePaymentAmount(amt, max, { wholeUnit: wholeUnit && !unchangedLegacy });
     if (!v.ok) { setError(v.error); return; }
     onSubmit(amt, noteStr);
   };
@@ -411,9 +486,13 @@ export function AmountModal({
                 label={`Amount (${currency})`}
                 value={amountStr}
                 onChangeText={(t) => { setAmountStr(t); if (error) setError(null); }}
-                keyboardType="decimal-pad"
-                inputMode="decimal"
-                helper={`Max ${formatMoney(max, { currency })}`}
+                keyboardType={wholeUnit ? 'number-pad' : 'decimal-pad'}
+                inputMode={wholeUnit ? 'numeric' : 'decimal'}
+                helper={wholeUnit
+                  ? (allowLegacyDecimal && !Number.isInteger(initial)
+                    ? `Keep the current decimal for a note-only edit, or enter a whole ${currency} amount up to ${formatWholeMoney(Math.floor(max), { currency })}`
+                    : `Whole ${currency} amounts only · Max ${formatWholeMoney(Math.floor(max), { currency })}`)
+                  : `Max ${formatMoney(max, { currency })}`}
                 error={error}
                 autoFocus
                 containerStyle={{ marginTop: SPACING.md }}
@@ -458,6 +537,14 @@ const styles = StyleSheet.create({
   log: { marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: StyleSheet.hairlineWidth, gap: SPACING.xs },
   logRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   logActions: { flexDirection: 'row', alignItems: 'center' },
+  detailsCard: { gap: SPACING.sm, marginTop: SPACING.lg },
+  detailRow: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: SPACING.sm,
+    gap: SPACING.xs,
+  },
+  detailValues: { gap: 2 },
+  historySection: { marginTop: SPACING.lg, gap: SPACING.sm },
   scrim: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
   // KAV owns the centering + outer padding so `behavior:'padding'` can add keyboard-height inset
   // and slide the card up on iOS.

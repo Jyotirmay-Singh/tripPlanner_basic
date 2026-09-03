@@ -120,8 +120,8 @@ def split_per_capita(amount: float, weights: dict) -> dict:
     """PER_CAPITA (Section 5A): divide `amount` across total humans.
 
     H = sum(weights); per_human = amount / H; each member owes per_human * weight.
-    No intermediate rounding (sum(shares) == amount within float epsilon); the single
-    final round() of net in _compute_balances stays the only rounding.
+    No intermediate rounding (sum(shares) == amount within float epsilon). Authoritative settlement
+    arithmetic uses the scaled-integer counterpart in ``services.settlement_engine``.
     Empty weights or H <= 0 -> {} (caller skips the expense).
     """
     total = sum(weights.values())
@@ -138,8 +138,7 @@ def split_per_family(amount: float, member_ids: list) -> dict:
     E = number of distinct entities; each owes amount / E, FLAT, regardless of
     family size. Family size and weight_snapshots are intentionally ignored here
     (the defining difference from split_per_capita). No intermediate rounding
-    (sum(shares) == amount within float epsilon); the single final round() of net
-    in _compute_balances stays the only rounding.
+    (sum(shares) == amount within float epsilon); settlement uses the scaled-integer counterpart.
     Empty member_ids or E <= 0 -> {} (caller skips the expense).
     """
     ids = list(dict.fromkeys(member_ids))  # de-dupe, preserve order
@@ -182,36 +181,21 @@ def allocate_within_family(family_share: float, participant_ids: list, all_membe
 
 
 def minimize_transfers(net: dict) -> list:
-    """Greedy minimum-transaction settlement.
+    """Compatibility entry point for deterministic, conserving cent settlement.
 
     net: member_id -> net balance (positive = creditor, negative = debtor).
-    Returns transfers: [{"from_member_id", "to_member_id", "amount"}], amount to 2dp.
+    Returns transfers: [{"from_member_id", "to_member_id", "amount"}], in cent increments.
 
-    The greedy loop runs in INTEGER CENTS so no float rounding accumulates inside it: for a
-    balanced ledger the emitted transfers reconcile EXACTLY to the cent-rounded net (a debtor is
-    never under-collected by float drift). The 1-cent thresholds mirror the previous 0.01 float
-    guards, so the output is byte-identical to the old float implementation for the already-2dp
-    net this receives from `_compute_balances` (a sub-cent residual is still dropped, and an
-    exactly ±0.01 imbalance is still absorbed silently). Any leftover cent when the net itself
-    doesn't sum to 0 is an upstream (independent 2dp rounding) artifact, not a loop leak.
+    The input must sum to zero at canonical scale. The shared engine rounds the signed vector
+    jointly, finds a true minimum transfer count for bounded small groups, and uses a deterministic
+    heap-greedy fallback for larger/search-limited groups. Exact one-cent balances are retained.
     """
-    cents = {mid: int(round(v * 100)) for mid, v in net.items()}
-    debtors = sorted([(mid, c) for mid, c in cents.items() if c < -1], key=lambda x: x[1])
-    creditors = sorted([(mid, c) for mid, c in cents.items() if c > 1], key=lambda x: -x[1])
-    transfers = []
-    i = j = 0
-    d = list(debtors); c = list(creditors)
-    while i < len(d) and j < len(c):
-        owe = -d[i][1]
-        receive = c[j][1]
-        pay = min(owe, receive)
-        if pay > 1:
-            transfers.append({"from_member_id": d[i][0], "to_member_id": c[j][0],
-                              "amount": pay / 100.0})
-        d[i] = (d[i][0], d[i][1] + pay)
-        c[j] = (c[j][0], c[j][1] - pay)
-        if abs(d[i][1]) < 1:
-            i += 1
-        if abs(c[j][1]) < 1:
-            j += 1
+    from services.settlement_engine import build_settlement_projection, to_scaled
+
+    precise = {str(member_id): to_scaled(value) for member_id, value in net.items()}
+    transfers, _projection = build_settlement_projection(
+        precise,
+        "COMPAT",
+        whole_unit_enabled=False,
+    )
     return transfers

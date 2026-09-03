@@ -1,114 +1,86 @@
+"""Authoritative trip balance calculation and derived settlement projection."""
+
 from fastapi import HTTPException
 
+from config import WHOLE_UNIT_SETTLEMENTS_ENABLED
 from database import db
-from services.calculator import (
-    minimize_transfers,
-    resolve_weights,
-    split_per_capita,
-    split_per_family,
+from services.member_breakdown import family_member_breakdown
+from services.settlement_engine import (
+    CENT_INCREMENT_SCALED,
+    SettlementLedgerError,
+    build_precise_net,
+    build_settlement_projection,
+    joint_round,
+    scaled_number,
 )
-from services.custom_split import resolve_exact_entity_shares
-from services.member_breakdown import family_member_breakdown, family_member_ids
 
 
-def _weight_of_member(m: dict) -> int:
-    if m["kind"] == "family":
-        return max(1, len(m.get("family_members", [])))
+def _weight_of_member(member: dict) -> int:
+    if member["kind"] == "family":
+        return max(1, len(member.get("family_members", [])))
     return 1
 
 
-async def _compute_balances(trip_id: str) -> dict:
+async def _compute_balances(trip_id: str, *, diagnostic: bool = False) -> dict:
     trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     if not trip:
         raise HTTPException(404, "Trip not found")
     members = trip["members"]
-    net = {m["id"]: 0.0 for m in members}
-    weight_map = {m["id"]: _weight_of_member(m) for m in members}
-    # Stable roster ids per family, so a PER_CAPITA family restricted to a proper subset of its
-    # members (via `family_participants`) counts as its INVOLVED-member count (CLAUDE.md §5-A), not
-    # its full size — the same involved count that divides the share among members downstream.
-    rosters = {m["id"]: family_member_ids(m) for m in members if m.get("kind") == "family"}
 
-    # Signed-amount model: ALL expense rows count. A positive `amount` is an expense (payer is the
-    # creditor, participants owe their share); a negative `amount` is money coming back to the group —
-    # the exact mirror through the same split engine (payer is debited, participants are credited),
-    # with no abs() anywhere below. There is no longer a separate "income" kind to exclude.
-    expenses = await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(5000)
-    for e in expenses:
-        split_ids = e["split_member_ids"] or [m["id"] for m in members]
-        mode = e.get("split_mode", "PER_CAPITA")
-        if mode == "PER_CAPITA":
-            weights = resolve_weights(split_ids, weight_map, e.get("weight_snapshots"),
-                                      e.get("family_participants"), rosters)
-            shares = split_per_capita(e["amount"], weights)
-            if not shares:
-                continue  # H <= 0; nothing to split (matches old `if total_weight == 0: continue`)
-            for sid, share in shares.items():
-                net[sid] = net.get(sid, 0) - share
-            net[e["paid_by_member_id"]] = net.get(e["paid_by_member_id"], 0) + e["amount"]
-        elif mode == "EXACT":
-            # EXACT (Phase 22, §5-C): person-level typed amounts rolled up to entity shares (family =
-            # Σ its members present, individual = own), summing exactly to the total. Applied through
-            # the SAME net loop as the other modes, so settlements/payments/minimize_transfers below
-            # are untouched.
-            shares = resolve_exact_entity_shares(e.get("custom_amounts"), members)
-            if not shares:
-                continue
-            for sid, share in shares.items():
-                net[sid] = net.get(sid, 0) - share
-            net[e["paid_by_member_id"]] = net.get(e["paid_by_member_id"], 0) + e["amount"]
-        else:
-            # PER_FAMILY (Section 5B): flat entity-based division — each selected
-            # family/individual owes amount / E regardless of size. Size and
-            # weight_snapshots are intentionally ignored here.
-            shares = split_per_family(e["amount"], split_ids)
-            if not shares:
-                continue
-            for sid, share in shares.items():
-                net[sid] = net.get(sid, 0) - share
-            net[e["paid_by_member_id"]] = net.get(e["paid_by_member_id"], 0) + e["amount"]
-
-    # apply settlements (Phase 10): only PAID settlements are real recorded payments that offset
-    # the net. Pending records are durable to-dos and must NOT reduce balances. `$ne:"pending"`
-    # also matches legacy rows that predate the `status` field (Mongo $ne matches missing fields),
-    # so this stays back-compat even before the startup backfill runs.
+    # Canonical expense amounts were fixed when saved. Settlement never calls the FX service and
+    # never mutates historical conversion metadata. There is deliberately no accounting row cap.
+    expenses = await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(None)
     settlements = await db.settlements.find(
-        {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}).to_list(5000)
-    for s in settlements:
-        net[s["from_member_id"]] = net.get(s["from_member_id"], 0) + s["amount"]
-        net[s["to_member_id"]] = net.get(s["to_member_id"], 0) - s["amount"]
+        {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}
+    ).to_list(None)
+    payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}).to_list(None)
 
-    # apply payments (Phase 20): a recorded (possibly partial) payment is a real directed money
-    # movement — offset EXACTLY like a paid settlement (payer credited, payee debited). This is the
-    # only place payments touch the ledger; the greedy `minimize_transfers` below then re-derives the
-    # residual pairs, so payments persist and offset the RECOMPUTED balance after new expenses.
-    payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}).to_list(5000)
-    for p in payments:
-        net[p["from_member_id"]] = net.get(p["from_member_id"], 0) + p["amount"]
-        net[p["to_member_id"]] = net.get(p["to_member_id"], 0) - p["amount"]
+    try:
+        precise_net = build_precise_net(members, expenses, settlements, payments)
 
-    # round
-    for k in net:
-        net[k] = round(net[k], 2)
+        # Keep the legacy numeric ``net`` response at two decimals, but round it jointly so it is
+        # conserving. Whole-unit balances are additive metadata under settlement_projection.
+        compatibility_counts = joint_round(precise_net, CENT_INCREMENT_SCALED)
+        net = {
+            member_id: scaled_number(count * CENT_INCREMENT_SCALED)
+            for member_id, count in compatibility_counts.items()
+        }
+        transfers, projection = build_settlement_projection(
+            precise_net,
+            trip.get("currency", "INR"),
+            whole_unit_enabled=WHOLE_UNIT_SETTLEMENTS_ENABLED,
+        )
+    except SettlementLedgerError as exc:
+        generic = (
+            "Settlement is temporarily unavailable because this trip's ledger needs review. "
+            "Ask a trip admin."
+        )
+        detail = f"{generic} [{exc.code}: {exc}]" if diagnostic else generic
+        raise HTTPException(status_code=409, detail=detail) from exc
 
-    # Intra-family per-member breakdown (DISPLAY-only; never mutates net/transfers). Honors each
-    # expense's family_participants — excluded members show 0 and the family's share is split only
-    # among participants. With no restriction it equals the uniform net_per_person below exactly.
-    # Payments are settlement-shaped (from/to/amount/created_at), so they ride the same chronological
-    # scaling as non-pending settlements — settled money disappears per family member too.
+    # Display-only family positions replay the same effective events and reconcile to the compatible
+    # two-decimal family net. They never drive recommendations.
     breakdown = family_member_breakdown(members, expenses, settlements + payments, net)
 
-    # greedy settlement suggestion
-    transfers = minimize_transfers(net)
-    return {"net": net, "transfers": transfers, "members": members,
-            "currency": trip.get("currency", "INR"),
-            "per_person": [
-                {"member_id": m["id"], "member_name": m["name"], "kind": m["kind"],
-                 "people_count": _weight_of_member(m),
-                 "net_total": net.get(m["id"], 0.0),
-                 "net_per_person": round(net.get(m["id"], 0.0) / _weight_of_member(m), 2),
-                 "family_members": m.get("family_members", []),
-                 # Additive: per-member shares for families ([{id,name,net}]); [] for individuals.
-                 "members": breakdown.get(m["id"], []) }
-                for m in members
-            ]}
+    return {
+        "net": net,
+        "transfers": transfers,
+        "members": members,
+        "currency": trip.get("currency", "INR"),
+        "settlement_projection": projection,
+        "per_person": [
+            {
+                "member_id": member["id"],
+                "member_name": member["name"],
+                "kind": member["kind"],
+                "people_count": _weight_of_member(member),
+                "net_total": net.get(member["id"], 0.0),
+                "net_per_person": round(
+                    net.get(member["id"], 0.0) / _weight_of_member(member), 2
+                ),
+                "family_members": member.get("family_members", []),
+                "members": breakdown.get(member["id"], []),
+            }
+            for member in members
+        ],
+    }

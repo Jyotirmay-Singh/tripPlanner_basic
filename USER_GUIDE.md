@@ -235,33 +235,47 @@ Open any trip and look at the **Summary** tab (default tab):
 Inside a trip, the **Balances** tab shows:
 - Each member's **net balance** (positive = others owe them; negative = they owe).
 - For each family: the per-person share is shown right under the family total, and the names are listed individually (e.g. *Arjun -100.00, Priya -100.00, Rohan -100.00*). When members took part unevenly, each name reflects **only the expenses that member actually took part in** — a member left out of an expense (unchecked under "Who took part?") owes nothing for it, and the credit from a bill the family paid lands only on the members who shared it. **Settled money drops off**: once a settlement is marked paid, the balances it cleared no longer show — so after settling up, only newer, still-unsettled expenses remain on each member's line. These rows always add up exactly to the family total.
-- **Suggested settlements** — the minimum number of payments to zero everyone out.
+- **Suggested settlements** — a deterministic plan computed by the backend. Typical groups receive a
+  true minimum-payment plan; unusually large or search-heavy groups receive a deterministic simplified
+  plan that still conserves every settlement unit.
+- When whole-unit settlement is enabled for an LKR or NPR trip, each card also shows its **exact
+  balance**, **rounded whole-rupee balance**, and **rounding adjustment**. Exact balances stay in the
+  ledger; only the payment projection is rounded, and all rounded balances still add to zero.
 
 ### 7.2 Settle Up screen
-Open via the trip's **Settle Up** button. It shows the live, minimum set of *Pays → Receives* pairs
-that zero everyone out. Each pair is a card with the current amount payable, and you **record real
-payments** — including **partial** ones — against it (Splitwise-style).
+Open via the trip's **Settle Up** button. It shows the current backend-authoritative *Pays → Receives*
+recommendations. For LKR and NPR, the optional whole-unit policy produces amounts such as **LKR
+1,250**, never LKR 1,249.67. The group is rounded together, so total paid always equals total received.
+The screen labels the route **Minimum payment plan** when bounded exact optimization succeeded and
+**Simplified payment plan** when the efficient fallback was used.
 
 **Recording a payment**
 - Tap **Settle up** on a pair to open the amount box. It's **pre-filled with the full amount owed**
-  and shows a **Max** hint; you can change it to any amount greater than 0 and up to that maximum
-  (**no overpayment**). Tap **Continue**, then confirm on the *"Confirm _X_ paid _amount_ to _Y_?"*
-  guard.
+  and shows a **Max** hint. You can record the full amount or a positive partial amount up to that
+  maximum (**no overpayment**). When whole-unit LKR/NPR settlement is enabled, new and amount-edited
+  payments must be whole rupees; other trips retain decimal payments. Tap **Continue**, then confirm
+  on the *"Confirm _X_ paid _amount_ to _Y_?"* guard.
 - Only the **receiver** (the person getting the money) or a **trip admin/owner** can record a payment —
-  the payer can't mark their own debt paid. Everyone else can still see the amounts, badges, and log.
-- On confirm, the pair's **headline amount shrinks** by what was paid (the top number *is* the
-  remaining balance), and the payment is added to the log below the card. **Everyone's balance updates**.
+  the payer can't mark their own debt paid. If a family wallet is receiving, any account linked to a
+  person in that family can confirm it. Everyone else can still see the recommendations and history.
+- On confirm, every balance is recomputed from the ledger. The remaining amount may shrink, disappear,
+  or be routed to a different receiver; a recorded payment itself never changes or disappears.
 
-**Statuses & log**
-- A pair that's been paid in part shows a **Partially Paid** badge and a small progress bar
-  (*paid of original*). Keep recording payments until it's cleared.
-- When a pair is fully paid off it moves to a **Settled** section with a green **Paid** badge; its
-  payments stay listed. When *everything* is square the screen shows **All square!** ✅.
-- Each log entry reads *"X paid _amount_ to Y"* with the **date & time** (shown in **IST**, UTC+05:30). The receiver or an admin can
-  **edit** (pencil) or **delete** (trash) an entry — deleting re-opens that much of the balance.
+**Rounding details & payment history**
+- **How rounding was applied** expands an auditable per-member list of exact balance, rounded payable
+  or receivable, and adjustment.
+- Payment history is chronological and separate from the live route, so recomputation never makes an
+  old payment look as though it belonged to a new pair. Each entry shows payer, receiver, amount,
+  date/time (in **IST**, UTC+05:30), optional remark, and a **Paid** badge.
+- The receiver or an admin can **edit** (pencil) or **delete** (trash) a payment. Deleting re-opens its
+  ledger effect. Legacy decimal LKR/NPR payments remain valid; a note-only edit preserves the original
+  amount exactly, while changing the amount must follow the current whole-unit policy.
+- After all suggested whole-rupee payments are recorded, **Settled within rounding** means no whole
+  rupee remains to transfer. The disclosed precise residual is retained and carries into later expenses.
 
 Payments are durable: adding new expenses later never voids them — a recorded payment keeps offsetting
-the recomputed balance (and can even flip who owes whom if someone has now overpaid).
+the recomputed balance (and can even flip who owes whom if someone has now overpaid). Settlement never
+fetches a new exchange rate; it uses the canonical trip-currency amount locked onto each expense.
 
 ---
 
@@ -323,12 +337,14 @@ device push notifications.
      pivot total reconciles to the trip total.
   5. **Payments** — a flat log of every settle-up payment recorded on the trip: **Payer**, **Receiver**,
      **Amount** (trip currency), and **Date & Time** (shown in **IST**, UTC+05:30), one row per payment
-     (three partial payments = three rows), with a bold **Total** row.
+     (three partial payments = three rows), with a bold **Total** row. For whole-unit LKR/NPR trips,
+     this tab also includes the exact-versus-rounded balance audit, policy/routing metadata, and the
+     current whole-rupee recommendations.
 
 The **PDF** is the **full report** in a landscape, print-ready layout: a title block (trip name,
 composition, dates, currency) followed by the **Summary**, **Members & Families**, exploded
-**Transactions** (with per-person pivot), and **Payments** sections — the same sections, built from the
-same figures as the spreadsheet, so both reconcile to identical totals. Tables carry styled headers,
+**Transactions** (with per-person pivot), and **Payments** sections — plus the whole-unit settlement
+audit when enabled — built from the same figures as the spreadsheet, so both reconcile to identical totals. Tables carry styled headers,
 zebra striping, red/parenthesised negatives, bold totals, and a *Page X of Y* footer.
 
 "Gross Spent" (a.k.a. Total Spent) is the amount an entity actually fronted — not net of their own
@@ -347,7 +363,10 @@ The download opens in your phone's browser; share or save it from there.
 3. You add **Sharma family** (3 people) as a Member.
 4. You pay for dinner ₹2,000 → category *Food*, paid-by *You*, split among all → you'll get ₹1,600 back (you owe ₹400 of the ₹2,000), Riddhi owes ₹400, Sharma family owes ₹1,200 (or ₹400 per Sharma).
 5. Someone wants only 2 Sharmas to share the cab ride → on the cab expense, under the Sharma family's *"Who took part?"* row uncheck the 1 Sharma who skipped it. In **Per Person** mode the family is now counted as 2 people for that expense only: the cab is divided by the total involved people, those 2 Sharmas each owe the per-person amount, and the third owes 0.
-6. At the end of the trip, hit **Settle Up**. As money changes hands, the **receiver** (or an admin) taps **Settle up** on each pair and confirms the amount — pay it all at once or in parts. Each payment shrinks the amount still owed and is logged with a date & time; the pair shows **Partially Paid**, then **Paid** once it's cleared.
+6. At the end of the trip, hit **Settle Up**. As money changes hands, the **receiver** (or an admin)
+   taps **Settle up** on each current recommendation and confirms the amount — all at once or in
+   allowed partial increments. Each payment is logged permanently, and the backend recalculates the
+   remaining route; once no payment remains it shows **All square!** or **Settled within rounding**.
 7. Bottom-tab **Reports → XLSX or PDF** to keep a permanent record.
 
 ---
@@ -362,9 +381,10 @@ The download opens in your phone's browser; share or save it from there.
   may be unavailable, or the provider may be temporarily unreachable. Retry, use an already cached
   result when offered, or enter a manually confirmed bank/card conversion; the app never switches
   providers silently and never saves an unconverted foreign amount.
-- **Precision:** the current ledger stores all official-currency amounts at two decimal places. This
-  is correct for LKR and NPR. Zero-decimal and three-decimal currencies are still displayed and
-  accounted for with two decimals until currency-specific minor units are implemented.
+- **Precision:** canonical expense conversions are locked at write time and are never re-fetched during
+  settlement. Balance shares are calculated with deterministic 12-decimal scaled integers. The
+  compatibility balance display remains two-decimal; when enabled, LKR/NPR settlement is a separate
+  zero-sum whole-rupee projection. Other currency-specific increments are still deferred.
 - **Receipts** are stored in MongoDB GridFS and load on demand; legacy inline receipts remain readable.
 
 ---

@@ -8,6 +8,7 @@ import {
   canDeleteTrip,
   canRemoveMemberRow,
   canMarkSettlementPaid,
+  canRecordPayment,
 } from '../permissions';
 
 describe('canModifyExpense', () => {
@@ -130,6 +131,18 @@ describe('canMarkSettlementPaid', () => {
     expect(canMarkSettlementPaid(TRIP, S, undefined, MEMBERS)).toBe(false);
     expect(canMarkSettlementPaid(TRIP, { to_member_id: 'ghost' }, 'member', MEMBERS)).toBe(false);
     expect(canMarkSettlementPaid(TRIP, { to_member_id: 'm-detached' }, 'member', MEMBERS)).toBe(false);
+  });
+
+  it('allows every linked person in a family creditor wallet', () => {
+    const family = [{
+      id: 'family', kind: 'family', user_id: null,
+      family_member_user_ids: ['family-user-1', null, 'family-user-2'],
+    }];
+    expect(canRecordPayment(TRIP, 'family', 'family-user-1', family)).toBe(true);
+    expect(canMarkSettlementPaid(
+      TRIP, { to_member_id: 'family' }, 'family-user-2', family,
+    )).toBe(true);
+    expect(canRecordPayment(TRIP, 'family', 'member', family)).toBe(false);
   });
 });
 

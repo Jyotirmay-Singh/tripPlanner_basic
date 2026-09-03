@@ -111,4 +111,11 @@ describe('validatePaymentAmount', () => {
     expect(validatePaymentAmount(100.004, 100).ok).toBe(true);
     expect(validatePaymentAmount(40, 100).ok).toBe(true);
   });
+  it('enforces exact whole-unit amounts when requested', () => {
+    expect(validatePaymentAmount(40.5, 100, { wholeUnit: true })).toEqual({
+      ok: false, error: 'Enter a whole-rupee amount',
+    });
+    expect(validatePaymentAmount(101, 100, { wholeUnit: true }).ok).toBe(false);
+    expect(validatePaymentAmount(40, 100, { wholeUnit: true })).toEqual({ ok: true, error: null });
+  });
 });

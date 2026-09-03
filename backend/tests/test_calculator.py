@@ -1,6 +1,9 @@
 # Pure unit tests for services.calculator.minimize_transfers
 # No HTTP, no server, no conftest fixtures - operates only on plain dicts/lists.
+import pytest
+
 from services.calculator import minimize_transfers
+from services.settlement_engine import SettlementLedgerError
 
 
 class TestMinimizeTransfers:
@@ -26,18 +29,14 @@ class TestMinimizeTransfers:
         transfers = minimize_transfers(net)
         assert transfers == [
             {"from_member_id": "b", "to_member_id": "d", "amount": 20.0},
-            {"from_member_id": "a", "to_member_id": "d", "amount": 5.0},
             {"from_member_id": "a", "to_member_id": "c", "amount": 5.0},
+            {"from_member_id": "a", "to_member_id": "d", "amount": 5.0},
         ]
 
-    def test_sub_epsilon_residual_does_not_spawn_extra_transfer(self):
-        # a owes slightly more than b is owed; the 0.005 residual must be
-        # absorbed silently rather than producing a spurious micro-transfer.
+    def test_imbalanced_input_is_rejected(self):
         net = {"a": -10.005, "b": 10.0}
-        transfers = minimize_transfers(net)
-        assert transfers == [
-            {"from_member_id": "a", "to_member_id": "b", "amount": 10.0}
-        ]
+        with pytest.raises(SettlementLedgerError, match="imbalanced"):
+            minimize_transfers(net)
 
     def test_balances_within_epsilon_are_already_settled(self):
         # Both sides are within the 0.01 threshold of zero - nothing to settle.

@@ -5,7 +5,8 @@ individuals). Input is PERSON-level (`custom_amounts: {member_id -> amount}`); p
 "involved", absence means 0. These person-level amounts roll UP to the same `{entity_id -> amount}` shape
 the two existing modes emit (`split_per_capita` / `split_per_family`), so the ledger
 (`utils.balances._compute_balances`), the read-time share re-derivation (`services.expense_shares`), and
-the greedy settlement engine (`services.calculator.minimize_transfers`) consume EXACT with no fork.
+the scaled settlement ledger (`services.settlement_engine`) consumes EXACT with no mode-specific
+routing fork.
 
 Person-level id space = every standalone-individual entity id ∪ every family's roster ids
 (`services.member_breakdown.family_member_ids`). A family's entity share = Σ of its involved members'

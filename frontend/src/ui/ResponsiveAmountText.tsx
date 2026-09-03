@@ -11,7 +11,7 @@ import {
   type StyleProp,
 } from 'react-native';
 import T from '../T';
-import { formatCompactMoney, formatMoney } from '../format';
+import { formatCompactMoney, formatMoney, formatWholeMoney } from '../format';
 
 type Candidate = { text: string; detachedCurrency: boolean };
 
@@ -19,6 +19,7 @@ type Props = {
   value: number;
   currency?: string;
   signed?: boolean;
+  whole?: boolean;
   /** Include the currency code in the visual amount. It is always present in accessibility text. */
   showCurrency?: boolean;
   label?: string;
@@ -31,10 +32,12 @@ type Props = {
 
 export function responsiveMoneyCandidates(
   value: number,
-  opts: { currency?: string; signed?: boolean; showCurrency?: boolean },
+  opts: { currency?: string; signed?: boolean; showCurrency?: boolean; whole?: boolean },
 ): Candidate[] {
   const visualCurrency = opts.showCurrency === false ? undefined : opts.currency;
-  const exact = formatMoney(value, { currency: visualCurrency, signed: opts.signed });
+  const exact = opts.whole
+    ? formatWholeMoney(value, { currency: visualCurrency, signed: opts.signed })
+    : formatMoney(value, { currency: visualCurrency, signed: opts.signed });
   const candidates: Candidate[] = [{ text: exact, detachedCurrency: false }];
 
   for (const maximumFractionDigits of [2, 1, 0] as const) {
@@ -93,6 +96,7 @@ export default function ResponsiveAmountText({
   value,
   currency,
   signed,
+  whole,
   showCurrency = true,
   label,
   variant = 'money',
@@ -103,10 +107,12 @@ export default function ResponsiveAmountText({
 }: Props) {
   const { width: windowWidth, height: windowHeight, fontScale } = useWindowDimensions();
   const isWeb = Platform.OS === 'web';
-  const exact = formatMoney(value, { currency, signed });
+  const exact = whole
+    ? formatWholeMoney(value, { currency, signed })
+    : formatMoney(value, { currency, signed });
   const candidates = useMemo(
-    () => responsiveMoneyCandidates(value, { currency, signed, showCurrency }),
-    [currency, showCurrency, signed, value],
+    () => responsiveMoneyCandidates(value, { currency, signed, showCurrency, whole }),
+    [currency, showCurrency, signed, value, whole],
   );
   const [fits, setFits] = useState<boolean[]>([]);
   const [webSelection, setWebSelection] = useState({ index: 0, resolved: false });

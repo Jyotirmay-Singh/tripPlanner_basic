@@ -170,3 +170,29 @@ def test_long_reconciliation_repeats_headers_and_keeps_totals_with_net_across_pa
     )
     assert "deliberately long professional" in joined
     assert "deliberately long report" in joined
+
+
+def test_whole_unit_projection_is_auditable_in_pdf():
+    members = [_member("a", "Ann"), _member("b", "Bob")]
+    expenses = [_expense("dinner", 10, "a")]
+    reconciliation = build_spend_reconciliation(members, expenses)
+    projection = {
+        "enabled": True,
+        "increment": "1",
+        "status": "open",
+        "policy_version": "whole_unit_v1",
+        "precise_net": {"a": "3.333000000000", "b": "-3.333000000000"},
+        "rounded_net": {"a": 3, "b": -3},
+        "rounding_adjustments": {"a": "-0.333000000000", "b": "0.333000000000"},
+        "routing": {"optimal": True},
+    }
+    payload = build_report_pdf(
+        _trip("Rounded audit"), members, expenses, "LKR", reconciliation=reconciliation,
+        settlement_projection=projection,
+        settlement_transfers=[{"from_member_id": "b", "to_member_id": "a", "amount": 3}],
+    )
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(payload)).pages)
+    assert "Whole-rupee settlement projection" in text
+    assert "Exact balance" in text and "Rounding adjustment" in text
+    assert "Minimum payment plan" in text
+    assert "3.00" not in text
