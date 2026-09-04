@@ -8,6 +8,7 @@ import { useTheme } from './ThemeContext';
 import { SPACING, RADIUS, FONTS } from './theme';
 import T from './T';
 import { useToast } from './ui';
+import { passwordSetupHref, postAuthHref } from './inviteNavigation';
 
 type NitroGoogleSignInModule = typeof import('react-native-nitro-google-signin');
 
@@ -59,7 +60,7 @@ function nativeErrorMessage(error: unknown): string | null {
 }
 
 function GoogleSignInInner() {
-  const { signInWithGoogle } = useAuth();
+  const { signInWithGoogle, pendingInvitePath } = useAuth();
   const { colors } = useTheme();
   const router = useRouter();
   const toast = useToast();
@@ -97,7 +98,9 @@ function GoogleSignInInner() {
       try {
         const user = await signInWithGoogle(idToken);
         // A first-time Google user must create a local password before entering the app.
-        router.replace(user.credentials_set === false ? '/set-credentials' : '/(tabs)/dashboard');
+        router.replace(user.credentials_set === false
+          ? passwordSetupHref(pendingInvitePath)
+          : postAuthHref(pendingInvitePath));
       } catch (error) {
         const message = error instanceof Error && error.message
           ? error.message

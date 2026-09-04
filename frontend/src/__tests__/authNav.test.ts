@@ -15,6 +15,7 @@ describe('isPublicTokenRoute', () => {
   it('recognizes the email-link landing routes', () => {
     expect(isPublicTokenRoute('verify-email')).toBe(true);
     expect(isPublicTokenRoute('reset-password')).toBe(true);
+    expect(isPublicTokenRoute('invite')).toBe(true);
   });
   it('rejects everything else', () => {
     expect(isPublicTokenRoute('(auth)')).toBe(false);
@@ -36,6 +37,16 @@ describe('authRedirectTarget with isPublicRoute', () => {
     expect(authRedirectTarget(unfinished, false)).toBe(PASSWORD_SETUP_HREF);
     expect(authRedirectTarget(unfinished, true)).toBe(PASSWORD_SETUP_HREF);
     expect(authRedirectTarget(unfinished, false, false, true)).toBeNull();
+  });
+
+  it('preserves a validated invite through auth and password setup', () => {
+    const invite = `/invite/${'a'.repeat(43)}`;
+    const unfinished = { ...user, credentials_set: false };
+    expect(authRedirectTarget(unfinished, true, false, false, invite)).toEqual({
+      pathname: '/set-credentials', params: { returnTo: invite },
+    });
+    expect(authRedirectTarget(user, true, false, false, invite)).toBe(invite);
+    expect(authRedirectTarget(user, false, false, true, invite)).toBe(invite);
   });
 
   it('keeps completed and signed-out users away from the setup route', () => {

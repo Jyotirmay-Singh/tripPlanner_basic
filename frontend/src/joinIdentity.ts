@@ -32,7 +32,7 @@ export type JoinRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled
 
 export type JoinRequestView = {
   id: string;
-  trip: { id: string; name: string; code: string };
+  trip: { id: string; name: string; code?: string };
   target: Omit<ExistingPerson, 'resolution' | 'has_financial_history' | 'can_replace'>;
   status: JoinRequestStatus;
   created_at: string;
@@ -46,6 +46,10 @@ export type JoinRequestView = {
 };
 
 export type JoinChoice = 'claim' | 'join_new';
+export type JoinCredential = { code: string } | { invite_token: string };
+
+const credentialFields = (credential: string | JoinCredential): JoinCredential =>
+  typeof credential === 'string' ? { code: credential } : credential;
 
 // What the identity step may offer. No match => the normal wizard (join as new) only. A match
 // WITH financial history can ONLY be claimed (a profile with expenses can't be duplicated); a
@@ -82,8 +86,13 @@ export const replacementNote = (match: JoinMatch): string =>
     : `This removes the existing profile ${match.member_name} from the trip. Continue?`;
 
 // ---- /trips/join request-body builders (asserted in tests so the wire shape stays correct) ----
-export function buildClaimBody(code: string, match: JoinMatch): Record<string, unknown> {
-  const body: Record<string, unknown> = { code, action: 'claim', member_id: match.member_id };
+export function buildClaimBody(
+  credential: string | JoinCredential,
+  match: JoinMatch,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    ...credentialFields(credential), action: 'claim', member_id: match.member_id,
+  };
   // A per-member match also carries the sub-slot id so the server links that specific member.
   if (match.member_type === 'family_member' && match.family_member_id) {
     body.family_member_id = match.family_member_id;
@@ -92,14 +101,14 @@ export function buildClaimBody(code: string, match: JoinMatch): Record<string, u
 }
 
 export function buildJoinNewBody(
-  code: string,
+  credential: string | JoinCredential,
   mode: 'individual' | 'family' | 'new_family',
   extra: Record<string, unknown>,
   match: JoinMatch | null | undefined,
 ): Record<string, unknown> {
   const replace = replacementNeeded(match, 'join_new');
   return {
-    code,
+    ...credentialFields(credential),
     action: 'join_new',
     mode,
     ...extra,
@@ -110,9 +119,12 @@ export function buildJoinNewBody(
   };
 }
 
-export function buildJoinRequestBody(code: string, person: ExistingPerson): Record<string, unknown> {
+export function buildJoinRequestBody(
+  credential: string | JoinCredential,
+  person: ExistingPerson,
+): Record<string, unknown> {
   return {
-    code,
+    ...credentialFields(credential),
     member_id: person.member_id,
     ...(person.family_member_id ? { family_member_id: person.family_member_id } : {}),
   };

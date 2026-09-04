@@ -25,6 +25,7 @@ from services.join_requests import (
     existing_people,
     request_payload as join_request_payload,
 )
+from services.invites import record_invite_use, resolve_join_credential, revoke_trip_invites
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -140,6 +141,7 @@ async def update_trip(trip_id: str, body: TripUpdate, user=Depends(get_current_u
 async def delete_trip(trip_id: str, user=Depends(get_current_user)):
     # Step 23: deleting a trip is owner-only (the shared role guard enforces it).
     await _trip_owner_or_403(trip_id, user["id"])
+    await revoke_trip_invites(trip_id, user["id"])
     await db.trips.delete_one({"id": trip_id})
     await db.expenses.delete_many({"trip_id": trip_id})
     await db.settlements.delete_many({"trip_id": trip_id})
@@ -444,10 +446,7 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
     # join-as-new, which removes a CLEAN stub) — the server never silently creates a second
     # same-email identity. action=claim/join_new drive the wizard; action=None keeps the legacy
     # contract, hardened the same way.
-    code = (body.code or "").upper().strip()
-    trip = await db.trips.find_one({"code": code}, {"_id": 0})
-    if not trip:
-        raise HTTPException(404, "Trip not found")
+    trip, invite = await resolve_join_credential(body.code, body.invite_token)
     if user["id"] in trip.get("user_ids", []):
         await cancel_pending_after_join(trip["id"], user["id"])
         return trip  # idempotent — already a member, regardless of action/mode
@@ -458,6 +457,7 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
     if body.action == "claim":
         joined = await _claim_member(trip, members, user, user_email, body)
         await cancel_pending_after_join(trip["id"], user["id"])
+        await record_invite_use(invite)
         return joined
 
     own_stubs = find_own_stubs(members, user_email)
@@ -471,6 +471,7 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
         await _apply_mode(trip, members, user, user_email, body)
         joined = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
         await cancel_pending_after_join(trip["id"], user["id"])
+        await record_invite_use(invite)
         return joined
 
     # ---- No explicit action: legacy contract, hardened to never create a duplicate. ----
@@ -479,6 +480,7 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
         await _apply_mode(trip, members, user, user_email, body)
         joined = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
         await cancel_pending_after_join(trip["id"], user["id"])
+        await record_invite_use(invite)
         return joined
 
     # Explicit mode without action. Linking the caller's OWN family slot via mode='family' is
@@ -499,6 +501,7 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
     await _apply_mode(trip, members, user, user_email, body)
     joined = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
     await cancel_pending_after_join(trip["id"], user["id"])
+    await record_invite_use(invite)
     return joined
 
 
@@ -506,10 +509,7 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
 async def join_preview(body: JoinPreviewRequest, user=Depends(get_current_user)):
     # Step 12: read-only context for the join wizard. Resolve by code (no membership
     # required — the code is the authorization) and surface the family link targets.
-    code = (body.code or "").upper().strip()
-    trip = await db.trips.find_one({"code": code}, {"_id": 0})
-    if not trip:
-        raise HTTPException(404, "Trip not found")
+    trip, invite = await resolve_join_credential(body.code, body.invite_token)
     ensure_date_range(trip)
     members = trip.get("members", [])
     user_email = normalize_email(user["email"])
@@ -566,7 +566,8 @@ async def join_preview(body: JoinPreviewRequest, user=Depends(get_current_user))
     matched_family = None
     return {
         "trip": {
-            "id": trip["id"], "name": trip["name"], "code": trip["code"],
+            "id": trip["id"], "name": trip["name"],
+            **({"code": trip["code"]} if not invite else {}),
             "start_date": trip.get("start_date"), "end_date": trip.get("end_date"),
             "currency": trip.get("currency"),
             "member_count": len(members),
@@ -577,7 +578,9 @@ async def join_preview(body: JoinPreviewRequest, user=Depends(get_current_user))
         "existing_people": people,
         "match": match,
         "match_conflicts": match_conflicts,
-        "active_request": join_request_payload(pending) if pending else None,
+        "active_request": (
+            join_request_payload(pending, include_code=not bool(invite)) if pending else None
+        ),
     }
 
 

@@ -26,3 +26,5 @@ services:
       - { key: PUSH_NOTIFICATIONS_ENABLED, sync: false } # set true only after EAS/FCM setup
       - { key: EXPO_PUSH_ACCESS_TOKEN, sync: false }      # SECRET - Expo enhanced push security
       - { key: MULTI_CURRENCY_EXPENSES_ENABLED, sync: false } # rollout flag; Frankfurter needs no key
+      - { key: INVITE_LINKS_ENABLED, sync: false } # enable only after the App-Link-capable APK is live
+      - { key: INVITE_BASE_URL, sync: false } # initial value: https://tripsplitter-web.vercel.app

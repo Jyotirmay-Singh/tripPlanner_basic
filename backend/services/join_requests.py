@@ -146,14 +146,23 @@ def _request_target(document: dict) -> dict:
     }
 
 
-def request_payload(document: dict, *, admin: bool = False) -> dict:
+def request_payload(
+    document: dict,
+    *,
+    admin: bool = False,
+    include_code: bool = True,
+) -> dict:
     status = "pending" if document.get("status") == "approving" else document.get("status")
     payload = {
         "id": document["id"],
         "trip": {
             "id": document["trip_id"],
             "name": document.get("trip_name"),
-            "code": document.get("trip_code"),
+            **(
+                {"code": document.get("trip_code")}
+                if include_code and not document.get("invite_id")
+                else {}
+            ),
         },
         "target": _request_target(document),
         "status": status,
@@ -187,7 +196,7 @@ async def active_request(trip_id: str, requester_user_id: str) -> Optional[dict]
 
 
 async def create_request(trip: dict, user: dict, member_id: str,
-                         family_member_id: Optional[str]) -> dict:
+                         family_member_id: Optional[str], invite_id: Optional[str] = None) -> dict:
     if user["id"] in trip.get("user_ids", []):
         _fail(409, "already_joined", "You already belong to this trip")
     target = resolve_target(trip, member_id, family_member_id)
@@ -241,6 +250,7 @@ async def create_request(trip: dict, user: dict, member_id: str,
         "trip_id": trip["id"],
         "trip_name": trip.get("name"),
         "trip_code": trip.get("code"),
+        "invite_id": invite_id,
         "requester_user_id": user["id"],
         "requester_name": user.get("name"),
         "requester_email": caller_email,

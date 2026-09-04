@@ -14,6 +14,7 @@ from services.join_requests import (
     request_payload,
 )
 from services.push_notifications import enqueue_notification_event
+from services.invites import record_invite_use, resolve_join_credential
 from utils.deps import _trip_admin_or_403, get_current_user
 
 
@@ -35,11 +36,12 @@ async def request_existing_person(
     background_tasks: BackgroundTasks,
     user=Depends(get_current_user),
 ):
-    code = (body.code or "").upper().strip()
-    trip = await db.trips.find_one({"code": code}, {"_id": 0})
-    if not trip:
-        raise HTTPException(404, "Trip not found")
-    document = await create_request(trip, user, body.member_id, body.family_member_id)
+    trip, invite = await resolve_join_credential(body.code, body.invite_token)
+    document = await create_request(
+        trip, user, body.member_id, body.family_member_id,
+        invite_id=invite.get("id") if invite else None,
+    )
+    await record_invite_use(invite)
     await enqueue_notification_event(
         event_type="join.request.created",
         source_id=document["id"],

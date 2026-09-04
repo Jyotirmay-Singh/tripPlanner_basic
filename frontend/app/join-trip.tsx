@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   StyleSheet,
   TextInput,
@@ -22,6 +22,7 @@ import {
   buildJoinRequestBody,
   type ExistingPerson,
   type JoinMatch,
+  type JoinCredential,
   type JoinRequestView,
   mustClaim,
   replacementNeeded,
@@ -38,6 +39,8 @@ import {
 } from '../src/theme';
 import { Button, FormScreen, Icon, Input } from '../src/ui';
 import type { IconName } from '../src/ui/Icon';
+import { useAuth } from '../src/AuthContext';
+import { INVITE_TOKEN_PATTERN } from '../src/inviteNavigation';
 
 
 type Stage = 'code' | 'exact' | 'roster' | 'pending' | 'new';
@@ -47,7 +50,7 @@ type Preview = {
   trip: {
     id: string;
     name: string;
-    code: string;
+    code?: string;
     start_date?: string | null;
     end_date?: string | null;
     currency?: string | null;
@@ -138,9 +141,18 @@ const NEW_OPTIONS: {
 
 export default function JoinTrip() {
   const { colors } = useTheme();
+  const { clearPendingInvite } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams<{ requestId?: string | string[] }>();
+  const params = useLocalSearchParams<{
+    requestId?: string | string[]; inviteToken?: string | string[];
+  }>();
   const requestId = Array.isArray(params.requestId) ? params.requestId[0] : params.requestId;
+  const rawInviteToken = Array.isArray(params.inviteToken)
+    ? params.inviteToken[0]
+    : params.inviteToken;
+  const inviteToken = rawInviteToken && INVITE_TOKEN_PATTERN.test(rawInviteToken)
+    ? rawInviteToken
+    : undefined;
 
   const [stage, setStage] = useState<Stage>('code');
   const [returnStage, setReturnStage] = useState<Exclude<Stage, 'new'>>('code');
@@ -154,9 +166,17 @@ export default function JoinTrip() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingBody, setPendingBody] = useState<Record<string, unknown> | null>(null);
+  const [useInviteCredential, setUseInviteCredential] = useState(!!inviteToken);
+  const invitePreviewStarted = useRef(false);
 
   const match = preview?.match ?? null;
   const cleanCode = code.toUpperCase().trim();
+  const activeCredential = useMemo<JoinCredential>(
+    () => useInviteCredential && inviteToken
+      ? { invite_token: inviteToken }
+      : { code: cleanCode },
+    [cleanCode, inviteToken, useInviteCredential],
+  );
   const parsedFamilyMembers = familyText.split(',').map((name) => name.trim()).filter(Boolean);
   const individuals = (preview?.existing_people ?? []).filter((person) => person.kind === 'individual');
   const familyMembers = (preview?.existing_people ?? []).filter(
@@ -164,8 +184,9 @@ export default function JoinTrip() {
   );
 
   const goToTrip = useCallback((tripId: string) => {
+    void clearPendingInvite();
     router.replace(`/trip/${tripId}`);
-  }, [router]);
+  }, [clearPendingInvite, router]);
 
   const applyPreview = useCallback((next: Preview) => {
     if (next.already_member) {
@@ -173,7 +194,7 @@ export default function JoinTrip() {
       return;
     }
     setPreview(next);
-    setCode(next.trip.code);
+    if (next.trip.code) setCode(next.trip.code);
     setSelectedPerson(null);
     if (next.active_request) {
       setJoinRequest(next.active_request);
@@ -188,21 +209,33 @@ export default function JoinTrip() {
     }
   }, [goToTrip]);
 
-  const loadPreview = useCallback(async (tripCode = cleanCode) => {
-    if (tripCode.length !== 6) {
+  const loadPreview = useCallback(async (credential: JoinCredential = activeCredential) => {
+    if ('code' in credential && credential.code.length !== 6) {
       setError('Trip code is 6 characters');
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      applyPreview(await previewJoin<Preview>(tripCode));
+      applyPreview(await previewJoin<Preview>(credential));
     } catch (requestError: any) {
       setError(requestError.message || 'Could not find this trip');
+      if ('invite_token' in credential) {
+        setUseInviteCredential(false);
+        if (['invite_expired', 'invite_revoked', 'invite_invalid'].includes(requestError.detailCode)) {
+          void clearPendingInvite();
+        }
+      }
     } finally {
       setBusy(false);
     }
-  }, [applyPreview, cleanCode]);
+  }, [activeCredential, applyPreview, clearPendingInvite]);
+
+  useEffect(() => {
+    if (!inviteToken || requestId || invitePreviewStarted.current) return;
+    invitePreviewStarted.current = true;
+    void loadPreview({ invite_token: inviteToken });
+  }, [inviteToken, loadPreview, requestId]);
 
   useEffect(() => {
     if (!requestId) return;
@@ -214,7 +247,7 @@ export default function JoinTrip() {
       .then((request) => {
         if (cancelled) return;
         setJoinRequest(request);
-        setCode(request.trip.code);
+        if (request.trip.code) setCode(request.trip.code);
         if (request.status === 'approved') goToTrip(request.trip.id);
       })
       .catch((requestError: any) => {
@@ -252,6 +285,8 @@ export default function JoinTrip() {
   }, [goToTrip, joinRequest, stage]);
 
   const backToCode = () => {
+    setUseInviteCredential(false);
+    void clearPendingInvite();
     setStage('code');
     setPreview(null);
     setSelectedPerson(null);
@@ -273,7 +308,7 @@ export default function JoinTrip() {
     setBusy(true);
     setError(null);
     try {
-      const trip = await joinTrip<{ id: string }>(buildClaimBody(cleanCode, match));
+      const trip = await joinTrip<{ id: string }>(buildClaimBody(activeCredential, match));
       goToTrip(trip.id);
     } catch (requestError: any) {
       setError(requestError.message || 'Could not link this profile');
@@ -291,14 +326,14 @@ export default function JoinTrip() {
     setError(null);
     try {
       const request = await requestExistingPerson(
-        buildJoinRequestBody(cleanCode, selectedPerson),
+        buildJoinRequestBody(activeCredential, selectedPerson),
       );
       setJoinRequest(request);
       setStage('pending');
     } catch (requestError: any) {
       setError(requestError.message || 'Could not send this join request');
       if (requestError.detailCode === 'direct_claim_available') {
-        await loadPreview(cleanCode);
+        await loadPreview(activeCredential);
       }
     } finally {
       setBusy(false);
@@ -319,8 +354,16 @@ export default function JoinTrip() {
   };
 
   const chooseAgain = async () => {
+    if (useInviteCredential && inviteToken) {
+      await loadPreview({ invite_token: inviteToken });
+      return;
+    }
     const requestCode = joinRequest?.trip.code || cleanCode;
-    await loadPreview(requestCode);
+    if (requestCode.length !== 6) {
+      setError('Open the original invitation link again, or ask an admin for a new one.');
+      return;
+    }
+    await loadPreview({ code: requestCode });
   };
 
   const doJoinNew = async (body: Record<string, unknown>) => {
@@ -340,7 +383,7 @@ export default function JoinTrip() {
   const submitNew = () => {
     let body: Record<string, unknown>;
     if (newMode === 'individual') {
-      body = buildJoinNewBody(cleanCode, 'individual', {}, match);
+      body = buildJoinNewBody(activeCredential, 'individual', {}, match);
     } else {
       const name = familyName.trim();
       if (!name) {
@@ -351,7 +394,7 @@ export default function JoinTrip() {
         setError('Add at least one family member name');
         return;
       }
-      body = buildJoinNewBody(cleanCode, 'new_family', {
+      body = buildJoinNewBody(activeCredential, 'new_family', {
         family_name: name,
         family_members: parsedFamilyMembers,
       }, match);
@@ -372,6 +415,7 @@ export default function JoinTrip() {
           testID="jt-code"
           value={code}
           onChangeText={(value) => {
+            setUseInviteCredential(false);
             setCode(value.toUpperCase().replace(/\s/g, '').slice(0, 6));
             if (error) setError(null);
           }}

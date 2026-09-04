@@ -16,6 +16,7 @@ export type User = {
 };
 
 const SAVED_EMAIL_KEY = 'last_login_email';
+const PENDING_INVITE_KEY = 'pending_invite_path_v1';
 
 type Ctx = {
   user: User | null | undefined; // undefined = loading
@@ -24,6 +25,8 @@ type Ctx = {
   // "Forgot password?" link are hidden (those flows are ghosted until a deliverable domain exists).
   // Defaults to true so nothing is hidden while it loads or if the fetch fails.
   emailFeaturesEnabled: boolean;
+  inviteLinksEnabled: boolean;
+  pendingInvitePath: string | null;
   multiCurrencyExpensesEnabled: boolean;
   chatCapability: ChatCapability;
   handleAuthenticationRequired: () => Promise<void>;
@@ -33,6 +36,8 @@ type Ctx = {
   signOut: (clearSavedEmail?: boolean) => Promise<void>;
   forgetSavedEmail: () => Promise<void>;
   refresh: () => Promise<void>;
+  rememberInvite: (path: string) => Promise<void>;
+  clearPendingInvite: () => Promise<void>;
 };
 
 const AuthCtx = createContext<Ctx>({} as Ctx);
@@ -41,6 +46,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [savedEmail, setSavedEmail] = useState<string | null>(null);
   const [emailFeaturesEnabled, setEmailFeaturesEnabled] = useState(true);
+  const [inviteLinksEnabled, setInviteLinksEnabled] = useState(false);
+  const [pendingInvitePath, setPendingInvitePath] = useState<string | null>(null);
   const [multiCurrencyExpensesEnabled, setMultiCurrencyExpensesEnabled] = useState(false);
   const [chatCapability, setChatCapability] = useState<ChatCapability>('loading');
 
@@ -50,11 +57,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     api<{
       email_features_enabled?: boolean;
+      invite_links_enabled?: boolean;
       chat_protocol_version?: number;
       multi_currency_expenses_enabled?: boolean;
     }>('/meta/config', { auth: false })
       .then((config) => {
         setEmailFeaturesEnabled(config?.email_features_enabled !== false);
+        setInviteLinksEnabled(config?.invite_links_enabled === true);
         setMultiCurrencyExpensesEnabled(config?.multi_currency_expenses_enabled === true);
         setChatCapability(config?.chat_protocol_version === 1 ? 'supported' : 'unsupported');
       })
@@ -67,8 +76,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [t, e] = await Promise.all([getToken(), AsyncStorage.getItem(SAVED_EMAIL_KEY)]);
+    const [t, e, pending] = await Promise.all([
+      getToken(), AsyncStorage.getItem(SAVED_EMAIL_KEY), AsyncStorage.getItem(PENDING_INVITE_KEY),
+    ]);
     setSavedEmail(e);
+    // A freshly opened deep link can be remembered while this startup read is still in flight.
+    // Never let an older null read overwrite that newer in-memory invitation.
+    setPendingInvitePath((current) => pending ?? current);
     if (!t) { setUser(null); return; }
     try {
       const u = await api<User>('/auth/me');
@@ -80,6 +94,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  const rememberInvite = useCallback(async (path: string) => {
+    await AsyncStorage.setItem(PENDING_INVITE_KEY, path);
+    setPendingInvitePath(path);
+  }, []);
+
+  const clearPendingInvite = useCallback(async () => {
+    await AsyncStorage.removeItem(PENDING_INVITE_KEY);
+    setPendingInvitePath(null);
+  }, []);
 
   const signIn = async (email: string, password: string) => {
     const res = await api<{ access_token: string; user: User }>('/auth/login', {
@@ -136,6 +160,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       savedEmail,
       emailFeaturesEnabled,
+      inviteLinksEnabled,
+      pendingInvitePath,
       multiCurrencyExpensesEnabled,
       chatCapability,
       handleAuthenticationRequired,
@@ -145,6 +171,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signOut,
       forgetSavedEmail,
       refresh,
+      rememberInvite,
+      clearPendingInvite,
     }}>
       {children}
     </AuthCtx.Provider>

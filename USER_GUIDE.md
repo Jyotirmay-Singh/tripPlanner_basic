@@ -71,8 +71,16 @@ Settled trips remain tappable and can still be opened normally.
 3. Tap **Create trip**. You're taken to the trip page; a unique **6-character trip code** is generated (e.g. `AX27R9`).
 
 ### 3.2 Share & let others join
-- Tap the trip-code chip on the trip header to share the code (WhatsApp / iMessage / email).
-- The other person registers in the app, then **Home → Join Trip → enter the code**.
+- An owner/admin taps the trip-code chip to create a private link that expires after **7 days**, then
+  shares it through WhatsApp, email, or another Android share target. Recent links and their status
+  appear under **Members → Invite links**, where an owner/admin can revoke them early.
+- On Android, the link opens the Join wizard directly when Trip Splitter is installed. Without the
+  app, it opens a branded page with **Download Android APK** and **Continue on web**. After installing
+  the APK, return to that page and tap **Open Trip Splitter** so Android can pass the invitation in.
+- Sign-in, registration, Google sign-in, and first-time password setup preserve the invitation. The
+  Join wizard skips manual code entry but still performs the identity/approval checks below.
+- Regular members retain the existing code-only share behavior. Anyone can also use
+  **Home → Join Trip** and enter a valid six-character code manually.
 - The Join wizard checks the existing roster **before** offering to create another profile. Available
   **Individuals** and **Family members** are listed separately; choose your name if the owner or an
   admin already added you.

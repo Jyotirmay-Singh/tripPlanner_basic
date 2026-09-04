@@ -11,9 +11,10 @@ import {
 } from '../../src/validation';
 import GoogleSignInButton from '../../src/GoogleSignInButton';
 import { AuthShell, Input, Button, useToast } from '../../src/ui';
+import { postAuthHref } from '../../src/inviteNavigation';
 
 export default function Register() {
-  const { register } = useAuth();
+  const { register, pendingInvitePath } = useAuth();
   const router = useRouter();
   const toast = useToast();
   const [name, setName] = useState('');
@@ -34,7 +35,7 @@ export default function Register() {
     setLoading(true);
     try {
       await register(email.trim(), name.trim(), password);
-      router.replace('/(tabs)/dashboard');
+      router.replace(postAuthHref(pendingInvitePath));
     } catch (e: any) {
       toast.show(e.message || 'Registration failed. Try again.', 'error');
     } finally {

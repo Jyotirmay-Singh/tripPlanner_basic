@@ -52,6 +52,12 @@ describe('replacementNeeded', () => {
 });
 
 describe('buildClaimBody', () => {
+  it('uses a secure invite credential without adding a legacy code', () => {
+    expect(buildClaimBody({ invite_token: 'secure-token' }, match({ member_id: 'mX' }))).toEqual({
+      invite_token: 'secure-token', action: 'claim', member_id: 'mX',
+    });
+  });
+
   it('builds the claim wire shape', () => {
     expect(buildClaimBody('ABC123', match({ member_id: 'mX' }))).toEqual({
       code: 'ABC123', action: 'claim', member_id: 'mX',
@@ -86,6 +92,12 @@ describe('family_member match (Phase 25: per-member account linking)', () => {
 });
 
 describe('buildJoinNewBody', () => {
+  it('uses a secure invite credential without adding a legacy code', () => {
+    expect(buildJoinNewBody({ invite_token: 'secure-token' }, 'individual', {}, null)).toEqual({
+      invite_token: 'secure-token', action: 'join_new', mode: 'individual',
+    });
+  });
+
   it('omits replace_member_id when there is no match', () => {
     expect(buildJoinNewBody('ABC123', 'individual', {}, null)).toEqual({
       code: 'ABC123', action: 'join_new', mode: 'individual',

@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Share, Image } from 'react-native';
+import { ActivityIndicator, View, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Share, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { api, getToken, receiptUrl, spendSummary } from '../../../src/api';
+import { api, createTripInvite, getToken, receiptUrl, spendSummary } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, CONTENT_MAX_WIDTH, COMPONENT_SIZE, FONTS } from '../../../src/theme';
@@ -14,6 +14,11 @@ import { type SpendSummary } from '../../../src/spend';
 import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { canModifyExpense, roleOf, canEditTripSettings, canManageMembers, canDeleteTrip } from '../../../src/permissions';
+import {
+  canShareSecureInvite,
+  tripCodeShareMessage,
+  tripInviteShareMessage,
+} from '../../../src/inviteSharing';
 import { compositionLabel } from '../../../src/composition';
 import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displayNames';
 import { billLabel } from '../../../src/bill';
@@ -31,6 +36,7 @@ import TripChat from '../../../src/TripChat';
 import { resolveOptimisticSender, unreadBadge } from '../../../src/chat';
 import { useTripChat } from '../../../src/useTripChat';
 import JoinRequestsPanel from '../../../src/JoinRequestsPanel';
+import InviteLinksPanel from '../../../src/InviteLinksPanel';
 import {
   Card, Button, IconButton, Icon, SegmentedControl, StatCard, ProgressBar,
   EmptyState, ResponsiveAmountText, SkeletonCard, useToast,
@@ -53,10 +59,12 @@ const TABS: { value: TabKey; label: string }[] = [
 type TripIdentityHeaderProps = {
   trip: Pick<Trip, 'name' | 'code' | 'start_date' | 'end_date' | 'travel_date' | 'members'>;
   onShare: () => void;
+  sharing?: boolean;
+  secureInvite?: boolean;
 };
 
 /** Identity-only hero. Financial context belongs to BudgetUsageCard in the Summary tab. */
-function TripIdentityHeader({ trip, onShare }: TripIdentityHeaderProps) {
+function TripIdentityHeader({ trip, onShare, sharing = false, secureInvite = false }: TripIdentityHeaderProps) {
   const { colors } = useTheme();
 
   return (
@@ -69,12 +77,17 @@ function TripIdentityHeader({ trip, onShare }: TripIdentityHeaderProps) {
           <TouchableOpacity
             testID="trip-share"
             onPress={onShare}
+            disabled={sharing}
             accessibilityRole="button"
-            accessibilityLabel={`Share trip code ${trip.code}`}
+            accessibilityLabel={secureInvite
+              ? `Share secure invitation to ${trip.name}`
+              : `Share trip code ${trip.code}`}
             accessibilityHint="Opens sharing options for this trip"
             style={[styles.codeChip, { backgroundColor: colors.overlayOnPrimary }]}
           >
-            <Icon name="share" size={14} color={colors.primaryText} />
+            {sharing
+              ? <ActivityIndicator size="small" color={colors.primaryText} />
+              : <Icon name="share" size={14} color={colors.primaryText} />}
             <T color={colors.primaryText} style={styles.codeText}>{trip.code}</T>
           </TouchableOpacity>
         </View>
@@ -177,7 +190,9 @@ export default function TripDetail() {
     id: string; tab?: string; expenseId?: string; messageId?: string;
   }>();
   const { colors, mode } = useTheme();
-  const { user, chatCapability, handleAuthenticationRequired } = useAuth();
+  const {
+    user, chatCapability, handleAuthenticationRequired, inviteLinksEnabled,
+  } = useAuth();
   const router = useRouter();
   const toast = useToast();
   const [trip, setTrip] = useState<Trip | null>(null);
@@ -204,6 +219,8 @@ export default function TripDetail() {
   }, [notificationExpenseId]);
   // One themed confirm dialog drives both trip-delete and per-expense-delete.
   const [confirm, setConfirm] = useState<null | { title: string; message?: string; onYes: () => void; yesId?: string }>(null);
+  const [sharingInvite, setSharingInvite] = useState(false);
+  const [inviteRefreshKey, setInviteRefreshKey] = useState(0);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -233,9 +250,32 @@ export default function TripDetail() {
     onAuthenticationRequired: handleAuthenticationRequired,
   });
 
+  const canCreateSecureInvite = !!trip
+    && canShareSecureInvite(trip, user?.id, inviteLinksEnabled);
+
   const shareCode = async () => {
     if (!trip) return;
-    await Share.share({ message: `Join my trip "${trip.name}" on Trip Splitter. Code: ${trip.code}` });
+    if (!canCreateSecureInvite) {
+      await Share.share({ message: tripCodeShareMessage(trip.name, trip.code) });
+      return;
+    }
+    if (sharingInvite) return;
+    setSharingInvite(true);
+    try {
+      const invite = await createTripInvite(trip.id);
+      await Share.share({
+        message: tripInviteShareMessage(trip.name, invite.url),
+      });
+      setInviteRefreshKey((value) => value + 1);
+    } catch (error: any) {
+      toast.show(
+        `Could not create a secure link${error.message ? `: ${error.message}` : ''}. `
+          + `You can still share code ${trip.code}.`,
+        'error',
+      );
+    } finally {
+      setSharingInvite(false);
+    }
   };
 
   const onDelete = () => {
@@ -299,7 +339,12 @@ export default function TripDetail() {
 
   const tripHeader = (
     <>
-      <TripIdentityHeader trip={trip} onShare={shareCode} />
+      <TripIdentityHeader
+        trip={trip}
+        onShare={shareCode}
+        sharing={sharingInvite}
+        secureInvite={canCreateSecureInvite}
+      />
 
       <View style={styles.actionsRow}>
         <View style={styles.actionButton}>
@@ -671,6 +716,13 @@ export default function TripDetail() {
 
           {tab === 'members' && (
             <View style={{ gap: SPACING.sm }}>
+              {meCanManageMembers && inviteLinksEnabled ? (
+                <InviteLinksPanel
+                  tripId={trip.id}
+                  refreshKey={inviteRefreshKey}
+                  onCreateAndShare={shareCode}
+                />
+              ) : null}
               {meCanManageMembers ? (
                 <JoinRequestsPanel tripId={trip.id} onRosterChanged={load} />
               ) : null}

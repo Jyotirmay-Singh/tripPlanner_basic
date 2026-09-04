@@ -11,7 +11,8 @@ const mockJoinTrip = jest.fn();
 const mockRequestExistingPerson = jest.fn();
 const mockGetJoinRequest = jest.fn();
 const mockCancelJoinRequest = jest.fn();
-let mockParams: { requestId?: string } = {};
+let mockParams: { requestId?: string; inviteToken?: string } = {};
+const mockClearPendingInvite = jest.fn().mockResolvedValue(undefined);
 
 jest.mock('expo-router', () => ({
   useRouter: () => mockRouter,
@@ -25,6 +26,10 @@ jest.mock('../../src/api', () => ({
   requestExistingPerson: mockRequestExistingPerson,
   getJoinRequest: mockGetJoinRequest,
   cancelJoinRequest: mockCancelJoinRequest,
+}));
+
+jest.mock('../../src/AuthContext', () => ({
+  useAuth: () => ({ clearPendingInvite: mockClearPendingInvite }),
 }));
 
 jest.mock('../../src/ThemeContext', () => ({
@@ -154,7 +159,7 @@ describe('join existing trip identity flow', () => {
   it('shows individuals and family members first, then requests the selected family person', async () => {
     const renderer = await renderAndEnterCode();
 
-    expect(mockPreviewJoin).toHaveBeenCalledWith('ABC123');
+    expect(mockPreviewJoin).toHaveBeenCalledWith({ code: 'ABC123' });
     expect(renderer.root.findByProps({ testID: 'jt-existing-individuals' })).toBeTruthy();
     expect(renderer.root.findByProps({ testID: 'jt-existing-family-members' })).toBeTruthy();
 
@@ -171,6 +176,22 @@ describe('join existing trip identity flow', () => {
     });
     expect(renderer.root.findByProps({ testID: 'jt-request-status' })).toBeTruthy();
     act(() => renderer.unmount());
+  });
+
+  it('opens a secure invite directly in the identity wizard without code entry', async () => {
+    const inviteToken = 'a'.repeat(43);
+    mockParams = { inviteToken };
+    mockPreviewJoin.mockResolvedValueOnce(rosterPreview);
+    let renderer: any;
+
+    await act(async () => {
+      renderer = TestRenderer.create(<JoinTrip />);
+      await Promise.resolve();
+    });
+
+    expect(mockPreviewJoin).toHaveBeenCalledWith({ invite_token: inviteToken });
+    expect(renderer!.root.findByProps({ testID: 'join-trip-roster-screen' })).toBeTruthy();
+    expect(renderer!.root.findAllByProps({ testID: 'join-trip-code-screen' })).toHaveLength(0);
   });
 
   it('requests a standalone existing individual without a family member id', async () => {
@@ -242,7 +263,7 @@ describe('join existing trip identity flow', () => {
       await Promise.resolve();
     });
 
-    expect(mockPreviewJoin).toHaveBeenCalledWith('ABC123');
+    expect(mockPreviewJoin).toHaveBeenCalledWith({ code: 'ABC123' });
     expect(renderer!.root.findByProps({ testID: 'join-trip-roster-screen' })).toBeTruthy();
   });
 });

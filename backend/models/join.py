@@ -1,16 +1,32 @@
 from typing import List, Optional, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-class JoinRequest(BaseModel):
+class JoinCredential(BaseModel):
+    """Exactly one bearer credential for resolving a trip join.
+
+    ``code`` keeps every existing client compatible. ``invite_token`` is the revocable,
+    expiring credential used by verified HTTPS invitation links.
+    """
+
+    code: Optional[str] = None
+    invite_token: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _exactly_one_credential(self):
+        if bool((self.code or "").strip()) == bool((self.invite_token or "").strip()):
+            raise ValueError("Provide exactly one of code or invite_token")
+        return self
+
+
+class JoinRequest(JoinCredential):
     """Contextual join payload (Step 12).
 
     ``mode`` is the joiner's explicit intent. ``None`` preserves the legacy
     auto-behavior (email auto-link, else new individual) for backward compatibility.
     """
 
-    code: str
     mode: Optional[Literal["individual", "family", "new_family"]] = None
     family_id: Optional[str] = None  # required when mode == "family"
     family_name: Optional[str] = None  # required when mode == "new_family"
@@ -43,14 +59,13 @@ class JoinRequest(BaseModel):
         return v
 
 
-class JoinPreviewRequest(BaseModel):
-    code: str
+class JoinPreviewRequest(JoinCredential):
+    pass
 
 
-class JoinClaimRequest(BaseModel):
+class JoinClaimRequest(JoinCredential):
     """Request owner/admin approval to take an unlinked existing person."""
 
-    code: str
     member_id: str
     family_member_id: Optional[str] = None
 

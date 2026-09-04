@@ -1,5 +1,6 @@
 import type { Href } from 'expo-router';
 import type { User } from './AuthContext';
+import { passwordSetupHref, postAuthHref } from './inviteNavigation';
 
 // Pure auth-navigation helpers, kept free of React/JSX so they can be unit-tested
 // without a component renderer (the project has no @testing-library/react-native).
@@ -10,7 +11,7 @@ export const PASSWORD_SETUP_HREF = '/set-credentials' as Href;
 
 // Top-level routes reached from an emailed link (verify-email / reset-password). They must work
 // whether the visitor is signed in or out, so the guard never redirects away from them.
-export const PUBLIC_TOKEN_ROUTES = ['verify-email', 'reset-password'] as const;
+export const PUBLIC_TOKEN_ROUTES = ['verify-email', 'reset-password', 'invite'] as const;
 
 export function isPublicTokenRoute(firstSegment: string | undefined): boolean {
   return !!firstSegment && (PUBLIC_TOKEN_ROUTES as readonly string[]).includes(firstSegment);
@@ -26,13 +27,14 @@ export function authRedirectTarget(
   inAuthGroup: boolean,
   isPublicRoute: boolean = false,
   inPasswordSetup: boolean = false,
+  pendingInvitePath: string | null = null,
 ): Href | null {
   if (user === undefined) return null;
   if (isPublicRoute) return null;
   if (!user && !inAuthGroup) return AUTH_LOGIN_HREF;
-  if (user?.credentials_set === false && !inPasswordSetup) return PASSWORD_SETUP_HREF;
-  if (user && user.credentials_set !== false && inPasswordSetup) return DASHBOARD_HREF;
-  if (user && inAuthGroup) return DASHBOARD_HREF;
+  if (user?.credentials_set === false && !inPasswordSetup) return passwordSetupHref(pendingInvitePath);
+  if (user && user.credentials_set !== false && inPasswordSetup) return postAuthHref(pendingInvitePath);
+  if (user && inAuthGroup) return postAuthHref(pendingInvitePath);
   return null;
 }
 

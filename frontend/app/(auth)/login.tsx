@@ -8,9 +8,10 @@ import T from '../../src/T';
 import { isGmail, GMAIL_ONLY_MESSAGE } from '../../src/validation';
 import GoogleSignInButton, { googleAuthAvailable } from '../../src/GoogleSignInButton';
 import { AuthShell, Card, Input, Button, Icon, useToast } from '../../src/ui';
+import { postAuthHref } from '../../src/inviteNavigation';
 
 export default function Login() {
-  const { signIn, savedEmail, forgetSavedEmail, emailFeaturesEnabled } = useAuth();
+  const { signIn, savedEmail, forgetSavedEmail, emailFeaturesEnabled, pendingInvitePath } = useAuth();
   const { colors } = useTheme();
   const router = useRouter();
   const toast = useToast();
@@ -27,7 +28,7 @@ export default function Login() {
     setLoading(true);
     try {
       await signIn(email.trim(), password);
-      router.replace('/(tabs)/dashboard');
+      router.replace(postAuthHref(pendingInvitePath));
     } catch (e: any) {
       toast.show(e.message || 'Login failed. Try again.', 'error');
     } finally { setLoading(false); }
@@ -104,7 +105,13 @@ export default function Login() {
       <View style={[styles.bottomRule, { backgroundColor: colors.border }]} />
       <View style={styles.bottomRow}>
         <T muted>New here?  </T>
-        <Pressable testID="login-register-link" onPress={() => router.push('/(auth)/register')} hitSlop={8}>
+        <Pressable
+          testID="login-register-link"
+          onPress={() => router.push(pendingInvitePath
+            ? { pathname: '/(auth)/register', params: { returnTo: pendingInvitePath } }
+            : '/(auth)/register')}
+          hitSlop={8}
+        >
           <T color={colors.primary} style={{ fontWeight: '700' }}>Create an account</T>
         </Pressable>
       </View>

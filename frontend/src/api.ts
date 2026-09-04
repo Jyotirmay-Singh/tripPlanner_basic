@@ -3,12 +3,31 @@ import { Platform } from 'react-native';
 import type { SpendSummary } from './spend';
 import type { Payment } from './payments';
 import type { ChatMessage, ChatPage, ChatUnread } from './chat';
-import type { JoinRequestView } from './joinIdentity';
+import type { JoinCredential, JoinRequestView } from './joinIdentity';
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL?.trim().replace(/\/$/, '');
 const TOKEN_KEY = 'auth_token';
 
 export type ApiErrorCode = 'configuration' | 'network' | 'timeout' | 'aborted' | 'http';
+
+export type TripInviteStatus = 'active' | 'expired' | 'revoked';
+export type TripInvite = {
+  id: string;
+  created_by: string;
+  created_at: string;
+  expires_at: string;
+  status: TripInviteStatus;
+  revoked_at?: string | null;
+  revoked_by?: string | null;
+  use_count: number;
+  last_used_at?: string | null;
+};
+export type CreatedTripInvite = TripInvite & { url: string };
+export type PublicTripInvite = {
+  status: TripInviteStatus;
+  trip_name: string;
+  expires_at: string;
+};
 
 export class ApiError extends Error {
   status?: number;
@@ -213,8 +232,9 @@ export function reconvertExpense<T = any>(
 // Phase 11 — thin wrappers over api() for the join-identity flow. previewJoin returns the
 // match/families context; joinTrip posts the discriminated commit (legacy {mode} OR Phase 11
 // {action:'claim'|'join_new'}). Callers build the body via src/joinIdentity.ts.
-export function previewJoin<T = any>(code: string): Promise<T> {
-  return api<T>('/trips/join/preview', { method: 'POST', body: { code } });
+export function previewJoin<T = any>(credential: string | JoinCredential): Promise<T> {
+  const body = typeof credential === 'string' ? { code: credential } : credential;
+  return api<T>('/trips/join/preview', { method: 'POST', body });
 }
 
 export function joinTrip<T = any>(body: Record<string, unknown>): Promise<T> {
@@ -223,6 +243,25 @@ export function joinTrip<T = any>(body: Record<string, unknown>): Promise<T> {
 
 export function requestExistingPerson(body: Record<string, unknown>): Promise<JoinRequestView> {
   return api<JoinRequestView>('/trips/join-requests', { method: 'POST', body });
+}
+
+export function createTripInvite(tripId: string): Promise<CreatedTripInvite> {
+  return api<CreatedTripInvite>(`/trips/${encodeURIComponent(tripId)}/invites`, { method: 'POST' });
+}
+
+export function listTripInvites(tripId: string): Promise<TripInvite[]> {
+  return api<TripInvite[]>(`/trips/${encodeURIComponent(tripId)}/invites`);
+}
+
+export function revokeTripInvite(tripId: string, inviteId: string): Promise<TripInvite> {
+  return api<TripInvite>(
+    `/trips/${encodeURIComponent(tripId)}/invites/${encodeURIComponent(inviteId)}/revoke`,
+    { method: 'POST' },
+  );
+}
+
+export function getPublicTripInvite(token: string): Promise<PublicTripInvite> {
+  return api<PublicTripInvite>(`/invites/${encodeURIComponent(token)}`, { auth: false });
 }
 
 export function getJoinRequest(requestId: string): Promise<JoinRequestView> {

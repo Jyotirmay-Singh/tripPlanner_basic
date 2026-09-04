@@ -9,6 +9,7 @@ import { useTheme } from './ThemeContext';
 import { SPACING, RADIUS, FONTS } from './theme';
 import T from './T';
 import { useToast } from './ui';
+import { passwordSetupHref, postAuthHref } from './inviteNavigation';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -27,7 +28,7 @@ const PLATFORM_CLIENT_ID =
 export const googleAuthAvailable = !!PLATFORM_CLIENT_ID;
 
 function GoogleSignInInner() {
-  const { signInWithGoogle } = useAuth();
+  const { signInWithGoogle, pendingInvitePath } = useAuth();
   const { colors } = useTheme();
   const router = useRouter();
   const toast = useToast();
@@ -49,10 +50,12 @@ function GoogleSignInInner() {
     setLoading(true);
     signInWithGoogle(idToken)
       // A first-time Google user must create a local password before entering the app.
-      .then((u) => router.replace(u.credentials_set === false ? '/set-credentials' : '/(tabs)/dashboard'))
+      .then((u) => router.replace(u.credentials_set === false
+        ? passwordSetupHref(pendingInvitePath)
+        : postAuthHref(pendingInvitePath)))
       .catch((e: any) => toast.show(e.message || 'Google sign-in failed', 'error'))
       .finally(() => setLoading(false));
-  }, [response, router, signInWithGoogle, toast]);
+  }, [pendingInvitePath, response, router, signInWithGoogle, toast]);
 
   return (
     <Pressable

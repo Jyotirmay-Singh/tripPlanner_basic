@@ -26,6 +26,7 @@ class TestMeta:
         config = asyncio.run(meta.get_config())
         assert config["chat_protocol_version"] == meta.CHAT_PROTOCOL_VERSION == 1
         assert isinstance(config["email_features_enabled"], bool)
+        assert isinstance(config["invite_links_enabled"], bool)
         assert isinstance(config["multi_currency_expenses_enabled"], bool)
         assert isinstance(config["whole_unit_settlements_enabled"], bool)
 

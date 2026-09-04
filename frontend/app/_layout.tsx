@@ -24,7 +24,7 @@ SplashScreen.setOptions({ duration: 240, fade: true });
 
 function Inner() {
   const { colors } = useTheme();
-  const { user } = useAuth();
+  const { user, pendingInvitePath } = useAuth();
   const router = useRouter();
   const segments = useSegments();
 
@@ -37,9 +37,10 @@ function Inner() {
       segments[0] === '(auth)',
       isPublicTokenRoute(segments[0]),
       segments[0] === 'set-credentials',
+      pendingInvitePath,
     );
     if (target) navResetTo(router, target);
-  }, [user, segments, router]);
+  }, [user, segments, router, pendingInvitePath]);
 
   const headerRight = user ? () => <ProfileAvatarButton /> : undefined;
   return (
@@ -72,6 +73,7 @@ function Inner() {
         <Stack.Screen name="add" options={{ title: 'Add Transaction', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="create-trip" options={{ title: 'Create Trip', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="join-trip" options={{ title: 'Join Trip', presentation: 'modal', headerRight: undefined }} />
+        <Stack.Screen name="invite/[token]" options={{ headerShown: false }} />
         <Stack.Screen name="change-password" options={{ title: 'Change Password', headerRight: undefined }} />
         {/* Phase 9: email-link landing pages (work signed-out) + the one-time OAuth setup step. */}
         <Stack.Screen name="verify-email" options={{ headerShown: false }} />

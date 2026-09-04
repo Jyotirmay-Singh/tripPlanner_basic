@@ -43,7 +43,9 @@ beforeEach(() => {
   jest.spyOn(console, 'error').mockImplementation(() => {});
   (apiModule.getToken as jest.Mock).mockResolvedValue(null);
   (apiModule.setToken as jest.Mock).mockResolvedValue(undefined);
-  (AsyncStorage.getItem as jest.Mock).mockResolvedValue('saved@gmail.com');
+  (AsyncStorage.getItem as jest.Mock).mockImplementation((key: string) => (
+    key === 'last_login_email' ? Promise.resolve('saved@gmail.com') : Promise.resolve(null)
+  ));
   (AsyncStorage.setItem as jest.Mock).mockResolvedValue(undefined);
   (AsyncStorage.removeItem as jest.Mock).mockResolvedValue(undefined);
 });
@@ -59,12 +61,28 @@ it('marks the deployed chat protocol as supported', async () => {
     email_features_enabled: true,
     chat_protocol_version: 1,
     multi_currency_expenses_enabled: true,
+    invite_links_enabled: true,
   });
   await mount();
 
   expect(latest.chatCapability).toBe('supported');
   expect(latest.multiCurrencyExpensesEnabled).toBe(true);
+  expect(latest.inviteLinksEnabled).toBe(true);
   expect(latest.user).toBeNull();
+});
+
+it('persists and clears a pending invite path', async () => {
+  (apiModule.api as jest.Mock).mockResolvedValue({ chat_protocol_version: 1 });
+  await mount();
+  const path = `/invite/${'a'.repeat(43)}`;
+
+  await act(async () => latest.rememberInvite(path));
+  expect(AsyncStorage.setItem).toHaveBeenCalledWith('pending_invite_path_v1', path);
+  expect(latest.pendingInvitePath).toBe(path);
+
+  await act(async () => latest.clearPendingInvite());
+  expect(AsyncStorage.removeItem).toHaveBeenCalledWith('pending_invite_path_v1');
+  expect(latest.pendingInvitePath).toBeNull();
 });
 
 it('identifies a successful old-server config response as unsupported', async () => {

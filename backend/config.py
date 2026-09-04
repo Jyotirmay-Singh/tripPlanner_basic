@@ -22,6 +22,16 @@ SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 APP_URL = os.environ.get("APP_URL", "")
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 
+# Secure trip-invite links are rollout-gated independently from the legacy six-character code.
+# The public URL is deliberately configurable so links can move to a branded domain without a
+# backend code change; both hosts remain supported by the Android binary during migration.
+INVITE_LINKS_ENABLED = os.environ.get("INVITE_LINKS_ENABLED", "false").strip().lower() in (
+    "true", "1", "yes", "on",
+)
+INVITE_BASE_URL = os.environ.get(
+    "INVITE_BASE_URL", "https://tripsplitter-web.vercel.app",
+).strip().rstrip("/")
+
 # Android push notifications are deliberately opt-in at runtime. Deploy the backend and client
 # first, configure Expo enhanced push security + FCM v1 in EAS, then flip this switch in Render.
 # Keeping the default off prevents an unconfigured deployment from accumulating stale outbox jobs.

@@ -410,6 +410,10 @@ def test_request_notification_goes_only_to_trip_admins(monkeypatch):
     ))
     monkeypatch.setattr(join_request_routes, "create_request", AsyncMock(return_value=document))
     monkeypatch.setattr(join_request_routes, "enqueue_notification_event", enqueue)
+    monkeypatch.setattr(
+        join_request_routes, "resolve_join_credential", AsyncMock(return_value=(trip, None)),
+    )
+    monkeypatch.setattr(join_request_routes, "record_invite_use", AsyncMock())
 
     result = run(join_request_routes.request_existing_person(
         JoinClaimRequest(code="ABC123", member_id="individual-2"),
