@@ -4,6 +4,7 @@ import {
   replacementNeeded,
   buildClaimBody,
   buildJoinNewBody,
+  buildJoinRequestBody,
   JoinMatch,
 } from '../joinIdentity';
 
@@ -15,6 +16,7 @@ const match = (over: Partial<JoinMatch> = {}): JoinMatch => ({
   family_name: over.family_name ?? null,
   family_member_id: over.family_member_id ?? null,
   has_financial_history: over.has_financial_history ?? false,
+  can_replace: over.can_replace,
 });
 
 describe('availableJoinChoices', () => {
@@ -63,15 +65,18 @@ describe('family_member match (Phase 25: per-member account linking)', () => {
     family_id: 'FAM', family_name: 'Sharma', family_member_id: 'a2',
     has_financial_history: true,
   });
-  it('is claim-only regardless of financial history', () => {
+  it('is claim-only when it has history or the backend marks it non-replaceable', () => {
     expect(availableJoinChoices(fm)).toEqual(['claim']);
     expect(availableJoinChoices({ ...fm, has_financial_history: false })).toEqual(['claim']);
     expect(mustClaim(fm)).toBe(true);
     expect(mustClaim({ ...fm, has_financial_history: false })).toBe(true);
   });
-  it('never triggers stub replacement (claiming a sub-member removes nothing)', () => {
+  it('allows a clean family Gmail mismatch to be detached when the backend permits it', () => {
     expect(replacementNeeded(fm, 'join_new')).toBe(false);
-    expect(replacementNeeded({ ...fm, has_financial_history: false }, 'join_new')).toBe(false);
+    const replaceable = { ...fm, has_financial_history: false, can_replace: true };
+    expect(availableJoinChoices(replaceable)).toEqual(['claim', 'join_new']);
+    expect(mustClaim(replaceable)).toBe(false);
+    expect(replacementNeeded(replaceable, 'join_new')).toBe(true);
   });
   it('claim body carries the sub-slot id (family_member_id)', () => {
     expect(buildClaimBody('ABC123', fm)).toEqual({
@@ -108,5 +113,32 @@ describe('buildJoinNewBody', () => {
       code: 'ABC123', action: 'join_new', mode: 'family',
       family_id: 'FAM', family_member_id: 'slot2',
     });
+  });
+  it('carries the family member replacement hint for a clean incorrect Gmail match', () => {
+    const replaceable = match({
+      member_id: 'FAM', member_type: 'family_member', member_name: 'Priya',
+      family_id: 'FAM', family_name: 'Sharma', family_member_id: 'a2',
+      has_financial_history: false, can_replace: true,
+    });
+    expect(buildJoinNewBody('ABC123', 'individual', {}, replaceable)).toEqual({
+      code: 'ABC123', action: 'join_new', mode: 'individual',
+      replace_family_member_id: 'a2',
+    });
+  });
+});
+
+describe('buildJoinRequestBody', () => {
+  it('addresses a standalone existing individual', () => {
+    expect(buildJoinRequestBody('ABC123', {
+      kind: 'individual', member_id: 'm1', name: 'Asha', resolution: 'approval_required',
+    })).toEqual({ code: 'ABC123', member_id: 'm1' });
+  });
+
+  it('addresses one person inside an existing family', () => {
+    expect(buildJoinRequestBody('ABC123', {
+      kind: 'family_member', member_id: 'family-1', family_member_id: 'slot-2',
+      family_id: 'family-1', family_name: 'Sharma', name: 'Priya',
+      resolution: 'approval_required',
+    })).toEqual({ code: 'ABC123', member_id: 'family-1', family_member_id: 'slot-2' });
   });
 });

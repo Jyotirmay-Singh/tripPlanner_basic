@@ -76,7 +76,8 @@ class TestJoin:
 
     def test_preview_matched_family_member_by_email(self, api_client, test_user):
         # Phase 26: a family carries no entity email; a joiner whose Gmail matches a MEMBER's email
-        # gets a per-member (claim-only) match. The legacy family-only `matched_family` stays null.
+        # gets a per-member direct match. A clean incorrect assignment may be detached; history
+        # makes it claim-only. The legacy family-only `matched_family` stays null.
         trip = self._create_trip(api_client, test_user["token"])
         joiner = self._register(api_client)
         fam = self._add_member(api_client, test_user["token"], trip["id"],
@@ -92,6 +93,8 @@ class TestJoin:
         assert m["member_id"] == fam["id"]
         assert m["family_id"] == fam["id"]
         assert m["family_member_id"] == fam["family_member_ids"][0]
+        assert m["has_financial_history"] is False
+        assert m["can_replace"] is True
 
     def test_preview_no_match_returns_null(self, api_client, test_user):
         trip = self._create_trip(api_client, test_user["token"])
@@ -117,7 +120,8 @@ class TestJoin:
                                     "TEST_Fam Open", family_members=["O"])
         joiner = self._register(api_client)
         claimed_fam = self._add_member(api_client, test_user["token"], trip["id"],
-                                       "TEST_Fam Claimed", family_members=["C"])
+                                       "TEST_Fam Claimed", family_members=["C"],
+                                       family_member_emails=[joiner["email"]])
         # joiner links the only slot of the second family
         assert self._join(api_client, joiner["token"],
                           {"code": trip["code"], "mode": "family",
@@ -249,7 +253,8 @@ class TestJoin:
         trip = self._create_trip(api_client, test_user["token"])
         joiner = self._register(api_client)
         fam = self._add_member(api_client, test_user["token"], trip["id"],
-                               "TEST_Linkers", family_members=["L1"])
+                               "TEST_Linkers", family_members=["L1"],
+                               family_member_emails=[joiner["email"]])
         resp = self._join(api_client, joiner["token"], {
             "code": trip["code"], "mode": "family", "family_id": fam["id"],
             "family_member_id": fam["family_member_ids"][0],
@@ -263,7 +268,7 @@ class TestJoin:
         assert linked["family_member_user_ids"][0] == joiner["id"]
         assert joiner["id"] not in data["admin_ids"]  # linking is not a promotion
 
-    def test_join_family_link_stamps_empty_email(self, api_client, test_user):
+    def test_join_family_blank_email_requires_approval(self, api_client, test_user):
         trip = self._create_trip(api_client, test_user["token"])
         fam = self._add_member(api_client, test_user["token"], trip["id"],
                                "TEST_NoEmail Fam", family_members=["N1"])  # no slot email
@@ -272,17 +277,21 @@ class TestJoin:
             "code": trip["code"], "mode": "family", "family_id": fam["id"],
             "family_member_id": fam["family_member_ids"][0],
         })
-        assert resp.status_code == 200, resp.text
-        linked = next(m for m in resp.json()["members"] if m["id"] == fam["id"])
-        assert linked["family_member_user_ids"][0] == joiner["id"]
-        assert (linked["family_member_emails"][0] or "").lower() == joiner["email"].lower()
-        assert linked.get("email") is None  # entity carries no email
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"]["code"] == "approval_required"
+        trip_now = api_client.get(
+            f"{BASE_URL}/api/trips/{trip['id']}", headers=_auth(test_user["token"]),
+        ).json()
+        linked = next(m for m in trip_now["members"] if m["id"] == fam["id"])
+        assert linked["family_member_user_ids"][0] is None
+        assert linked["family_member_emails"][0] is None
 
     def test_join_family_link_conflict_400(self, api_client, test_user):
         trip = self._create_trip(api_client, test_user["token"])
         first = self._register(api_client)
         fam = self._add_member(api_client, test_user["token"], trip["id"],
-                               "TEST_Claimed Fam", family_members=["C1"])
+                               "TEST_Claimed Fam", family_members=["C1"],
+                               family_member_emails=[first["email"]])
         slot = fam["family_member_ids"][0]
         assert self._join(api_client, first["token"], {
             "code": trip["code"], "mode": "family", "family_id": fam["id"],

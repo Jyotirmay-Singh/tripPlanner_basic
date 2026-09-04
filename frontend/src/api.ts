@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import type { SpendSummary } from './spend';
 import type { Payment } from './payments';
 import type { ChatMessage, ChatPage, ChatUnread } from './chat';
+import type { JoinRequestView } from './joinIdentity';
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL?.trim().replace(/\/$/, '');
 const TOKEN_KEY = 'auth_token';
@@ -218,6 +219,42 @@ export function previewJoin<T = any>(code: string): Promise<T> {
 
 export function joinTrip<T = any>(body: Record<string, unknown>): Promise<T> {
   return api<T>('/trips/join', { method: 'POST', body });
+}
+
+export function requestExistingPerson(body: Record<string, unknown>): Promise<JoinRequestView> {
+  return api<JoinRequestView>('/trips/join-requests', { method: 'POST', body });
+}
+
+export function getJoinRequest(requestId: string): Promise<JoinRequestView> {
+  return api<JoinRequestView>(`/trips/join-requests/${encodeURIComponent(requestId)}`);
+}
+
+export function cancelJoinRequest(requestId: string): Promise<JoinRequestView> {
+  return api<JoinRequestView>(`/trips/join-requests/${encodeURIComponent(requestId)}`, {
+    method: 'DELETE',
+  });
+}
+
+export function listJoinRequests(tripId: string): Promise<JoinRequestView[]> {
+  return api<JoinRequestView[]>(`/trips/${encodeURIComponent(tripId)}/join-requests?status=pending`);
+}
+
+export function approveJoinRequest(tripId: string, requestId: string): Promise<JoinRequestView> {
+  return api<JoinRequestView>(
+    `/trips/${encodeURIComponent(tripId)}/join-requests/${encodeURIComponent(requestId)}/approve`,
+    { method: 'POST' },
+  );
+}
+
+export function rejectJoinRequest(
+  tripId: string,
+  requestId: string,
+  reason?: string,
+): Promise<JoinRequestView> {
+  return api<JoinRequestView>(
+    `/trips/${encodeURIComponent(tripId)}/join-requests/${encodeURIComponent(requestId)}/reject`,
+    { method: 'POST', body: { reason: reason?.trim() || null } },
+  );
 }
 
 // Phase 12 — read-only gross-spend ranking for a trip (GET /trips/{id}/spend-summary).

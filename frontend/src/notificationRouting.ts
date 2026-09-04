@@ -1,11 +1,16 @@
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export type NotificationTarget = 'trip_expenses' | 'settle_up' | 'trip_chat';
+export type NotificationTarget =
+  | 'trip_expenses' | 'settle_up' | 'trip_chat'
+  | 'trip_members' | 'trip_summary' | 'join_request';
 export type NotificationEventType =
   | 'expense.created'
   | 'payment.recorded'
   | 'settlement.paid'
-  | 'chat.message.created';
+  | 'chat.message.created'
+  | 'join.request.created'
+  | 'join.request.approved'
+  | 'join.request.rejected';
 
 export type NotificationRouteData = {
   payloadVersion: 1;
@@ -18,27 +23,31 @@ export type NotificationRouteData = {
   paymentId?: string;
   settlementId?: string;
   messageId?: string;
+  requestId?: string;
 };
 
 type LegacyNotificationRouteData = {
   payloadVersion: 0;
   eventKey: string;
   tripId: string;
-  target: Exclude<NotificationTarget, 'trip_chat'>;
+  target: 'trip_expenses' | 'settle_up';
 };
 
 export type ParsedNotificationRouteData = NotificationRouteData | LegacyNotificationRouteData;
 
 const EVENT_RULES: Record<NotificationEventType, {
   target: NotificationTarget;
-  idKey: 'expenseId' | 'paymentId' | 'settlementId' | 'messageId';
+  idKey: 'expenseId' | 'paymentId' | 'settlementId' | 'messageId' | 'requestId';
 }> = {
   'expense.created': { target: 'trip_expenses', idKey: 'expenseId' },
   'payment.recorded': { target: 'settle_up', idKey: 'paymentId' },
   'settlement.paid': { target: 'settle_up', idKey: 'settlementId' },
   'chat.message.created': { target: 'trip_chat', idKey: 'messageId' },
+  'join.request.created': { target: 'trip_members', idKey: 'requestId' },
+  'join.request.approved': { target: 'trip_summary', idKey: 'requestId' },
+  'join.request.rejected': { target: 'join_request', idKey: 'requestId' },
 };
-const EVENT_ID_KEYS = ['expenseId', 'paymentId', 'settlementId', 'messageId'] as const;
+const EVENT_ID_KEYS = ['expenseId', 'paymentId', 'settlementId', 'messageId', 'requestId'] as const;
 
 function validEventKey(value: unknown): value is string {
   return typeof value === 'string' && value.length >= 1 && value.length <= 200;
@@ -101,5 +110,11 @@ export function notificationHref(value: unknown): string | null {
       return `/trip/${tripId}/settle-up?settlementId=${sourceId}`;
     case 'chat.message.created':
       return `/trip/${tripId}?tab=chat&messageId=${sourceId}`;
+    case 'join.request.created':
+      return `/trip/${tripId}?tab=members&requestId=${sourceId}`;
+    case 'join.request.approved':
+      return `/trip/${tripId}`;
+    case 'join.request.rejected':
+      return `/join-trip?requestId=${sourceId}`;
   }
 }

@@ -30,6 +30,7 @@ import { categoryDetailPath } from '../../../src/categoryRoute';
 import TripChat from '../../../src/TripChat';
 import { resolveOptimisticSender, unreadBadge } from '../../../src/chat';
 import { useTripChat } from '../../../src/useTripChat';
+import JoinRequestsPanel from '../../../src/JoinRequestsPanel';
 import {
   Card, Button, IconButton, Icon, SegmentedControl, StatCard, ProgressBar,
   EmptyState, ResponsiveAmountText, SkeletonCard, useToast,
@@ -670,6 +671,9 @@ export default function TripDetail() {
 
           {tab === 'members' && (
             <View style={{ gap: SPACING.sm }}>
+              {meCanManageMembers ? (
+                <JoinRequestsPanel tripId={trip.id} onRosterChanged={load} />
+              ) : null}
               {meCanManageMembers ? (
                 <Card onPress={() => router.push(`/trip/${id}/add-member`)} testID="trip-add-member"
                   style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm }}>

@@ -1,398 +1,837 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View, TextInput, TouchableOpacity, StyleSheet,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import { previewJoin, joinTrip } from '../src/api';
-import { useTheme } from '../src/ThemeContext';
-import { SPACING, RADIUS, FONTS, CONTENT_MAX_WIDTH } from '../src/theme';
-import T from '../src/T';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+
+import {
+  cancelJoinRequest,
+  getJoinRequest,
+  joinTrip,
+  previewJoin,
+  requestExistingPerson,
+} from '../src/api';
 import Badge from '../src/Badge';
 import ConfirmModal from '../src/ConfirmModal';
-import { FormScreen, Input, Button, Icon } from '../src/ui';
-import { IconName } from '../src/ui/Icon';
 import {
-  JoinMatch, mustClaim, replacementNeeded, replacementNote,
-  buildClaimBody, buildJoinNewBody,
+  buildClaimBody,
+  buildJoinNewBody,
+  buildJoinRequestBody,
+  type ExistingPerson,
+  type JoinMatch,
+  type JoinRequestView,
+  mustClaim,
+  replacementNeeded,
+  replacementNote,
 } from '../src/joinIdentity';
+import T from '../src/T';
+import { useTheme } from '../src/ThemeContext';
+import {
+  COMPONENT_SIZE,
+  FONTS,
+  RADIUS,
+  SPACING,
+  TYPESCALE,
+} from '../src/theme';
+import { Button, FormScreen, Icon, Input } from '../src/ui';
+import type { IconName } from '../src/ui/Icon';
 
-type Mode = 'individual' | 'family' | 'new_family';
 
-// Phase 27: `open_slots` are the family's unclaimed member slots — "join existing family" links the
-// joiner to one specific slot (balance-neutral), since a family carries no account of its own.
-type OpenSlot = { id: string; name: string };
-type PreviewFamily = { id: string; name: string; size: number; linked: boolean; open_slots?: OpenSlot[] };
+type Stage = 'code' | 'exact' | 'roster' | 'pending' | 'new';
+type NewMode = 'individual' | 'new_family';
+
 type Preview = {
   trip: {
-    id: string; name: string; code: string;
-    start_date?: string | null; end_date?: string | null; currency?: string | null; member_count: number;
+    id: string;
+    name: string;
+    code: string;
+    start_date?: string | null;
+    end_date?: string | null;
+    currency?: string | null;
+    member_count: number;
   };
   already_member: boolean;
-  matched_family: { id: string; name: string } | null;
-  families: PreviewFamily[];
-  // Phase 11: the caller's own unclaimed stub (individual OR family) on this trip, if any.
+  existing_people: ExistingPerson[];
   match?: JoinMatch | null;
+  active_request?: JoinRequestView | null;
 };
 
-const MODE_OPTIONS: { m: Mode; icon: IconName; title: string; desc: string }[] = [
-  { m: 'individual', icon: 'user', title: 'Join as Individual', desc: 'You pay your own share as a single person.' },
-  { m: 'family', icon: 'users', title: 'Join existing Family', desc: 'Take an open spot in a family already on this trip.' },
-  { m: 'new_family', icon: 'plus-circle', title: 'Create New Family', desc: 'Start a new family group. List yourself first — you’ll be its first member.' },
+type PersonRowProps = {
+  person: ExistingPerson;
+  selected: boolean;
+  disabled: boolean;
+  onPress: () => void;
+};
+
+const personKey = (person: Pick<ExistingPerson, 'member_id' | 'family_member_id'>) =>
+  `${person.member_id}:${person.family_member_id ?? ''}`;
+
+const sameRequestTarget = (request: JoinRequestView, person: ExistingPerson) =>
+  request.target.member_id === person.member_id
+  && (request.target.family_member_id ?? null) === (person.family_member_id ?? null);
+
+function ExistingPersonRow({ person, selected, disabled, onPress }: PersonRowProps) {
+  const { colors } = useTheme();
+  const familyContext = person.kind === 'family_member'
+    ? `Member of ${person.family_name}`
+    : 'Individual';
+
+  return (
+    <TouchableOpacity
+      testID={`jt-person-${personKey(person)}`}
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="radio"
+      accessibilityLabel={`${person.name}, ${familyContext}`}
+      accessibilityState={{ selected, disabled }}
+      style={[
+        styles.personRow,
+        {
+          backgroundColor: selected ? colors.surfaceMuted : colors.surface,
+          borderColor: selected ? colors.primary : colors.border,
+          opacity: disabled ? 0.5 : 1,
+        },
+      ]}
+    >
+      <View style={[styles.personIcon, { backgroundColor: colors.surfaceMuted }]}>
+        <Icon
+          name={person.kind === 'family_member' ? 'users' : 'user'}
+          size={18}
+          color={colors.primary}
+        />
+      </View>
+      <View style={styles.flex}>
+        <T style={styles.personName}>{person.name}</T>
+        <T variant="caption" muted numberOfLines={1}>{familyContext}</T>
+      </View>
+      <Icon
+        name={selected ? 'radio-on' : 'radio-off'}
+        size={20}
+        color={selected ? colors.primary : colors.textMuted}
+      />
+    </TouchableOpacity>
+  );
+}
+
+const NEW_OPTIONS: {
+  mode: NewMode;
+  icon: IconName;
+  title: string;
+  description: string;
+}[] = [
+  {
+    mode: 'individual',
+    icon: 'user',
+    title: 'New individual',
+    description: 'Create a separate profile using your account name.',
+  },
+  {
+    mode: 'new_family',
+    icon: 'users',
+    title: 'New family',
+    description: 'Create a family and list yourself first.',
+  },
 ];
 
 export default function JoinTrip() {
   const { colors } = useTheme();
   const router = useRouter();
+  const params = useLocalSearchParams<{ requestId?: string | string[] }>();
+  const requestId = Array.isArray(params.requestId) ? params.requestId[0] : params.requestId;
 
-  const [stage, setStage] = useState<'code' | 'identity' | 'choose'>('code');
+  const [stage, setStage] = useState<Stage>('code');
+  const [returnStage, setReturnStage] = useState<Exclude<Stage, 'new'>>('code');
   const [code, setCode] = useState('');
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [mode, setMode] = useState<Mode>('individual');
-  const [familyId, setFamilyId] = useState<string | null>(null);
-  // The specific unclaimed member slot picked inside the selected family (Phase 27).
-  const [familyMemberId, setFamilyMemberId] = useState<string | null>(null);
+  const [selectedPerson, setSelectedPerson] = useState<ExistingPerson | null>(null);
+  const [joinRequest, setJoinRequest] = useState<JoinRequestView | null>(null);
+  const [newMode, setNewMode] = useState<NewMode>('individual');
   const [familyName, setFamilyName] = useState('');
   const [familyText, setFamilyText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Phase 11: destructive confirm before a join-as-new removes the caller's own clean stub.
   const [pendingBody, setPendingBody] = useState<Record<string, unknown> | null>(null);
 
   const match = preview?.match ?? null;
-  const goToTrip = (tripId: string) => router.replace(`/trip/${tripId}`);
-  const parsedMembers = () => familyText.split(',').map((s) => s.trim()).filter(Boolean);
-  const cleanCode = () => code.toUpperCase().trim();
+  const cleanCode = code.toUpperCase().trim();
+  const parsedFamilyMembers = familyText.split(',').map((name) => name.trim()).filter(Boolean);
+  const individuals = (preview?.existing_people ?? []).filter((person) => person.kind === 'individual');
+  const familyMembers = (preview?.existing_people ?? []).filter(
+    (person) => person.kind === 'family_member',
+  );
 
-  const loadPreview = async () => {
-    if (code.length !== 6) { setError('Trip code is 6 characters'); return; }
-    setBusy(true); setError(null);
+  const goToTrip = useCallback((tripId: string) => {
+    router.replace(`/trip/${tripId}`);
+  }, [router]);
+
+  const applyPreview = useCallback((next: Preview) => {
+    if (next.already_member) {
+      goToTrip(next.trip.id);
+      return;
+    }
+    setPreview(next);
+    setCode(next.trip.code);
+    setSelectedPerson(null);
+    if (next.active_request) {
+      setJoinRequest(next.active_request);
+      setStage('pending');
+    } else if (next.match) {
+      setStage('exact');
+    } else if (next.existing_people.length > 0) {
+      setStage('roster');
+    } else {
+      setReturnStage('code');
+      setStage('new');
+    }
+  }, [goToTrip]);
+
+  const loadPreview = useCallback(async (tripCode = cleanCode) => {
+    if (tripCode.length !== 6) {
+      setError('Trip code is 6 characters');
+      return;
+    }
+    setBusy(true);
+    setError(null);
     try {
-      const p = await previewJoin<Preview>(cleanCode());
-      if (p.already_member) { goToTrip(p.trip.id); return; }
-      setPreview(p);
-      setMode('individual'); setFamilyId(null); setFamilyMemberId(null);
-      // A match (the caller's own stub) routes through the identity step first; otherwise the
-      // normal join wizard.
-      setStage(p.match ? 'identity' : 'choose');
-    } catch (e: any) { setError(e.message); }
-    finally { setBusy(false); }
-  };
+      applyPreview(await previewJoin<Preview>(tripCode));
+    } catch (requestError: any) {
+      setError(requestError.message || 'Could not find this trip');
+    } finally {
+      setBusy(false);
+    }
+  }, [applyPreview, cleanCode]);
+
+  useEffect(() => {
+    if (!requestId) return;
+    let cancelled = false;
+    setStage('pending');
+    setBusy(true);
+    setError(null);
+    getJoinRequest(requestId)
+      .then((request) => {
+        if (cancelled) return;
+        setJoinRequest(request);
+        setCode(request.trip.code);
+        if (request.status === 'approved') goToTrip(request.trip.id);
+      })
+      .catch((requestError: any) => {
+        if (!cancelled) setError(requestError.message || 'Could not load this join request');
+      })
+      .finally(() => {
+        if (!cancelled) setBusy(false);
+      });
+    return () => { cancelled = true; };
+  }, [goToTrip, requestId]);
+
+  useEffect(() => {
+    if (stage !== 'pending' || !joinRequest || joinRequest.status !== 'pending') return undefined;
+    let cancelled = false;
+    let checking = false;
+    const poll = async () => {
+      if (checking) return;
+      checking = true;
+      try {
+        const next = await getJoinRequest(joinRequest.id);
+        if (cancelled) return;
+        setJoinRequest(next);
+        if (next.status === 'approved') goToTrip(next.trip.id);
+      } catch {
+        // Keep the durable status screen usable while offline; the next interval retries.
+      } finally {
+        checking = false;
+      }
+    };
+    const timer = setInterval(() => { void poll(); }, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [goToTrip, joinRequest, stage]);
 
   const backToCode = () => {
     setStage('code');
     setPreview(null);
-    setFamilyId(null);
-    setFamilyMemberId(null);
+    setSelectedPerson(null);
+    setJoinRequest(null);
     setFamilyName('');
     setFamilyText('');
     setError(null);
   };
 
-  // Claim the caller's own existing profile (keeps the member id; no recalculation server-side).
+  const openNew = (from: Exclude<Stage, 'new'>) => {
+    setReturnStage(from);
+    setNewMode('individual');
+    setError(null);
+    setStage('new');
+  };
+
   const doClaim = async () => {
     if (!match) return;
-    setBusy(true); setError(null);
+    setBusy(true);
+    setError(null);
     try {
-      const trip = await joinTrip<{ id: string }>(buildClaimBody(cleanCode(), match));
+      const trip = await joinTrip<{ id: string }>(buildClaimBody(cleanCode, match));
       goToTrip(trip.id);
-    } catch (e: any) { setError(e.message); }
-    finally { setBusy(false); }
+    } catch (requestError: any) {
+      setError(requestError.message || 'Could not link this profile');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const requestSelectedPerson = async () => {
+    if (!selectedPerson) {
+      setError('Choose the person you want to join as');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const request = await requestExistingPerson(
+        buildJoinRequestBody(cleanCode, selectedPerson),
+      );
+      setJoinRequest(request);
+      setStage('pending');
+    } catch (requestError: any) {
+      setError(requestError.message || 'Could not send this join request');
+      if (requestError.detailCode === 'direct_claim_available') {
+        await loadPreview(cleanCode);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelPending = async () => {
+    if (!joinRequest) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setJoinRequest(await cancelJoinRequest(joinRequest.id));
+    } catch (requestError: any) {
+      setError(requestError.message || 'Could not cancel this request');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const chooseAgain = async () => {
+    const requestCode = joinRequest?.trip.code || cleanCode;
+    await loadPreview(requestCode);
   };
 
   const doJoinNew = async (body: Record<string, unknown>) => {
     setPendingBody(null);
-    setBusy(true); setError(null);
+    setBusy(true);
+    setError(null);
     try {
       const trip = await joinTrip<{ id: string }>(body);
       goToTrip(trip.id);
-    } catch (e: any) {
-      setError(e.message);
-      // A member slot can be taken between preview and submit — refresh the picker on 400/404/409.
-      if (body.mode === 'family' && (e.status === 400 || e.status === 404 || e.status === 409)) {
-        try {
-          const p = await previewJoin<Preview>(cleanCode());
-          setPreview(p);
-          const fam = p.families.find((f) => f.id === familyId);
-          const stillOpen = fam?.open_slots?.some((s) => s.id === familyMemberId);
-          if (!stillOpen) setFamilyMemberId(null);
-          if (!fam || (fam.open_slots?.length ?? 0) === 0) setFamilyId(null);
-        } catch { /* keep the original error message */ }
-      }
-    } finally { setBusy(false); }
+    } catch (requestError: any) {
+      setError(requestError.message || 'Could not join this trip');
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const submitJoin = () => {
-    const c = cleanCode();
+  const submitNew = () => {
     let body: Record<string, unknown>;
-    if (mode === 'individual') {
-      body = buildJoinNewBody(c, 'individual', {}, match);
-    } else if (mode === 'family') {
-      if (!familyId) { setError('Select a family to join'); return; }
-      if (!familyMemberId) { setError('Select which member you are'); return; }
-      body = buildJoinNewBody(c, 'family', { family_id: familyId, family_member_id: familyMemberId }, match);
+    if (newMode === 'individual') {
+      body = buildJoinNewBody(cleanCode, 'individual', {}, match);
     } else {
       const name = familyName.trim();
-      const members = parsedMembers();
-      if (!name) { setError('Family name is required'); return; }
-      if (members.length === 0) { setError('Add at least one family member name'); return; }
-      body = buildJoinNewBody(c, 'new_family', { family_name: name, family_members: members }, match);
+      if (!name) {
+        setError('Family name is required');
+        return;
+      }
+      if (parsedFamilyMembers.length === 0) {
+        setError('Add at least one family member name');
+        return;
+      }
+      body = buildJoinNewBody(cleanCode, 'new_family', {
+        family_name: name,
+        family_members: parsedFamilyMembers,
+      }, match);
     }
-    // Replacing the caller's own clean stub is destructive — confirm first.
-    if (replacementNeeded(match, 'join_new')) { setPendingBody(body); }
-    else { doJoinNew(body); }
+    if (replacementNeeded(match, 'join_new')) setPendingBody(body);
+    else void doJoinNew(body);
   };
 
-  // ---------- Stage 1: code entry ----------
   if (stage === 'code') {
     return (
-      <FormScreen>
-            <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
-              <View style={[styles.brand, { backgroundColor: colors.primary }]}>
-                <Icon name="key" size={26} color={colors.primaryText} strokeWidth={2} />
-              </View>
-              <T variant="h1" style={{ marginTop: SPACING.sm }}>Join a trip</T>
-              <T muted>Enter the 6-character trip code your friend shared.</T>
-
-              <TextInput
-                testID="jt-code"
-                value={code}
-                onChangeText={(v) => { setCode(v.toUpperCase().replace(/\s/g, '').slice(0, 6)); if (error) setError(null); }}
-                placeholder="ABCD12"
-                placeholderTextColor={colors.textMuted}
-                autoCapitalize="characters"
-                editable={!busy}
-                style={[styles.codeInput, { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: error ? colors.danger : colors.border }]}
-              />
-              {error ? <T testID="jt-error" variant="caption" color={colors.danger}>{error}</T> : null}
-
-              <Button label="Continue" iconRight="chevron-right" onPress={loadPreview} loading={busy} disabled={code.length !== 6} fullWidth size="lg" testID="jt-submit" />
-            </View>
+      <FormScreen testID="join-trip-code-screen">
+        <View style={[styles.brand, { backgroundColor: colors.primary }]}>
+          <Icon name="key" size={26} color={colors.primaryText} strokeWidth={2} />
+        </View>
+        <T variant="h1" style={styles.titleTop}>Join a trip</T>
+        <T muted>Enter the 6-character code shared by the trip organizer.</T>
+        <TextInput
+          testID="jt-code"
+          value={code}
+          onChangeText={(value) => {
+            setCode(value.toUpperCase().replace(/\s/g, '').slice(0, 6));
+            if (error) setError(null);
+          }}
+          placeholder="ABCD12"
+          placeholderTextColor={colors.textMuted}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          editable={!busy}
+          accessibilityLabel="Trip code"
+          style={[
+            styles.codeInput,
+            {
+              color: colors.textMain,
+              backgroundColor: colors.surfaceMuted,
+              borderColor: error ? colors.danger : colors.border,
+            },
+          ]}
+        />
+        {error ? <T testID="jt-error" variant="caption" color={colors.danger}>{error}</T> : null}
+        <Button
+          label="Continue"
+          iconRight="chevron-right"
+          onPress={() => { void loadPreview(); }}
+          loading={busy}
+          disabled={code.length !== 6}
+          fullWidth
+          size="lg"
+          testID="jt-submit"
+        />
       </FormScreen>
     );
   }
 
-  // ---------- Stage 2 (Phase 11): we recognized the caller's email on this trip ----------
-  if (stage === 'identity' && match) {
+  if (stage === 'exact' && match) {
     const claimOnly = mustClaim(match);
-    const where = match.member_type === 'family'
-      ? `the family ${match.member_name}`
-      : match.member_type === 'family_member'
-        ? `${match.member_name} in the ${match.family_name} family`
-        : match.member_name;
+    const location = match.member_type === 'family_member'
+      ? `${match.member_name} in ${match.family_name}`
+      : match.member_name;
     return (
-      <FormScreen>
-          <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
-            <TouchableOpacity testID="jt-back" onPress={backToCode} disabled={busy}
-              style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' }} accessibilityLabel="Back">
-              <Icon name="chevron-left" size={18} color={colors.textMuted} />
-              <T muted style={{ marginLeft: 2 }}>Back</T>
-            </TouchableOpacity>
+      <FormScreen testID="join-trip-exact-screen">
+        <TouchableOpacity
+          testID="jt-back"
+          onPress={backToCode}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel="Back to trip code"
+          style={styles.back}
+        >
+          <Icon name="chevron-left" size={18} color={colors.textMuted} />
+          <T muted>Back</T>
+        </TouchableOpacity>
 
-            <View>
-              <T variant="h1">We found you on this trip</T>
-              <T muted style={{ marginTop: 4 }} testID="jt-identity-summary">
-                Your email is already here as {where}.
+        <View style={styles.headingBlock}>
+          <Badge label="Gmail match" color={colors.success} />
+          <T variant="h1">We found your place</T>
+          <T muted testID="jt-identity-summary">
+            Your Gmail matches {location} on {preview?.trip.name}.
+          </T>
+        </View>
+
+        <View style={[styles.matchCard, { backgroundColor: colors.surface, borderColor: colors.primary }]}>
+          <View style={[styles.matchIcon, { backgroundColor: colors.surfaceMuted }]}>
+            <Icon name={match.member_type === 'family_member' ? 'users' : 'user'} color={colors.primary} />
+          </View>
+          <View style={styles.flex}>
+            <T variant="h3">{match.member_name}</T>
+            <T variant="caption" muted>
+              {match.member_type === 'family_member' ? `Member of ${match.family_name}` : 'Individual'}
+            </T>
+          </View>
+        </View>
+
+        {claimOnly ? (
+          <View style={[styles.noteCard, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
+            <Icon name="info" size={18} color={colors.textMuted} />
+            <T variant="caption" muted style={styles.noteCopy}>
+              This identity has trip history and cannot be safely replaced. If it is incorrect,
+              ask a trip admin to update the roster.
+            </T>
+          </View>
+        ) : null}
+        {error ? <T testID="jt-error" variant="caption" color={colors.danger}>{error}</T> : null}
+        <Button
+          label={`Join as ${match.member_name}`}
+          icon="check"
+          onPress={() => { void doClaim(); }}
+          loading={busy}
+          fullWidth
+          size="lg"
+          testID="jt-identity-claim"
+        />
+        {!claimOnly ? (
+          <Button
+            label="This isn't me"
+            variant="secondary"
+            onPress={() => openNew('exact')}
+            disabled={busy}
+            fullWidth
+            testID="jt-identity-new"
+          />
+        ) : null}
+      </FormScreen>
+    );
+  }
+
+  if (stage === 'roster') {
+    const retryBlocked = selectedPerson && joinRequest?.status === 'rejected'
+      && joinRequest.retry_after
+      && sameRequestTarget(joinRequest, selectedPerson)
+      && new Date(joinRequest.retry_after).getTime() > Date.now();
+    return (
+      <FormScreen testID="join-trip-roster-screen">
+        <TouchableOpacity
+          testID="jt-back"
+          onPress={backToCode}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel="Back to trip code"
+          style={styles.back}
+        >
+          <Icon name="chevron-left" size={18} color={colors.textMuted} />
+          <T muted>Back</T>
+        </TouchableOpacity>
+
+        <View style={styles.headingBlock}>
+          <T variant="h1">Are you already listed?</T>
+          <T muted>
+            Choose your name on {preview?.trip.name}. An owner or admin will confirm it before
+            you get access.
+          </T>
+        </View>
+
+        {individuals.length > 0 ? (
+          <View style={styles.section} testID="jt-existing-individuals">
+            <T variant="h3">Individuals</T>
+            {individuals.map((person) => (
+              <ExistingPersonRow
+                key={personKey(person)}
+                person={person}
+                selected={selectedPerson ? personKey(selectedPerson) === personKey(person) : false}
+                disabled={busy}
+                onPress={() => { setSelectedPerson(person); setError(null); }}
+              />
+            ))}
+          </View>
+        ) : null}
+
+        {familyMembers.length > 0 ? (
+          <View style={styles.section} testID="jt-existing-family-members">
+            <View style={styles.sectionHeading}>
+              <T variant="h3">Family members</T>
+              <T variant="caption" muted>Choose your name inside the family.</T>
+            </View>
+            {familyMembers.map((person) => (
+              <ExistingPersonRow
+                key={personKey(person)}
+                person={person}
+                selected={selectedPerson ? personKey(selectedPerson) === personKey(person) : false}
+                disabled={busy}
+                onPress={() => { setSelectedPerson(person); setError(null); }}
+              />
+            ))}
+          </View>
+        ) : null}
+
+        {retryBlocked ? (
+          <View style={[styles.noteCard, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
+            <Icon name="clock" size={18} color={colors.textMuted} />
+            <T variant="caption" muted style={styles.noteCopy}>
+              You can request this person again after {new Date(joinRequest!.retry_after!).toLocaleString()}.
+            </T>
+          </View>
+        ) : null}
+        {error ? <T testID="jt-error" variant="caption" color={colors.danger}>{error}</T> : null}
+        <Button
+          label={selectedPerson ? `Ask to join as ${selectedPerson.name}` : 'Choose your name'}
+          icon="check"
+          onPress={() => { void requestSelectedPerson(); }}
+          loading={busy}
+          disabled={!selectedPerson || Boolean(retryBlocked)}
+          fullWidth
+          size="lg"
+          testID="jt-request-existing"
+        />
+        <Button
+          label="None of these is me"
+          variant="secondary"
+          onPress={() => openNew('roster')}
+          disabled={busy}
+          fullWidth
+          testID="jt-none-existing"
+        />
+      </FormScreen>
+    );
+  }
+
+  if (stage === 'pending') {
+    const status = joinRequest?.status;
+    const statusConfig: Record<NonNullable<typeof status>, {
+      title: string;
+      description: string;
+      icon: IconName;
+      color: string;
+    }> = {
+      pending: {
+        title: 'Waiting for approval',
+        description: 'A trip owner or admin needs to confirm that this is you. You do not have trip access yet.',
+        icon: 'clock',
+        color: colors.warning,
+      },
+      approved: {
+        title: 'Request approved',
+        description: 'Your account is now linked. Opening the trip…',
+        icon: 'check-circle',
+        color: colors.success,
+      },
+      rejected: {
+        title: 'Request not approved',
+        description: 'You can choose another person or join with a new profile.',
+        icon: 'alert',
+        color: colors.danger,
+      },
+      cancelled: {
+        title: 'Request cancelled',
+        description: 'Choose another person or create a new profile when you are ready.',
+        icon: 'info',
+        color: colors.textMuted,
+      },
+      obsolete: {
+        title: 'Request no longer available',
+        description: 'The trip roster changed. Check the current list before trying again.',
+        icon: 'info',
+        color: colors.textMuted,
+      },
+    };
+    const presentation = status ? statusConfig[status] : null;
+    const targetContext = joinRequest?.target.kind === 'family_member'
+      ? ` in ${joinRequest.target.family_name}` : '';
+
+    return (
+      <FormScreen testID="join-trip-request-screen">
+        <TouchableOpacity
+          testID="jt-back"
+          onPress={backToCode}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel="Back to trip code"
+          style={styles.back}
+        >
+          <Icon name="chevron-left" size={18} color={colors.textMuted} />
+          <T muted>Back</T>
+        </TouchableOpacity>
+
+        {presentation ? (
+          <>
+            <View style={[styles.statusIcon, { backgroundColor: colors.surfaceMuted }]}>
+              <Icon name={presentation.icon} size={28} color={presentation.color} />
+            </View>
+            <View style={styles.headingBlock} testID="jt-request-status">
+              <T variant="h1">{presentation.title}</T>
+              <T muted>{presentation.description}</T>
+            </View>
+            <View style={[styles.requestSummary, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <T variant="caption" muted>{joinRequest!.trip.name}</T>
+              <T variant="h3">
+                {joinRequest!.target.name}{targetContext}
               </T>
             </View>
-
-            {claimOnly ? (
-              <View style={{ gap: SPACING.md }}>
-                <View style={[styles.noteCard, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
-                  <Icon name="info" size={18} color={colors.textMuted} />
-                  <T variant="caption" muted style={{ flex: 1, marginLeft: SPACING.sm, lineHeight: 18 }}>
-                    {match.member_type === 'family_member'
-                      ? `You're listed in the ${match.family_name} family as ${match.member_name}. Continue to link your account to that member.`
-                      : "This profile already has expenses, so it can't be duplicated. Continue as this profile to keep its history."}
-                  </T>
-                </View>
-                {error ? <T testID="jt-error" variant="caption" color={colors.danger}>{error}</T> : null}
-                <Button label={`Continue as ${match.member_name}`} icon="check" onPress={doClaim}
-                  loading={busy} fullWidth size="lg" testID="jt-identity-claim" />
+            {status === 'rejected' && joinRequest?.rejection_reason ? (
+              <View style={[styles.noteCard, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
+                <Icon name="info" size={18} color={colors.textMuted} />
+                <T variant="caption" muted style={styles.noteCopy}>
+                  Admin note: {joinRequest.rejection_reason}
+                </T>
               </View>
-            ) : (
-              <View style={{ gap: SPACING.sm }}>
-                <TouchableOpacity testID="jt-identity-claim" disabled={busy} onPress={doClaim}
-                  accessibilityRole="button"
-                  style={[styles.modeCard, { backgroundColor: colors.surface, borderColor: colors.primary }]}>
-                  <Icon name="user" size={22} color={colors.textMain} />
-                  <View style={{ flex: 1, marginLeft: SPACING.md }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm }}>
-                      <T variant="h4">This is me — take over this profile</T>
-                      <Badge label="Recommended" color={colors.success} />
-                    </View>
-                    <T variant="caption" muted style={{ marginTop: 2 }}>
-                      Keep {match.member_name} and its place in the trip.
-                    </T>
-                  </View>
-                </TouchableOpacity>
-
-                <TouchableOpacity testID="jt-identity-new" disabled={busy}
-                  onPress={() => { setError(null); setStage('choose'); }}
-                  accessibilityRole="button"
-                  style={[styles.modeCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <Icon name="plus-circle" size={22} color={colors.textMain} />
-                  <View style={{ flex: 1, marginLeft: SPACING.md }}>
-                    <T variant="h4">Join as someone new</T>
-                    <T variant="caption" muted style={{ marginTop: 2 }}>
-                      Start a fresh profile. The existing {match.member_name} profile is removed.
-                    </T>
-                  </View>
-                </TouchableOpacity>
-
-                {error ? <T testID="jt-error" variant="caption" color={colors.danger}>{error}</T> : null}
-              </View>
-            )}
+            ) : null}
+          </>
+        ) : (
+          <View style={styles.headingBlock}>
+            <T variant="h1">Checking your request</T>
+            <T muted>Loading the latest status…</T>
           </View>
+        )}
+
+        {error ? <T testID="jt-error" variant="caption" color={colors.danger}>{error}</T> : null}
+        {status === 'pending' ? (
+          <>
+            <Button
+              label="Cancel request"
+              variant="secondary"
+              onPress={() => { void cancelPending(); }}
+              loading={busy}
+              fullWidth
+              testID="jt-request-cancel"
+            />
+            <Button
+              label="Join as someone new instead"
+              variant="ghost"
+              onPress={() => openNew('pending')}
+              disabled={busy}
+              fullWidth
+              testID="jt-request-new"
+            />
+          </>
+        ) : null}
+        {status && status !== 'pending' && status !== 'approved' ? (
+          <>
+            <Button
+              label="Check the roster again"
+              onPress={() => { void chooseAgain(); }}
+              loading={busy}
+              fullWidth
+              testID="jt-request-choose-again"
+            />
+            <Button
+              label="Join as someone new"
+              variant="secondary"
+              onPress={() => openNew('pending')}
+              disabled={busy}
+              fullWidth
+              testID="jt-request-new"
+            />
+          </>
+        ) : null}
       </FormScreen>
     );
   }
 
-  // ---------- Stage 3: choose how to join (join as someone new) ----------
-  // Exclude the caller's own stub from the family picker — joining it would be a claim, offered
-  // separately on the identity step.
-  const families = (preview?.families ?? []).filter((f) => f.id !== match?.member_id);
-  const openCount = (f: PreviewFamily) => f.open_slots?.length ?? 0;
-  const hasFamilies = families.length > 0;
-  const allFull = hasFamilies && families.every((f) => openCount(f) === 0);
-  const sortedFamilies = families;
-  const selectedFamily = sortedFamilies.find((f) => f.id === familyId) ?? null;
-
-  const confirmDisabled = busy
-    || (mode === 'family' && (!familyId || !familyMemberId))
-    || (mode === 'new_family' && (!familyName.trim() || parsedMembers().length === 0));
+  const replacementCopy = match && replacementNeeded(match, 'join_new')
+    ? (match.member_type === 'family_member'
+      ? `Creating a new profile will remove your Gmail from ${match.member_name}, but keep that family member and their trip history.`
+      : `Creating a new profile will remove the unused ${match.member_name} profile.`)
+    : joinRequest?.status === 'pending'
+      ? 'Creating a new profile will cancel your pending request.'
+      : null;
+  const newDisabled = busy || (
+    newMode === 'new_family' && (!familyName.trim() || parsedFamilyMembers.length === 0)
+  );
 
   return (
     <>
-      <FormScreen>
-          <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
-            <TouchableOpacity testID="jt-back" onPress={match ? () => { setError(null); setStage('identity'); } : backToCode} disabled={busy}
-              style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' }} accessibilityLabel="Back">
-              <Icon name="chevron-left" size={18} color={colors.textMuted} />
-              <T muted style={{ marginLeft: 2 }}>Back</T>
-            </TouchableOpacity>
+      <FormScreen testID="join-trip-new-screen">
+        <TouchableOpacity
+          testID="jt-back"
+          onPress={() => { setError(null); setStage(returnStage); }}
+          disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          style={styles.back}
+        >
+          <Icon name="chevron-left" size={18} color={colors.textMuted} />
+          <T muted>Back</T>
+        </TouchableOpacity>
 
-            <View>
-              <T variant="h1">How are you joining?</T>
-              <T muted style={{ marginTop: 4 }}>
-                {preview?.trip.name} · {preview?.trip.member_count} {preview?.trip.member_count === 1 ? 'member' : 'members'}
-              </T>
-            </View>
+        <View style={styles.headingBlock}>
+          <T variant="h1">Join as someone new</T>
+          <T muted>Create a new place on {preview?.trip.name || joinRequest?.trip.name}.</T>
+        </View>
 
-            <View style={{ gap: SPACING.sm }}>
-              {MODE_OPTIONS.map((opt) => {
-                const active = mode === opt.m;
-                const optDisabled = busy || (opt.m === 'family' && !hasFamilies);
-                const desc = opt.m === 'family' && !hasFamilies ? 'No families in this trip yet.' : opt.desc;
-                return (
-                  <TouchableOpacity key={opt.m} testID={`jt-mode-${opt.m}`} disabled={optDisabled}
-                    onPress={() => { setMode(opt.m); setError(null); }}
-                    accessibilityRole="radio" accessibilityState={{ selected: active, disabled: optDisabled }}
-                    style={[styles.modeCard, {
-                      backgroundColor: active ? colors.primary : colors.surface,
-                      borderColor: active ? colors.primary : colors.border,
-                      opacity: optDisabled && !active ? 0.5 : 1,
-                    }]}>
-                    <Icon name={opt.icon} size={22} color={active ? colors.primaryText : colors.textMain} />
-                    <View style={{ flex: 1, marginLeft: SPACING.md }}>
-                      <T variant="h4" color={active ? colors.primaryText : colors.textMain}>{opt.title}</T>
-                      <T variant="caption" color={active ? colors.primaryText : colors.textMuted} style={{ marginTop: 2 }}>{desc}</T>
-                    </View>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+        <View style={styles.section} accessibilityRole="radiogroup">
+          {NEW_OPTIONS.map((option) => {
+            const selected = newMode === option.mode;
+            return (
+              <TouchableOpacity
+                key={option.mode}
+                testID={`jt-mode-${option.mode}`}
+                onPress={() => { setNewMode(option.mode); setError(null); }}
+                disabled={busy}
+                accessibilityRole="radio"
+                accessibilityState={{ selected, disabled: busy }}
+                style={[
+                  styles.modeCard,
+                  {
+                    backgroundColor: selected ? colors.primary : colors.surface,
+                    borderColor: selected ? colors.primary : colors.border,
+                  },
+                ]}
+              >
+                <Icon
+                  name={option.icon}
+                  size={22}
+                  color={selected ? colors.primaryText : colors.primary}
+                />
+                <View style={styles.flex}>
+                  <T variant="h4" color={selected ? colors.primaryText : colors.textMain}>
+                    {option.title}
+                  </T>
+                  <T
+                    variant="caption"
+                    color={selected ? colors.primaryText : colors.textMuted}
+                    style={selected ? styles.selectedDescription : undefined}
+                  >
+                    {option.description}
+                  </T>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
 
-            {mode === 'family' && hasFamilies && (
-              <View style={{ gap: SPACING.sm }}>
-                {allFull ? (
-                  <T testID="jt-family-all-linked" muted variant="caption">Every family is full — all members are already linked. Pick another option above.</T>
-                ) : null}
-                {sortedFamilies.map((f) => {
-                  const selected = familyId === f.id;
-                  const open = openCount(f);
-                  const rowDisabled = open === 0 || busy;
-                  const selectFamily = () => {
-                    setFamilyId(f.id);
-                    // Auto-pick the only open slot; otherwise clear any previous pick.
-                    setFamilyMemberId(open === 1 ? f.open_slots![0].id : null);
-                    setError(null);
-                  };
-                  return (
-                    <TouchableOpacity key={f.id} testID={`jt-family-${f.id}`} disabled={rowDisabled}
-                      onPress={selectFamily}
-                      accessibilityRole="radio" accessibilityState={{ selected, disabled: rowDisabled }}
-                      style={[styles.familyRow, {
-                        backgroundColor: selected ? colors.surfaceMuted : colors.surface,
-                        borderColor: selected ? colors.primary : colors.border,
-                        opacity: rowDisabled && !selected ? 0.5 : 1,
-                      }]}>
-                      <Icon name={selected ? 'radio-on' : 'radio-off'} size={20} color={selected ? colors.primary : colors.textMuted} />
-                      <View style={{ flex: 1, marginLeft: SPACING.sm, gap: 2 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm }}>
-                          <T style={{ fontFamily: FONTS.bodySemibold }}>{f.name}</T>
-                          {open === 0 ? <Badge label="Full" color={colors.textMuted} /> : null}
-                        </View>
-                        <T muted variant="caption">
-                          {f.size} {f.size === 1 ? 'member' : 'members'}{open > 0 ? ` · ${open} open` : ''}
-                        </T>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-
-                {/* Which member are you? — pick a specific open slot in the selected family (Phase 27). */}
-                {selectedFamily && openCount(selectedFamily) > 0 ? (
-                  <View style={{ gap: SPACING.sm, marginTop: SPACING.xs, marginLeft: SPACING.md }}>
-                    <T variant="label" muted>Which member are you?</T>
-                    {(selectedFamily.open_slots ?? []).map((s) => {
-                      const slotSelected = familyMemberId === s.id;
-                      return (
-                        <TouchableOpacity key={s.id} testID={`jt-slot-${s.id}`} disabled={busy}
-                          onPress={() => { setFamilyMemberId(s.id); setError(null); }}
-                          accessibilityRole="radio" accessibilityState={{ selected: slotSelected, disabled: busy }}
-                          style={[styles.familyRow, {
-                            backgroundColor: slotSelected ? colors.surfaceMuted : colors.surface,
-                            borderColor: slotSelected ? colors.primary : colors.border,
-                          }]}>
-                          <Icon name={slotSelected ? 'radio-on' : 'radio-off'} size={20} color={slotSelected ? colors.primary : colors.textMuted} />
-                          <T style={{ flex: 1, marginLeft: SPACING.sm }}>{s.name}</T>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                ) : null}
-              </View>
-            )}
-
-            {mode === 'new_family' && (
-              <View style={{ gap: SPACING.md }}>
-                <Input testID="jt-family-name" label="Family name *" value={familyName}
-                  onChangeText={(v) => { setFamilyName(v); if (error) setError(null); }}
-                  placeholder="e.g. Sharma Family" editable={!busy} />
-                <Input testID="jt-family-members" label="Family member names (comma separated) *" value={familyText}
-                  onChangeText={(v) => { setFamilyText(v); if (error) setError(null); }}
-                  placeholder="e.g. Arjun, Priya, Rohan" editable={!busy}
-                  helper="List everyone in your family, including yourself. Expenses on this family split per member." />
-              </View>
-            )}
-
-            {error ? <T testID="jt-error" variant="caption" color={colors.danger}>{error}</T> : null}
-
-            <Button label="Join trip" icon="check" onPress={submitJoin} loading={busy} disabled={confirmDisabled} fullWidth size="lg" testID="jt-join-confirm" />
+        {newMode === 'new_family' ? (
+          <View style={styles.formFields}>
+            <Input
+              testID="jt-family-name"
+              label="Family name *"
+              value={familyName}
+              onChangeText={(value) => { setFamilyName(value); if (error) setError(null); }}
+              placeholder="e.g. Sharma family"
+              editable={!busy}
+            />
+            <Input
+              testID="jt-family-members"
+              label="Family member names (comma separated) *"
+              value={familyText}
+              onChangeText={(value) => { setFamilyText(value); if (error) setError(null); }}
+              placeholder="e.g. Arjun, Priya, Rohan"
+              editable={!busy}
+              helper="Include yourself first. The family's expenses are divided among these people."
+            />
           </View>
+        ) : null}
+
+        {replacementCopy ? (
+          <View style={[styles.noteCard, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
+            <Icon name="info" size={18} color={colors.textMuted} />
+            <T variant="caption" muted style={styles.noteCopy}>{replacementCopy}</T>
+          </View>
+        ) : null}
+        {error ? <T testID="jt-error" variant="caption" color={colors.danger}>{error}</T> : null}
+        <Button
+          label="Join trip"
+          icon="check"
+          onPress={submitNew}
+          loading={busy}
+          disabled={newDisabled}
+          fullWidth
+          size="lg"
+          testID="jt-join-confirm"
+        />
       </FormScreen>
 
       <ConfirmModal
         visible={pendingBody !== null}
         testID="jt-replace-modal"
-        title="Remove existing profile?"
+        title="Create a new profile?"
         message={match ? replacementNote(match) : undefined}
         onRequestClose={() => setPendingBody(null)}
         actions={[
-          { label: 'Remove & continue', variant: 'destructive', testID: 'jt-replace-confirm',
-            onPress: () => { if (pendingBody) doJoinNew(pendingBody); } },
-          { label: 'Cancel', variant: 'cancel', testID: 'jt-replace-cancel',
-            onPress: () => setPendingBody(null) },
+          {
+            label: 'Create new profile',
+            variant: 'destructive',
+            testID: 'jt-replace-confirm',
+            onPress: () => { if (pendingBody) void doJoinNew(pendingBody); },
+          },
+          {
+            label: 'Cancel',
+            variant: 'cancel',
+            testID: 'jt-replace-cancel',
+            onPress: () => setPendingBody(null),
+          },
         ]}
       />
     </>
@@ -400,9 +839,99 @@ export default function JoinTrip() {
 }
 
 const styles = StyleSheet.create({
-  brand: { width: 52, height: 52, borderRadius: RADIUS.lg, alignItems: 'center', justifyContent: 'center' },
-  codeInput: { paddingHorizontal: SPACING.md, paddingVertical: 16, borderRadius: RADIUS.md, borderWidth: 1, fontSize: 26, letterSpacing: 8, textAlign: 'center', fontFamily: FONTS.numberBold },
-  modeCard: { flexDirection: 'row', alignItems: 'center', padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1 },
-  familyRow: { flexDirection: 'row', alignItems: 'center', padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1 },
-  noteCard: { flexDirection: 'row', alignItems: 'flex-start', padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1 },
+  flex: { flex: 1, minWidth: 0 },
+  brand: {
+    width: 52,
+    height: 52,
+    borderRadius: RADIUS.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  titleTop: { marginTop: SPACING.sm },
+  codeInput: {
+    minHeight: COMPONENT_SIZE.minTouchTarget,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    fontSize: TYPESCALE.xxl,
+    letterSpacing: SPACING.sm,
+    textAlign: 'center',
+    fontFamily: FONTS.numberBold,
+  },
+  back: {
+    minHeight: COMPONENT_SIZE.minTouchTarget,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: SPACING.xs,
+  },
+  headingBlock: { gap: SPACING.sm, alignItems: 'flex-start' },
+  section: { gap: SPACING.sm },
+  sectionHeading: { gap: SPACING.xs },
+  personRow: {
+    minHeight: COMPONENT_SIZE.minTouchTarget,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: SPACING.md,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    gap: SPACING.md,
+  },
+  personIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: RADIUS.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  personName: { fontFamily: FONTS.bodySemibold },
+  matchCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: SPACING.lg,
+    borderRadius: RADIUS.lg,
+    borderWidth: 2,
+    gap: SPACING.md,
+  },
+  matchIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: RADIUS.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modeCard: {
+    minHeight: COMPONENT_SIZE.minTouchTarget,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: SPACING.md,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    gap: SPACING.md,
+  },
+  selectedDescription: { opacity: 0.82 },
+  formFields: { gap: SPACING.md },
+  noteCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: SPACING.md,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    gap: SPACING.sm,
+  },
+  noteCopy: { flex: 1, minWidth: 0, lineHeight: TYPESCALE.lg },
+  statusIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: RADIUS.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  requestSummary: {
+    padding: SPACING.lg,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    gap: SPACING.xs,
+  },
 });

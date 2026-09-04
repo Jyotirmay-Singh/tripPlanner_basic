@@ -133,6 +133,18 @@ def test_recipient_resolution_excludes_actor_and_duplicates():
             "chat.message.created", "trip_chat", "messageId",
             "A new group message was sent in one of your trips.",
         ),
+        (
+            "join.request.created", "trip_members", "requestId",
+            "A join request needs review in one of your trips.",
+        ),
+        (
+            "join.request.approved", "trip_summary", "requestId",
+            "Your request to join a trip was approved.",
+        ),
+        (
+            "join.request.rejected", "join_request", "requestId",
+            "Your request to join a trip was reviewed.",
+        ),
     ],
 )
 def test_payload_is_private_versioned_and_contains_typed_routing_data(
@@ -204,6 +216,27 @@ def test_enqueue_is_idempotent_and_schedules_immediate_dispatch(monkeypatch):
         background_tasks=None,
     ))
     assert inserted_again is False
+
+
+def test_join_event_stores_only_the_explicit_private_audience(monkeypatch):
+    outbox = SimpleNamespace(insert_one=AsyncMock())
+    monkeypatch.setattr(notifications, "PUSH_NOTIFICATIONS_ENABLED", True)
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(notification_outbox=outbox))
+
+    inserted = run(notifications.enqueue_notification_event(
+        event_type="join.request.created",
+        source_id=SOURCE_ID,
+        trip_id=TRIP_ID,
+        actor_user_id="requester",
+        recipient_user_ids_override=["admin-1", "requester", "admin-1", "admin-2"],
+    ))
+
+    assert inserted is True
+    document = outbox.insert_one.await_args.args[0]
+    assert document["recipient_user_ids"] == ["admin-1", "admin-2"]
+    assert "requester_email" not in document
+    assert "target_name" not in document
+    assert "target_email" not in document
 
 
 def test_disabled_feature_does_not_accumulate_old_outbox_events(monkeypatch):
@@ -305,6 +338,35 @@ def test_delivery_snapshot_uses_current_membership_and_active_android_devices(mo
     assert query["user_id"]["$in"] == ["u2", "u3"]
     assert query["active"] is True and query["platform"] == "android"
     assert [delivery["user_id"] for delivery in event["deliveries"]] == ["u2"]
+
+
+def test_delivery_snapshot_honors_explicit_request_recipient_outside_trip_membership(monkeypatch):
+    timestamp = now_utc()
+    event = {
+        "event_key": "join.request.rejected:r1",
+        "event_type": "join.request.rejected",
+        "source_id": "r1",
+        "trip_id": "t1",
+        "actor_user_id": "admin-1",
+        "recipient_user_ids": ["requester-1"],
+        "delivery_snapshot_at": None,
+    }
+    trips = SimpleNamespace(find_one=AsyncMock(return_value={
+        "user_ids": ["admin-1", "member-1"],
+    }))
+    devices = SimpleNamespace(find=Mock(return_value=FakeCursor([{
+        "installation_id": "requester-device",
+        "user_id": "requester-1",
+        "token": VALID_TOKEN,
+    }])))
+    outbox = SimpleNamespace(update_one=AsyncMock())
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(
+        trips=trips, push_devices=devices, notification_outbox=outbox,
+    ))
+
+    assert run(notifications._prepare_deliveries(event, timestamp)) is True
+    assert devices.find.call_args.args[0]["user_id"]["$in"] == ["requester-1"]
+    assert [delivery["user_id"] for delivery in event["deliveries"]] == ["requester-1"]
 
 
 def test_delivery_snapshot_deduplicates_tokens_and_skips_incomplete_devices(monkeypatch):

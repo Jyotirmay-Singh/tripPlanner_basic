@@ -73,19 +73,28 @@ Settled trips remain tappable and can still be opened normally.
 ### 3.2 Share & let others join
 - Tap the trip-code chip on the trip header to share the code (WhatsApp / iMessage / email).
 - The other person registers in the app, then **Home → Join Trip → enter the code**.
-- **If the trip already has a spot for your email** (an admin added you ahead of time — see §4.4),
-  the wizard shows a **"We found you on this trip"** step first:
-  - If that spot already has expenses or settlements, you can only **take over this profile** —
-    a profile with history can't be duplicated.
-  - Otherwise you can **take over the profile** (recommended) **or** **join as someone new**;
-    joining as new asks you to confirm, then removes the empty placeholder so there's no duplicate.
-- **If your email isn't already on the trip**, pick how to join:
-  - **Join as Individual** — you pay your own share as a single person.
-  - **Join existing Family** — choose a family, then pick **which member you are** from its open
-    (unclaimed) spots; your account links to that one person. Families with no open spots are shown
-    as **Full**.
-  - **Create New Family** — start a new family group and list its members (**list yourself first** —
-    you become its first member). The family itself never holds an account or email; each person does.
+- The Join wizard checks the existing roster **before** offering to create another profile. Available
+  **Individuals** and **Family members** are listed separately; choose your name if the owner or an
+  admin already added you.
+- **If your signed-in Gmail exactly matches** the saved Gmail for that person, tap
+  **Join as [name]** to link immediately. Their member ID, expenses, payments, settlements, and other
+  trip history stay attached to the same person.
+- **If that person has no saved Gmail, or a different Gmail**, tap **Ask to join as [name]**. The
+  request waits for an owner or admin to review it in the trip's **Members** tab:
+  - You **do not have access to the trip while the request is pending**. The status screen updates
+    automatically, and you may cancel the request or create a new profile instead.
+  - An owner/admin can **Approve** or **Reject** the request and may include an optional rejection
+    reason. Approval links your account to the existing person; if an old Gmail was saved, your Gmail
+    replaces it while the old value remains in the request's audit record.
+  - The requester receives a privacy-safe device notification when the request is approved or
+    rejected. Tapping a rejection notification returns to the request status and any admin note.
+  - After rejection, you can choose a different person immediately, but must wait **24 hours** before
+    requesting the same person again.
+- If nobody listed is you, tap **None of these is me**, then choose:
+  - **New individual** — create your own standalone person and join immediately.
+  - **New family** — start a family group and list its members (**list yourself first** — you become
+    its first member). The family itself never holds an account or email; each person does.
+  Creating either new identity also cancels any pending request you made for that trip.
 
 ### 3.3 Edit / delete a trip
 - Inside the trip page, the row of action buttons under the header has:
@@ -137,15 +146,20 @@ across standalone individuals, family entries, and joined app users.
 - If you created the trip as **a member of a family** (§3.1 *"This is me"*), your account is already
   attached to that member — there's nothing to reconcile. The trip page's **Summary** tab shows a
   **"You" card** confirming which member you are.
-- If an admin added a placeholder for your email **before** you join, the Join wizard's identity
-  step (§3.2) reconciles it: you **take over** that profile (keeping its expenses) or, when it's
-  empty, **join as someone new** and the placeholder is removed. Either way you never end up listed
-  twice.
-- If your email was added to a **member inside a family**, the Join wizard offers to **link you to
-  that member** — you become that specific person within the family (a **"Linked"** badge appears on
-  the Members tab), while everyone else in the family is unaffected. Because a given email belongs to
-  one person, this is the only join option in that case (there's nothing to remove). Linking, like
-  everything about emails, leaves all balances unchanged.
+- The Join wizard lists every available standalone individual and family member. An exact Gmail
+  match links immediately. Choosing a person with no Gmail or a different saved Gmail sends an
+  approval request; approval keeps that person's member ID and all financial history unchanged.
+- Owners and admins review pending identity requests at the top of the **Members** tab. The review
+  shows the requester's account and chosen roster person. Approving attaches the requester's Gmail
+  (replacing any saved Gmail); rejecting can include an optional note. Multiple people may request
+  the same roster person, but only one can ultimately be linked to it.
+- If the exact Gmail match is wrong and the roster entry has **no trip history**, choosing
+  **This isn't me** before creating a new identity safely removes the unused standalone placeholder.
+  For a family member, only the mistaken Gmail is detached—the family member remains. An identity
+  with expenses, payments, settlements, or other trip history cannot be detached; ask an owner or
+  admin to correct the roster instead.
+- A user can have only one active join request per trip. Creating a new individual/family or joining
+  through an exact match cancels that pending request, so the user cannot be counted twice.
 
 ### 4.4 Delete a member
 - Tap the **🗑 trash** on the member row.

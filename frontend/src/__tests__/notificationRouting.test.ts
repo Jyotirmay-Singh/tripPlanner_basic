@@ -5,9 +5,11 @@ const TRIP_ID = '12345678-1234-4678-9234-567812345678';
 const SOURCE_ID = '87654321-4321-4765-8123-210987654321';
 
 function payload(
-  eventType: 'expense.created' | 'payment.recorded' | 'settlement.paid' | 'chat.message.created',
-  target: 'trip_expenses' | 'settle_up' | 'trip_chat',
-  idKey: 'expenseId' | 'paymentId' | 'settlementId' | 'messageId',
+  eventType: 'expense.created' | 'payment.recorded' | 'settlement.paid' | 'chat.message.created'
+    | 'join.request.created' | 'join.request.approved' | 'join.request.rejected',
+  target: 'trip_expenses' | 'settle_up' | 'trip_chat' | 'trip_members'
+    | 'trip_summary' | 'join_request',
+  idKey: 'expenseId' | 'paymentId' | 'settlementId' | 'messageId' | 'requestId',
 ) {
   return {
     payloadVersion: 1,
@@ -30,6 +32,12 @@ describe('notification routing', () => {
       .toBe(`/trip/${TRIP_ID}/settle-up?settlementId=${SOURCE_ID}`);
     expect(notificationHref(payload('chat.message.created', 'trip_chat', 'messageId')))
       .toBe(`/trip/${TRIP_ID}?tab=chat&messageId=${SOURCE_ID}`);
+    expect(notificationHref(payload('join.request.created', 'trip_members', 'requestId')))
+      .toBe(`/trip/${TRIP_ID}?tab=members&requestId=${SOURCE_ID}`);
+    expect(notificationHref(payload('join.request.approved', 'trip_summary', 'requestId')))
+      .toBe(`/trip/${TRIP_ID}`);
+    expect(notificationHref(payload('join.request.rejected', 'join_request', 'requestId')))
+      .toBe(`/join-trip?requestId=${SOURCE_ID}`);
   });
 
   it('keeps already-delivered legacy financial notification taps working', () => {

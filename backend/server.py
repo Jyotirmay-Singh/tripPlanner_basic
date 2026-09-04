@@ -13,7 +13,7 @@ from utils.members import demote_family_entity_email
 from utils.email_rules import is_allowed_email
 from utils.security import hash_secret
 from utils.emailer import sender_mode_summary
-from routes import auth, trips, members, expenses, balances, reports, meta, receipts, spend, payments, chat, push, exchange_rates
+from routes import auth, trips, join_requests, members, expenses, balances, reports, meta, receipts, spend, payments, chat, push, exchange_rates
 from services.push_notifications import start_push_dispatcher, stop_push_dispatcher
 from services.exchange_rates import start_exchange_rate_client, stop_exchange_rate_client
 
@@ -31,6 +31,16 @@ async def _remove_retired_pin_data() -> None:
 async def lifespan(app: FastAPI):
     await db.users.create_index("email", unique=True)
     await db.trips.create_index("code", unique=True)
+    await db.join_requests.create_index("id", unique=True)
+    await db.join_requests.create_index(
+        [("trip_id", 1), ("requester_user_id", 1)],
+        unique=True,
+        partialFilterExpression={"active": True},
+    )
+    await db.join_requests.create_index([("trip_id", 1), ("status", 1), ("created_at", -1)])
+    await db.join_requests.create_index([
+        ("trip_id", 1), ("member_id", 1), ("family_member_id", 1), ("status", 1),
+    ])
     await db.expenses.create_index([("trip_id", 1), ("created_at", -1)])
     await db.exchange_rates.create_index([
         ("provider", 1), ("source_currency", 1), ("target_currency", 1), ("effective_date", 1)
@@ -187,7 +197,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Trip Splitter", lifespan=lifespan)
 api = APIRouter(prefix="/api")
 
-for module in (auth, trips, members, expenses, balances, reports, meta, receipts, spend, payments, chat, push, exchange_rates):
+for module in (auth, trips, join_requests, members, expenses, balances, reports, meta, receipts, spend, payments, chat, push, exchange_rates):
     api.include_router(module.router)
 
 

@@ -1,6 +1,6 @@
 from typing import List, Optional, Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class JoinRequest(BaseModel):
@@ -27,6 +27,10 @@ class JoinRequest(BaseModel):
     # than the whole family entity's user_id. Requires the caller's OWN email on that slot.
     family_member_id: Optional[str] = None
     replace_member_id: Optional[str] = None  # advisory hint when action == "join_new"
+    # When a clean, exact-email match belongs to a family member and the caller chooses a new
+    # identity, this identifies the sub-member whose incorrect email should be detached.  The server
+    # always re-resolves the caller's email and treats this only as an advisory UI hint.
+    replace_family_member_id: Optional[str] = None
 
     @field_validator("family_name")
     @classmethod
@@ -41,3 +45,23 @@ class JoinRequest(BaseModel):
 
 class JoinPreviewRequest(BaseModel):
     code: str
+
+
+class JoinClaimRequest(BaseModel):
+    """Request owner/admin approval to take an unlinked existing person."""
+
+    code: str
+    member_id: str
+    family_member_id: Optional[str] = None
+
+
+class JoinRejectRequest(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _normalize_reason(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = " ".join(value.split())
+        return normalized or None

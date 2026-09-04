@@ -256,7 +256,12 @@ def find_own_sub_stub(members: list, caller_email: Optional[str]) -> Optional[di
     return None
 
 
-def member_has_financial_history_in(member_id: str, expenses: list, settlements: list) -> bool:
+def member_has_financial_history_in(
+    member_id: str,
+    expenses: list,
+    settlements: list,
+    payments: Optional[list] = None,
+) -> bool:
     """True iff ``member_id`` is referenced by any of the given expense/settlement docs.
 
     "Financial history" = the id appears as an expense payer (``paid_by_member_id``), a split
@@ -278,6 +283,62 @@ def member_has_financial_history_in(member_id: str, expenses: list, settlements:
             return True
     for s in settlements:
         if s.get("from_member_id") == member_id or s.get("to_member_id") == member_id:
+            return True
+    for p in (payments or []):
+        if p.get("from_member_id") == member_id or p.get("to_member_id") == member_id:
+            return True
+    return False
+
+
+def family_member_has_financial_history_in(
+    family: dict,
+    family_member_id: str,
+    expenses: list,
+    settlements: list,
+    payments: Optional[list] = None,
+) -> bool:
+    """Whether one family person has ever been attributed trip financial activity.
+
+    This is intentionally conservative.  A family-level settlement/payment is part of every
+    member's derived history because the chronological member breakdown scales the family's running
+    positions.  For expenses, the same participant/default and EXACT rules as the split engine decide
+    whether the selected person took part.  The helper is used only before detaching an incorrectly
+    assigned email, so a false positive merely requires an admin correction while a false negative
+    could silently detach an identity with history.
+    """
+    if family.get("kind") != "family":
+        return False
+    family_id = family.get("id")
+    roster_ids = padded_family_member_ids(family)
+    if family_member_id not in roster_ids:
+        return False
+
+    for expense in expenses:
+        split_ids = expense.get("split_member_ids") or []
+        is_payer = expense.get("paid_by_member_id") == family_id
+        is_split = family_id in split_ids
+        if not is_payer and not is_split:
+            continue
+        if (expense.get("split_mode") or "PER_CAPITA") == "EXACT":
+            amount = (expense.get("custom_amounts") or {}).get(family_member_id)
+            try:
+                explicitly_attributed = float(amount or 0) != 0
+            except (TypeError, ValueError):
+                explicitly_attributed = bool(amount)
+            # A family-paid credit is distributed through the member breakdown even when this
+            # person's typed consumption is zero, so treat it as history for every current row.
+            if explicitly_attributed or is_payer:
+                return True
+            continue
+        participants = (expense.get("family_participants") or {}).get(family_id)
+        chosen = [pid for pid in (participants or []) if pid in roster_ids]
+        if not chosen:
+            chosen = roster_ids
+        if family_member_id in chosen:
+            return True
+
+    for row in [*settlements, *(payments or [])]:
+        if row.get("from_member_id") == family_id or row.get("to_member_id") == family_id:
             return True
     return False
 
@@ -317,8 +378,7 @@ async def member_has_financial_history(trip_id: str, member_id: str) -> bool:
         limit=1,
     ):
         return True
-    return bool(
-        await db.settlements.count_documents(
+    if await db.settlements.count_documents(
             {
                 "trip_id": trip_id,
                 "$or": [
@@ -327,7 +387,52 @@ async def member_has_financial_history(trip_id: str, member_id: str) -> bool:
                 ],
             },
             limit=1,
-        )
+        ):
+        return True
+    return bool(await db.payments.count_documents(
+        {
+            "trip_id": trip_id,
+            "$or": [
+                {"from_member_id": member_id},
+                {"to_member_id": member_id},
+            ],
+        },
+        limit=1,
+    ))
+
+
+async def family_member_has_financial_history(
+    trip_id: str,
+    family: dict,
+    family_member_id: str,
+) -> bool:
+    """Database wrapper for :func:`family_member_has_financial_history_in`."""
+    from database import db  # lazy: keep pure helper imports server-free
+
+    family_id = family.get("id")
+    expenses = await db.expenses.find({
+        "trip_id": trip_id,
+        "$or": [
+            {"paid_by_member_id": family_id},
+            {"split_member_ids": family_id},
+        ],
+    }, {"_id": 0}).to_list(length=10000)
+    settlements = await db.settlements.find({
+        "trip_id": trip_id,
+        "$or": [
+            {"from_member_id": family_id},
+            {"to_member_id": family_id},
+        ],
+    }, {"_id": 0}).to_list(length=10000)
+    payments = await db.payments.find({
+        "trip_id": trip_id,
+        "$or": [
+            {"from_member_id": family_id},
+            {"to_member_id": family_id},
+        ],
+    }, {"_id": 0}).to_list(length=10000)
+    return family_member_has_financial_history_in(
+        family, family_member_id, expenses, settlements, payments,
     )
 
 

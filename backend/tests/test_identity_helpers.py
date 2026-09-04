@@ -1,6 +1,7 @@
 # Phase 11, Step 43 — Pure unit tests for the identity-reconciliation helpers.
 # No HTTP, no server, no conftest fixtures — operates only on plain dicts/lists.
 from utils.members import (
+    family_member_has_financial_history_in,
     find_own_stubs,
     member_has_financial_history_in,
     is_stub_removable,
@@ -81,6 +82,10 @@ class TestMemberHasFinancialHistoryIn:
         setts = [{"from_member_id": "x", "to_member_id": "m1", "status": "pending"}]
         assert member_has_financial_history_in("m1", [], setts) is True
 
+    def test_recorded_payment_hit(self):
+        payments = [{"from_member_id": "m1", "to_member_id": "x"}]
+        assert member_has_financial_history_in("m1", [], [], payments) is True
+
     def test_no_reference_is_false(self):
         exp = [{"paid_by_member_id": "x", "split_member_ids": ["y"]}]
         setts = [{"from_member_id": "y", "to_member_id": "z"}]
@@ -88,6 +93,54 @@ class TestMemberHasFinancialHistoryIn:
 
     def test_empty_inputs_false(self):
         assert member_has_financial_history_in("m1", [], []) is False
+
+
+class TestFamilyMemberHasFinancialHistoryIn:
+    family = {
+        "id": "family-1",
+        "kind": "family",
+        "family_members": ["A", "B"],
+        "family_member_ids": ["slot-a", "slot-b"],
+    }
+
+    def test_per_capita_participant_has_history(self):
+        expense = [{
+            "paid_by_member_id": "x",
+            "split_member_ids": ["family-1"],
+            "split_mode": "PER_CAPITA",
+            "family_participants": {"family-1": ["slot-b"]},
+        }]
+        assert family_member_has_financial_history_in(
+            self.family, "slot-b", expense, [], [],
+        ) is True
+        assert family_member_has_financial_history_in(
+            self.family, "slot-a", expense, [], [],
+        ) is False
+
+    def test_exact_amount_is_attributed_to_only_that_person(self):
+        expense = [{
+            "paid_by_member_id": "x",
+            "split_member_ids": ["family-1"],
+            "split_mode": "EXACT",
+            "custom_amounts": {"slot-a": 0, "slot-b": 12.5},
+        }]
+        assert family_member_has_financial_history_in(
+            self.family, "slot-b", expense, [], [],
+        ) is True
+        assert family_member_has_financial_history_in(
+            self.family, "slot-a", expense, [], [],
+        ) is False
+
+    def test_family_payment_conservatively_protects_every_person(self):
+        payments = [{"from_member_id": "family-1", "to_member_id": "x"}]
+        assert family_member_has_financial_history_in(
+            self.family, "slot-a", [], [], payments,
+        ) is True
+
+    def test_unattributed_person_is_clean(self):
+        assert family_member_has_financial_history_in(
+            self.family, "slot-a", [], [], [],
+        ) is False
 
 
 class TestIsStubRemovable:

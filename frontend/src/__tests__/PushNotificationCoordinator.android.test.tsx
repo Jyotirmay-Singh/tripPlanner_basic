@@ -63,9 +63,10 @@ const TRIP_ID = '12345678-1234-4678-9234-567812345678';
 const SOURCE_ID = '87654321-4321-4765-8123-210987654321';
 
 function payload(
-  eventType: 'expense.created' | 'payment.recorded' | 'settlement.paid' | 'chat.message.created',
-  target: 'trip_expenses' | 'settle_up' | 'trip_chat',
-  idKey: 'expenseId' | 'paymentId' | 'settlementId' | 'messageId',
+  eventType: 'expense.created' | 'payment.recorded' | 'settlement.paid' | 'chat.message.created'
+    | 'join.request.rejected',
+  target: 'trip_expenses' | 'settle_up' | 'trip_chat' | 'join_request',
+  idKey: 'expenseId' | 'paymentId' | 'settlementId' | 'messageId' | 'requestId',
 ) {
   return {
     payloadVersion: 1,
@@ -175,6 +176,18 @@ describe('Android push notification coordinator', () => {
       `/trip/${TRIP_ID}?tab=expenses&expenseId=${SOURCE_ID}`,
     );
     expect(mockClearLastResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('authorizes a rejected request without requiring trip membership', async () => {
+    mockGetLastResponse.mockReturnValue(response(
+      'notification-request', payload('join.request.rejected', 'join_request', 'requestId'),
+    ));
+
+    await renderCoordinator();
+    await flushAsyncWork();
+
+    expect(mockApi).toHaveBeenCalledWith(`/trips/join-requests/${SOURCE_ID}`);
+    expect(mockRouterPush).toHaveBeenCalledWith(`/join-trip?requestId=${SOURCE_ID}`);
   });
 
   it('routes a background response once and rejects invalid or duplicate notifications', async () => {

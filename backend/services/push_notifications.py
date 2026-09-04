@@ -50,6 +50,21 @@ _EVENT_DEFINITIONS = {
         "id_key": "messageId",
         "body": "A new group message was sent in one of your trips.",
     },
+    "join.request.created": {
+        "target": "trip_members",
+        "id_key": "requestId",
+        "body": "A join request needs review in one of your trips.",
+    },
+    "join.request.approved": {
+        "target": "trip_summary",
+        "id_key": "requestId",
+        "body": "Your request to join a trip was approved.",
+    },
+    "join.request.rejected": {
+        "target": "join_request",
+        "id_key": "requestId",
+        "body": "Your request to join a trip was reviewed.",
+    },
 }
 
 _ACTIVE_EVENT_STATUSES = ("pending", "waiting", "processing")
@@ -121,6 +136,7 @@ async def enqueue_notification_event(
     source_id: str,
     trip_id: str,
     actor_user_id: str,
+    recipient_user_ids_override: Optional[list[str]] = None,
     background_tasks: Any = None,
 ) -> bool:
     """Persist one idempotent event without ever failing the completed business operation."""
@@ -140,12 +156,21 @@ async def enqueue_notification_event(
         return False
 
     timestamp = now_utc()
+    explicit_recipients = None
+    if recipient_user_ids_override is not None:
+        explicit_recipients = list(dict.fromkeys(
+            str(uid).strip() for uid in recipient_user_ids_override
+            if uid and str(uid).strip() != actor_user_id
+        ))
     document = {
         "event_key": stable_event_key,
         "event_type": event_type,
         "source_id": source_id,
         "trip_id": trip_id,
         "actor_user_id": actor_user_id,
+        # Join-request events have narrower audiences than ordinary trip activity.  Routes derive
+        # this allowlist from the authoritative trip/request documents; clients never supply it.
+        "recipient_user_ids": explicit_recipients,
         "target": definition["target"],
         "status": "pending",
         "attempts": 0,
@@ -332,7 +357,12 @@ async def _prepare_deliveries(event: dict, timestamp: datetime) -> bool:
         )
         return False
 
-    recipients = recipient_user_ids(trip, event["actor_user_id"])
+    explicit_recipients = event.get("recipient_user_ids")
+    recipients = (
+        [uid for uid in explicit_recipients if uid and uid != event["actor_user_id"]]
+        if isinstance(explicit_recipients, list)
+        else recipient_user_ids(trip, event["actor_user_id"])
+    )
     devices: list[dict] = []
     if recipients:
         cursor = db.push_devices.find(

@@ -88,7 +88,10 @@ export default function PushNotificationCoordinator() {
       return;
     }
     let cancelled = false;
-    api(`/trips/${pendingRoute.tripId}`)
+    const authorization = pendingRoute.payloadVersion === 1 && pendingRoute.target === 'join_request'
+      ? api(`/trips/join-requests/${pendingRoute.sourceId}`)
+      : api(`/trips/${pendingRoute.tripId}`);
+    authorization
       .then(() => {
         if (cancelled) return;
         router.push(href as Href);

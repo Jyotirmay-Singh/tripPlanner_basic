@@ -15,9 +15,16 @@ from utils.members import (
     find_own_stubs,
     find_own_sub_stub,
     member_has_financial_history,
+    family_member_has_financial_history,
     padded_family_member_ids,
 )
 from services.chat_realtime import chat_connections
+from services.join_requests import (
+    active_request as active_join_request,
+    cancel_pending_after_join,
+    existing_people,
+    request_payload as join_request_payload,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -165,7 +172,11 @@ async def _claim_member(trip, members, user, user_email, body):
         raise HTTPException(403, "You can only claim the profile matching your email")
     # Atomic claim: succeeds only while the row is still unclaimed (closes the TOCTOU race).
     res = await db.trips.update_one(
-        {"id": trip["id"], "members": {"$elemMatch": {"id": target["id"], "user_id": None}}},
+        {
+            "id": trip["id"],
+            "user_ids": {"$ne": user["id"]},
+            "members": {"$elemMatch": {"id": target["id"], "user_id": None}},
+        },
         {"$addToSet": {"user_ids": user["id"]}, "$set": {"members.$.user_id": user["id"]}},
     )
     if res.modified_count == 0:
@@ -207,7 +218,7 @@ async def _claim_sub_member(trip, members, user, user_email, body):
     # Atomic: only while this exact slot is still unclaimed (null or absent). Set just the one index
     # so a concurrent claim of a DIFFERENT slot in the same family isn't clobbered.
     res = await db.trips.update_one(
-        {"id": trip["id"], "members": {"$elemMatch": {
+        {"id": trip["id"], "user_ids": {"$ne": user["id"]}, "members": {"$elemMatch": {
             "id": family["id"], f"family_member_user_ids.{idx}": None}}},
         {"$addToSet": {"user_ids": user["id"]},
          "$set": {f"members.$.family_member_user_ids.{idx}": user["id"]}},
@@ -234,13 +245,47 @@ async def _resolve_clean_stub_for_join_new(trip, own_stubs, user_email, body):
     own_ids = {s["id"] for s in own_stubs}
     if body.replace_member_id and body.replace_member_id not in own_ids:
         raise HTTPException(403, "You can only replace your own profile")
+    if own_stubs and body.replace_family_member_id:
+        raise HTTPException(403, "You can only replace your own profile")
     if not own_stubs:
+        sub = find_own_sub_stub(trip.get("members", []), user_email)
+        if not sub:
+            if body.replace_family_member_id:
+                raise HTTPException(403, "You can only replace your own profile")
+            return
+        if (
+            body.replace_family_member_id
+            and body.replace_family_member_id != sub["member_id"]
+        ):
+            raise HTTPException(403, "You can only replace your own profile")
+        family = next(
+            (m for m in trip.get("members", []) if m.get("id") == sub["family_id"]),
+            None,
+        )
+        if not family:
+            return
+        if await family_member_has_financial_history(trip["id"], family, sub["member_id"]):
+            raise HTTPException(
+                409,
+                "This family member has financial history. Ask an admin to correct the saved Gmail.",
+            )
+        idx = sub["member_index"]
+        result = await db.trips.update_one(
+            {"id": trip["id"], "members": {"$elemMatch": {
+                "id": family["id"],
+                f"family_member_user_ids.{idx}": None,
+                f"family_member_emails.{idx}": user_email,
+            }}},
+            {"$set": {f"members.$.family_member_emails.{idx}": None}},
+        )
+        if result.modified_count == 0:
+            raise HTTPException(409, "This family member changed. Enter the trip code again.")
         return
     if len(own_stubs) > 1:
         # Legacy duplicate-email data: surface + warn, never auto-destroy.
         logger.warning("join_new: %d duplicate-email stubs for %s in trip %s; not auto-removing",
                        len(own_stubs), user_email, trip["id"])
-        return
+        raise HTTPException(409, "Multiple profiles match your Gmail. Ask an admin to correct them.")
     stub = own_stubs[0]
     if await member_has_financial_history(trip["id"], stub["id"]):
         raise HTTPException(409, "This profile has expense history — claim it instead of joining as new")
@@ -260,11 +305,19 @@ async def _apply_mode(trip, members, user, user_email, body):
         stubs = find_own_stubs(members, user_email)
         stub = stubs[0] if stubs else None
         if stub:
-            await db.trips.update_one(
-                {"id": trip["id"], "members.id": stub["id"]},
-                {"$push": {"user_ids": user["id"]},
+            result = await db.trips.update_one(
+                {
+                    "id": trip["id"],
+                    "user_ids": {"$ne": user["id"]},
+                    "members": {"$elemMatch": {"id": stub["id"], "user_id": None}},
+                },
+                {"$addToSet": {"user_ids": user["id"]},
                  "$set": {"members.$.user_id": user["id"]}},
             )
+            if result.modified_count == 0:
+                fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+                if not fresh or user["id"] not in fresh.get("user_ids", []):
+                    raise HTTPException(409, "This profile is already linked to another account")
         else:
             # One-email invariant: a genuine new individual can't reuse an email already in the trip
             # (member entity, another family's sub-member email, or a claimed account) — this also
@@ -277,10 +330,14 @@ async def _apply_mode(trip, members, user, user_email, body):
                 "kind": "individual", "family_members": [],
                 "email": user_email, "user_id": user["id"],
             }
-            await db.trips.update_one(
-                {"id": trip["id"]},
-                {"$push": {"user_ids": user["id"], "members": new_member}},
+            result = await db.trips.update_one(
+                {"id": trip["id"], "user_ids": {"$ne": user["id"]}},
+                {"$addToSet": {"user_ids": user["id"]}, "$push": {"members": new_member}},
             )
+            if result.modified_count == 0:
+                fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+                if not fresh or user["id"] not in fresh.get("user_ids", []):
+                    raise HTTPException(409, "The trip changed before you could join")
 
     elif mode == "individual":
         if user_email:
@@ -291,10 +348,14 @@ async def _apply_mode(trip, members, user, user_email, body):
             "kind": "individual", "family_members": [],
             "email": user_email, "user_id": user["id"],
         }
-        await db.trips.update_one(
-            {"id": trip["id"]},
-            {"$push": {"user_ids": user["id"], "members": new_member}},
+        result = await db.trips.update_one(
+            {"id": trip["id"], "user_ids": {"$ne": user["id"]}},
+            {"$addToSet": {"user_ids": user["id"]}, "$push": {"members": new_member}},
         )
+        if result.modified_count == 0:
+            fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+            if not fresh or user["id"] not in fresh.get("user_ids", []):
+                raise HTTPException(409, "The trip changed before you could join")
 
     elif mode == "family":
         # Phase 27: "join existing family" links the caller to a specific UNCLAIMED member SLOT
@@ -322,22 +383,22 @@ async def _apply_mode(trip, members, user, user_email, body):
             raise HTTPException(400, "This member is already linked to another account")
         slot_email = normalize_email(emails[idx] if idx < len(emails) else None)
         set_fields = {f"members.$.family_member_user_ids.{idx}": user["id"]}
-        if user_email:
-            if slot_email and slot_email != user_email:
-                raise HTTPException(400, "This member belongs to a different email")
-            if not slot_email:
-                assert_gmail(user_email)
-                await assert_unique_email_in_trip(trip, user_email)
-                set_fields[f"members.$.family_member_emails.{idx}"] = user_email
+        if not user_email or slot_email != user_email:
+            raise HTTPException(409, detail={
+                "code": "approval_required",
+                "message": "An owner or admin must approve joining as this family member",
+            })
         # Atomic: only while this exact slot is still unclaimed (null matches null OR missing), so a
         # concurrent claim of the same slot loses. Never touches the entity user_id/email.
         res = await db.trips.update_one(
-            {"id": trip["id"], "members": {"$elemMatch": {
+            {"id": trip["id"], "user_ids": {"$ne": user["id"]}, "members": {"$elemMatch": {
                 "id": target["id"], f"family_member_user_ids.{idx}": None}}},
             {"$addToSet": {"user_ids": user["id"]}, "$set": set_fields},
         )
         if res.modified_count == 0:
-            raise HTTPException(409, "This member is already linked to another account")
+            fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+            if not fresh or user["id"] not in fresh.get("user_ids", []):
+                raise HTTPException(409, "This member is already linked to another account")
 
     elif mode == "new_family":
         if not body.family_name:
@@ -364,10 +425,14 @@ async def _apply_mode(trip, members, user, user_email, body):
             "family_member_user_ids": uids,
             "email": None, "user_id": None,
         }
-        await db.trips.update_one(
-            {"id": trip["id"]},
-            {"$push": {"user_ids": user["id"], "members": new_member}},
+        result = await db.trips.update_one(
+            {"id": trip["id"], "user_ids": {"$ne": user["id"]}},
+            {"$addToSet": {"user_ids": user["id"]}, "$push": {"members": new_member}},
         )
+        if result.modified_count == 0:
+            fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+            if not fresh or user["id"] not in fresh.get("user_ids", []):
+                raise HTTPException(409, "The trip changed before you could join")
 
 
 @router.post("/trips/join")
@@ -384,30 +449,37 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
     if not trip:
         raise HTTPException(404, "Trip not found")
     if user["id"] in trip.get("user_ids", []):
+        await cancel_pending_after_join(trip["id"], user["id"])
         return trip  # idempotent — already a member, regardless of action/mode
 
     members = trip.get("members", [])
     user_email = normalize_email(user["email"])
 
     if body.action == "claim":
-        return await _claim_member(trip, members, user, user_email, body)
+        joined = await _claim_member(trip, members, user, user_email, body)
+        await cancel_pending_after_join(trip["id"], user["id"])
+        return joined
 
     own_stubs = find_own_stubs(members, user_email)
 
     if body.action == "join_new":
-        if body.mode not in ("individual", "family", "new_family"):
-            raise HTTPException(400, "mode is required for join_new")
+        if body.mode not in ("individual", "new_family"):
+            raise HTTPException(400, "join_new mode must be individual or new_family")
         await _resolve_clean_stub_for_join_new(trip, own_stubs, user_email, body)
         trip = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})  # fresh after any $pull
         members = trip.get("members", [])
         await _apply_mode(trip, members, user, user_email, body)
-        return await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+        joined = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+        await cancel_pending_after_join(trip["id"], user["id"])
+        return joined
 
     # ---- No explicit action: legacy contract, hardened to never create a duplicate. ----
     if body.mode is None:
         # _apply_mode auto-claims a matching own-email stub (either kind), so no dup is possible.
         await _apply_mode(trip, members, user, user_email, body)
-        return await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+        joined = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+        await cancel_pending_after_join(trip["id"], user["id"])
+        return joined
 
     # Explicit mode without action. Linking the caller's OWN family slot via mode='family' is
     # fine (it claims, not duplicates); any path that would CREATE a new identity while the
@@ -425,7 +497,9 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
             "'join as someone new' to replace it.",
         )
     await _apply_mode(trip, members, user, user_email, body)
-    return await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+    joined = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
+    await cancel_pending_after_join(trip["id"], user["id"])
+    return joined
 
 
 @router.post("/trips/join/preview")
@@ -459,47 +533,35 @@ async def join_preview(body: JoinPreviewRequest, user=Depends(get_current_user))
             "id": m["id"], "name": m["name"], "size": len(names),
             "linked": bool(m.get("user_id")), "open_slots": open_slots,
         })
-    # Match an unclaimed stub carrying the caller's OWN email. An email identifies a PERSON: a
-    # standalone INDIVIDUAL (find_own_stubs) or ONE family sub-member (find_own_sub_stub). The wizard
-    # uses `match` to offer claim-vs-join-new and to gate join-new on financial history.
-    stubs = find_own_stubs(members, user_email)
-    match = None
-    if stubs:
-        stub = stubs[0]
+    # V2 exposes every unlinked person without revealing their saved email. Exact-email matches
+    # remain immediate claims; blank/different-email rows are approval requests.
+    people = await existing_people(trip, user_email)
+    direct_matches = [row for row in people if row["resolution"] == "direct"]
+    if direct_matches:
+        direct = direct_matches[0]
         match = {
-            "member_id": stub["id"],
-            "member_type": "individual",
-            "member_name": stub["name"],
-            "family_id": None,
-            "family_name": None,
-            "has_financial_history": await member_has_financial_history(trip["id"], stub["id"]),
+            "member_id": direct["member_id"],
+            "member_type": direct["kind"],
+            "member_name": direct["name"],
+            "family_id": direct.get("family_id"),
+            "family_name": direct.get("family_name"),
+            "family_member_id": direct.get("family_member_id"),
+            "has_financial_history": direct.get("has_financial_history", False),
+            "can_replace": direct.get("can_replace", False),
         }
-        if len(stubs) > 1:
-            # Legacy duplicate-email data: surface every match, never auto-destroy.
-            logger.warning(
-                "join/preview: %d duplicate-email stubs for %s in trip %s; surfacing all, not deleting",
-                len(stubs), user_email, trip["id"],
-            )
-    else:
-        # Phase 25: try a per-member email match (link the caller to ONE family sub-member). Reported
-        # claim-only (has_financial_history=True routes the wizard's claim-only path): the email sits
-        # on that member by admin intent, and "join as new" while the sub-email is still present would
-        # violate the one-email invariant.
-        sub = find_own_sub_stub(members, user_email)
-        if sub:
-            match = {
-                "member_id": sub["family_id"],
-                "member_type": "family_member",
-                "member_name": sub["member_name"],
-                "family_id": sub["family_id"],
-                "family_name": sub["family_name"],
-                "family_member_id": sub["member_id"],
-                "has_financial_history": True,
+        match_conflicts = [
+            {
+                "member_id": row["member_id"],
+                "member_name": row["name"],
+                "member_type": row["kind"],
+                "family_member_id": row.get("family_member_id"),
             }
-    match_conflicts = [
-        {"member_id": m["id"], "member_name": m["name"], "member_type": "individual"}
-        for m in stubs[1:]
-    ] or None
+            for row in direct_matches[1:]
+        ] or None
+    else:
+        match = None
+        match_conflicts = None
+    pending = await active_join_request(trip["id"], user["id"])
     # Back-compat: `matched_family` (the retired whole-family-entity match) is always null now.
     matched_family = None
     return {
@@ -512,8 +574,10 @@ async def join_preview(body: JoinPreviewRequest, user=Depends(get_current_user))
         "already_member": user["id"] in trip.get("user_ids", []),
         "matched_family": matched_family,
         "families": families,
+        "existing_people": people,
         "match": match,
         "match_conflicts": match_conflicts,
+        "active_request": join_request_payload(pending) if pending else None,
     }
 
 

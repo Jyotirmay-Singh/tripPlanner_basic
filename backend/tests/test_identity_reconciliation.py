@@ -97,7 +97,8 @@ class TestPreviewMatch(_Base):
 
     def test_match_family_member_stub(self, api_client, test_user):
         # Phase 26: a family carries no entity email; the joiner's Gmail matches a MEMBER's email, so
-        # preview surfaces a per-member (claim-only) match. The legacy `matched_family` stays null.
+        # preview surfaces a per-member direct match. Because this slot is clean, the caller can
+        # also reject the incorrect Gmail assignment. The legacy `matched_family` stays null.
         trip = self._create_trip(api_client, test_user["token"])
         joiner = self._register(api_client)
         fam = self._add_member(api_client, test_user["token"], trip["id"],
@@ -110,6 +111,8 @@ class TestPreviewMatch(_Base):
         assert m["family_id"] == fam["id"]
         assert m["family_name"] == "TEST_Stub Fam"
         assert m["family_member_id"] == fam["family_member_ids"][0]
+        assert m["has_financial_history"] is False
+        assert m["can_replace"] is True
         assert data["matched_family"] is None
 
     def test_match_history_via_expense(self, api_client, test_user):
@@ -282,7 +285,7 @@ class TestJoinNew(_Base):
         assert fam.get("user_id") is None
         assert fam["family_member_user_ids"][0] == joiner["id"]
 
-    def test_existing_family_removes_clean_stub(self, api_client, test_user):
+    def test_join_new_cannot_replace_a_stub_into_an_existing_family(self, api_client, test_user):
         trip = self._create_trip(api_client, test_user["token"])
         joiner = self._register(api_client)
         stub = self._add_member(api_client, test_user["token"], trip["id"],
@@ -293,13 +296,13 @@ class TestJoinNew(_Base):
             "code": trip["code"], "action": "join_new", "mode": "family",
             "family_id": openfam["id"], "family_member_id": openfam["family_member_ids"][0],
         })
-        assert resp.status_code == 200, resp.text
-        data = resp.json()
-        assert stub["id"] not in {m["id"] for m in data["members"]}
-        # Phase 27: linking targets the member SLOT, never the family entity.
+        assert resp.status_code == 400, resp.text
+        # Existing-person joins use claim or approval and must never delete the exact-email stub
+        # before the destination is authorized.
+        data = self._get_trip(api_client, test_user["token"], trip["id"])
+        assert stub["id"] in {m["id"] for m in data["members"]}
         linked = next(m for m in data["members"] if m["id"] == openfam["id"])
-        assert linked.get("user_id") is None
-        assert linked["family_member_user_ids"][0] == joiner["id"]
+        assert linked["family_member_user_ids"][0] is None
 
     def test_history_stub_blocked_even_with_replace_hint(self, api_client, test_user):
         trip = self._create_trip(api_client, test_user["token"])
@@ -331,7 +334,29 @@ class TestJoinNew(_Base):
                           paid_by=owner_id, split=[owner_id, fam["id"]])
         resp = self._join(api_client, joiner["token"],
                           {"code": trip["code"], "action": "join_new", "mode": "individual"})
-        assert resp.status_code == 400, resp.text
+        assert resp.status_code == 409, resp.text
+
+    def test_clean_incorrect_family_member_email_can_be_detached(self, api_client, test_user):
+        trip = self._create_trip(api_client, test_user["token"])
+        joiner = self._register(api_client, name="Actual Joiner")
+        fam = self._add_member(api_client, test_user["token"], trip["id"],
+                               "TEST_Wrong Fam", kind="family", family_members=["Wrong Priya"],
+                               family_member_emails=[joiner["email"]])
+        slot = fam["family_member_ids"][0]
+
+        resp = self._join(api_client, joiner["token"], {
+            "code": trip["code"], "action": "join_new", "mode": "individual",
+            "replace_family_member_id": slot,
+        })
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        retained_family = next(member for member in data["members"] if member["id"] == fam["id"])
+        assert retained_family["family_members"] == ["Wrong Priya"]
+        assert retained_family["family_member_emails"][0] is None
+        assert retained_family["family_member_user_ids"][0] is None
+        me = next(member for member in data["members"] if member.get("user_id") == joiner["id"])
+        assert me["name"] == "Actual Joiner"
 
     def test_settlement_only_history_forces_claim(self, api_client, test_user):
         trip = self._create_trip(api_client, test_user["token"])
