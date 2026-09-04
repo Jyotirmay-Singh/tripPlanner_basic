@@ -1,8 +1,8 @@
 """Durable, privacy-preserving Android push delivery through the Expo Push Service.
 
-Financial writes only enqueue an idempotent event. A best-effort FastAPI background task sends it
+Business writes only enqueue an idempotent event. A best-effort FastAPI background task sends it
 immediately, while the single-process dispatcher reclaims due or interrupted work from MongoDB.
-No payment details are ever copied into a notification or an application log.
+No financial details, chat text, names, or push tokens are copied into notification copy or logs.
 """
 
 import asyncio
@@ -25,11 +25,34 @@ from utils.common import now_utc
 EXPO_SEND_URL = "https://exp.host/--/api/v2/push/send"
 EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts"
 PUSH_TITLE = "Trip Splitter"
-PUSH_BODY = "There's new activity in one of your trips."
 PUSH_CHANNEL_ID = "trip_activity"
 
+# This map is the notification contract. Callers provide an event type and source id; routing,
+# lock-screen copy, and the type-specific payload key are derived here so they cannot drift apart.
+_EVENT_DEFINITIONS = {
+    "expense.created": {
+        "target": "trip_expenses",
+        "id_key": "expenseId",
+        "body": "A new expense was added to one of your trips.",
+    },
+    "payment.recorded": {
+        "target": "settle_up",
+        "id_key": "paymentId",
+        "body": "A payment was recorded in one of your trips.",
+    },
+    "settlement.paid": {
+        "target": "settle_up",
+        "id_key": "settlementId",
+        "body": "A settlement was marked paid in one of your trips.",
+    },
+    "chat.message.created": {
+        "target": "trip_chat",
+        "id_key": "messageId",
+        "body": "A new group message was sent in one of your trips.",
+    },
+}
+
 _ACTIVE_EVENT_STATUSES = ("pending", "waiting", "processing")
-_TARGETS = ("trip_expenses", "settle_up")
 _LEASE_SECONDS = 120
 _RECEIPT_DELAY_SECONDS = 15 * 60
 _RECEIPT_RETRY_SECONDS = 5 * 60
@@ -51,7 +74,9 @@ def recipient_user_ids(trip: dict, actor_user_id: str) -> list[str]:
     seen: set[str] = set()
     recipients: list[str] = []
     for raw_user_id in trip.get("user_ids", []):
-        user_id = str(raw_user_id)
+        if raw_user_id is None:
+            continue
+        user_id = str(raw_user_id).strip()
         if not user_id or user_id == actor_user_id or user_id in seen:
             continue
         seen.add(user_id)
@@ -59,48 +84,69 @@ def recipient_user_ids(trip: dict, actor_user_id: str) -> list[str]:
     return recipients
 
 
+def notification_event_key(event_type: str, source_id: str) -> str:
+    """Return the stable deduplication key for one committed business event."""
+    return f"{event_type}:{source_id}"
+
+
 def build_expo_message(event: dict, delivery: dict) -> dict:
-    """Build the only allowed lock-screen payload; intentionally excludes financial data."""
+    """Build an allowlisted lock-screen payload without private trip activity data."""
+    definition = _EVENT_DEFINITIONS.get(event.get("event_type"))
+    if not definition:
+        raise ValueError("unsupported notification event type")
+    source_id = event["source_id"]
+    data = {
+        "payloadVersion": 1,
+        "eventKey": event["event_key"],
+        "eventType": event["event_type"],
+        "tripId": event["trip_id"],
+        "target": definition["target"],
+        "sourceId": source_id,
+        definition["id_key"]: source_id,
+    }
     return {
         "to": delivery["token"],
         "title": PUSH_TITLE,
-        "body": PUSH_BODY,
+        "body": definition["body"],
         "sound": "default",
         "channelId": PUSH_CHANNEL_ID,
-        "priority": "default",
-        "data": {
-            "eventKey": event["event_key"],
-            "tripId": event["trip_id"],
-            "target": event["target"],
-        },
+        "priority": "high",
+        "data": data,
     }
 
 
-async def enqueue_financial_event(
+async def enqueue_notification_event(
     *,
-    event_key: str,
     event_type: str,
     source_id: str,
     trip_id: str,
     actor_user_id: str,
-    target: str,
     background_tasks: Any = None,
 ) -> bool:
     """Persist one idempotent event without ever failing the completed business operation."""
+    stable_event_key = notification_event_key(event_type, source_id)
     if not PUSH_NOTIFICATIONS_ENABLED:
+        logger.info(
+            "push.event_skipped event_key=%s event_type=%s trip_id=%s reason=disabled",
+            stable_event_key, event_type, trip_id,
+        )
         return False
-    if target not in _TARGETS:
-        logger.error("Push outbox rejected an invalid target for event %s", event_key)
+    definition = _EVENT_DEFINITIONS.get(event_type)
+    if not definition:
+        logger.error(
+            "push.event_rejected event_key=%s event_type=%s trip_id=%s reason=invalid_type",
+            stable_event_key, event_type, trip_id,
+        )
         return False
 
     timestamp = now_utc()
     document = {
-        "event_key": event_key,
+        "event_key": stable_event_key,
         "event_type": event_type,
         "source_id": source_id,
         "trip_id": trip_id,
         "actor_user_id": actor_user_id,
-        "target": target,
+        "target": definition["target"],
         "status": "pending",
         "attempts": 0,
         "next_attempt_at": timestamp,
@@ -113,27 +159,72 @@ async def enqueue_financial_event(
         "completed_at": None,
     }
     inserted = False
-    try:
-        await db.notification_outbox.insert_one(document)
-        inserted = True
-    except DuplicateKeyError:
-        # A retry of the originating API call must not fan out a second notification.
-        pass
-    except Exception as exc:
-        logger.error(
-            "Could not enqueue push event %s (%s)", event_key, type(exc).__name__,
-        )
-        return False
+    for attempt in range(1, 4):
+        try:
+            await db.notification_outbox.insert_one(document)
+            inserted = True
+            break
+        except DuplicateKeyError:
+            # A retry of the originating API call must not fan out a second notification.
+            break
+        except Exception as exc:
+            if attempt == 3:
+                logger.error(
+                    "push.event_enqueue_failed event_key=%s event_type=%s trip_id=%s "
+                    "attempt=%s error_type=%s",
+                    stable_event_key, event_type, trip_id, attempt, type(exc).__name__,
+                )
+                return False
+            logger.warning(
+                "push.event_enqueue_retry event_key=%s event_type=%s trip_id=%s "
+                "attempt=%s error_type=%s",
+                stable_event_key, event_type, trip_id, attempt, type(exc).__name__,
+            )
+            await asyncio.sleep(0.05 * attempt)
+
+    logger.info(
+        "push.event_enqueued event_key=%s event_type=%s trip_id=%s inserted=%s",
+        stable_event_key, event_type, trip_id, inserted,
+    )
 
     if background_tasks is not None:
         try:
-            background_tasks.add_task(dispatch_outbox_event, event_key)
+            background_tasks.add_task(dispatch_outbox_event, stable_event_key)
         except Exception as exc:
             logger.error(
-                "Could not schedule immediate push event %s (%s)",
-                event_key, type(exc).__name__,
+                "push.event_schedule_failed event_key=%s event_type=%s trip_id=%s "
+                "error_type=%s",
+                stable_event_key, event_type, trip_id, type(exc).__name__,
             )
     return inserted
+
+
+async def enqueue_financial_event(
+    *,
+    event_key: str,
+    event_type: str,
+    source_id: str,
+    trip_id: str,
+    actor_user_id: str,
+    target: str,
+    background_tasks: Any = None,
+) -> bool:
+    """Backward-compatible wrapper for callers deployed with the original internal contract."""
+    definition = _EVENT_DEFINITIONS.get(event_type)
+    if not definition or event_key != notification_event_key(event_type, source_id) \
+            or target != definition["target"]:
+        logger.error(
+            "push.event_rejected event_key=%s event_type=%s trip_id=%s reason=contract_mismatch",
+            event_key, event_type, trip_id,
+        )
+        return False
+    return await enqueue_notification_event(
+        event_type=event_type,
+        source_id=source_id,
+        trip_id=trip_id,
+        actor_user_id=actor_user_id,
+        background_tasks=background_tasks,
+    )
 
 
 async def _expo_post(url: str, payload: Any) -> tuple[int, Any]:
@@ -212,6 +303,10 @@ async def _deactivate_delivery_device(delivery: dict) -> None:
             "updated_at": now_utc(),
         }},
     )
+    logger.info(
+        "push.device_deactivated installation_id=%s reason=device_not_registered",
+        delivery["installation_id"],
+    )
 
 
 async def _prepare_deliveries(event: dict, timestamp: datetime) -> bool:
@@ -229,6 +324,11 @@ async def _prepare_deliveries(event: dict, timestamp: datetime) -> bool:
                 "completed_at": timestamp,
                 "updated_at": timestamp,
             }},
+        )
+        logger.warning(
+            "push.delivery_snapshot_failed event_key=%s event_type=%s trip_id=%s "
+            "reason=trip_missing",
+            event["event_key"], event.get("event_type"), event["trip_id"],
         )
         return False
 
@@ -272,6 +372,12 @@ async def _prepare_deliveries(event: dict, timestamp: datetime) -> bool:
             "delivery_snapshot_at": timestamp,
             "updated_at": timestamp,
         }},
+    )
+    logger.info(
+        "push.delivery_snapshot event_key=%s event_type=%s trip_id=%s "
+        "recipient_count=%s device_count=%s",
+        event["event_key"], event.get("event_type"), event["trip_id"],
+        len(recipients), len(deliveries),
     )
     return True
 
@@ -330,6 +436,10 @@ async def _send_due_deliveries(event: dict, timestamp: datetime) -> None:
     for delivery in due:
         delivery["attempts"] = delivery.get("attempts", 0) + 1
     messages = [build_expo_message(event, delivery) for delivery in due]
+    logger.info(
+        "push.dispatch_started event_key=%s event_type=%s trip_id=%s delivery_count=%s",
+        event["event_key"], event.get("event_type"), event["trip_id"], len(due),
+    )
     try:
         status_code, response = await _expo_post(EXPO_SEND_URL, messages)
     except Exception as exc:
@@ -337,18 +447,35 @@ async def _send_due_deliveries(event: dict, timestamp: datetime) -> None:
         for delivery in due:
             _retry_delivery(delivery, code, event, timestamp)
         await _persist_delivery_state(event, timestamp)
+        logger.warning(
+            "push.dispatch_retry event_key=%s event_type=%s trip_id=%s delivery_count=%s "
+            "reason=%s",
+            event["event_key"], event.get("event_type"), event["trip_id"], len(due), code,
+        )
         return
 
     if status_code == 429 or status_code >= 500 or status_code in (401, 403):
         for delivery in due:
             _retry_delivery(delivery, f"expo_http_{status_code}", event, timestamp)
         await _persist_delivery_state(event, timestamp)
+        logger.warning(
+            "push.dispatch_retry event_key=%s event_type=%s trip_id=%s delivery_count=%s "
+            "reason=expo_http_%s",
+            event["event_key"], event.get("event_type"), event["trip_id"],
+            len(due), status_code,
+        )
         return
     if status_code >= 400:
         for delivery in due:
             delivery.update({"status": "dead", "next_attempt_at": None,
                              "last_error": f"expo_http_{status_code}"})
         await _persist_delivery_state(event, timestamp)
+        logger.error(
+            "push.dispatch_rejected event_key=%s event_type=%s trip_id=%s delivery_count=%s "
+            "reason=expo_http_%s",
+            event["event_key"], event.get("event_type"), event["trip_id"],
+            len(due), status_code,
+        )
         return
 
     tickets = response.get("data") if isinstance(response, dict) else None
@@ -356,10 +483,23 @@ async def _send_due_deliveries(event: dict, timestamp: datetime) -> None:
         for delivery in due:
             _retry_delivery(delivery, "malformed_expo_response", event, timestamp)
         await _persist_delivery_state(event, timestamp)
+        logger.warning(
+            "push.dispatch_retry event_key=%s event_type=%s trip_id=%s delivery_count=%s "
+            "reason=malformed_expo_response",
+            event["event_key"], event.get("event_type"), event["trip_id"], len(due),
+        )
         return
     for delivery, ticket in zip(due, tickets):
         await _handle_ticket(event, delivery, ticket, timestamp)
     await _persist_delivery_state(event, timestamp)
+    status_counts: dict[str, int] = {}
+    for delivery in due:
+        status = str(delivery.get("status", "unknown"))
+        status_counts[status] = status_counts.get(status, 0) + 1
+    logger.info(
+        "push.dispatch_ticketed event_key=%s event_type=%s trip_id=%s statuses=%s",
+        event["event_key"], event.get("event_type"), event["trip_id"], status_counts,
+    )
 
 
 async def _handle_receipt(delivery: dict, receipt: Any, timestamp: datetime) -> None:
@@ -408,18 +548,35 @@ async def _poll_due_receipts(event: dict, timestamp: datetime) -> None:
         for delivery in due:
             _retry_receipt(delivery, code, timestamp)
         await _persist_delivery_state(event, timestamp)
+        logger.warning(
+            "push.receipt_retry event_key=%s event_type=%s trip_id=%s delivery_count=%s "
+            "reason=%s",
+            event["event_key"], event.get("event_type"), event["trip_id"], len(due), code,
+        )
         return
 
     if status_code == 429 or status_code >= 500 or status_code in (401, 403):
         for delivery in due:
             _retry_receipt(delivery, f"expo_receipt_http_{status_code}", timestamp)
         await _persist_delivery_state(event, timestamp)
+        logger.warning(
+            "push.receipt_retry event_key=%s event_type=%s trip_id=%s delivery_count=%s "
+            "reason=expo_http_%s",
+            event["event_key"], event.get("event_type"), event["trip_id"],
+            len(due), status_code,
+        )
         return
     if status_code >= 400:
         for delivery in due:
             delivery.update({"status": "dead", "receipt_check_at": None,
                              "last_error": f"expo_receipt_http_{status_code}"})
         await _persist_delivery_state(event, timestamp)
+        logger.error(
+            "push.receipt_rejected event_key=%s event_type=%s trip_id=%s delivery_count=%s "
+            "reason=expo_http_%s",
+            event["event_key"], event.get("event_type"), event["trip_id"],
+            len(due), status_code,
+        )
         return
 
     receipts = response.get("data") if isinstance(response, dict) else None
@@ -427,6 +584,11 @@ async def _poll_due_receipts(event: dict, timestamp: datetime) -> None:
         for delivery in due:
             _retry_receipt(delivery, "malformed_expo_receipts_response", timestamp)
         await _persist_delivery_state(event, timestamp)
+        logger.warning(
+            "push.receipt_retry event_key=%s event_type=%s trip_id=%s delivery_count=%s "
+            "reason=malformed_expo_response",
+            event["event_key"], event.get("event_type"), event["trip_id"], len(due),
+        )
         return
     for delivery in due:
         receipt = receipts.get(delivery["ticket_id"])
@@ -435,6 +597,14 @@ async def _poll_due_receipts(event: dict, timestamp: datetime) -> None:
         else:
             await _handle_receipt(delivery, receipt, timestamp)
     await _persist_delivery_state(event, timestamp)
+    status_counts: dict[str, int] = {}
+    for delivery in due:
+        status = str(delivery.get("status", "unknown"))
+        status_counts[status] = status_counts.get(status, 0) + 1
+    logger.info(
+        "push.receipts_checked event_key=%s event_type=%s trip_id=%s statuses=%s",
+        event["event_key"], event.get("event_type"), event["trip_id"], status_counts,
+    )
 
 
 async def _finalize_event(event: dict, timestamp: datetime) -> None:
@@ -479,6 +649,12 @@ async def _finalize_event(event: dict, timestamp: datetime) -> None:
             "last_error": last_error,
             "updated_at": timestamp,
         }},
+    )
+    logger.info(
+        "push.event_state event_key=%s event_type=%s trip_id=%s status=%s "
+        "delivery_count=%s last_error=%s",
+        event["event_key"], event.get("event_type"), event["trip_id"], status,
+        len(deliveries), last_error,
     )
 
 
@@ -570,8 +746,18 @@ async def _dispatcher_loop(stop_event: asyncio.Event) -> None:
 
 async def start_push_dispatcher() -> None:
     global _dispatcher_task, _dispatcher_stop
-    if not PUSH_NOTIFICATIONS_ENABLED or (_dispatcher_task and not _dispatcher_task.done()):
+    if not PUSH_NOTIFICATIONS_ENABLED:
+        logger.info(
+            "push.dispatcher_config enabled=false expo_access_token_configured=%s",
+            bool(EXPO_PUSH_ACCESS_TOKEN),
+        )
         return
+    if _dispatcher_task and not _dispatcher_task.done():
+        return
+    logger.info(
+        "push.dispatcher_config enabled=true expo_access_token_configured=%s",
+        bool(EXPO_PUSH_ACCESS_TOKEN),
+    )
     if not EXPO_PUSH_ACCESS_TOKEN:
         logger.warning(
             "Push notifications are enabled without EXPO_PUSH_ACCESS_TOKEN; "

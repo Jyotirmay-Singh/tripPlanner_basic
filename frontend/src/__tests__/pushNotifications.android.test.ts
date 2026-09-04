@@ -99,8 +99,11 @@ async function pressRationale(label: 'Not now' | 'Enable notifications') {
 }
 
 describe('Android push notification registration', () => {
+  let info: jest.SpyInstance;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    info = jest.spyOn(console, 'info').mockImplementation(() => {});
     mockStorage.clear();
     mockConstants.expoConfig = { extra: { eas: { projectId: 'test-project-id' } } };
     mockConstants.easConfig = null;
@@ -121,6 +124,8 @@ describe('Android push notification registration', () => {
     ));
   });
 
+  afterEach(() => info.mockRestore());
+
   it('does not prompt or register a signed-in account without any trips', async () => {
     mockApi.mockResolvedValueOnce([]);
 
@@ -140,7 +145,7 @@ describe('Android push notification registration', () => {
     await expect(firstSync).resolves.toBe('undetermined');
     expect(mockAlert).toHaveBeenCalledWith(
       'Stay updated on your trips',
-      expect.stringContaining('Amounts and names are never shown on the lock screen.'),
+      expect.stringContaining('Amounts, names, and message text are never shown on the lock screen.'),
       expect.any(Array),
       { cancelable: false },
     );
@@ -161,7 +166,7 @@ describe('Android push notification registration', () => {
     expect(mockRequestPermissions).toHaveBeenCalledTimes(1);
     expect(mockSetNotificationChannel).toHaveBeenCalledWith('trip_activity', expect.objectContaining({
       name: 'Trip activity',
-      description: 'Private updates when expenses or payments change',
+      description: 'Private updates for expenses, payments, settlements, and group messages',
       importance: 4,
       lockscreenVisibility: 0,
     }));
@@ -218,6 +223,21 @@ describe('Android push notification registration', () => {
     expect(mockGetExpoPushToken).not.toHaveBeenCalled();
   });
 
+  it('deactivates a previously registered installation after permission is revoked', async () => {
+    mockStorage.set('push_installation_id', '12345678-1234-4678-9234-567812345678');
+    mockGetPermissions.mockResolvedValue(permission('denied'));
+
+    await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: false }))
+      .resolves.toBe('denied');
+
+    expect(mockApi).toHaveBeenCalledWith('/trips');
+    expect(mockApi).toHaveBeenCalledWith(
+      '/push/devices/12345678-1234-4678-9234-567812345678?reason=permission_denied',
+      { method: 'DELETE' },
+    );
+    expect(mockGetExpoPushToken).not.toHaveBeenCalled();
+  });
+
   it('opens Android settings for denied permission and rechecks the resulting state', async () => {
     mockGetPermissions
       .mockResolvedValueOnce(permission('denied'))
@@ -271,6 +291,11 @@ describe('Android push notification registration', () => {
     expect(log).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith(
+      '[push-notifications] registration_unavailable',
+      { reason: 'native_token_error' },
+    );
+    expect(JSON.stringify(info.mock.calls)).not.toContain('private-value');
     log.mockRestore();
     warn.mockRestore();
     error.mockRestore();

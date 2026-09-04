@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Share, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -167,7 +167,14 @@ function BudgetUsageCard({ spent, budget, currency }: BudgetUsageCardProps) {
 }
 
 export default function TripDetail() {
-  const { id, tab: tabParam } = useLocalSearchParams<{ id: string; tab?: string }>();
+  const {
+    id,
+    tab: tabParam,
+    expenseId: notificationExpenseId,
+    messageId: notificationMessageId,
+  } = useLocalSearchParams<{
+    id: string; tab?: string; expenseId?: string; messageId?: string;
+  }>();
   const { colors, mode } = useTheme();
   const { user, chatCapability, handleAuthenticationRequired } = useAuth();
   const router = useRouter();
@@ -187,6 +194,13 @@ export default function TripDetail() {
   const [viewerUri, setViewerUri] = useState<string | null>(null);
   // Per-expense "Split details" disclosure state (collapsed by default), keyed by expense id.
   const [expandedShares, setExpandedShares] = useState<Record<string, boolean>>({});
+  const notificationScrollRef = useRef<ScrollView>(null);
+  const expensesSectionY = useRef(0);
+  const focusedExpenseId = useRef<string | null>(null);
+
+  useEffect(() => {
+    focusedExpenseId.current = null;
+  }, [notificationExpenseId]);
   // One themed confirm dialog drives both trip-delete and per-expense-delete.
   const [confirm, setConfirm] = useState<null | { title: string; message?: string; onYes: () => void; yesId?: string }>(null);
 
@@ -331,6 +345,7 @@ export default function TripDetail() {
           currentUserId={user?.id}
           isOwner={trip.owner_id === user?.id}
           canSend={!!optimisticSender}
+          focusMessageId={notificationMessageId}
         />
         {tripConfirmModal}
       </SafeAreaView>
@@ -340,6 +355,7 @@ export default function TripDetail() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom', 'left', 'right']}>
       <ScrollView
+        ref={notificationScrollRef}
         contentContainerStyle={{ padding: SPACING.lg, alignItems: 'center' }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor={colors.primary} />}
       >
@@ -423,11 +439,28 @@ export default function TripDetail() {
           })()}
 
           {tab === 'expenses' && (
-            <View style={{ gap: SPACING.sm }}>
+            <View
+              style={{ gap: SPACING.sm }}
+              onLayout={(event) => { expensesSectionY.current = event.nativeEvent.layout.y; }}
+            >
               {expenses.length === 0 ? (
                 <EmptyState icon="receipt" title="No transactions yet" body="Add an expense (or a negative amount for money back) to start tracking this trip." ctaLabel="Add transaction" ctaIcon="plus" onCta={() => router.push(`/trip/${id}/add-expense`)} testID="expenses-empty" />
               ) : sortExpensesDesc(expenses).map((e) => (
-                <Card key={e.id} onPress={() => router.push({ pathname: '/trip/[id]/edit-expense', params: { id: id as string, eid: e.id } })}
+                <View
+                  key={e.id}
+                  onLayout={(event) => {
+                    if (e.id !== notificationExpenseId || focusedExpenseId.current === e.id) return;
+                    focusedExpenseId.current = e.id;
+                    const y = expensesSectionY.current + event.nativeEvent.layout.y;
+                    requestAnimationFrame(() => notificationScrollRef.current?.scrollTo({
+                      y: Math.max(0, y - SPACING.lg), animated: false,
+                    }));
+                  }}
+                >
+                <Card onPress={() => router.push({ pathname: '/trip/[id]/edit-expense', params: { id: id as string, eid: e.id } })}
+                  style={e.id === notificationExpenseId
+                    ? { borderColor: colors.primary, borderWidth: 2 }
+                    : undefined}
                   testID={`expense-item-${e.id}`}>
                   <View style={styles.rowCard}>
                     <View style={[styles.catDot, { backgroundColor: e.amount < 0 ? colors.success : colors.primary }]} />
@@ -513,6 +546,7 @@ export default function TripDetail() {
                     );
                   })()}
                 </Card>
+                </View>
               ))}
             </View>
           )}

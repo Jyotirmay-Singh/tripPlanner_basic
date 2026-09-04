@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 from pymongo.errors import DuplicateKeyError
 
 from models.chat import ChatMessageCreate, ChatMessagePatch
@@ -44,7 +44,10 @@ def test_create_persists_before_broadcast_and_snapshots_sender(monkeypatch):
         AsyncMock(return_value={"latest_sequence": 7, "cleared_through_sequence": 0}),
     )
     broadcast = AsyncMock()
+    enqueue = AsyncMock()
     monkeypatch.setattr(chat, "_broadcast", broadcast)
+    monkeypatch.setattr(chat, "enqueue_notification_event", enqueue)
+    background = BackgroundTasks()
 
     result = run(chat.create_chat_message(
         "t1",
@@ -52,6 +55,7 @@ def test_create_persists_before_broadcast_and_snapshots_sender(monkeypatch):
             client_message_id="12345678-1234-5678-1234-567812345678",
             text="Meet in the lobby",
         ),
+        background,
         user={"id": "u1"},
     ))
 
@@ -61,7 +65,54 @@ def test_create_persists_before_broadcast_and_snapshots_sender(monkeypatch):
     assert stored["text"] == "Meet in the lobby"
     assert result["id"] == stored["id"]
     assert messages.insert_one.await_count == 1
+    enqueue.assert_awaited_once_with(
+        event_type="chat.message.created",
+        source_id=stored["id"],
+        trip_id="t1",
+        actor_user_id="u1",
+        background_tasks=background,
+    )
     assert broadcast.await_count == 1
+
+
+def test_clear_history_race_removes_message_without_notification(monkeypatch):
+    messages = SimpleNamespace(
+        find_one=AsyncMock(return_value=None),
+        insert_one=AsyncMock(return_value=SimpleNamespace(inserted_id="mongo")),
+        delete_one=AsyncMock(),
+    )
+    counters = SimpleNamespace(
+        find_one_and_update=AsyncMock(return_value={"latest_sequence": 7})
+    )
+    monkeypatch.setattr(chat, "db", SimpleNamespace(
+        chat_messages=messages, chat_counters=counters,
+    ))
+    monkeypatch.setattr(chat, "_trip_or_404", AsyncMock(return_value=TRIP))
+    monkeypatch.setattr(
+        chat,
+        "_chat_state",
+        AsyncMock(return_value={"latest_sequence": 7, "cleared_through_sequence": 7}),
+    )
+    enqueue = AsyncMock()
+    broadcast = AsyncMock()
+    monkeypatch.setattr(chat, "enqueue_notification_event", enqueue)
+    monkeypatch.setattr(chat, "_broadcast", broadcast)
+
+    with pytest.raises(HTTPException) as error:
+        run(chat.create_chat_message(
+            "t1",
+            ChatMessageCreate(
+                client_message_id="12345678-1234-5678-1234-567812345678",
+                text="Do not resurrect this message",
+            ),
+            BackgroundTasks(),
+            user={"id": "u1"},
+        ))
+
+    assert error.value.status_code == 409
+    messages.delete_one.assert_awaited_once()
+    enqueue.assert_not_awaited()
+    broadcast.assert_not_awaited()
 
 
 def test_idempotent_retry_returns_existing_without_allocating_sequence(monkeypatch):
@@ -74,16 +125,20 @@ def test_idempotent_retry_returns_existing_without_allocating_sequence(monkeypat
     counters = SimpleNamespace(find_one_and_update=AsyncMock())
     monkeypatch.setattr(chat, "db", SimpleNamespace(chat_messages=messages, chat_counters=counters))
     monkeypatch.setattr(chat, "_trip_or_404", AsyncMock(return_value=TRIP))
+    enqueue = AsyncMock()
+    monkeypatch.setattr(chat, "enqueue_notification_event", enqueue)
 
     result = run(chat.create_chat_message(
         "t1",
         ChatMessageCreate(
             client_message_id="12345678-1234-5678-1234-567812345678", text="Already stored"
         ),
+        BackgroundTasks(),
         user={"id": "u1"},
     ))
     assert result["id"] == "m1"
     counters.find_one_and_update.assert_not_awaited()
+    enqueue.assert_not_awaited()
 
 
 def test_concurrent_idempotent_retry_handles_only_duplicate_key(monkeypatch):
@@ -101,17 +156,21 @@ def test_concurrent_idempotent_retry_handles_only_duplicate_key(monkeypatch):
     )
     monkeypatch.setattr(chat, "db", SimpleNamespace(chat_messages=messages, chat_counters=counters))
     monkeypatch.setattr(chat, "_trip_or_404", AsyncMock(return_value=TRIP))
+    enqueue = AsyncMock()
+    monkeypatch.setattr(chat, "enqueue_notification_event", enqueue)
 
     result = run(chat.create_chat_message(
         "t1",
         ChatMessageCreate(
             client_message_id="12345678-1234-5678-1234-567812345678", text="Already stored"
         ),
+        BackgroundTasks(),
         user={"id": "u1"},
     ))
 
     assert result["id"] == "m1"
     messages.insert_one.assert_awaited_once()
+    enqueue.assert_not_awaited()
 
 
 def test_only_sender_can_edit_or_delete(monkeypatch):

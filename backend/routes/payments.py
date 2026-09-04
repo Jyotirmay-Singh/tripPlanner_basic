@@ -11,7 +11,7 @@ from utils.settlement_gate import (
     payable_tolerance,
     validate_new_amount,
 )
-from services.push_notifications import enqueue_financial_event
+from services.push_notifications import enqueue_notification_event
 
 router = APIRouter()
 
@@ -75,13 +75,11 @@ async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: Ba
         raise HTTPException(409, "Balances changed, please refresh and retry")
     await db.payments.insert_one(doc)
     doc.pop("_id", None)
-    await enqueue_financial_event(
-        event_key=f"payment.recorded:{doc['id']}",
+    await enqueue_notification_event(
         event_type="payment.recorded",
         source_id=doc["id"],
         trip_id=trip_id,
         actor_user_id=user["id"],
-        target="settle_up",
         background_tasks=background_tasks,
     )
     return doc

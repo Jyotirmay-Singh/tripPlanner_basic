@@ -10,7 +10,7 @@ from utils.common import gen_id, now_utc
 from utils.deps import get_current_user, _trip_or_404, _expense_modify_or_403
 from services.receipts import delete_receipts_for_expense
 from services.expense_shares import expense_share_breakdown
-from services.push_notifications import enqueue_financial_event
+from services.push_notifications import enqueue_notification_event
 from services.exchange_rates import ExchangeRateError, decimal_value, error_detail, money
 from services.expense_conversion import (
     convert_create_body,
@@ -201,13 +201,11 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
     doc["conversion_history"] = [converted["history"]]
     await db.expenses.insert_one(doc)
     doc.pop("_id", None)
-    await enqueue_financial_event(
-        event_key=f"expense.created:{eid}",
+    await enqueue_notification_event(
         event_type="expense.created",
         source_id=eid,
         trip_id=trip_id,
         actor_user_id=user["id"],
-        target="trip_expenses",
         background_tasks=background_tasks,
     )
     return {"expense": serialize_bson(doc), "warning": warning}

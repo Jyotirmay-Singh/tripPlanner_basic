@@ -1,6 +1,6 @@
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, WebSocket
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 from starlette.websockets import WebSocketDisconnect
@@ -10,6 +10,7 @@ from database import db
 from models.chat import ChatMessageCreate, ChatMessagePatch, ChatReadIn
 from services.chat import public_chat_message, resolve_chat_sender
 from services.chat_realtime import chat_connections
+from services.push_notifications import enqueue_notification_event
 from utils.common import gen_id, now_utc
 from utils.deps import get_current_user, _trip_or_404, _trip_owner_or_403
 from utils.security import decode_token
@@ -86,7 +87,10 @@ async def list_chat_messages(
 
 @router.post("/trips/{trip_id}/chat/messages")
 async def create_chat_message(
-    trip_id: str, body: ChatMessageCreate, user=Depends(get_current_user)
+    trip_id: str,
+    body: ChatMessageCreate,
+    background_tasks: BackgroundTasks,
+    user=Depends(get_current_user),
 ):
     trip = await _trip_or_404(trip_id, user["id"])
     sender = resolve_chat_sender(trip, user["id"])
@@ -160,6 +164,13 @@ async def create_chat_message(
         raise HTTPException(409, "Chat was cleared while this message was sending. Retry to send it now.")
 
     public = public_chat_message(doc)
+    await enqueue_notification_event(
+        event_type="chat.message.created",
+        source_id=doc["id"],
+        trip_id=trip_id,
+        actor_user_id=user["id"],
+        background_tasks=background_tasks,
+    )
     await _broadcast(trip, {"type": "message.created", "data": public})
     logger.info(
         "chat.message_ack trip_id=%s client_message_id=%s sequence=%s idempotent=false",

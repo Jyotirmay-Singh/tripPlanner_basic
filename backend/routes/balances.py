@@ -12,7 +12,7 @@ from utils.deps import (
 from utils.permissions import can_record_payment
 from utils.balances import _compute_balances
 from utils.settlement_gate import validate_new_amount
-from services.push_notifications import enqueue_financial_event
+from services.push_notifications import enqueue_notification_event
 
 router = APIRouter()
 
@@ -55,13 +55,11 @@ async def settle(trip_id: str, body: SettleIn, background_tasks: BackgroundTasks
            **audit_fields}
     await db.settlements.insert_one(doc)
     doc.pop("_id", None)
-    await enqueue_financial_event(
-        event_key=f"settlement.paid:{doc['id']}",
+    await enqueue_notification_event(
         event_type="settlement.paid",
         source_id=doc["id"],
         trip_id=trip_id,
         actor_user_id=user["id"],
-        target="settle_up",
         background_tasks=background_tasks,
     )
     return doc
@@ -118,13 +116,11 @@ async def mark_settlement_paid(trip_id: str, settlement_id: str, body: Settlemen
         {"$set": {"status": "paid", "paid_at": paid_at, "marked_paid_by": user["id"]}},
     )
     settlement.update({"status": "paid", "paid_at": paid_at, "marked_paid_by": user["id"]})
-    await enqueue_financial_event(
-        event_key=f"settlement.paid:{settlement_id}",
+    await enqueue_notification_event(
         event_type="settlement.paid",
         source_id=settlement_id,
         trip_id=trip_id,
         actor_user_id=user["id"],
-        target="settle_up",
         background_tasks=background_tasks,
     )
     return settlement

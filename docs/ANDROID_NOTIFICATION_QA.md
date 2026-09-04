@@ -42,8 +42,9 @@ Android app settings is also acceptable.
 1. Fresh-install the APK and sign in as Receiver while that account has no trips.
 2. Confirm no notification rationale or Android permission dialog appears.
 3. Add Receiver to the test trip, then open that trip.
-4. Confirm the private rationale appears once. Verify it says names and amounts are not shown on
-   the lock screen, then press **Not now**.
+4. Confirm the private rationale appears once. Verify it covers expenses, recorded payments, paid
+   settlements, and group messages and says names, amounts, and message text are not shown on the
+   lock screen, then press **Not now**.
 5. Background and reopen the app. Confirm neither the rationale nor the system dialog repeats.
 6. Open Profile and confirm **Enable notifications** is present.
 7. Press it, deny Android's notification dialog, and confirm Profile changes to
@@ -66,7 +67,7 @@ receiver time, app state, visible copy, sound/banner behavior, and tap destinati
 | Case | Receiver state | Actor action | Expected result |
 | --- | --- | --- | --- |
 | Foreground expense | Trip Splitter open | Create an expense | Exactly one banner/list entry with sound; tap opens that trip's Expenses tab |
-| Background expense | App in background | Create an expense | Exactly one notification; tap resumes the app on the Expenses tab |
+| Background message | App in background | Send a group message | Exactly one notification; tap resumes the app on that trip's Chat tab |
 | Terminated payment | App swiped away, not force-stopped | Record a payment | Exactly one notification; cold-start tap opens Settle Up |
 | Paid settlement | App in background | Create or mark a settlement paid | Exactly one notification; tap opens Settle Up |
 | Pending settlement | Any | Create a pending settlement only | No notification |
@@ -76,10 +77,15 @@ receiver time, app state, visible copy, sound/banner behavior, and tap destinati
 
 For every delivered notification, confirm:
 
-- Title is **Trip Splitter** and body is **There's new activity in one of your trips.**
-- The lock screen exposes no trip name, member name, amount, currency, note, or expense details.
+- Title is **Trip Splitter**. The body identifies only the activity class: **A new expense was added
+  to one of your trips.**, **A payment was recorded in one of your trips.**, **A settlement was
+  marked paid in one of your trips.**, or **A new group message was sent in one of your trips.**
+- The lock screen exposes no trip name, member name, amount, currency, note, expense details, or
+  message text.
 - It uses the **Trip activity** channel with private lock-screen visibility.
 - Only current trip members receive it, and each registered installation receives at most one copy.
+- The private data payload carries `payloadVersion`, `eventKey`, `eventType`, `tripId`, `sourceId`,
+  and exactly one matching `expenseId`, `paymentId`, `settlementId`, or `messageId`.
 
 ## Registration lifecycle
 
@@ -117,12 +123,14 @@ Pass/Fail/Blocked plus delivery latency and a defect link where applicable.
 - No Android system dialog: check Android version and current OS permission state.
 - No device registration: check project ID, Firebase file, FCM credentials, API reachability, and
   authenticated `PUT /api/push/devices/{installation_id}` completion without exposing its token.
-- No outbox event: check the financial trigger and backend push feature flag.
+- No outbox event: check the expense/payment/settlement/chat trigger and backend push feature flag.
+- Event exists with zero deliveries: check current trip membership, Android permission, and the
+  active device registration count recorded by `push.delivery_snapshot`.
 - Expo ticket/receipt failure: check enhanced-security token and FCM credential alignment.
 - Delivered but not displayed: check Android permission, channel settings, Do Not Disturb, and
   vendor battery restrictions.
-- Wrong destination: compare the private `eventKey`, `tripId`, and `target` routing fields against
-  the notification routing tests.
+- Wrong destination: compare the versioned event/type/source identifiers and target against the
+  notification routing tests and the `navigation_completed`/`navigation_rejected` client log.
 
 Any privacy leak, duplicate notification, actor self-notification, wrong-trip navigation, missing
 logout deactivation, or failure of the Android 13 permission recovery path blocks release.

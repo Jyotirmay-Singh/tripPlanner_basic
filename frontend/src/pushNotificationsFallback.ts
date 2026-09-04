@@ -1,4 +1,8 @@
-import type { PushPermissionState, PushSyncOptions } from './pushNotificationTypes';
+import type {
+  PushPermissionState,
+  PushSyncOptions,
+  PushUnregisterReason,
+} from './pushNotificationTypes';
 
 
 // Browser/iOS-safe contract. Metro replaces this with pushNotifications.android.ts on Android;
@@ -9,7 +13,9 @@ export async function syncPushRegistrationIfEligible(
   return 'unavailable';
 }
 
-export async function unregisterCurrentPushInstallation(): Promise<void> {}
+export async function unregisterCurrentPushInstallation(
+  _reason: PushUnregisterReason = 'logout',
+): Promise<void> {}
 
 export async function getPushPermissionState(): Promise<PushPermissionState> {
   return 'unavailable';

@@ -1,8 +1,10 @@
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response, status
 from pymongo.errors import DuplicateKeyError
 
+from config import logger
 from database import db
 from models.push import PushDeviceUpsert
 from utils.common import now_utc
@@ -76,6 +78,10 @@ async def register_push_device(
         await db.push_devices.update_one(
             {"installation_id": installation}, update, upsert=True,
         )
+    logger.info(
+        "push.device_registered installation_id=%s user_id=%s platform=android",
+        installation, user["id"],
+    )
     return {"ok": True}
 
 
@@ -85,6 +91,7 @@ async def register_push_device(
 )
 async def unregister_push_device(
     installation_id: UUID,
+    reason: Literal["logout", "permission_denied"] = "logout",
     user=Depends(get_current_user),
 ):
     """Idempotently disable only the caller's registration for this installation."""
@@ -93,8 +100,12 @@ async def unregister_push_device(
         {"installation_id": str(installation_id), "user_id": user["id"]},
         {"$set": {
             "active": False,
-            "disabled_reason": "logout",
+            "disabled_reason": reason,
             "updated_at": timestamp,
         }},
+    )
+    logger.info(
+        "push.device_unregistered installation_id=%s user_id=%s reason=%s",
+        str(installation_id), user["id"], reason,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

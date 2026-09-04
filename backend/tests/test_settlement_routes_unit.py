@@ -48,7 +48,7 @@ def test_new_payment_is_whole_and_carries_policy_audit(monkeypatch):
     monkeypatch.setattr(payment_routes, "_compute_balances", AsyncMock(return_value={
         "transfers": [{"from_member_id": "a", "to_member_id": "b", "amount": 1250}]
     }))
-    monkeypatch.setattr(payment_routes, "enqueue_financial_event", AsyncMock())
+    monkeypatch.setattr(payment_routes, "enqueue_notification_event", AsyncMock())
     doc = run(payment_routes.record_payment(
         "t1", PaymentCreate(from_member_id="a", to_member_id="b", amount="1250"),
         BackgroundTasks(), user={"id": "admin"},
@@ -68,7 +68,7 @@ def test_large_whole_payment_is_stored_without_a_binary_float_round_trip(monkeyp
     monkeypatch.setattr(payment_routes, "_compute_balances", AsyncMock(return_value={
         "transfers": [{"from_member_id": "a", "to_member_id": "b", "amount": amount}]
     }))
-    monkeypatch.setattr(payment_routes, "enqueue_financial_event", AsyncMock())
+    monkeypatch.setattr(payment_routes, "enqueue_notification_event", AsyncMock())
 
     doc = run(payment_routes.record_payment(
         "t1", PaymentCreate(from_member_id="a", to_member_id="b", amount=str(amount)),
@@ -88,7 +88,7 @@ def test_exact_one_cent_recommendation_can_be_recorded(monkeypatch):
     monkeypatch.setattr(payment_routes, "_compute_balances", AsyncMock(return_value={
         "transfers": [{"from_member_id": "a", "to_member_id": "b", "amount": 0.01}]
     }))
-    monkeypatch.setattr(payment_routes, "enqueue_financial_event", AsyncMock())
+    monkeypatch.setattr(payment_routes, "enqueue_notification_event", AsyncMock())
 
     doc = run(payment_routes.record_payment(
         "t1", PaymentCreate(from_member_id="a", to_member_id="b", amount="0.01"),
@@ -155,7 +155,7 @@ def test_new_pending_settlement_is_whole_but_legacy_decimal_can_be_marked_paid(m
     monkeypatch.setattr(
         balance_routes, "_settlement_mark_paid_or_403", AsyncMock(return_value=(TRIP, pending))
     )
-    monkeypatch.setattr(balance_routes, "enqueue_financial_event", AsyncMock())
+    monkeypatch.setattr(balance_routes, "enqueue_notification_event", AsyncMock())
     result = run(balance_routes.mark_settlement_paid(
         "t1", "s-old", SettlementPatch(status="paid"), BackgroundTasks(), user={"id": "admin"},
     ))

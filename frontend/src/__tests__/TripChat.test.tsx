@@ -92,6 +92,30 @@ it('renders every sender label, family context, edited state, and composer limit
   act(() => renderer.unmount());
 });
 
+it('highlights the message selected by a notification deep link', async () => {
+  const controller = baseController();
+  let renderer: any;
+  await act(async () => {
+    renderer = TestRenderer.create(
+      <TripChat
+        header={null}
+        controller={controller}
+        currentUserId="u1"
+        isOwner={false}
+        canSend
+        focusMessageId="m1"
+      />,
+    );
+  });
+
+  const bubble = renderer.root.findByProps({ testID: 'chat-message-m1' });
+  expect(bubble.props.accessibilityState).toEqual({ selected: true });
+  expect(bubble.props.style).toEqual(expect.arrayContaining([
+    expect.objectContaining({ borderWidth: 2 }),
+  ]));
+  act(() => renderer.unmount());
+});
+
 it('clears the composer and sends one trimmed message', async () => {
   const controller = baseController();
   let renderer: any;

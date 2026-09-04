@@ -5,7 +5,11 @@ import * as Notifications from 'expo-notifications';
 import { Alert, Linking, Platform } from 'react-native';
 
 import { api } from './api';
-import type { PushPermissionState, PushSyncOptions } from './pushNotificationTypes';
+import type {
+  PushPermissionState,
+  PushSyncOptions,
+  PushUnregisterReason,
+} from './pushNotificationTypes';
 
 
 const INSTALLATION_ID_KEY = 'push_installation_id';
@@ -31,13 +35,19 @@ if (Platform.OS === 'android') {
 async function ensureChannel(): Promise<void> {
   await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
     name: 'Trip activity',
-    description: 'Private updates when expenses or payments change',
+    description: 'Private updates for expenses, payments, settlements, and group messages',
     importance: Notifications.AndroidImportance.HIGH,
     sound: 'default',
     vibrationPattern: [0, 250, 250, 250],
     lightColor: '#1FC89A',
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
   });
+}
+
+
+function pushDiagnostic(event: string, data: Record<string, unknown> = {}): void {
+  // Never pass native errors, auth material, installation ids, or Expo tokens to this helper.
+  console.info(`[push-notifications] ${event}`, data);
 }
 
 
@@ -73,6 +83,7 @@ async function hasTripAccess(): Promise<boolean> {
     const trips = await api<{ id: string }[]>('/trips');
     return trips.length > 0;
   } catch {
+    pushDiagnostic('eligibility_check_unavailable');
     return false;
   }
 }
@@ -88,7 +99,7 @@ async function showRationaleOnce(): Promise<boolean> {
   return new Promise((resolve) => {
     Alert.alert(
       'Stay updated on your trips',
-      'Trip Splitter can send private alerts when someone adds an expense or records a payment. Amounts and names are never shown on the lock screen.',
+      'Trip Splitter can send private alerts for new expenses, recorded payments, paid settlements, and group messages. Amounts, names, and message text are never shown on the lock screen.',
       [
         {
           text: 'Not now',
@@ -117,20 +128,32 @@ async function showRationaleOnce(): Promise<boolean> {
 
 
 async function registerGrantedInstallation(): Promise<PushPermissionState> {
+  const projectId = easProjectId();
+  if (!projectId) {
+    pushDiagnostic('registration_unavailable', { reason: 'missing_project_id' });
+    return 'unavailable';
+  }
+  const id = await installationId(true);
+  if (!id) {
+    pushDiagnostic('registration_unavailable', { reason: 'missing_installation_id' });
+    return 'unavailable';
+  }
+  let token: string;
   try {
-    const projectId = easProjectId();
-    if (!projectId) return 'unavailable';
-    const id = await installationId(true);
-    if (!id) return 'unavailable';
-    const expoToken = await Notifications.getExpoPushTokenAsync({ projectId });
+    token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+  } catch {
+    pushDiagnostic('registration_unavailable', { reason: 'native_token_error' });
+    return 'unavailable';
+  }
+  try {
     await api(`/push/devices/${id}`, {
       method: 'PUT',
-      body: { token: expoToken.data, platform: 'android' },
+      body: { token, platform: 'android' },
     });
+    pushDiagnostic('registration_succeeded');
     return 'granted';
   } catch {
-    // Expo Go, emulators, offline starts, and temporarily missing Firebase credentials all land
-    // here. Foreground/app-launch synchronization will retry without exposing the token in logs.
+    pushDiagnostic('registration_unavailable', { reason: 'api_registration_error' });
     return 'unavailable';
   }
 }
@@ -151,9 +174,17 @@ async function performSync(options: PushSyncOptions): Promise<PushPermissionStat
         state = permissionState(permissions);
       }
     }
+    if (state === 'denied') {
+      // A token can remain valid after permission is revoked. Deactivate the server binding so
+      // receipt success is not mistaken for a notification Android will never display.
+      await unregisterCurrentPushInstallation('permission_denied');
+      pushDiagnostic('permission_denied');
+      return state;
+    }
     if (state !== 'granted') return state;
     return registerGrantedInstallation();
   } catch {
+    pushDiagnostic('synchronization_unavailable');
     return 'unavailable';
   }
 }
@@ -169,14 +200,19 @@ export function syncPushRegistrationIfEligible(
 }
 
 
-export async function unregisterCurrentPushInstallation(): Promise<void> {
+export async function unregisterCurrentPushInstallation(
+  reason: PushUnregisterReason = 'logout',
+): Promise<void> {
   if (Platform.OS !== 'android') return;
   try {
     const id = await installationId(false);
     if (!id) return;
-    await api(`/push/devices/${id}`, { method: 'DELETE' });
+    const suffix = reason === 'permission_denied' ? '?reason=permission_denied' : '';
+    await api(`/push/devices/${id}${suffix}`, { method: 'DELETE' });
+    pushDiagnostic('registration_deactivated');
   } catch {
     // Logout must always complete. The next authenticated token upsert reassigns this installation.
+    pushDiagnostic('registration_deactivation_unavailable');
   }
 }
 

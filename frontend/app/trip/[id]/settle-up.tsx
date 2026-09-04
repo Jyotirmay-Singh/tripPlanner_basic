@@ -39,7 +39,10 @@ type Trip = RoleTrip & { members: Member[] };
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 export default function SettleUp() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{
+    id: string; paymentId?: string; settlementId?: string;
+  }>();
+  const { id, paymentId: notificationPaymentId } = params;
   const { user } = useAuth();
   const { colors } = useTheme();
   const toast = useToast();
@@ -332,7 +335,16 @@ export default function SettleUp() {
           <T variant="h3">Payment history</T>
           <T muted>Recorded payments stay in chronological history even when the current plan reroutes.</T>
           {history.map((payment) => (
-            <Card key={payment.id} style={styles.card}>
+            <Card
+              key={payment.id}
+              testID={`payment-history-${payment.id}`}
+              style={[
+                styles.card,
+                payment.id === notificationPaymentId
+                  ? { borderColor: colors.primary, borderWidth: 2 }
+                  : undefined,
+              ]}
+            >
               <View style={styles.cardTop}>
                 <Parties from={payment.from_member_id} to={payment.to_member_id} />
                 <View style={{ alignItems: 'flex-end', gap: SPACING.sm }}>

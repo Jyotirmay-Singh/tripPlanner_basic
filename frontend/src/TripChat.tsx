@@ -42,6 +42,7 @@ type Props = {
   currentUserId?: string;
   isOwner: boolean;
   canSend: boolean;
+  focusMessageId?: string;
 };
 
 type ConfirmState = { kind: 'message'; messageId: string } | { kind: 'history' } | null;
@@ -62,6 +63,7 @@ export default function TripChat({
   currentUserId,
   isOwner,
   canSend,
+  focusMessageId,
 }: Props) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -71,6 +73,7 @@ export default function TripChat({
   const nearBottom = useRef(true);
   const lastMarked = useRef(0);
   const controllerRef = useRef(controller);
+  const focusedMessageId = useRef<string | null>(null);
   const [draft, setDraft] = useState('');
   const [editing, setEditing] = useState<LocalChatMessage | null>(null);
   const [selected, setSelected] = useState<LocalChatMessage | null>(null);
@@ -125,6 +128,17 @@ export default function TripChat({
       setShowJump(true);
     }
   }, [controller.messages.length]);
+
+  useEffect(() => {
+    if (!focusMessageId || focusedMessageId.current === focusMessageId) return;
+    const index = controller.messages.findIndex((message) => message.id === focusMessageId);
+    if (index < 0) return;
+    focusedMessageId.current = focusMessageId;
+    nearBottom.current = index === controller.messages.length - 1;
+    requestAnimationFrame(() => listRef.current?.scrollToIndex({
+      index, animated: false, viewPosition: 0.5,
+    }));
+  }, [controller.messages, focusMessageId]);
 
   const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -239,6 +253,8 @@ export default function TripChat({
             onLongPress={() => setSelected(item)}
             accessibilityRole={mine && !item.deleted_at && !item.delivery ? 'button' : undefined}
             accessibilityLabel={mine ? `Message from ${label}. Open message actions` : `Message from ${label}`}
+            accessibilityState={{ selected: item.id === focusMessageId }}
+            testID={`chat-message-${item.id}`}
             style={[
               styles.bubble,
               {
@@ -247,6 +263,10 @@ export default function TripChat({
               },
               mine ? styles.bubbleMine : styles.bubbleOther,
               failed && { borderColor: colors.danger },
+              item.id === focusMessageId && {
+                borderColor: mine ? colors.primaryText : colors.primary,
+                borderWidth: 2,
+              },
             ]}
           >
             <View style={styles.senderLine}>
@@ -394,6 +414,11 @@ export default function TripChat({
         scrollEventThrottle={100}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
+        onScrollToIndexFailed={({ index, averageItemLength }) => {
+          listRef.current?.scrollToOffset({
+            offset: Math.max(0, index * averageItemLength), animated: false,
+          });
+        }}
         onContentSizeChange={() => {
           if (!initialScrollDone.current && controller.messages.length) {
             initialScrollDone.current = true;

@@ -31,7 +31,7 @@ def test_successful_expense_enqueues_after_insert(monkeypatch):
     enqueue = AsyncMock()
     monkeypatch.setattr(expenses, "db", SimpleNamespace(expenses=expense_collection))
     monkeypatch.setattr(expenses, "_trip_or_404", AsyncMock(return_value=TRIP))
-    monkeypatch.setattr(expenses, "enqueue_financial_event", enqueue)
+    monkeypatch.setattr(expenses, "enqueue_notification_event", enqueue)
 
     result = run(expenses.add_expense(
         "t1",
@@ -46,8 +46,8 @@ def test_successful_expense_enqueues_after_insert(monkeypatch):
     assert result["expense"]["amount"] == -25
     expense_collection.insert_one.assert_awaited_once()
     kwargs = enqueue.await_args.kwargs
-    assert kwargs["event_key"].startswith("expense.created:")
-    assert kwargs["target"] == "trip_expenses"
+    assert kwargs["event_type"] == "expense.created"
+    assert kwargs["source_id"] == result["expense"]["id"]
     assert kwargs["actor_user_id"] == "u1"
 
 
@@ -62,7 +62,7 @@ def test_budget_confirmation_does_not_enqueue(monkeypatch):
     enqueue = AsyncMock()
     monkeypatch.setattr(expenses, "db", SimpleNamespace(expenses=expense_collection))
     monkeypatch.setattr(expenses, "_trip_or_404", AsyncMock(return_value={**TRIP, "budget": 100}))
-    monkeypatch.setattr(expenses, "enqueue_financial_event", enqueue)
+    monkeypatch.setattr(expenses, "enqueue_notification_event", enqueue)
 
     result = run(expenses.add_expense(
         "t1",
@@ -89,7 +89,7 @@ def test_successful_payment_enqueues_only_after_guard_and_insert(monkeypatch):
     monkeypatch.setattr(payments, "_compute_balances", AsyncMock(return_value={
         "transfers": [{"from_member_id": "m2", "to_member_id": "m1", "amount": 100}],
     }))
-    monkeypatch.setattr(payments, "enqueue_financial_event", enqueue)
+    monkeypatch.setattr(payments, "enqueue_notification_event", enqueue)
 
     result = run(payments.record_payment(
         "t1",
@@ -101,8 +101,8 @@ def test_successful_payment_enqueues_only_after_guard_and_insert(monkeypatch):
     assert result["amount"] == 25
     payment_collection.insert_one.assert_awaited_once()
     kwargs = enqueue.await_args.kwargs
-    assert kwargs["event_key"].startswith("payment.recorded:")
-    assert kwargs["target"] == "settle_up"
+    assert kwargs["event_type"] == "payment.recorded"
+    assert kwargs["source_id"] == result["id"]
 
 
 def test_pending_settlement_never_enqueues_paid_activity(monkeypatch):
@@ -110,7 +110,7 @@ def test_pending_settlement_never_enqueues_paid_activity(monkeypatch):
     enqueue = AsyncMock()
     monkeypatch.setattr(balances, "db", SimpleNamespace(settlements=settlement_collection))
     monkeypatch.setattr(balances, "_trip_or_404", AsyncMock(return_value=TRIP))
-    monkeypatch.setattr(balances, "enqueue_financial_event", enqueue)
+    monkeypatch.setattr(balances, "enqueue_notification_event", enqueue)
 
     result = run(balances.create_settlement(
         "t1",
@@ -128,13 +128,13 @@ def test_paid_settlement_paths_enqueue_once_and_idempotent_patch_does_not(monkey
     monkeypatch.setattr(balances, "db", SimpleNamespace(settlements=settlements))
     monkeypatch.setattr(balances, "can_record_payment", lambda *_args: True)
     monkeypatch.setattr(balances, "_trip_or_404", AsyncMock(return_value=TRIP))
-    monkeypatch.setattr(balances, "enqueue_financial_event", enqueue)
+    monkeypatch.setattr(balances, "enqueue_notification_event", enqueue)
 
     run(balances.settle(
         "t1", SettleIn(from_member_id="m2", to_member_id="m1", amount=25),
         BackgroundTasks(), user={"id": "u1"},
     ))
-    assert enqueue.await_args.kwargs["event_key"].startswith("settlement.paid:")
+    assert enqueue.await_args.kwargs["event_type"] == "settlement.paid"
 
     enqueue.reset_mock()
     monkeypatch.setattr(balances, "_settlement_mark_paid_or_403", AsyncMock(return_value=(
@@ -144,7 +144,8 @@ def test_paid_settlement_paths_enqueue_once_and_idempotent_patch_does_not(monkey
         "t1", "s1", SettlementPatch(status="paid"), BackgroundTasks(), user={"id": "u1"},
     ))
     enqueue.assert_awaited_once()
-    assert enqueue.await_args.kwargs["event_key"] == "settlement.paid:s1"
+    assert enqueue.await_args.kwargs["event_type"] == "settlement.paid"
+    assert enqueue.await_args.kwargs["source_id"] == "s1"
 
     enqueue.reset_mock()
     monkeypatch.setattr(balances, "_settlement_mark_paid_or_403", AsyncMock(return_value=(

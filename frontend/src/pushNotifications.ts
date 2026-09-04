@@ -1,2 +1,6 @@
 export * from './pushNotificationsFallback';
-export type { PushPermissionState, PushSyncOptions } from './pushNotificationTypes';
+export type {
+  PushPermissionState,
+  PushSyncOptions,
+  PushUnregisterReason,
+} from './pushNotificationTypes';

@@ -15,6 +15,8 @@ from utils.common import now_utc
 
 
 VALID_TOKEN = "ExpoPushToken[abcdefghijklmnopqrstuv]"
+TRIP_ID = "12345678-1234-4678-9234-567812345678"
+SOURCE_ID = "87654321-4321-4765-8123-210987654321"
 
 
 def run(awaitable):
@@ -38,7 +40,7 @@ def test_push_device_model_accepts_only_android_expo_tokens():
         PushDeviceUpsert(token=VALID_TOKEN, platform="ios")
 
 
-def test_register_reassigns_token_and_never_exposes_it(monkeypatch):
+def test_register_reassigns_token_and_never_exposes_it(monkeypatch, caplog):
     devices = SimpleNamespace(update_many=AsyncMock(), update_one=AsyncMock())
     monkeypatch.setattr(push, "db", SimpleNamespace(push_devices=devices))
     installation_id = UUID("12345678-1234-4678-9234-567812345678")
@@ -58,6 +60,7 @@ def test_register_reassigns_token_and_never_exposes_it(monkeypatch):
     assert update["$set"]["active"] is True
     # The API response deliberately contains no installation or token material.
     assert VALID_TOKEN not in str(result)
+    assert VALID_TOKEN not in caplog.text
 
 
 def test_register_retries_a_concurrent_active_token_reassignment(monkeypatch):
@@ -89,33 +92,80 @@ def test_unregister_is_idempotent_and_scoped_to_current_user(monkeypatch):
     assert response.status_code == 204
     query = devices.update_one.await_args.args[0]
     assert query == {"installation_id": str(installation_id), "user_id": "u1"}
+    assert devices.update_one.await_args.args[1]["$set"]["disabled_reason"] == "logout"
+
+
+def test_unregister_records_permission_revocation_without_exposing_token(monkeypatch, caplog):
+    devices = SimpleNamespace(update_one=AsyncMock())
+    monkeypatch.setattr(push, "db", SimpleNamespace(push_devices=devices))
+    installation_id = UUID("12345678-1234-5678-9234-567812345678")
+
+    response = run(push.unregister_push_device(
+        installation_id, reason="permission_denied", user={"id": "u1"},
+    ))
+
+    assert response.status_code == 204
+    assert devices.update_one.await_args.args[1]["$set"]["disabled_reason"] == "permission_denied"
+    assert VALID_TOKEN not in caplog.text
 
 
 def test_recipient_resolution_excludes_actor_and_duplicates():
-    trip = {"user_ids": ["actor", "u2", "u2", "u3", "actor"]}
+    trip = {"user_ids": ["actor", "u2", None, " ", "u2", "u3", "actor"]}
     assert notifications.recipient_user_ids(trip, "actor") == ["u2", "u3"]
 
 
-def test_payload_is_generic_and_contains_only_validated_routing_data():
+@pytest.mark.parametrize(
+    ("event_type", "target", "id_key", "body"),
+    [
+        (
+            "expense.created", "trip_expenses", "expenseId",
+            "A new expense was added to one of your trips.",
+        ),
+        (
+            "payment.recorded", "settle_up", "paymentId",
+            "A payment was recorded in one of your trips.",
+        ),
+        (
+            "settlement.paid", "settle_up", "settlementId",
+            "A settlement was marked paid in one of your trips.",
+        ),
+        (
+            "chat.message.created", "trip_chat", "messageId",
+            "A new group message was sent in one of your trips.",
+        ),
+    ],
+)
+def test_payload_is_private_versioned_and_contains_typed_routing_data(
+    event_type, target, id_key, body,
+):
     event = {
-        "event_key": "payment.recorded:p1",
-        "trip_id": "12345678-1234-4678-9234-567812345678",
-        "target": "settle_up",
+        "event_key": f"{event_type}:{SOURCE_ID}",
+        "event_type": event_type,
+        "source_id": SOURCE_ID,
+        "trip_id": TRIP_ID,
+        "target": target,
         "amount": 999,
         "note": "private note",
+        "text": "private message",
     }
     message = notifications.build_expo_message(event, {"token": VALID_TOKEN})
 
     assert message["title"] == "Trip Splitter"
-    assert message["body"] == "There's new activity in one of your trips."
+    assert message["body"] == body
     assert message["channelId"] == "trip_activity"
+    assert message["priority"] == "high"
     assert message["data"] == {
-        "eventKey": "payment.recorded:p1",
-        "tripId": "12345678-1234-4678-9234-567812345678",
-        "target": "settle_up",
+        "payloadVersion": 1,
+        "eventKey": f"{event_type}:{SOURCE_ID}",
+        "eventType": event_type,
+        "tripId": TRIP_ID,
+        "target": target,
+        "sourceId": SOURCE_ID,
+        id_key: SOURCE_ID,
     }
     assert "999" not in str(message)
     assert "private note" not in str(message)
+    assert "private message" not in str(message)
 
 
 def test_enqueue_is_idempotent_and_schedules_immediate_dispatch(monkeypatch):
@@ -192,6 +242,7 @@ def test_enqueue_failure_is_contained_after_business_write(monkeypatch):
     outbox = SimpleNamespace(insert_one=AsyncMock(side_effect=RuntimeError("database unavailable")))
     monkeypatch.setattr(notifications, "PUSH_NOTIFICATIONS_ENABLED", True)
     monkeypatch.setattr(notifications, "db", SimpleNamespace(notification_outbox=outbox))
+    monkeypatch.setattr(notifications.asyncio, "sleep", AsyncMock())
 
     result = run(notifications.enqueue_financial_event(
         event_key="payment.recorded:p1",
@@ -203,12 +254,39 @@ def test_enqueue_failure_is_contained_after_business_write(monkeypatch):
     ))
 
     assert result is False
+    assert outbox.insert_one.await_count == 3
+
+
+def test_enqueue_retries_a_transient_outbox_write_without_duplicate_dispatch(monkeypatch):
+    outbox = SimpleNamespace(
+        insert_one=AsyncMock(side_effect=[RuntimeError("temporary"), None]),
+    )
+    background = SimpleNamespace(add_task=Mock())
+    monkeypatch.setattr(notifications, "PUSH_NOTIFICATIONS_ENABLED", True)
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(notification_outbox=outbox))
+    monkeypatch.setattr(notifications.asyncio, "sleep", AsyncMock())
+
+    result = run(notifications.enqueue_notification_event(
+        event_type="chat.message.created",
+        source_id="m1",
+        trip_id="t1",
+        actor_user_id="u1",
+        background_tasks=background,
+    ))
+
+    assert result is True
+    assert outbox.insert_one.await_count == 2
+    background.add_task.assert_called_once_with(
+        notifications.dispatch_outbox_event, "chat.message.created:m1",
+    )
 
 
 def test_delivery_snapshot_uses_current_membership_and_active_android_devices(monkeypatch):
     timestamp = now_utc()
     event = {
         "event_key": "expense.created:e1",
+        "event_type": "expense.created",
+        "source_id": "e1",
         "trip_id": "t1",
         "actor_user_id": "u1",
         "delivery_snapshot_at": None,
@@ -233,6 +311,8 @@ def test_delivery_snapshot_deduplicates_tokens_and_skips_incomplete_devices(monk
     timestamp = now_utc()
     event = {
         "event_key": "expense.created:e1",
+        "event_type": "expense.created",
+        "source_id": "e1",
         "trip_id": "t1",
         "actor_user_id": "u1",
         "delivery_snapshot_at": None,
@@ -257,10 +337,37 @@ def test_delivery_snapshot_deduplicates_tokens_and_skips_incomplete_devices(monk
     assert [delivery["installation_id"] for delivery in event["deliveries"]] == ["i2", "i4"]
 
 
+def test_zero_device_snapshot_is_visible_and_completes_without_sending(monkeypatch, caplog):
+    caplog.set_level("INFO", logger=notifications.logger.name)
+    timestamp = now_utc()
+    event = {
+        "event_key": "chat.message.created:m1",
+        "event_type": "chat.message.created",
+        "source_id": "m1",
+        "trip_id": "t1",
+        "actor_user_id": "u1",
+        "delivery_snapshot_at": None,
+    }
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(
+        trips=SimpleNamespace(find_one=AsyncMock(return_value={"user_ids": ["u1", "u2"]})),
+        push_devices=SimpleNamespace(find=Mock(return_value=FakeCursor([]))),
+        notification_outbox=SimpleNamespace(update_one=AsyncMock()),
+    ))
+
+    assert run(notifications._prepare_deliveries(event, timestamp)) is True
+    run(notifications._finalize_event(event, timestamp))
+
+    assert event["status"] == "complete"
+    assert "recipient_count=1 device_count=0" in caplog.text
+    assert "delivery_count=0" in caplog.text
+
+
 def test_send_ticket_and_device_not_registered_receipt(monkeypatch):
     timestamp = now_utc()
     event = {
         "event_key": "payment.recorded:p1",
+        "event_type": "payment.recorded",
+        "source_id": "p1",
         "trip_id": "t1",
         "target": "settle_up",
         "created_at": timestamp,
@@ -297,6 +404,8 @@ def test_retryable_http_failure_uses_bounded_backoff(monkeypatch):
     timestamp = now_utc()
     event = {
         "event_key": "expense.created:e1",
+        "event_type": "expense.created",
+        "source_id": "e1",
         "trip_id": "t1",
         "target": "trip_expenses",
         "created_at": timestamp,
@@ -321,6 +430,8 @@ def test_successful_receipt_completes_the_outbox_event(monkeypatch):
     timestamp = now_utc()
     event = {
         "event_key": "expense.created:e1",
+        "event_type": "expense.created",
+        "source_id": "e1",
         "trip_id": "t1",
         "target": "trip_expenses",
         "deliveries": [{
@@ -346,6 +457,8 @@ def test_retry_exhaustion_marks_delivery_and_event_dead(monkeypatch):
     timestamp = now_utc()
     event = {
         "event_key": "expense.created:e1",
+        "event_type": "expense.created",
+        "source_id": "e1",
         "trip_id": "t1",
         "target": "trip_expenses",
         "created_at": timestamp,
