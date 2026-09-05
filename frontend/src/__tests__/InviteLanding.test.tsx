@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
+import { Linking, Platform } from 'react-native';
 
 
 const mockReplace = jest.fn();
@@ -70,6 +71,11 @@ describe('invite landing', () => {
     });
   });
 
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
   it('remembers a valid link and sends an authenticated native user to the join wizard', async () => {
     await act(async () => {
       TestRenderer.create(<InviteLanding />);
@@ -112,5 +118,78 @@ describe('invite landing', () => {
 
     expect(mockRememberInvite).toHaveBeenCalledWith(`/invite/${token}`);
     expect(mockClearPendingInvite).toHaveBeenCalledTimes(1);
+  });
+
+  it('automatically starts the latest APK once after validating an Android web invite', async () => {
+    jest.useFakeTimers();
+    const originalPlatform = Platform.OS;
+    const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
+    const storageValues = new Map<string, string>();
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'web' });
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 9) Chrome/140' },
+    });
+    Object.defineProperty(globalThis, 'sessionStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => storageValues.get(key) ?? null,
+        setItem: (key: string, value: string) => storageValues.set(key, value),
+      },
+    });
+    const openUrl = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+
+    try {
+      let renderer: any;
+      await act(async () => {
+        renderer = TestRenderer.create(<InviteLanding />);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(renderer.root.findByProps({ testID: 'invite-auto-download-status' })).toBeTruthy();
+
+      await act(async () => {
+        jest.advanceTimersByTime(900);
+        await Promise.resolve();
+      });
+      expect(openUrl).toHaveBeenCalledTimes(1);
+      expect(openUrl).toHaveBeenCalledWith(
+        'https://tripsplitter-web.vercel.app/download/android',
+      );
+    } finally {
+      Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform });
+      if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+      else Reflect.deleteProperty(globalThis, 'navigator');
+      if (storageDescriptor) Object.defineProperty(globalThis, 'sessionStorage', storageDescriptor);
+      else Reflect.deleteProperty(globalThis, 'sessionStorage');
+    }
+  });
+
+  it('never auto-downloads for an invalid invite even in an Android browser', async () => {
+    jest.useFakeTimers();
+    const originalPlatform = Platform.OS;
+    const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'web' });
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { userAgent: 'Mozilla/5.0 (Linux; Android 15) Chrome/140' },
+    });
+    const openUrl = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    mockParams = { token: 'short' };
+    mockUser = null;
+
+    try {
+      await act(async () => {
+        TestRenderer.create(<InviteLanding />);
+        jest.advanceTimersByTime(2_000);
+        await Promise.resolve();
+      });
+      expect(openUrl).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform });
+      if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+      else Reflect.deleteProperty(globalThis, 'navigator');
+    }
   });
 });

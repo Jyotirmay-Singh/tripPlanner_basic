@@ -6,20 +6,26 @@ Trip Splitter invitations use one HTTPS URL on web and Android:
 https://tripsplitter-web.vercel.app/invite/<opaque-token>
 ```
 
-The backend stores only the token's SHA-256 hash. Links are reusable for seven days, may be created
-or revoked only by a trip owner/admin, and retain secret-free audit metadata for 90 days. Manual
+The backend stores only the token's SHA-256 hash. Links are reusable for seven days and retain
+secret-free audit metadata for 90 days. Every linked trip member can create and revoke their own
+link; owners/admins can review and revoke every member's links. Each creator has exactly one active
+link per trip, so sharing again automatically revokes and replaces their prior link. Manual
 six-character codes remain backward compatible.
 
 ## User flow
 
-1. An owner/admin taps the trip code or **Members → Invite links → Create and share link**.
+1. A trip member taps the trip code or **Members → Invite links → Create and share link**.
 2. Android verifies the host through `/.well-known/assetlinks.json`.
 3. If the app is installed, the link opens `/invite/<token>` in package `com.tripsplitter.app`, then
    routes an authenticated user directly to the existing identity-aware Join wizard.
 4. If the app is absent or the link opens in an embedded browser, the same URL renders the invite
-   landing page. It offers **Open Trip Splitter**, the stable `/download/android` APK, and web join.
-5. A raw APK cannot restore an install referrer. After installation, the user returns to the invite
-   page and taps **Open Trip Splitter**; the token remains in the original link.
+   landing page. After validating an active token, an Android browser starts the stable
+   `/download/android` APK once per token/session and keeps **Open Trip Splitter**, **Download
+   Android APK**, and web-join controls visible as fallbacks. Desktop, iOS, invalid, expired,
+   revoked, disabled, and offline states never auto-download.
+5. A raw APK has no Play Store install-referrer/deferred-deep-link handoff. After installation, the
+   user returns to WhatsApp and taps the original invitation again; the HTTPS App Link carries the
+   token into the joining page.
 
 ## Rollout order
 

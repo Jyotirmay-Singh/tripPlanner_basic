@@ -1,18 +1,28 @@
 /* eslint-disable import/first, @typescript-eslint/no-require-imports */
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { StyleSheet } from 'react-native';
+import { Share, StyleSheet } from 'react-native';
 import { COMPONENT_SIZE, RADIUS, SPACING } from '../../theme';
 
 const mockRouterPush = jest.fn();
+const mockCreateTripInvite = jest.fn();
+const mockRefreshRuntimeConfig = jest.fn();
+const mockToastShow = jest.fn();
+let mockInviteLinksEnabled = false;
+let mockRole: 'owner' | 'admin' | 'member' | null = null;
 
 jest.mock('../../api', () => ({
   api: jest.fn(),
+  createTripInvite: (...args: any[]) => mockCreateTripInvite(...args),
   getToken: jest.fn(),
   receiptUrl: jest.fn(() => 'receipt://x'),
   spendSummary: jest.fn(),
 }));
-jest.mock('../../AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
+jest.mock('../../AuthContext', () => ({ useAuth: () => ({
+  user: { id: 'u1' },
+  inviteLinksEnabled: mockInviteLinksEnabled,
+  refreshRuntimeConfig: mockRefreshRuntimeConfig,
+}) }));
 jest.mock('../../ThemeContext', () => ({
   useTheme: () => ({
     mode: 'dark',
@@ -78,12 +88,12 @@ jest.mock('../../ui', () => {
     EmptyState: stub('EmptyState'),
     ResponsiveAmountText: stub('ResponsiveAmountText'),
     SkeletonCard: stub('SkeletonCard'),
-    useToast: () => ({ show: jest.fn() }),
+    useToast: () => ({ show: mockToastShow }),
   };
 });
 jest.mock('../../permissions', () => ({
   canModifyExpense: () => false,
-  roleOf: () => null,
+  roleOf: () => mockRole,
   canEditTripSettings: () => true,
   canManageMembers: () => false,
   canDeleteTrip: () => false,
@@ -114,6 +124,7 @@ const BASE_TRIP = {
   currency: 'INR',
   owner_id: 'u1',
   admin_ids: ['u1'],
+  user_ids: ['u1'],
   members: [INDIVIDUAL],
 };
 
@@ -176,6 +187,12 @@ beforeEach(() => {
   getTokenMock.mockResolvedValue('token');
   spendSummaryMock.mockReset();
   mockRouterPush.mockReset();
+  mockCreateTripInvite.mockReset();
+  mockRefreshRuntimeConfig.mockReset();
+  mockRefreshRuntimeConfig.mockResolvedValue({ inviteLinksEnabled: false });
+  mockToastShow.mockReset();
+  mockInviteLinksEnabled = false;
+  mockRole = null;
 });
 
 describe('Trip identity header', () => {
@@ -222,6 +239,51 @@ describe('Trip identity header', () => {
     expect(codeText?.props.numberOfLines).toBeUndefined();
 
     expect(hostByTestID(renderer.root, 'Card', 'trip-budget-used-card')).toBeTruthy();
+  });
+
+  it('refreshes rollout state and shares a secure URL for a regular trip member', async () => {
+    mockInviteLinksEnabled = true;
+    mockRole = 'member';
+    mockRefreshRuntimeConfig.mockResolvedValue({ inviteLinksEnabled: true });
+    const url = `https://tripsplitter-web.vercel.app/invite/${'a'.repeat(43)}`;
+    mockCreateTripInvite.mockResolvedValue({ id: 'invite-1', url });
+    const nativeShare = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
+    const renderer = await mountTrip();
+    const share = renderer.root.findAll((node: any) => (
+      node.props.testID === 'trip-share' && typeof node.props.onPress === 'function'
+    ))[0];
+
+    await act(async () => { await share.props.onPress(); });
+
+    expect(mockRefreshRuntimeConfig).toHaveBeenCalledTimes(1);
+    expect(mockCreateTripInvite).toHaveBeenCalledWith('t1');
+    expect(nativeShare).toHaveBeenCalledWith({
+      message: expect.stringContaining(url),
+    });
+    expect(nativeShare.mock.calls[0][0].message).not.toContain('Code: UCK3RZ');
+    nativeShare.mockRestore();
+  });
+
+  it('clearly falls back to the trip code if runtime config is offline', async () => {
+    mockRole = 'member';
+    mockRefreshRuntimeConfig.mockRejectedValue(new Error('offline'));
+    const nativeShare = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
+    const renderer = await mountTrip();
+    const share = renderer.root.findAll((node: any) => (
+      node.props.testID === 'trip-share' && typeof node.props.onPress === 'function'
+    ))[0];
+
+    await act(async () => { await share.props.onPress(); });
+
+    expect(mockCreateTripInvite).not.toHaveBeenCalled();
+    expect(nativeShare).toHaveBeenCalledWith({
+      message: 'Join my trip "Lakshadweep" on Trip Splitter. Code: UCK3RZ',
+    });
+    expect(mockToastShow).toHaveBeenCalledWith(
+      'Could not check secure-link availability. Sharing the trip code instead.',
+      'error',
+    );
+    nativeShare.mockRestore();
   });
 
   it('keeps action behavior, adaptive tabs, and 48 dp icon actions intact', async () => {

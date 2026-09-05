@@ -12,6 +12,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 
 from config import INVITE_BASE_URL, INVITE_LINKS_ENABLED
 from database import db
@@ -37,6 +38,10 @@ def invite_status(document: dict, *, now: Optional[datetime] = None) -> str:
     current = now or now_utc()
     if _as_utc(document["expires_at"]) <= current:
         return "expired"
+    # ``active`` is an index-maintenance field rather than the source of expiry truth.  Legacy
+    # records have no such field and remain valid until the startup migration normalizes them.
+    if document.get("active") is False:
+        return "revoked"
     return "active"
 
 
@@ -52,34 +57,69 @@ def invite_metadata(document: dict) -> dict:
     return {
         "id": document["id"],
         "created_by": document["created_by"],
+        "created_by_name": document.get("created_by_name"),
         "created_at": _iso(document["created_at"]),
         "expires_at": _iso(document["expires_at"]),
         "status": invite_status(document),
         "revoked_at": _iso(document.get("revoked_at")),
         "revoked_by": document.get("revoked_by"),
+        "revocation_reason": document.get("revocation_reason"),
         "use_count": document.get("use_count", 0),
         "last_used_at": _iso(document.get("last_used_at")),
     }
 
 
-async def create_invite(trip: dict, created_by: str) -> dict:
+async def create_invite(trip: dict, user: dict) -> dict:
+    """Rotate and return the caller's only active invite for this trip.
+
+    The raw bearer token exists only in this function and its one-time response.  Mongo stores the
+    SHA-256 digest.  The partial unique index installed at startup is the final concurrency guard if
+    two devices try to rotate the same member's link at once.
+    """
     raw = secrets.token_urlsafe(32)
     timestamp = now_utc()
+    created_by = user["id"]
+    await db.trip_invites.update_many(
+        {"trip_id": trip["id"], "created_by": created_by, "revoked_at": None},
+        {"$set": {
+            "active": False,
+            "revoked_at": timestamp,
+            "revoked_by": created_by,
+            "revocation_reason": "rotated",
+            "audit_expires_at": timestamp + AUDIT_RETENTION,
+        }},
+    )
     document = {
         "id": gen_id(),
         "trip_id": trip["id"],
         "trip_name": trip.get("name"),
         "token_hash": hash_invite_token(raw),
         "created_by": created_by,
+        "created_by_name": str(user.get("name") or user.get("email") or "Trip member"),
         "created_at": timestamp,
         "expires_at": timestamp + INVITE_TTL,
         "audit_expires_at": timestamp + INVITE_TTL + AUDIT_RETENTION,
         "revoked_at": None,
         "revoked_by": None,
+        "revocation_reason": None,
+        "active": True,
         "use_count": 0,
         "last_used_at": None,
     }
-    await db.trip_invites.insert_one(document)
+    try:
+        await db.trip_invites.insert_one(document)
+    except DuplicateKeyError as error:
+        logger.info(
+            "invite.rotation_conflict trip_id=%s created_by=%s", trip["id"], created_by,
+        )
+        raise HTTPException(
+            409,
+            detail={
+                "code": "invite_rotation_conflict",
+                "message": "Another invite link was created at the same time. Please try sharing again.",
+                "retryable": True,
+            },
+        ) from error
     logger.info(
         "invite.created invite_id=%s trip_id=%s created_by=%s expires_at=%s",
         document["id"], trip["id"], created_by, _iso(document["expires_at"]),
@@ -89,18 +129,32 @@ async def create_invite(trip: dict, created_by: str) -> dict:
     return payload
 
 
-async def list_invites(trip_id: str) -> list[dict]:
-    cursor = db.trip_invites.find({"trip_id": trip_id}, {"_id": 0}).sort("created_at", -1)
+async def list_invites(trip_id: str, *, created_by: Optional[str] = None) -> list[dict]:
+    query = {"trip_id": trip_id}
+    if created_by:
+        query["created_by"] = created_by
+    cursor = db.trip_invites.find(query, {"_id": 0}).sort("created_at", -1)
     return [invite_metadata(row) for row in await cursor.to_list(100)]
 
 
-async def revoke_invite(trip_id: str, invite_id: str, revoked_by: str) -> dict:
+async def revoke_invite(
+    trip_id: str,
+    invite_id: str,
+    revoked_by: str,
+    *,
+    can_revoke_all: bool = False,
+) -> dict:
     timestamp = now_utc()
+    authorized = {"id": invite_id, "trip_id": trip_id}
+    if not can_revoke_all:
+        authorized["created_by"] = revoked_by
     document = await db.trip_invites.find_one_and_update(
-        {"id": invite_id, "trip_id": trip_id, "revoked_at": None},
+        {**authorized, "revoked_at": None},
         {"$set": {
+            "active": False,
             "revoked_at": timestamp,
             "revoked_by": revoked_by,
+            "revocation_reason": "manual",
             "audit_expires_at": timestamp + AUDIT_RETENTION,
         }},
         projection={"_id": 0},
@@ -113,7 +167,7 @@ async def revoke_invite(trip_id: str, invite_id: str, revoked_by: str) -> dict:
         )
         return invite_metadata(document)
     existing = await db.trip_invites.find_one(
-        {"id": invite_id, "trip_id": trip_id}, {"_id": 0},
+        authorized, {"_id": 0},
     )
     if not existing:
         raise HTTPException(404, "Invite link not found")
@@ -126,8 +180,10 @@ async def revoke_trip_invites(trip_id: str, revoked_by: str) -> None:
     result = await db.trip_invites.update_many(
         {"trip_id": trip_id, "revoked_at": None},
         {"$set": {
+            "active": False,
             "revoked_at": timestamp,
             "revoked_by": revoked_by,
+            "revocation_reason": "trip_deleted",
             "audit_expires_at": timestamp + AUDIT_RETENTION,
         }},
     )
@@ -137,6 +193,51 @@ async def revoke_trip_invites(trip_id: str, revoked_by: str) -> None:
         revoked_by,
         getattr(result, "modified_count", 0),
     )
+
+
+async def normalize_invite_active_flags() -> None:
+    """Idempotently prepare legacy invite rows for the one-active-link unique index.
+
+    Before build 7, invite rows did not carry ``active`` and a creator could have several valid
+    links.  Keep only their newest unexpired link active, rotate every older live link, and mark
+    expired/revoked rows inactive.  This runs before index creation during application startup.
+    """
+    timestamp = now_utc()
+    projection = {
+        "_id": 0, "id": 1, "trip_id": 1, "created_by": 1, "created_at": 1,
+        "expires_at": 1, "revoked_at": 1, "active": 1,
+    }
+    cursor = db.trip_invites.find({}, projection).sort([
+        ("trip_id", 1), ("created_by", 1), ("created_at", -1),
+    ])
+    newest_live: set[tuple[str, str]] = set()
+    async for document in cursor:
+        expired = _as_utc(document["expires_at"]) <= timestamp
+        revoked = bool(document.get("revoked_at"))
+        key = (document["trip_id"], document["created_by"])
+        if not expired and not revoked and key not in newest_live:
+            newest_live.add(key)
+            if document.get("active") is not True:
+                await db.trip_invites.update_one(
+                    {"id": document["id"]}, {"$set": {"active": True}},
+                )
+            continue
+
+        if not expired and not revoked:
+            await db.trip_invites.update_one(
+                {"id": document["id"]},
+                {"$set": {
+                    "active": False,
+                    "revoked_at": timestamp,
+                    "revoked_by": "system",
+                    "revocation_reason": "migration_rotation",
+                    "audit_expires_at": timestamp + AUDIT_RETENTION,
+                }},
+            )
+        elif document.get("active") is not False:
+            await db.trip_invites.update_one(
+                {"id": document["id"]}, {"$set": {"active": False}},
+            )
 
 
 def _invite_error(status: str) -> HTTPException:

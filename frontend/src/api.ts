@@ -14,11 +14,13 @@ export type TripInviteStatus = 'active' | 'expired' | 'revoked';
 export type TripInvite = {
   id: string;
   created_by: string;
+  created_by_name?: string | null;
   created_at: string;
   expires_at: string;
   status: TripInviteStatus;
   revoked_at?: string | null;
   revoked_by?: string | null;
+  revocation_reason?: 'manual' | 'rotated' | 'trip_deleted' | 'migration_rotation' | null;
   use_count: number;
   last_used_at?: string | null;
 };

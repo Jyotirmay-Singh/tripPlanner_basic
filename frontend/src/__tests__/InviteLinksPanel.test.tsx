@@ -44,6 +44,7 @@ const InviteLinksPanel = require('../InviteLinksPanel').default;
 
 const activeInvite = {
   id: 'invite-1', created_by: 'owner-1', created_at: '2026-09-04T10:00:00Z',
+  created_by_name: 'Ravi',
   expires_at: '2026-09-11T10:00:00Z', status: 'active', use_count: 0,
 };
 
@@ -71,6 +72,8 @@ describe('InviteLinksPanel', () => {
       await Promise.resolve();
     });
     expect(onCreateAndShare).toHaveBeenCalledTimes(1);
+    expect(renderer.root.findByProps({ testID: 'invite-creator-invite-1' }).props.children)
+      .toEqual(['Created by ', 'Ravi']);
 
     act(() => renderer.root.findByProps({ testID: 'invite-revoke-invite-1' }).props.onPress());
     const modal = renderer.root.findByType('ConfirmModal' as any);

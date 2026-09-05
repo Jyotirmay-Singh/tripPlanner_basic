@@ -11,10 +11,11 @@ const trip = {
   user_ids: ['owner-1', 'admin-1', 'member-1'],
 };
 
-it('allows only owners/admins to use secure sharing when the rollout flag is enabled', () => {
+it('allows every actual trip member to use secure sharing when the rollout flag is enabled', () => {
   expect(canShareSecureInvite(trip, 'owner-1', true)).toBe(true);
   expect(canShareSecureInvite(trip, 'admin-1', true)).toBe(true);
-  expect(canShareSecureInvite(trip, 'member-1', true)).toBe(false);
+  expect(canShareSecureInvite(trip, 'member-1', true)).toBe(true);
+  expect(canShareSecureInvite(trip, 'outsider-1', true)).toBe(false);
   expect(canShareSecureInvite(trip, 'owner-1', false)).toBe(false);
 });
 

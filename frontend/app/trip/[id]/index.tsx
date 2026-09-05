@@ -43,7 +43,7 @@ import {
 } from '../../../src/ui';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; family_member_ids?: string[] | null; family_member_emails?: (string | null)[] | null; family_member_user_ids?: (string | null)[] | null; user_id?: string | null; email?: string | null };
-type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number | null; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
+type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number | null; currency: string; owner_id: string; admin_ids: string[]; user_ids: string[]; members: Member[] };
 type Expense = { id: string; amount: number; currency?: string; original_amount?: string | number | null; original_currency?: string | null; category: string; description?: string; date: string; time?: string | null; created_at?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string; shares?: ExpenseShares };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; settlement_projection?: SettlementProjection; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[]; members?: { id: string; name: string; net: number }[] }[] };
 
@@ -191,7 +191,7 @@ export default function TripDetail() {
   }>();
   const { colors, mode } = useTheme();
   const {
-    user, chatCapability, handleAuthenticationRequired, inviteLinksEnabled,
+    user, chatCapability, handleAuthenticationRequired, inviteLinksEnabled, refreshRuntimeConfig,
   } = useAuth();
   const router = useRouter();
   const toast = useToast();
@@ -255,14 +255,42 @@ export default function TripDetail() {
 
   const shareCode = async () => {
     if (!trip) return;
-    if (!canCreateSecureInvite) {
-      await Share.share({ message: tripCodeShareMessage(trip.name, trip.code) });
-      return;
-    }
     if (sharingInvite) return;
     setSharingInvite(true);
     try {
-      const invite = await createTripInvite(trip.id);
+      let freshInviteLinksEnabled = false;
+      try {
+        const config = await refreshRuntimeConfig();
+        freshInviteLinksEnabled = config.inviteLinksEnabled;
+      } catch {
+        toast.show(
+          'Could not check secure-link availability. Sharing the trip code instead.',
+          'error',
+        );
+        await Share.share({ message: tripCodeShareMessage(trip.name, trip.code) });
+        return;
+      }
+
+      if (!canShareSecureInvite(trip, user?.id, freshInviteLinksEnabled)) {
+        if (!freshInviteLinksEnabled) {
+          toast.show('Secure invite links are not live yet. Sharing the trip code instead.', 'info');
+        }
+        await Share.share({ message: tripCodeShareMessage(trip.name, trip.code) });
+        return;
+      }
+
+      let invite;
+      try {
+        invite = await createTripInvite(trip.id);
+      } catch (error: any) {
+        // A simultaneous share on another device can win the one-active-link race. Retry once;
+        // all other failures move to the explicit legacy fallback.
+        if (error?.detailCode === 'invite_rotation_conflict' && error?.retryable === true) {
+          invite = await createTripInvite(trip.id);
+        } else {
+          throw error;
+        }
+      }
       await Share.share({
         message: tripInviteShareMessage(trip.name, invite.url),
       });
@@ -270,9 +298,10 @@ export default function TripDetail() {
     } catch (error: any) {
       toast.show(
         `Could not create a secure link${error.message ? `: ${error.message}` : ''}. `
-          + `You can still share code ${trip.code}.`,
+          + 'Sharing the trip code instead.',
         'error',
       );
+      await Share.share({ message: tripCodeShareMessage(trip.name, trip.code) });
     } finally {
       setSharingInvite(false);
     }
@@ -716,7 +745,7 @@ export default function TripDetail() {
 
           {tab === 'members' && (
             <View style={{ gap: SPACING.sm }}>
-              {meCanManageMembers && inviteLinksEnabled ? (
+              {canCreateSecureInvite ? (
                 <InviteLinksPanel
                   tripId={trip.id}
                   refreshKey={inviteRefreshKey}

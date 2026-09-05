@@ -23,6 +23,11 @@ import {
   passwordSetupHref,
   postAuthHref,
 } from '../../src/inviteNavigation';
+import {
+  claimInviteApkAutoDownload,
+  INVITE_APK_AUTO_DOWNLOAD_DELAY_MS,
+  isAndroidWebBrowser,
+} from '../../src/inviteAutoDownload';
 import { CONTENT_MAX_WIDTH, FONTS, RADIUS, SPACING } from '../../src/theme';
 
 
@@ -77,6 +82,12 @@ export default function InviteLanding() {
   const [loading, setLoading] = useState(!!path);
   const [retryKey, setRetryKey] = useState(0);
   const [openAppError, setOpenAppError] = useState(false);
+  const [autoDownloadFailed, setAutoDownloadFailed] = useState(false);
+  const active = !!invite && !failure;
+  const androidWebBrowser = isAndroidWebBrowser(
+    Platform.OS,
+    typeof navigator === 'undefined' ? '' : navigator.userAgent,
+  );
 
   useEffect(() => {
     if (!path) return;
@@ -125,6 +136,23 @@ export default function InviteLanding() {
     if (href) router.replace(href);
   }, [invite, path, router, token, user]);
 
+  useEffect(() => {
+    if (!active || !androidWebBrowser) return undefined;
+    let storage: Storage | null = null;
+    try {
+      storage = typeof sessionStorage === 'undefined' ? null : sessionStorage;
+    } catch {
+      storage = null;
+    }
+    if (!claimInviteApkAutoDownload(token, storage)) return undefined;
+
+    const timer = setTimeout(() => {
+      void Linking.openURL(`${DEFAULT_APP_ORIGIN}/download/android`)
+        .catch(() => setAutoDownloadFailed(true));
+    }, INVITE_APK_AUTO_DOWNLOAD_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [active, androidWebBrowser, token]);
+
   const signIn = () => {
     if (!path) return;
     void rememberInvite(path).then(() => {
@@ -166,7 +194,6 @@ export default function InviteLanding() {
     });
   };
 
-  const active = !!invite && !failure;
   const problem = failure ? failureCopy[failure] : null;
 
   return (
@@ -234,6 +261,18 @@ export default function InviteLanding() {
                         fullWidth
                         testID="invite-download-apk"
                       />
+                      {androidWebBrowser ? (
+                        <T
+                          variant="caption"
+                          muted={!autoDownloadFailed}
+                          color={autoDownloadFailed ? colors.danger : undefined}
+                          testID="invite-auto-download-status"
+                        >
+                          {autoDownloadFailed
+                            ? 'The automatic download was blocked. Tap Download Android APK.'
+                            : 'The latest APK download will start automatically on this Android device.'}
+                        </T>
+                      ) : null}
                       <Button
                         label="Continue on web"
                         variant="ghost"
@@ -278,8 +317,8 @@ export default function InviteLanding() {
             <View style={styles.installNote}>
               <T variant="h4">Installing for the first time?</T>
               <T variant="caption" muted>
-                Download and install the APK, return to this page, then tap Open Trip Splitter.
-                Android keeps this invite in the link until you are ready.
+                Download and install the APK. Then return to WhatsApp and tap the original invite
+                link again; Trip Splitter will open directly on the joining page.
               </T>
             </View>
           ) : null}

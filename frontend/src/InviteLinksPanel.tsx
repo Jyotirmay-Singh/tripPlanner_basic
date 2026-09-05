@@ -75,7 +75,9 @@ export default function InviteLinksPanel({ tripId, refreshKey, onCreateAndShare 
           </View>
           <View style={styles.flex}>
             <T variant="h3">Invite links</T>
-            <T variant="caption" muted>Private links expire after seven days.</T>
+            <T variant="caption" muted>
+              Your newest link replaces your previous one and expires after seven days.
+            </T>
           </View>
         </View>
 
@@ -120,6 +122,11 @@ export default function InviteLinksPanel({ tripId, refreshKey, onCreateAndShare 
                   ? `Revoked ${dateLabel(invite.revoked_at || invite.expires_at)}`
                   : `${invite.status === 'active' ? 'Expires' : 'Expired'} ${dateLabel(invite.expires_at)}`}
               </T>
+              {invite.created_by_name ? (
+                <T variant="caption" muted testID={`invite-creator-${invite.id}`}>
+                  Created by {invite.created_by_name}
+                </T>
+              ) : null}
             </View>
             {invite.status === 'active' ? (
               <Button

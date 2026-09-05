@@ -71,6 +71,21 @@ it('marks the deployed chat protocol as supported', async () => {
   expect(latest.user).toBeNull();
 });
 
+it('refreshes a changed invite rollout flag on demand before sharing', async () => {
+  (apiModule.api as jest.Mock)
+    .mockResolvedValueOnce({ chat_protocol_version: 1, invite_links_enabled: false })
+    .mockResolvedValueOnce({ chat_protocol_version: 1, invite_links_enabled: true });
+  await mount();
+  expect(latest.inviteLinksEnabled).toBe(false);
+
+  let snapshot: Awaited<ReturnType<typeof latest.refreshRuntimeConfig>> | undefined;
+  await act(async () => { snapshot = await latest.refreshRuntimeConfig(); });
+
+  expect(snapshot).toEqual({ inviteLinksEnabled: true });
+  expect(latest.inviteLinksEnabled).toBe(true);
+  expect(apiModule.api).toHaveBeenLastCalledWith('/meta/config', { auth: false });
+});
+
 it('persists and clears a pending invite path', async () => {
   (apiModule.api as jest.Mock).mockResolvedValue({ chat_protocol_version: 1 });
   await mount();

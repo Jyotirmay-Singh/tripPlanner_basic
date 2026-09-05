@@ -1,4 +1,4 @@
-import { canManageMembers, type RoleTrip } from './permissions';
+import { roleOf, type RoleTrip } from './permissions';
 
 
 export function canShareSecureInvite(
@@ -6,7 +6,7 @@ export function canShareSecureInvite(
   userId: string | undefined,
   inviteLinksEnabled: boolean,
 ): boolean {
-  return inviteLinksEnabled && canManageMembers(trip, userId);
+  return inviteLinksEnabled && roleOf(trip, userId) !== null;
 }
 
 export function tripCodeShareMessage(tripName: string, code: string): string {

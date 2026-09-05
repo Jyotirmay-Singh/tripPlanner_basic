@@ -16,6 +16,7 @@ from utils.emailer import sender_mode_summary
 from routes import auth, trips, join_requests, invites, members, expenses, balances, reports, meta, receipts, spend, payments, chat, push, exchange_rates
 from services.push_notifications import start_push_dispatcher, stop_push_dispatcher
 from services.exchange_rates import start_exchange_rate_client, stop_exchange_rate_client
+from services.invites import normalize_invite_active_flags
 
 
 # ---------- Startup / Shutdown ----------
@@ -43,6 +44,13 @@ async def lifespan(app: FastAPI):
     ])
     await db.trip_invites.create_index("token_hash", unique=True)
     await db.trip_invites.create_index([("trip_id", 1), ("created_at", -1)])
+    await normalize_invite_active_flags()
+    await db.trip_invites.create_index(
+        [("trip_id", 1), ("created_by", 1)],
+        unique=True,
+        partialFilterExpression={"active": True},
+        name="uniq_active_invite_per_creator_trip",
+    )
     # Expired/revoked metadata remains available for a 90-day audit window. The raw token is
     # never stored, and this separate TTL timestamp avoids deleting a record at its 7-day expiry.
     await db.trip_invites.create_index("audit_expires_at", expireAfterSeconds=0)

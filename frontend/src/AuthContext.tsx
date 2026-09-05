@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, getToken, setToken } from './api';
 import type { ChatCapability } from './chat';
@@ -29,6 +30,7 @@ type Ctx = {
   pendingInvitePath: string | null;
   multiCurrencyExpensesEnabled: boolean;
   chatCapability: ChatCapability;
+  refreshRuntimeConfig: () => Promise<RuntimeConfigSnapshot>;
   handleAuthenticationRequired: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   register: (email: string, name: string, password: string) => Promise<void>;
@@ -38,6 +40,10 @@ type Ctx = {
   refresh: () => Promise<void>;
   rememberInvite: (path: string) => Promise<void>;
   clearPendingInvite: () => Promise<void>;
+};
+
+export type RuntimeConfigSnapshot = {
+  inviteLinksEnabled: boolean;
 };
 
 const AuthCtx = createContext<Ctx>({} as Ctx);
@@ -51,24 +57,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [multiCurrencyExpensesEnabled, setMultiCurrencyExpensesEnabled] = useState(false);
   const [chatCapability, setChatCapability] = useState<ChatCapability>('loading');
 
-  // Public, DB-free capability fetch. A successful response without the chat protocol identifies
-  // an older backend; a request failure remains unknown so a temporary config outage does not
-  // incorrectly disable chat.
-  useEffect(() => {
-    api<{
+  // Public, DB-free capability fetch. It is callable by share actions so a long-running app never
+  // relies on the flag value captured at launch during a coordinated backend/APK rollout.
+  const refreshRuntimeConfig = useCallback(async (): Promise<RuntimeConfigSnapshot> => {
+    try {
+      const config = await api<{
       email_features_enabled?: boolean;
       invite_links_enabled?: boolean;
       chat_protocol_version?: number;
       multi_currency_expenses_enabled?: boolean;
-    }>('/meta/config', { auth: false })
-      .then((config) => {
-        setEmailFeaturesEnabled(config?.email_features_enabled !== false);
-        setInviteLinksEnabled(config?.invite_links_enabled === true);
-        setMultiCurrencyExpensesEnabled(config?.multi_currency_expenses_enabled === true);
-        setChatCapability(config?.chat_protocol_version === 1 ? 'supported' : 'unsupported');
-      })
-      .catch(() => setChatCapability('unknown'));
+      }>('/meta/config', { auth: false });
+      const linksEnabled = config?.invite_links_enabled === true;
+      setEmailFeaturesEnabled(config?.email_features_enabled !== false);
+      setInviteLinksEnabled(linksEnabled);
+      setMultiCurrencyExpensesEnabled(config?.multi_currency_expenses_enabled === true);
+      setChatCapability(config?.chat_protocol_version === 1 ? 'supported' : 'unsupported');
+      return { inviteLinksEnabled: linksEnabled };
+    } catch (error) {
+      // A temporary config outage must not downgrade a capability that was already confirmed.
+      setChatCapability((current) => current === 'loading' ? 'unknown' : current);
+      throw error;
+    }
   }, []);
+
+  useEffect(() => {
+    void refreshRuntimeConfig().catch(() => {});
+  }, [refreshRuntimeConfig]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') void refreshRuntimeConfig().catch(() => {});
+    });
+    return () => subscription?.remove?.();
+  }, [refreshRuntimeConfig]);
 
   const handleAuthenticationRequired = useCallback(async () => {
     await setToken(null);
@@ -164,6 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       pendingInvitePath,
       multiCurrencyExpensesEnabled,
       chatCapability,
+      refreshRuntimeConfig,
       handleAuthenticationRequired,
       signIn,
       register,
