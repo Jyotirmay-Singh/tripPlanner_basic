@@ -12,6 +12,10 @@ const originalPlatformOS = Platform.OS;
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({ navigate: mockNavigate, push: mockPush }),
+  useFocusEffect: (callback: () => void | (() => void)) => {
+    const R = require('react');
+    R.useEffect(callback, [callback]);
+  },
 }));
 jest.mock('expo-haptics', () => ({ __esModule: true, selectionAsync: mockSelectionAsync }));
 jest.mock('../AuthContext', () => ({
@@ -74,6 +78,8 @@ describe('Profile access after removing its visible tab', () => {
 
   it('preserves theme, password, and sign-out controls on Profile', () => {
     const root = render(<Profile />);
+
+    expect(root.findByProps({ testID: 'profile-notification-settings' })).toBeDefined();
 
     act(() => { root.findByProps({ testID: 'toggle-dark-mode' }).props.onValueChange(true); });
     act(() => { root.findByProps({ testID: 'profile-change-password' }).props.onPress(); });

@@ -7,14 +7,16 @@ Expo Go is not a valid substitute.
 ## Expected permission behavior
 
 - Notification support is Android-only.
+- Web and iOS Profile screens still show **Notifications — Not available** with a disabled switch.
 - An account with no trips is not asked about notifications.
 - On Android 13 or newer, the first eligible account with undecided permission sees the app's
   **Stay updated on your trips** rationale. Android's system dialog appears only after
   **Enable notifications** is pressed.
-- **Not now** is remembered and suppresses later automatic prompts. Profile then shows
-  **Enable notifications**.
-- A denied system permission changes the Profile action to **Notification settings**, which opens
-  the app's Android settings page.
+- **Not now** is remembered and suppresses later automatic prompts. Profile keeps an always-visible
+  **Notifications** row showing **Disabled**.
+- The Profile notification switch mirrors Android's current permission. Pressing the row explains
+  the required change, then **Open settings** opens the app's Android settings page. Permission is
+  refreshed when the app returns; Profile never changes the switch optimistically.
 - Android 12 and older normally have notification permission granted without the Android 13
   runtime dialog. Treat this as an optional compatibility smoke test, not a prompt failure.
 
@@ -46,18 +48,22 @@ Android app settings is also acceptable.
    settlements, and group messages and says names, amounts, and message text are not shown on the
    lock screen, then press **Not now**.
 5. Background and reopen the app. Confirm neither the rationale nor the system dialog repeats.
-6. Open Profile and confirm **Enable notifications** is present.
-7. Press it, deny Android's notification dialog, and confirm Profile changes to
-   **Notification settings**.
-8. Press **Notification settings**, enable notifications in Android settings, and return to the
-   app. Confirm the Profile notification row disappears after the permission state refreshes.
+6. Open Profile and confirm the **Notifications** row is present with **Disabled** and its switch
+   off.
+7. Press it, confirm the app explains that Android controls the permission, then press
+   **Open settings**.
+8. Enable notifications in Android settings and return to the app. Confirm the same Profile row
+   now shows **Enabled** with its switch on.
+9. Press the row again, follow the disable instructions, and return. Confirm it changes back to
+   **Disabled** with its switch off.
 
 ### Cycle B: accept immediately
 
 1. Uninstall/reinstall the same APK; keep Receiver in the test trip.
 2. Sign in, wait for trip eligibility to load, and confirm the rationale appears.
 3. Press **Enable notifications**, confirm Android's system dialog appears, and press **Allow**.
-4. Confirm the rationale and Profile action do not reappear on later foreground launches.
+4. Confirm the rationale does not reappear and Profile continues to show **Notifications —
+   Enabled** on later foreground launches.
 
 ## Delivery and routing matrix
 

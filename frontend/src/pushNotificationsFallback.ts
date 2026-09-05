@@ -21,6 +21,4 @@ export async function getPushPermissionState(): Promise<PushPermissionState> {
   return 'unavailable';
 }
 
-export async function enablePushNotificationsFromSettings(): Promise<PushPermissionState> {
-  return 'unavailable';
-}
+export async function openPushNotificationSettings(): Promise<void> {}

@@ -65,8 +65,8 @@ jest.mock('expo-notifications', () => ({
 jest.mock('../api', () => ({ api: mockApi }));
 
 const {
-  enablePushNotificationsFromSettings,
   getPushPermissionState,
+  openPushNotificationSettings,
   syncPushRegistrationIfEligible,
   unregisterCurrentPushInstallation,
 } = require('../pushNotifications.android');
@@ -238,31 +238,29 @@ describe('Android push notification registration', () => {
     expect(mockGetExpoPushToken).not.toHaveBeenCalled();
   });
 
-  it('opens Android settings for denied permission and rechecks the resulting state', async () => {
-    mockGetPermissions
-      .mockResolvedValueOnce(permission('denied'))
-      .mockResolvedValueOnce(permission('granted'));
+  it('opens Android settings without requesting or changing permission directly', async () => {
+    await expect(openPushNotificationSettings()).resolves.toBeUndefined();
 
-    await expect(enablePushNotificationsFromSettings()).resolves.toBe('granted');
-
+    expect(mockSetNotificationChannel).toHaveBeenCalledTimes(1);
     expect(mockOpenSettings).toHaveBeenCalledTimes(1);
+    expect(mockGetPermissions).not.toHaveBeenCalled();
     expect(mockRequestPermissions).not.toHaveBeenCalled();
-    // Registration is retried by the coordinator's AppState listener when settings returns.
     expect(mockGetExpoPushToken).not.toHaveBeenCalled();
   });
 
-  it('requests undecided permission directly from Profile and registers when granted', async () => {
-    mockGetPermissions
-      .mockResolvedValueOnce(permission('undetermined'))
-      .mockResolvedValueOnce(permission('granted'));
+  it('still opens Android settings when notification channel setup is unavailable', async () => {
+    mockSetNotificationChannel.mockRejectedValueOnce(new Error('channel unavailable'));
 
-    await expect(enablePushNotificationsFromSettings()).resolves.toBe('granted');
+    await expect(openPushNotificationSettings()).resolves.toBeUndefined();
 
-    expect(mockAlert).not.toHaveBeenCalled();
-    expect(mockRequestPermissions).toHaveBeenCalledTimes(1);
-    expect(mockStorage.get('push_rationale_seen')).toBe('true');
-    expect(mockStorage.get('push_rationale_accepted')).toBe('true');
-    expect(mockGetExpoPushToken).toHaveBeenCalledTimes(1);
+    expect(mockOpenSettings).toHaveBeenCalledTimes(1);
+    expect(info).toHaveBeenCalledWith('[push-notifications] settings_channel_unavailable', {});
+  });
+
+  it('reports a settings launch failure to the caller', async () => {
+    mockOpenSettings.mockRejectedValueOnce(new Error('settings unavailable'));
+
+    await expect(openPushNotificationSettings()).rejects.toThrow('settings unavailable');
   });
 
   it('deduplicates concurrent foreground registration attempts', async () => {

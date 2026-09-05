@@ -227,27 +227,13 @@ export async function getPushPermissionState(): Promise<PushPermissionState> {
 }
 
 
-export async function enablePushNotificationsFromSettings(): Promise<PushPermissionState> {
-  if (Platform.OS !== 'android') return 'unavailable';
+export async function openPushNotificationSettings(): Promise<void> {
+  if (Platform.OS !== 'android') return;
   try {
     await ensureChannel();
-    let state = await getPushPermissionState();
-    if (state === 'denied') {
-      await Linking.openSettings();
-      return getPushPermissionState();
-    }
-    if (state === 'undetermined') {
-      await AsyncStorage.multiSet([
-        [RATIONALE_SEEN_KEY, 'true'],
-        [RATIONALE_ACCEPTED_KEY, 'true'],
-      ]).catch(() => {});
-      state = permissionState(await Notifications.requestPermissionsAsync());
-    }
-    if (state === 'granted') {
-      return syncPushRegistrationIfEligible({ allowPermissionPrompt: false });
-    }
-    return state;
   } catch {
-    return 'unavailable';
+    // Opening Android settings is still useful if channel setup is temporarily unavailable.
+    pushDiagnostic('settings_channel_unavailable');
   }
+  await Linking.openSettings();
 }
