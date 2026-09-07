@@ -29,7 +29,7 @@ matrix result is claimed.
 | --- | --- |
 | Record opened | 2026-09-07 20:16:34 +05:30 (Asia/Calcutta) |
 | Repository baseline | `c7a8ea1438152c5a75af6941e5329aa33af36362` |
-| Candidate revision | Uncommitted eligibility repair on the baseline; update before APK build |
+| Implementation commit | `a113f8d31d7c92ace6ab78f9318c1f1d447753c5` |
 | Hosted backend revision | `c7a8ea143815` |
 | Existing APK | Version 1.0.0, Android build 6 |
 | Existing EAS build ID | `298c6aba-a29f-4038-9171-eee957cce866` |
