@@ -120,14 +120,14 @@ describe('Android push notification registration', () => {
     mockRequestPermissions.mockResolvedValue(permission('granted'));
     mockGetExpoPushToken.mockResolvedValue({ data: 'ExpoPushToken[test-token-value]' });
     mockApi.mockImplementation(async (path: string) => (
-      path === '/trips' ? [{ id: 'trip-1' }] : { ok: true }
+      path === '/push/eligibility' ? { eligible: true } : { ok: true }
     ));
   });
 
   afterEach(() => info.mockRestore());
 
-  it('does not prompt or register a signed-in account without any trips', async () => {
-    mockApi.mockResolvedValueOnce([]);
+  it('does not prompt or register a zero-trip account without a pending request', async () => {
+    mockApi.mockResolvedValueOnce({ eligible: false });
 
     await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: true }))
       .resolves.toBe('undetermined');
@@ -145,7 +145,7 @@ describe('Android push notification registration', () => {
     await expect(firstSync).resolves.toBe('undetermined');
     expect(mockAlert).toHaveBeenCalledWith(
       'Stay updated on your trips',
-      expect.stringContaining('Amounts, names, and message text are never shown on the lock screen.'),
+      expect.stringContaining('group messages, and join requests'),
       expect.any(Array),
       { cancelable: false },
     );
@@ -166,7 +166,7 @@ describe('Android push notification registration', () => {
     expect(mockRequestPermissions).toHaveBeenCalledTimes(1);
     expect(mockSetNotificationChannel).toHaveBeenCalledWith('trip_activity', expect.objectContaining({
       name: 'Trip activity',
-      description: 'Private updates for expenses, payments, settlements, and group messages',
+      description: 'Private updates for trip activity and join requests',
       importance: 4,
       lockscreenVisibility: 0,
     }));
@@ -178,6 +178,16 @@ describe('Android push notification registration', () => {
         body: { token: 'ExpoPushToken[test-token-value]', platform: 'android' },
       },
     );
+  });
+
+  it('prompts and registers a zero-trip account with a pending join request', async () => {
+    mockApi.mockResolvedValueOnce({ eligible: true });
+    const sync = syncPushRegistrationIfEligible({ allowPermissionPrompt: true });
+    await pressRationale('Enable notifications');
+
+    await expect(sync).resolves.toBe('granted');
+    expect(mockApi).toHaveBeenNthCalledWith(1, '/push/eligibility');
+    expect(mockGetExpoPushToken).toHaveBeenCalledTimes(1);
   });
 
   it('registers an already-granted installation without showing either prompt', async () => {
@@ -200,7 +210,7 @@ describe('Android push notification registration', () => {
 
     expect(mockGetExpoPushToken).not.toHaveBeenCalled();
     expect(mockApi).toHaveBeenCalledTimes(1);
-    expect(mockApi).toHaveBeenCalledWith('/trips');
+    expect(mockApi).toHaveBeenCalledWith('/push/eligibility');
   });
 
   it('does not prompt when trip eligibility cannot be checked offline', async () => {
@@ -223,6 +233,20 @@ describe('Android push notification registration', () => {
     expect(mockGetExpoPushToken).not.toHaveBeenCalled();
   });
 
+  it('retries eligibility and registration after an unavailable startup check', async () => {
+    mockGetPermissions.mockResolvedValue(permission('granted'));
+    mockApi.mockRejectedValueOnce(new Error('offline'));
+
+    await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: false }))
+      .resolves.toBe('granted');
+    expect(mockGetExpoPushToken).not.toHaveBeenCalled();
+
+    await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: false }))
+      .resolves.toBe('granted');
+    expect(mockApi).toHaveBeenNthCalledWith(2, '/push/eligibility');
+    expect(mockGetExpoPushToken).toHaveBeenCalledTimes(1);
+  });
+
   it('deactivates a previously registered installation after permission is revoked', async () => {
     mockStorage.set('push_installation_id', '12345678-1234-4678-9234-567812345678');
     mockGetPermissions.mockResolvedValue(permission('denied'));
@@ -230,7 +254,7 @@ describe('Android push notification registration', () => {
     await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: false }))
       .resolves.toBe('denied');
 
-    expect(mockApi).toHaveBeenCalledWith('/trips');
+    expect(mockApi).toHaveBeenCalledWith('/push/eligibility');
     expect(mockApi).toHaveBeenCalledWith(
       '/push/devices/12345678-1234-4678-9234-567812345678?reason=permission_denied',
       { method: 'DELETE' },
@@ -264,14 +288,16 @@ describe('Android push notification registration', () => {
   });
 
   it('deduplicates concurrent foreground registration attempts', async () => {
-    let releaseTrips!: (value: { id: string }[]) => void;
-    mockApi.mockImplementationOnce(() => new Promise((resolve) => { releaseTrips = resolve; }));
+    let releaseEligibility!: (value: { eligible: boolean }) => void;
+    mockApi.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseEligibility = resolve;
+    }));
 
     const first = syncPushRegistrationIfEligible({ allowPermissionPrompt: false });
     const second = syncPushRegistrationIfEligible({ allowPermissionPrompt: false });
     expect(second).toBe(first);
 
-    releaseTrips([]);
+    releaseEligibility({ eligible: false });
     await expect(first).resolves.toBe('undetermined');
     expect(mockApi).toHaveBeenCalledTimes(1);
   });

@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, Mock
 from uuid import UUID
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from pymongo.errors import DuplicateKeyError
 
@@ -38,6 +40,64 @@ def test_push_device_model_accepts_only_android_expo_tokens():
         PushDeviceUpsert(token="not-a-push-token", platform="android")
     with pytest.raises(ValidationError):
         PushDeviceUpsert(token=VALID_TOKEN, platform="ios")
+
+
+def test_push_eligibility_is_true_for_a_current_trip_member(monkeypatch):
+    trips = SimpleNamespace(find_one=AsyncMock(return_value={"id": "trip-private"}))
+    join_requests = SimpleNamespace(find_one=AsyncMock())
+    monkeypatch.setattr(push, "db", SimpleNamespace(
+        trips=trips, join_requests=join_requests,
+    ))
+
+    result = run(push.get_push_eligibility(user={"id": "u1"}))
+
+    assert result == {"eligible": True}
+    assert list(result) == ["eligible"]
+    trips.find_one.assert_awaited_once_with(
+        {"user_ids": "u1"}, {"_id": 0, "id": 1},
+    )
+    join_requests.find_one.assert_not_awaited()
+
+
+def test_push_eligibility_http_contract_requires_authentication():
+    app = FastAPI()
+    app.include_router(push.router, prefix="/api")
+
+    response = TestClient(app).get("/api/push/eligibility")
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Not authenticated"}
+
+
+def test_push_eligibility_is_true_for_zero_trip_pending_requester(monkeypatch):
+    trips = SimpleNamespace(find_one=AsyncMock(return_value=None))
+    join_requests = SimpleNamespace(find_one=AsyncMock(return_value={"id": "request-private"}))
+    monkeypatch.setattr(push, "db", SimpleNamespace(
+        trips=trips, join_requests=join_requests,
+    ))
+
+    result = run(push.get_push_eligibility(user={"id": "requester"}))
+
+    assert result == {"eligible": True}
+    assert "request-private" not in str(result)
+    join_requests.find_one.assert_awaited_once_with(
+        {
+            "requester_user_id": "requester",
+            "active": True,
+            "status": {"$in": ["pending", "approving"]},
+        },
+        {"_id": 0, "id": 1},
+    )
+
+
+def test_push_eligibility_is_false_without_trip_or_active_pending_request(monkeypatch):
+    trips = SimpleNamespace(find_one=AsyncMock(return_value=None))
+    join_requests = SimpleNamespace(find_one=AsyncMock(return_value=None))
+    monkeypatch.setattr(push, "db", SimpleNamespace(
+        trips=trips, join_requests=join_requests,
+    ))
+
+    assert run(push.get_push_eligibility(user={"id": "u1"})) == {"eligible": False}
 
 
 def test_register_reassigns_token_and_never_exposes_it(monkeypatch, caplog):
@@ -462,7 +522,8 @@ def test_send_ticket_and_device_not_registered_receipt(monkeypatch):
     devices.update_one.assert_awaited_once()
 
 
-def test_retryable_http_failure_uses_bounded_backoff(monkeypatch):
+@pytest.mark.parametrize("status_code", [401, 403, 429, 500, 503])
+def test_retryable_http_failure_uses_bounded_backoff(monkeypatch, status_code):
     timestamp = now_utc()
     event = {
         "event_key": "expense.created:e1",
@@ -476,7 +537,9 @@ def test_retryable_http_failure_uses_bounded_backoff(monkeypatch):
             "status": "pending", "attempts": 0, "next_attempt_at": timestamp,
         }],
     }
-    monkeypatch.setattr(notifications, "_expo_post", AsyncMock(return_value=(429, None)))
+    monkeypatch.setattr(
+        notifications, "_expo_post", AsyncMock(return_value=(status_code, None)),
+    )
     monkeypatch.setattr(notifications, "db", SimpleNamespace(
         notification_outbox=SimpleNamespace(update_one=AsyncMock()),
     ))
@@ -485,7 +548,65 @@ def test_retryable_http_failure_uses_bounded_backoff(monkeypatch):
     delivery = event["deliveries"][0]
     assert delivery["status"] == "retry"
     assert delivery["attempts"] == 1
+    assert delivery["last_error"] == f"expo_http_{status_code}"
     assert delivery["next_attempt_at"] == timestamp + timedelta(minutes=1)
+
+
+@pytest.mark.parametrize("response", [None, {}, {"data": {}}, {"data": []}])
+def test_malformed_expo_ticket_response_is_retried(monkeypatch, response):
+    timestamp = now_utc()
+    event = {
+        "event_key": "expense.created:e1",
+        "event_type": "expense.created",
+        "source_id": "e1",
+        "trip_id": "t1",
+        "target": "trip_expenses",
+        "created_at": timestamp,
+        "deliveries": [{
+            "installation_id": "i1", "user_id": "u2", "token": VALID_TOKEN,
+            "status": "pending", "attempts": 0, "next_attempt_at": timestamp,
+        }],
+    }
+    monkeypatch.setattr(
+        notifications, "_expo_post", AsyncMock(return_value=(200, response)),
+    )
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(
+        notification_outbox=SimpleNamespace(update_one=AsyncMock()),
+    ))
+
+    run(notifications._send_due_deliveries(event, timestamp))
+
+    delivery = event["deliveries"][0]
+    assert delivery["status"] == "retry"
+    assert delivery["last_error"] == "malformed_expo_response"
+    assert delivery["next_attempt_at"] == timestamp + timedelta(minutes=1)
+
+
+def test_malformed_individual_expo_ticket_is_retried(monkeypatch):
+    timestamp = now_utc()
+    event = {
+        "event_key": "expense.created:e1",
+        "event_type": "expense.created",
+        "source_id": "e1",
+        "trip_id": "t1",
+        "target": "trip_expenses",
+        "created_at": timestamp,
+        "deliveries": [{
+            "installation_id": "i1", "user_id": "u2", "token": VALID_TOKEN,
+            "status": "pending", "attempts": 0, "next_attempt_at": timestamp,
+        }],
+    }
+    monkeypatch.setattr(
+        notifications, "_expo_post", AsyncMock(return_value=(200, {"data": ["invalid"]})),
+    )
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(
+        notification_outbox=SimpleNamespace(update_one=AsyncMock()),
+    ))
+
+    run(notifications._send_due_deliveries(event, timestamp))
+
+    assert event["deliveries"][0]["status"] == "retry"
+    assert event["deliveries"][0]["last_error"] == "malformed_expo_ticket"
 
 
 def test_successful_receipt_completes_the_outbox_event(monkeypatch):
@@ -513,6 +634,98 @@ def test_successful_receipt_completes_the_outbox_event(monkeypatch):
     run(notifications._finalize_event(event, timestamp))
     assert event["status"] == "complete"
     assert event["completed_at"] == timestamp
+
+
+@pytest.mark.parametrize("status_code", [401, 403, 429, 500, 503])
+def test_retryable_receipt_http_failure_uses_bounded_delay(monkeypatch, status_code):
+    timestamp = now_utc()
+    event = {
+        "event_key": "expense.created:e1",
+        "event_type": "expense.created",
+        "source_id": "e1",
+        "trip_id": "t1",
+        "deliveries": [{
+            "installation_id": "i1", "user_id": "u2", "token": VALID_TOKEN,
+            "status": "ticketed", "ticket_id": "ticket-1", "receipt_attempts": 0,
+            "receipt_check_at": timestamp, "ticketed_at": timestamp,
+        }],
+    }
+    monkeypatch.setattr(
+        notifications, "_expo_post", AsyncMock(return_value=(status_code, None)),
+    )
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(
+        notification_outbox=SimpleNamespace(update_one=AsyncMock()),
+    ))
+
+    run(notifications._poll_due_receipts(event, timestamp))
+
+    delivery = event["deliveries"][0]
+    assert delivery["status"] == "ticketed"
+    assert delivery["receipt_attempts"] == 1
+    assert delivery["last_error"] == f"expo_receipt_http_{status_code}"
+    assert delivery["receipt_check_at"] == timestamp + timedelta(minutes=5)
+
+
+def test_delayed_receipt_retries_then_finishes_as_unavailable(monkeypatch):
+    timestamp = now_utc()
+    delivery = {
+        "installation_id": "i1", "user_id": "u2", "token": VALID_TOKEN,
+        "status": "ticketed", "ticket_id": "ticket-1", "receipt_attempts": 0,
+        "receipt_check_at": timestamp, "ticketed_at": timestamp,
+    }
+    event = {
+        "event_key": "expense.created:e1",
+        "event_type": "expense.created",
+        "source_id": "e1",
+        "trip_id": "t1",
+        "deliveries": [delivery],
+    }
+    monkeypatch.setattr(
+        notifications, "_expo_post", AsyncMock(return_value=(200, {"data": {}})),
+    )
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(
+        notification_outbox=SimpleNamespace(update_one=AsyncMock()),
+    ))
+
+    run(notifications._poll_due_receipts(event, timestamp))
+    assert delivery["status"] == "ticketed"
+    assert delivery["last_error"] == "expo_receipt_not_ready"
+    assert delivery["receipt_check_at"] == timestamp + timedelta(minutes=5)
+
+    delivery["receipt_attempts"] = 7
+    final_check = timestamp + timedelta(minutes=5)
+    run(notifications._poll_due_receipts(event, final_check))
+    assert delivery["receipt_attempts"] == 8
+    assert delivery["status"] == "receipt_unavailable"
+    assert delivery["receipt_check_at"] is None
+
+
+def test_malformed_receipt_envelope_is_retried(monkeypatch):
+    timestamp = now_utc()
+    event = {
+        "event_key": "expense.created:e1",
+        "event_type": "expense.created",
+        "source_id": "e1",
+        "trip_id": "t1",
+        "deliveries": [{
+            "installation_id": "i1", "user_id": "u2", "token": VALID_TOKEN,
+            "status": "ticketed", "ticket_id": "ticket-1", "receipt_attempts": 0,
+            "receipt_check_at": timestamp, "ticketed_at": timestamp,
+        }],
+    }
+    monkeypatch.setattr(
+        notifications, "_expo_post", AsyncMock(return_value=(200, {"data": []})),
+    )
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(
+        notification_outbox=SimpleNamespace(update_one=AsyncMock()),
+    ))
+
+    run(notifications._poll_due_receipts(event, timestamp))
+
+    delivery = event["deliveries"][0]
+    assert delivery["status"] == "ticketed"
+    assert delivery["last_error"] == "malformed_expo_receipts_response"
+    assert delivery["receipt_check_at"] == timestamp + timedelta(minutes=5)
 
 
 def test_retry_exhaustion_marks_delivery_and_event_dead(monkeypatch):

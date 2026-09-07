@@ -1,142 +1,190 @@
 # Android Notification QA
 
-Use this checklist to verify the real Expo/FCM delivery path after the automated notification
-tests pass. Remote push acceptance requires an installable app build and a physical Android device;
-Expo Go is not a valid substitute.
+Use this checklist to verify the complete production path: committed business action -> MongoDB
+outbox -> current recipient and active-device resolution -> Expo ticket -> FCM receipt -> Android
+display -> authorized tap navigation. Expo Go is not valid evidence; use a preview APK and physical
+Android devices.
 
-## Expected permission behavior
+## Expected eligibility and permission behavior
 
-- Notification support is Android-only.
-- Web and iOS Profile screens still show **Notifications — Not available** with a disabled switch.
-- An account with no trips is not asked about notifications.
-- On Android 13 or newer, the first eligible account with undecided permission sees the app's
-  **Stay updated on your trips** rationale. Android's system dialog appears only after
-  **Enable notifications** is pressed.
-- **Not now** is remembered and suppresses later automatic prompts. Profile keeps an always-visible
-  **Notifications** row showing **Disabled**.
-- The Profile notification switch mirrors Android's current permission. Pressing the row explains
-  the required change, then **Open settings** opens the app's Android settings page. Permission is
-  refreshed when the app returns; Profile never changes the switch optimistically.
-- Android 12 and older normally have notification permission granted without the Android 13
-  runtime dialog. Treat this as an optional compatibility smoke test, not a prompt failure.
+- Notification support is Android-only. Web and iOS show **Notifications - Not available**.
+- `GET /api/push/eligibility` is authenticated and returns only `{ "eligible": boolean }`.
+- Eligibility is true when the signed-in user belongs to any trip or owns an active pending join
+  request. A zero-trip user with neither condition is not prompted.
+- Creating a join request immediately awaits permission and registration synchronization so a
+  first-trip requester can receive approval or rejection. Sign-in and foreground synchronization
+  retry interrupted, offline, or unavailable attempts.
+- On Android 13+, the first eligible account with undecided permission sees the private rationale.
+  Android's dialog appears only after **Enable notifications** is pressed.
+- **Not now** is remembered and suppresses later automatic rationale prompts. Recovery remains
+  available from Profile and Android app settings.
+- Revoked or denied permission deactivates the current server registration when the app next
+  synchronizes. Restoring permission and foregrounding the app registers it again.
+- Android 12 and older normally grant notification permission without a runtime dialog; treat them
+  as optional compatibility coverage.
 
-## Preconditions
+## Test record and topology
 
-- Build from `frontend/` with the EAS `preview` profile. Do not use the obsolete root Expo config.
-- Confirm the build uses package `com.tripsplitter.app`, the intended EAS project, the hosted API,
-  and a valid EAS file variable for the Firebase `google-services.json` file.
-- Confirm FCM v1 credentials are attached to the EAS project and the hosted backend has push
-  delivery enabled. Configure the Expo access token only when enhanced push security is enabled.
-- Use a physical Android 13+ receiver and two dedicated test accounts in one isolated test trip:
-  **Actor** creates activity from web, while **Receiver** is signed in on Android.
-- Record the APK build ID/version, device model, Android version, test accounts' non-sensitive
-  labels, and start time. Never record bearer tokens, Expo push tokens, credentials, or database
-  connection details.
+Create `test_reports/android-notifications-YYYY-MM-DD.md` before testing and record only redacted
+metadata:
 
-## Permission sequence
+- exact Git revision, APK version/build number, EAS build ID, EAS project ID, Android package, and
+  hosted API origin;
+- both device models and Android versions;
+- disposable account labels (**Owner**, **Member**, **Requester**) rather than emails;
+- isolated activity, approval, and rejection trip IDs;
+- synchronized sender/receiver timestamps and timezone.
 
-Uninstalling the app is the most reliable reset because it clears both Android permission and the
-app's stored one-time rationale choice. Clearing app storage plus resetting Notifications under
-Android app settings is also acceptable.
+Never record credentials, bearer tokens, Expo push tokens, Firebase material, installation IDs,
+email addresses, chat text, financial details, or rejection reasons.
 
-### Cycle A: decline and recover
+Use three disposable accounts, two physical Android 13+ devices, and three isolated trips:
 
-1. Fresh-install the APK and sign in as Receiver while that account has no trips.
-2. Confirm no notification rationale or Android permission dialog appears.
-3. Add Receiver to the test trip, then open that trip.
-4. Confirm the private rationale appears once. Verify it covers expenses, recorded payments, paid
-   settlements, and group messages and says names, amounts, and message text are not shown on the
-   lock screen, then press **Not now**.
-5. Background and reopen the app. Confirm neither the rationale nor the system dialog repeats.
-6. Open Profile and confirm the **Notifications** row is present with **Disabled** and its switch
-   off.
-7. Press it, confirm the app explains that Android controls the permission, then press
-   **Open settings**.
-8. Enable notifications in Android settings and return to the app. Confirm the same Profile row
-   now shows **Enabled** with its switch on.
-9. Press the row again, follow the disable instructions, and return. Confirm it changes back to
-   **Disabled** with its switch off.
+1. **Activity trip**: Owner and Member are linked; Member is signed into both devices.
+2. **Approval trip**: an unlinked requester placeholder; Requester has no joined trips.
+3. **Rejection trip**: another unlinked requester placeholder; Requester has no joined trips.
 
-### Cycle B: accept immediately
+## Configuration evidence
 
-1. Uninstall/reinstall the same APK; keep Receiver in the test trip.
-2. Sign in, wait for trip eligibility to load, and confirm the rationale appears.
-3. Press **Enable notifications**, confirm Android's system dialog appears, and press **Allow**.
-4. Confirm the rationale does not reappear and Profile continues to show **Notifications —
-   Enabled** on later foreground launches.
+Before changing code or credentials, verify:
 
-## Delivery and routing matrix
+- hosted and repository revisions match the intended release source;
+- Render startup logs say the push dispatcher is enabled;
+- Expo enhanced push security and `EXPO_PUSH_ACCESS_TOKEN` are either both enabled/configured or
+  both disabled/unset;
+- the preview profile is an internal APK, uses remote versioning and `autoIncrement`, targets the
+  hosted API, and resolves to package `com.tripsplitter.app` and the expected EAS project;
+- the build consumes the `GOOGLE_SERVICES_JSON` EAS file variable;
+- EAS has the matching Android FCM v1 service-account credential.
 
-Allow up to two minutes for each hosted push. Run one event at a time and record sender time,
-receiver time, app state, visible copy, sound/banner behavior, and tap destination.
+Do not print environment-variable values or credential contents while gathering this evidence.
 
-| Case | Receiver state | Actor action | Expected result |
-| --- | --- | --- | --- |
-| Foreground expense | Trip Splitter open | Create an expense | Exactly one banner/list entry with sound; tap opens that trip's Expenses tab |
-| Background message | App in background | Send a group message | Exactly one notification; tap resumes the app on that trip's Chat tab |
-| Terminated payment | App swiped away, not force-stopped | Record a payment | Exactly one notification; cold-start tap opens Settle Up |
-| Paid settlement | App in background | Create or mark a settlement paid | Exactly one notification; tap opens Settle Up |
-| Pending settlement | Any | Create a pending settlement only | No notification |
-| Unconfirmed budget action | Any | Reach confirmation without saving | No notification |
-| Actor exclusion | Receiver performs a financial action on Android | Create an expense/payment | Receiver gets no notification for their own event |
-| Invalid duplicate tap | Tap the same delivered notification repeatedly | None | One destination is opened; no duplicate navigation stack entry |
+## Fresh-install registration gate
 
-For every delivered notification, confirm:
+1. Fresh-install the same APK on both devices and sign in as Member.
+2. Grant notification permission and confirm the **Trip activity** channel exists at high
+   importance with sound and private lock-screen visibility.
+3. Foreground each device and allow synchronization to finish.
+4. In a redacted MongoDB query, require exactly two active, unique Android installations owned by
+   Member. Report only the count and uniqueness result.
+5. Log one device out. Confirm its registration becomes inactive, then sign it back into Member and
+   confirm the two-device state is restored before the canary.
 
-- Title is **Trip Splitter**. The body identifies only the activity class: **A new expense was added
-  to one of your trips.**, **A payment was recorded in one of your trips.**, **A settlement was
-  marked paid in one of your trips.**, or **A new group message was sent in one of your trips.**
-- The lock screen exposes no trip name, member name, amount, currency, note, expense details, or
-  message text.
-- It uses the **Trip activity** channel with private lock-screen visibility.
-- Only current trip members receive it, and each registered installation receives at most one copy.
-- The private data payload carries `payloadVersion`, `eventKey`, `eventType`, `tripId`, `sourceId`,
-  and exactly one matching `expenseId`, `paymentId`, `settlementId`, or `messageId`.
+## Two-device canary
 
-## Registration lifecycle
+From the web, Owner creates one disposable expense in the activity trip. Correlate its source ID
+and `expense.created:<sourceId>` event key without exposing expense content:
 
-1. With permission granted, log Receiver out and wait for logout to finish.
-2. Have Actor create a new expense. Confirm Receiver's installation receives no notification.
-3. Sign Receiver back in, foreground the app, and have Actor create another expense.
-4. Confirm delivery resumes without reinstalling the app.
-5. Revoke permission in Android settings, return to the app, and confirm no notification is
-   displayed. Restore permission through Profile/Android settings and confirm delivery recovers.
+1. `push.event_enqueued` exists with the expected revision, event type, source, trip, and
+   `inserted=true`.
+2. `push.delivery_snapshot` reports one expected recipient and two active Android deliveries.
+3. Expo returns two successful tickets.
+4. Both devices display exactly one notification within two minutes.
+5. The receipt-check cycle reaches two `receipt_ok` statuses; allow up to 20 minutes.
+6. Tapping on each device opens the activity trip's Expenses tab and matching expense. Repeat a
+   tap and confirm it does not add another navigation entry.
+
+Do not start the full matrix until the canary passes on both devices. Fix only the first failing
+boundary, then repeat the canary.
+
+## Seven-event positive matrix
+
+Allow two minutes for display and 20 minutes for a terminal Expo receipt. Run one event at a time.
+
+| Event | Receiver state | Eligible audience | Exact generic body | Tap destination |
+| --- | --- | --- | --- | --- |
+| Expense created | Foreground | Member's two active devices, not Owner | `A new expense was added to one of your trips.` | Activity trip Expenses tab and matching expense |
+| Chat message created | Background | Member's two active devices, not Owner | `A new group message was sent in one of your trips.` | Activity trip Chat tab and matching message |
+| Payment recorded | Swiped away, not force-stopped | Member's two active devices, not Owner | `A payment was recorded in one of your trips.` | Activity trip Settle Up and matching payment |
+| Settlement marked paid | Background | Member's two active devices, not Owner | `A settlement was marked paid in one of your trips.` | Activity trip Settle Up and matching settlement |
+| Join request created | One owner/admin device foreground and one background | Current owner/admin devices only, not Requester or non-admins | `A join request needs review in one of your trips.` | Members request view and matching request |
+| First-trip request rejected | Background | Zero-trip Requester's active devices | `Your request to join a trip was reviewed.` | Request status and locally authorized admin reason |
+| First-trip request approved | Swiped away, not force-stopped | Zero-trip Requester's active devices | `Your request to join a trip was approved.` | Newly joined trip summary |
+
+For every positive case require:
+
+- title **Trip Splitter**, one notification per eligible active installation, and sound/banner
+  appropriate to the device state;
+- no trip name, person name, email, amount, currency, note, expense details, rejection reason, or
+  chat text on the lock screen;
+- `payloadVersion=1`, the exact `eventKey`, `eventType`, `tripId`, `sourceId`, target, and exactly one
+  matching typed source key: `expenseId`, `messageId`, `paymentId`, `settlementId`, or `requestId`;
+- correct authorized warm and cold-start navigation; repeated taps must not duplicate navigation;
+- expected enqueue, recipient count, device count, ticket status, final receipt status, and measured
+  sender-to-display latency on both devices.
+
+## Negative and lifecycle matrix
+
+Record each row independently as Pass, Fail, or Blocked.
+
+| Case | Expected result |
+| --- | --- |
+| Pending settlement | No push |
+| Cancelled budget confirmation | No push |
+| Expense/payment/chat edits or deletes | No push |
+| Cancelled join request | No push |
+| Repeating an already-paid settlement update | No additional push |
+| Actor performs the action | No self-notification |
+| Former member | No notification after access removal |
+| Non-admin observes a join request | No join-request-created notification |
+| Idempotent retry of the same chat message | One outbox event and one delivery per installation |
+| First rationale: **Not now** | No Android dialog and no repeated automatic rationale after restart/foreground |
+| Profile/settings recovery | Granting in Android settings re-registers without reinstalling |
+| One device logs out | Only the still-active installation receives |
+| Logged-out device signs into another account | Token ownership moves; neither account receives the other's activity |
+| Permission revoked then app foregrounded | Registration deactivates and delivery stops |
+| Permission restored then app foregrounded | Registration becomes active and delivery resumes |
+| Uninstall/reinstall one device | New installation receives once; stale token retires after `DeviceNotRegistered` |
+| Device temporarily offline | Notification displays after connectivity returns |
+| Android explicit Force stop | Record separately; do not classify suppression as a product failure |
+| Old notification tapped while signed out | Authenticate, then continue to the authorized destination |
+| Old notification tapped after trip access removal | Reject navigation safely without showing trip data |
+
+Malformed payloads, Expo 429/5xx/auth failures, malformed ticket/receipt responses, delayed or
+missing receipts, bounded retry, deduplication, and retry exhaustion belong in automated tests. Do
+not damage or rotate live credentials to simulate them.
 
 ## Automated release gates
 
-Run from the repository root unless a command says otherwise:
+Run from the repository root unless the command changes directory:
 
 ```powershell
-python -m pytest backend\tests\test_push_notifications.py backend\tests\test_notification_triggers.py -q
-cd frontend
+python -m pytest backend\tests\test_push_notifications.py backend\tests\test_notification_triggers.py backend\tests\test_join_requests.py backend\tests\test_chat_api.py backend\tests\test_chat_helpers.py backend\tests\test_chat_routes_unit.py backend\tests\test_payments.py backend\tests\test_settlements.py backend\tests\test_settlement_routes_unit.py -q
+python -m pytest backend\tests -q
+python -m pip check
+Set-Location frontend
 npm.cmd test -- --runInBand
 npx.cmd tsc --noEmit
 npx.cmd eslint app src
 npx.cmd expo install --check
 npx.cmd expo-doctor
+npx.cmd expo config --type public --json
 npx.cmd expo export -p web
 ```
 
-The APK is ready for device QA only when these gates pass and the preview EAS build finishes for
-the expected package/project and source revision.
+Do not run production-data-mutating integration tests. The preview APK must be built from the exact
+committed and pushed revision that passes these gates, with an incremented Android build number.
 
-## Evidence and triage
+## First-failure triage
 
-Store screenshots and a redacted result summary under `test_reports/`. Include each case as
-Pass/Fail/Blocked plus delivery latency and a defect link where applicable.
+- No/skipped outbox event: verify the feature flag, business trigger, deployed revision, and event
+  deduplication key.
+- Zero deliveries: verify current membership or explicit request audience, active device ownership,
+  token reassignment, and Android platform filtering.
+- Ticket/retry/dead: align Expo enhanced security, access token presence, Firebase project, and FCM
+  v1 credentials; use automated tests for retry behavior.
+- `receipt_ok` without display: inspect channel importance, Android permission, Do Not Disturb,
+  battery restrictions, package/Firebase match, and OEM settings.
+- Display without correct navigation: inspect payload version/type/target, typed source ID,
+  authorization result, cold-start handling, and duplicate-response suppression.
 
-- No app rationale: check sign-in, trip eligibility, and stored rationale state.
-- No Android system dialog: check Android version and current OS permission state.
-- No device registration: check project ID, Firebase file, FCM credentials, API reachability, and
-  authenticated `PUT /api/push/devices/{installation_id}` completion without exposing its token.
-- No outbox event: check the expense/payment/settlement/chat trigger and backend push feature flag.
-- Event exists with zero deliveries: check current trip membership, Android permission, and the
-  active device registration count recorded by `push.delivery_snapshot`.
-- Expo ticket/receipt failure: check enhanced-security token and FCM credential alignment.
-- Delivered but not displayed: check Android permission, channel settings, Do Not Disturb, and
-  vendor battery restrictions.
-- Wrong destination: compare the versioned event/type/source identifiers and target against the
-  notification routing tests and the `navigation_completed`/`navigation_rejected` client log.
+After any fix, repeat the two-device canary before resuming the matrix. Backend-only fixes deploy to
+Render; client/native/config changes require a new traceable EAS preview APK.
 
-Any privacy leak, duplicate notification, actor self-notification, wrong-trip navigation, missing
-logout deactivation, or failure of the Android 13 permission recovery path blocks release.
+## Release criteria
+
+The test report must include redacted logs, screenshots, sender/receiver timestamps, latency,
+outbox/ticket/receipt status, and defect/fix references for every case. Release and stable-download
+promotion remain blocked by any missing positive notification, unexpected notification, duplicate,
+privacy leak, wrong destination, actor notification, wrong audience, logout/permission leak, or
+first-trip approval/rejection failure on either physical device.

@@ -338,8 +338,10 @@ claims the profile.
 - Removing a linked person from the trip immediately removes their chat access. Their historical
   sender label remains understandable to the people who still have access.
 
-Chat v1 does not include images, reactions, typing/online presence, per-message seen receipts, or
-device push notifications.
+On Android, a new message can also produce a privacy-safe push notification for other signed-in
+trip members. The lock screen shows only that a group message was sent, never the sender or message
+text; tapping it opens the matching trip's Chat tab. Chat v1 does not include images, reactions,
+typing/online presence, or per-message seen receipts.
 
 ---
 

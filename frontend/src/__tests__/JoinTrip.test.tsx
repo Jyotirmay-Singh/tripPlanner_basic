@@ -11,6 +11,7 @@ const mockJoinTrip = jest.fn();
 const mockRequestExistingPerson = jest.fn();
 const mockGetJoinRequest = jest.fn();
 const mockCancelJoinRequest = jest.fn();
+const mockSyncPushRegistration = jest.fn();
 let mockParams: { requestId?: string; inviteToken?: string } = {};
 const mockClearPendingInvite = jest.fn().mockResolvedValue(undefined);
 
@@ -30,6 +31,10 @@ jest.mock('../../src/api', () => ({
 
 jest.mock('../../src/AuthContext', () => ({
   useAuth: () => ({ clearPendingInvite: mockClearPendingInvite }),
+}));
+
+jest.mock('../../src/pushNotifications', () => ({
+  syncPushRegistrationIfEligible: mockSyncPushRegistration,
 }));
 
 jest.mock('../../src/ThemeContext', () => ({
@@ -154,6 +159,7 @@ describe('join existing trip identity flow', () => {
     mockJoinTrip.mockResolvedValue({ id: trip.id });
     mockRequestExistingPerson.mockResolvedValue(pendingRequest);
     mockCancelJoinRequest.mockResolvedValue({ ...pendingRequest, status: 'cancelled' });
+    mockSyncPushRegistration.mockResolvedValue('granted');
   });
 
   it('shows individuals and family members first, then requests the selected family person', async () => {
@@ -174,7 +180,34 @@ describe('join existing trip identity flow', () => {
     expect(mockRequestExistingPerson).toHaveBeenCalledWith({
       code: 'ABC123', member_id: 'family-1', family_member_id: 'slot-1',
     });
+    expect(mockSyncPushRegistration).toHaveBeenCalledWith({ allowPermissionPrompt: true });
     expect(renderer.root.findByProps({ testID: 'jt-request-status' })).toBeTruthy();
+    act(() => renderer.unmount());
+  });
+
+  it('awaits push synchronization after the request is durably created', async () => {
+    let releaseSync!: (value: string) => void;
+    mockSyncPushRegistration.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseSync = resolve;
+    }));
+    const renderer = await renderAndEnterCode();
+    act(() => renderer.root.findByProps({ testID: 'jt-person-person-1:' }).props.onPress());
+
+    await act(async () => {
+      renderer.root.findByProps({ testID: 'jt-request-existing' }).props.onPress();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockSyncPushRegistration).toHaveBeenCalledWith({ allowPermissionPrompt: true });
+    expect(renderer.root.findByProps({ testID: 'jt-request-cancel' }).props.loading).toBe(true);
+
+    await act(async () => {
+      releaseSync('granted');
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(renderer.root.findByProps({ testID: 'jt-request-cancel' }).props.loading).toBe(false);
     act(() => renderer.unmount());
   });
 

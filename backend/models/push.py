@@ -20,3 +20,9 @@ class PushDeviceUpsert(BaseModel):
         if not _EXPO_TOKEN_RE.fullmatch(token):
             raise ValueError("token must be a valid Expo push token")
         return token
+
+
+class PushEligibility(BaseModel):
+    """The deliberately minimal notification-eligibility response."""
+
+    eligible: bool

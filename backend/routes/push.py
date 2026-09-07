@@ -6,12 +6,35 @@ from pymongo.errors import DuplicateKeyError
 
 from config import logger
 from database import db
-from models.push import PushDeviceUpsert
+from models.push import PushDeviceUpsert, PushEligibility
 from utils.common import now_utc
 from utils.deps import get_current_user
 
 
 router = APIRouter()
+
+
+@router.get("/push/eligibility", response_model=PushEligibility)
+async def get_push_eligibility(user=Depends(get_current_user)):
+    """Return whether this account should synchronize Android push registration.
+
+    A requester must be able to register before a first-trip approval or rejection. The response
+    intentionally exposes no trip, request, device, installation, or token identifiers.
+    """
+    user_id = user["id"]
+    trip = await db.trips.find_one({"user_ids": user_id}, {"_id": 0, "id": 1})
+    if trip:
+        return {"eligible": True}
+
+    pending_request = await db.join_requests.find_one(
+        {
+            "requester_user_id": user_id,
+            "active": True,
+            "status": {"$in": ["pending", "approving"]},
+        },
+        {"_id": 0, "id": 1},
+    )
+    return {"eligible": pending_request is not None}
 
 
 @router.put("/push/devices/{installation_id}")

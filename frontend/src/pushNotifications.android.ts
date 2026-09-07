@@ -35,7 +35,7 @@ if (Platform.OS === 'android') {
 async function ensureChannel(): Promise<void> {
   await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
     name: 'Trip activity',
-    description: 'Private updates for expenses, payments, settlements, and group messages',
+    description: 'Private updates for trip activity and join requests',
     importance: Notifications.AndroidImportance.HIGH,
     sound: 'default',
     vibrationPattern: [0, 250, 250, 250],
@@ -78,10 +78,10 @@ function easProjectId(): string | null {
 }
 
 
-async function hasTripAccess(): Promise<boolean> {
+async function hasPushEligibility(): Promise<boolean> {
   try {
-    const trips = await api<{ id: string }[]>('/trips');
-    return trips.length > 0;
+    const result = await api<{ eligible: boolean }>('/push/eligibility');
+    return result.eligible === true;
   } catch {
     pushDiagnostic('eligibility_check_unavailable');
     return false;
@@ -99,7 +99,7 @@ async function showRationaleOnce(): Promise<boolean> {
   return new Promise((resolve) => {
     Alert.alert(
       'Stay updated on your trips',
-      'Trip Splitter can send private alerts for new expenses, recorded payments, paid settlements, and group messages. Amounts, names, and message text are never shown on the lock screen.',
+      'Trip Splitter can send private alerts for new expenses, recorded payments, paid settlements, group messages, and join requests. Amounts, names, and message text are never shown on the lock screen.',
       [
         {
           text: 'Not now',
@@ -162,7 +162,7 @@ async function registerGrantedInstallation(): Promise<PushPermissionState> {
 async function performSync(options: PushSyncOptions): Promise<PushPermissionState> {
   if (Platform.OS !== 'android') return 'unavailable';
   try {
-    if (!(await hasTripAccess())) return getPushPermissionState();
+    if (!(await hasPushEligibility())) return getPushPermissionState();
     await ensureChannel();
 
     let permissions = await Notifications.getPermissionsAsync();

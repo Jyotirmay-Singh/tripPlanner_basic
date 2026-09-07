@@ -41,6 +41,7 @@ import { Button, FormScreen, Icon, Input } from '../src/ui';
 import type { IconName } from '../src/ui/Icon';
 import { useAuth } from '../src/AuthContext';
 import { INVITE_TOKEN_PATTERN } from '../src/inviteNavigation';
+import { syncPushRegistrationIfEligible } from '../src/pushNotifications';
 
 
 type Stage = 'code' | 'exact' | 'roster' | 'pending' | 'new';
@@ -330,6 +331,7 @@ export default function JoinTrip() {
       );
       setJoinRequest(request);
       setStage('pending');
+      await syncPushRegistrationIfEligible({ allowPermissionPrompt: true });
     } catch (requestError: any) {
       setError(requestError.message || 'Could not send this join request');
       if (requestError.detailCode === 'direct_claim_available') {
