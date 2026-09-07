@@ -12,6 +12,7 @@ from utils.settlement_gate import (
     validate_new_amount,
 )
 from services.push_notifications import enqueue_notification_event
+from utils.currency_rules import currency_minor_units
 
 router = APIRouter()
 
@@ -55,7 +56,8 @@ async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: Ba
     if payable <= 0:
         raise HTTPException(400, "You can only record a payment along a currently suggested transfer")
     if amount > payable + tolerance:
-        raise HTTPException(400, f"Amount exceeds the {round(payable, 2)} payable for this pair")
+        digits = currency_minor_units(trip.get("currency", "INR"))
+        raise HTTPException(400, f"Amount exceeds the {payable:.{digits}f} payable for this pair")
 
     doc = {"id": gen_id(), "trip_id": trip_id,
            "from_member_id": body.from_member_id,
@@ -106,7 +108,8 @@ async def edit_payment(trip_id: str, payment_id: str, body: PaymentPatch,
                                          payment["from_member_id"], payment["to_member_id"])
             cap = residual + existing
             if amount > cap + payable_tolerance(trip):
-                raise HTTPException(400, f"Amount exceeds the {round(cap, 2)} payable for this pair")
+                digits = currency_minor_units(trip.get("currency", "INR"))
+                raise HTTPException(400, f"Amount exceeds the {cap:.{digits}f} payable for this pair")
             updates["amount"] = int(amount) if audit_fields else float(amount)
             updates.update(audit_fields)
     if body.note is not None:

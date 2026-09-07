@@ -480,7 +480,14 @@ export default function TripDetail() {
 
                 <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
                   <StatCard label="Transactions" value={String(expenseCount)} icon="receipt" />
-                  <StatCard label="Refunds" value={formatMoney(refundsTotal)} valueColor={colors.success} icon="arrow-down" />
+                  <StatCard
+                    label="Refunds"
+                    value={formatMoney(refundsTotal, {
+                      currency: trip.currency, showCurrency: false,
+                    })}
+                    valueColor={colors.success}
+                    icon="arrow-down"
+                  />
                 </View>
 
                 {slices.length > 0 && (
@@ -488,7 +495,10 @@ export default function TripDetail() {
                     <T variant="label" muted style={{ marginBottom: SPACING.sm }}>Spend by category · tap to drill down</T>
                     <DonutChart
                       data={slices}
-                      centerValue={formatCompactMoney(totalSpent)}
+                      currency={trip.currency}
+                      centerValue={formatCompactMoney(totalSpent, {
+                        currency: trip.currency, showCurrency: false,
+                      })}
                       centerLabel={trip.currency}
                       centerAccessibilityLabel={`Total spent, ${formatMoney(totalSpent, { currency: trip.currency })}`}
                       onSlicePress={(s) => router.push(categoryDetailPath(id as string, s.key) as Href)}
@@ -605,12 +615,18 @@ export default function TripDetail() {
                                     <T variant="caption" numberOfLines={1}>{ent.name}</T>
                                     {ent.is_payer ? <Badge label={verbs.payerVerb} color={colors.textMuted} /> : null}
                                   </View>
-                                  <T variant="caption" muted>{verbs.participantVerb} {formatMoney(ent.share)}</T>
+                                  <T variant="caption" muted>
+                                    {verbs.participantVerb} {formatMoney(ent.share, {
+                                      currency: trip.currency, showCurrency: false,
+                                    })}
+                                  </T>
                                 </View>
                                 {ent.members.map((sub) => (
                                   <View key={sub.id} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: SPACING.sm, paddingLeft: SPACING.md }}>
                                     <T variant="caption" muted numberOfLines={1} style={{ flex: 1, minWidth: 0 }}>↳ {sub.name}</T>
-                                    <T variant="caption" muted>{formatMoney(sub.share)}</T>
+                                    <T variant="caption" muted>{formatMoney(sub.share, {
+                                      currency: trip.currency, showCurrency: false,
+                                    })}</T>
                                   </View>
                                 ))}
                               </View>
@@ -666,7 +682,9 @@ export default function TripDetail() {
                       color={pp.net_total < 0 ? colors.danger : pp.net_total > 0 ? colors.success : colors.textMuted}
                     />
                         {pp.kind === 'family' && pp.people_count > 1 && (
-                          <T variant="caption" muted>{formatMoney(pp.net_per_person, { signed: true })} per person</T>
+                          <T variant="caption" muted>{formatMoney(pp.net_per_person, {
+                            currency: trip.currency, signed: true, showCurrency: false,
+                          })} per person</T>
                         )}
                       </View>
                     </View>
@@ -701,7 +719,9 @@ export default function TripDetail() {
                           <View key={fm.id} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
                             <T variant="caption" muted>↳ {fm.name}</T>
                             <T variant="caption" color={fm.net < 0 ? colors.danger : fm.net > 0 ? colors.success : colors.textMuted}>
-                              {formatMoney(fm.net, { signed: true })}
+                              {formatMoney(fm.net, {
+                                currency: trip.currency, signed: true, showCurrency: false,
+                              })}
                             </T>
                           </View>
                         ))}

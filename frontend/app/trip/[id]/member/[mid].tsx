@@ -49,7 +49,9 @@ export default function MemberSpendDetail() {
   const isFamily = member?.kind === 'family';
   const displayNames = memberDisplayNames(trip?.members);
   const name = displayNames[mid as string] || member?.name || '?';
-  const { rows, total } = memberSpendHistory(expenses, mid as string);
+  const { rows, total } = memberSpendHistory(
+    expenses, mid as string, trip?.currency || 'INR'
+  );
   const ordered = sortExpensesDesc(rows);
 
   return (

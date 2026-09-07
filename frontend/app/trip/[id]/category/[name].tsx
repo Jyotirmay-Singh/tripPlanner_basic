@@ -70,8 +70,10 @@ export default function CategoryDetail() {
   const displayNames = useMemo(() => memberDisplayNames(trip?.members), [trip?.members]);
   const memberById = (memberId: string) => displayNames[memberId] || 'Unknown payer';
   const breakdown = useMemo(
-    () => buildCategorySpendBreakdown(expenses, trip?.members, decoded),
-    [decoded, expenses, trip?.members],
+    () => buildCategorySpendBreakdown(
+      expenses, trip?.members, decoded, trip?.currency || 'INR'
+    ),
+    [decoded, expenses, trip?.currency, trip?.members],
   );
 
   return (

@@ -53,6 +53,14 @@ describe('trip balance presentation', () => {
     expect(moneyCents(-0.005)).toBe(-1);
   });
 
+  it('uses zero- and three-decimal currency minor units', () => {
+    expect(moneyCents(0.4, 'JPY')).toBe(0);
+    expect(moneyCents(0.5, 'JPY')).toBe(1);
+    expect(moneyCents(-0.5, 'JPY')).toBe(-1);
+    expect(moneyCents(0.0004, 'KWD')).toBe(0);
+    expect(moneyCents(0.0005, 'KWD')).toBe(1);
+  });
+
   it('maps positive to owed, negative to owe with an absolute amount, and zero to settled', () => {
     expect(tripBalanceState(1250)).toEqual({
       kind: 'owed', label: BALANCE_COPY.owed, amount: 1250, cents: 125000,
@@ -65,6 +73,15 @@ describe('trip balance presentation', () => {
     });
     expect(tripBalanceState(null).kind).toBe('unavailable');
   });
+
+  it('returns currency-rounded JPY and KWD amounts', () => {
+    expect(tripBalanceState(1, 'JPY')).toMatchObject({
+      kind: 'owed', amount: 1, cents: 1,
+    });
+    expect(tripBalanceState(-1.234, 'KWD')).toMatchObject({
+      kind: 'owe', amount: 1.234, cents: -1234,
+    });
+  });
 });
 
 describe('Home currency aggregation', () => {
@@ -76,6 +93,18 @@ describe('Home currency aggregation', () => {
     ])).toEqual([
       { currency: 'INR', cents: 125000, value: 1250 },
       { currency: 'USD', cents: -1000, value: -10 },
+    ]);
+  });
+
+  it('groups JPY and KWD using their own minor-unit scales', () => {
+    expect(groupBalancesByCurrency([
+      { currency: 'JPY', balance: 100 },
+      { currency: 'JPY', balance: 25 },
+      { currency: 'KWD', balance: 0.001 },
+      { currency: 'KWD', balance: 0.002 },
+    ])).toEqual([
+      { currency: 'JPY', cents: 125, value: 125 },
+      { currency: 'KWD', cents: 3, value: 0.003 },
     ]);
   });
 

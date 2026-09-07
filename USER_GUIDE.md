@@ -64,6 +64,9 @@ Settled trips remain tappable and can still be opened normally.
      settlement, and report on this trip. It is locked after creation. Normally create separate
      trips for different reporting currencies (for example, an LKR Sri Lanka trip and an NPR Nepal
      trip).
+     The picker contains 26 travel currencies. JPY and KRW use whole units; KWD, BHD, and OMR use
+     three decimal places; every other supported currency uses two. Budgets and payment amounts must
+     follow the official currency's precision.
    - **Who are you on this trip?** — choose **I'm an individual** (default) or **I'm in a family**.
      If you pick *family*, enter the **family name**, add a row per member (your name is pre-filled on
      the first row), and tap **"This is me"** on your own row. Your login email + account attach to
@@ -108,7 +111,7 @@ Settled trips remain tappable and can still be opened normally.
 - Inside the trip page, the row of action buttons under the header has:
   - **Expense** (+) — add a transaction
   - **Settle Up** — show who owes whom
-  - **✏️ pencil** — edit trip name / date / budget / currency
+  - **✏️ pencil** — edit trip name, dates, and budget; the official currency remains locked
   - **🗑 trash** — delete the trip (owner only; removes all expenses and chat history)
 
 ---
@@ -202,8 +205,18 @@ across standalone individuals, family entries, and joined app users.
      in the trip currency (as a positive magnitude; the original minus sign is preserved).
    - Check the original amount, converted amount, rate, effective date, provider/cache status, then
      tap **Use this conversion**. A foreign transaction cannot be saved without this confirmation.
-   - A same-currency transaction uses rate 1 and never contacts the rate service. If the server's
-     rollout flag is off, foreign-currency saving stays disabled until it is enabled.
+   - Amounts must use the selected currency's legal precision: JPY/KRW accept no decimal places;
+     KWD/BHD/OMR accept up to three; the other supported currencies accept up to two. Extra entered
+     digits are rejected rather than silently rounded. Calculated conversions round half-up to the
+     trip currency's precision.
+   - A same-currency transaction uses rate 1 and never contacts the rate service. Foreign-currency
+     entry still requires an online connection to the backend, including when you supply a manual
+     rate or final amount.
+   - The app checks the backend capability before allowing a foreign-currency expense. While it is
+     **loading**, the app shows that it is checking. **Enabled** allows quoting and confirmation;
+     **disabled** means the rollout switch is off; **unknown** means the server could not be reached
+     and offers **Retry**. A temporary refresh failure does not downgrade a capability the server
+     already confirmed during the current app session.
 4. Write a short **description** (e.g. *Dinner at Leela*).
 5. Pick from the horizontal **Travel / Accommodation / Local Transportation / Local Sightseeing / Food / Shopping / Other** chips.
 6. Set the **date** (DD-MM-YY).
@@ -218,8 +231,8 @@ across standalone individuals, family entries, and joined app users.
       total is negative. A **reconciliation bar** shows *Assigned* vs *Remaining* and turns green
       when the amounts add up to the original total's magnitude. **Split remaining equally** fills
       the ticked-but-blank rows for you. **Save stays disabled until the amounts exactly equal the
-      total**. The server converts the allocations with the locked rate and distributes any rounding
-      cents deterministically, so their trip-currency sum exactly matches the converted total.
+      total**. The server converts the allocations with the locked rate and distributes any indivisible
+      minor units deterministically, so their trip-currency sum exactly matches the converted total.
 11. **Receipt (optional)** — *Attach image* picks a photo; it's stored as base64 with the transaction.
 11. Tap **Save transaction**.
 12. If the running total now exceeds the trip budget, a warning dialog asks you to **Cancel** or **Save anyway**.
@@ -275,7 +288,7 @@ The screen labels the route **Minimum payment plan** when bounded exact optimiza
 - Tap **Settle up** on a pair to open the amount box. It's **pre-filled with the full amount owed**
   and shows a **Max** hint. You can record the full amount or a positive partial amount up to that
   maximum (**no overpayment**). When whole-unit LKR/NPR settlement is enabled, new and amount-edited
-  payments must be whole rupees; other trips retain decimal payments. Tap **Continue**, then confirm
+  payments must be whole rupees; other trips use their official currency's legal precision. Tap **Continue**, then confirm
   on the *"Confirm _X_ paid _amount_ to _Y_?"* guard.
 - Only the **receiver** (the person getting the money) or a **trip admin/owner** can record a payment —
   the payer can't mark their own debt paid. If a family wallet is receiving, any account linked to a
@@ -402,11 +415,21 @@ The download opens in your phone's browser; share or save it from there.
 - **Currency conversion unavailable?** The backend rollout flag may still be off, the historical rate
   may be unavailable, or the provider may be temporarily unreachable. Retry, use an already cached
   result when offered, or enter a manually confirmed bank/card conversion; the app never switches
-  providers silently and never saves an unconverted foreign amount.
+  providers silently and never saves an unconverted foreign amount. Manual conversion still needs an
+  online backend connection so the approved quote can be validated and locked.
 - **Precision:** canonical expense conversions are locked at write time and are never re-fetched during
-  settlement. Balance shares are calculated with deterministic 12-decimal scaled integers. The
-  compatibility balance display remains two-decimal; when enabled, LKR/NPR settlement is a separate
-  zero-sum whole-rupee projection. Other currency-specific increments are still deferred.
+  settlement. Balance shares are calculated with deterministic 12-decimal scaled integers, then shown
+  and settled in the trip currency's ISO increment: whole units for JPY/KRW, three decimals for
+  KWD/BHD/OMR, and two decimals for the other supported currencies. Reports apportion indivisible
+  units deterministically so their rows and totals reconcile. When separately enabled, LKR/NPR
+  settlement is an opt-in, zero-sum whole-rupee projection; exact balances remain authoritative.
+- **Rollout note for operators:** `MULTI_CURRENCY_EXPENSES_ENABLED` is deliberately **off by default**.
+  Before turning it on, run the read-only currency-precision audit and resolve every unsupported trip
+  currency or invalid stored amount it reports; there is no automatic data migration. Enable the flag
+  only after the compatible backend and Android client are live. `WHOLE_UNIT_SETTLEMENTS_ENABLED`
+  remains a separate opt-in switch for LKR/NPR. From the backend directory, run
+  `python -m scripts.audit_currency_precision --dry-run`; the command only reads records and exits
+  non-zero when it finds a violation.
 - **Receipts** are stored in MongoDB GridFS and load on demand; legacy inline receipts remain readable.
 
 ---

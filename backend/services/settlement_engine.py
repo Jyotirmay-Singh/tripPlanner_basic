@@ -14,6 +14,7 @@ import heapq
 from typing import Iterable, Mapping
 
 from services.member_breakdown import family_member_ids
+from utils.currency_rules import currency_increment, currency_minor_units
 
 
 BALANCE_SCALE = 12
@@ -23,6 +24,7 @@ CENT_INCREMENT_SCALED = SCALE // 100
 WHOLE_UNIT_CURRENCIES = frozenset({"LKR", "NPR"})
 POLICY_VERSION = "whole_unit_v1"
 COMPATIBILITY_POLICY_VERSION = "cent_projection_v1"
+MINOR_UNIT_POLICY_VERSION = "iso_minor_unit_v1"
 ROUNDING_ALGORITHM = "joint_largest_remainder_v1"
 ROUNDING_TIE_BREAK = "toward_zero_then_member_id"
 EXACT_ENTITY_LIMIT = 12
@@ -494,7 +496,9 @@ def route_integer_balances(
 
 def settlement_increment(currency: str, whole_unit_enabled: bool) -> tuple[int, bool]:
     enabled = bool(whole_unit_enabled and str(currency).upper() in WHOLE_UNIT_CURRENCIES)
-    return (SCALE if enabled else CENT_INCREMENT_SCALED), enabled
+    if enabled:
+        return SCALE, True
+    return 10 ** (BALANCE_SCALE - currency_minor_units(currency)), False
 
 
 def build_settlement_projection(
@@ -514,11 +518,8 @@ def build_settlement_projection(
     )
     transfers = []
     for transfer in routing.transfers:
-        amount = (
-            transfer["amount_units"]
-            if enabled
-            else scaled_number(transfer["amount_units"] * increment)
-        )
+        scaled_amount = transfer["amount_units"] * increment
+        amount = scaled_amount // SCALE if increment == SCALE else scaled_number(scaled_amount)
         transfers.append({
             "from_member_id": transfer["from_member_id"],
             "to_member_id": transfer["to_member_id"],
@@ -529,15 +530,15 @@ def build_settlement_projection(
     status = "settled_exactly" if exact_zero else ("settled_within_rounding" if not transfers else "open")
 
     def projected_number(value: int) -> int | float:
-        return value // SCALE if enabled else scaled_number(value)
+        return value // SCALE if increment == SCALE else scaled_number(value)
 
     ordered_ids = sorted(str(member_id) for member_id in precise_net)
     projection = {
         "enabled": enabled,
         "currency": str(currency).upper(),
-        "increment": "1" if enabled else "0.01",
+        "increment": "1" if enabled else currency_increment(currency),
         "balance_scale": BALANCE_SCALE,
-        "policy_version": POLICY_VERSION if enabled else COMPATIBILITY_POLICY_VERSION,
+        "policy_version": POLICY_VERSION if enabled else MINOR_UNIT_POLICY_VERSION,
         "status": status,
         "precise_net": {member_id: scaled_string(int(precise_net[member_id])) for member_id in ordered_ids},
         "rounded_net": {member_id: projected_number(rounded_scaled[member_id]) for member_id in ordered_ids},

@@ -104,12 +104,13 @@ class TestReconciliation:
 
 
 class TestPaymentRollupBoundaries:
-    """services.payments.pair_blocks / payment_status at the _EPS boundary (mirrors frontend)."""
+    """Payment status ignores only less than one legal currency unit (mirrors frontend)."""
 
     def test_status_boundary_exactly_at_eps(self):
-        assert payment_status(0.01, 100.0) == "paid"       # residual == _EPS -> considered cleared
-        assert payment_status(0.0101, 100.0) == "partial"  # a hair above -> still owing
-        assert payment_status(100.0, 0.01) == "open"       # paid == _EPS -> nothing counted yet
+        assert payment_status(0.005, 100.0) == "paid"
+        assert payment_status(0.0051, 100.0) == "partial"
+        assert payment_status(100.0, 0.005) == "open"
+        assert payment_status(100.0, 0.01) == "partial"
 
     def test_original_payable_is_current_plus_paid(self):
         transfers = [{"from_member_id": "x", "to_member_id": "y", "amount": 40.0}]

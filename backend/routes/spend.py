@@ -15,6 +15,6 @@ async def spend_summary(trip_id: str, user=Depends(get_current_user)):
     # services.spend_summary.aggregate_spend — split/settlement-independent, refunds excluded.
     trip = await _trip_or_404(trip_id, user["id"])
     expenses = await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(5000)
-    out = aggregate_spend(trip["members"], expenses)
+    out = aggregate_spend(trip["members"], expenses, trip.get("currency", "INR"))
     out["currency"] = trip.get("currency", "INR")
     return out

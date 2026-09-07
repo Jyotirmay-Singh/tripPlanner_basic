@@ -3,6 +3,30 @@ import type { SplitMode } from './SplitModeSelector';
 
 type Payload = Record<string, any>;
 
+export function requiresMultiCurrencyCapabilityForEdit({
+  tripCurrency,
+  sourceCurrency,
+  baselineSourceCurrency,
+  hasLockedConversion,
+  conversionInputsChanged,
+  exactChanged,
+  requoteRequired,
+}: {
+  tripCurrency: string;
+  sourceCurrency: string;
+  baselineSourceCurrency: string;
+  hasLockedConversion: boolean;
+  conversionInputsChanged: boolean;
+  exactChanged: boolean;
+  requoteRequired: boolean;
+}): boolean {
+  const touchesForeignCurrency =
+    sourceCurrency !== tripCurrency || baselineSourceCurrency !== tripCurrency;
+  return touchesForeignCurrency && (
+    !hasLockedConversion || conversionInputsChanged || exactChanged || requoteRequired
+  );
+}
+
 export function createExpenseAmountFields({
   multiCurrencyEnabled,
   originalAmount,

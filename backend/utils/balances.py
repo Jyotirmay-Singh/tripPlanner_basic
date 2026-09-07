@@ -1,18 +1,21 @@
 """Authoritative trip balance calculation and derived settlement projection."""
 
+from decimal import Decimal
+
 from fastapi import HTTPException
 
 from config import WHOLE_UNIT_SETTLEMENTS_ENABLED
 from database import db
 from services.member_breakdown import family_member_breakdown
 from services.settlement_engine import (
-    CENT_INCREMENT_SCALED,
     SettlementLedgerError,
     build_precise_net,
     build_settlement_projection,
     joint_round,
     scaled_number,
+    settlement_increment,
 )
+from utils.currency_rules import quantize_currency
 
 
 def _weight_of_member(member: dict) -> int:
@@ -38,16 +41,18 @@ async def _compute_balances(trip_id: str, *, diagnostic: bool = False) -> dict:
     try:
         precise_net = build_precise_net(members, expenses, settlements, payments)
 
-        # Keep the legacy numeric ``net`` response at two decimals, but round it jointly so it is
-        # conserving. Whole-unit balances are additive metadata under settlement_projection.
-        compatibility_counts = joint_round(precise_net, CENT_INCREMENT_SCALED)
+        # Keep the legacy numeric ``net`` response, but project it to the official currency's ISO
+        # increment and round jointly so it remains conserving. Whole-unit cash policy is additive.
+        currency = trip.get("currency", "INR")
+        compatibility_increment, _ = settlement_increment(currency, False)
+        compatibility_counts = joint_round(precise_net, compatibility_increment)
         net = {
-            member_id: scaled_number(count * CENT_INCREMENT_SCALED)
+            member_id: scaled_number(count * compatibility_increment)
             for member_id, count in compatibility_counts.items()
         }
         transfers, projection = build_settlement_projection(
             precise_net,
-            trip.get("currency", "INR"),
+            currency,
             whole_unit_enabled=WHOLE_UNIT_SETTLEMENTS_ENABLED,
         )
     except SettlementLedgerError as exc:
@@ -59,8 +64,10 @@ async def _compute_balances(trip_id: str, *, diagnostic: bool = False) -> dict:
         raise HTTPException(status_code=409, detail=detail) from exc
 
     # Display-only family positions replay the same effective events and reconcile to the compatible
-    # two-decimal family net. They never drive recommendations.
-    breakdown = family_member_breakdown(members, expenses, settlements + payments, net)
+    # currency-rounded family net. They never drive recommendations.
+    breakdown = family_member_breakdown(
+        members, expenses, settlements + payments, net, trip.get("currency", "INR")
+    )
 
     return {
         "net": net,
@@ -75,9 +82,11 @@ async def _compute_balances(trip_id: str, *, diagnostic: bool = False) -> dict:
                 "kind": member["kind"],
                 "people_count": _weight_of_member(member),
                 "net_total": net.get(member["id"], 0.0),
-                "net_per_person": round(
-                    net.get(member["id"], 0.0) / _weight_of_member(member), 2
-                ),
+                "net_per_person": float(quantize_currency(
+                    Decimal(str(net.get(member["id"], 0.0)))
+                    / Decimal(_weight_of_member(member)),
+                    trip.get("currency", "INR"),
+                )),
                 "family_members": member.get("family_members", []),
                 "members": breakdown.get(member["id"], []),
             }

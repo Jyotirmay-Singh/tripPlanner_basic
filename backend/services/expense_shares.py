@@ -1,36 +1,16 @@
 """Display-only per-expense shares derived from authoritative scaled split math."""
 
-import math
-
 from services.calculator import allocate_within_family
 from services.custom_split import exact_member_shares
 from services.member_breakdown import family_member_ids
 from services.settlement_engine import expense_entity_shares_scaled, scaled_number
+from utils.currency_rules import apportion_currency_amounts
 from utils.display_names import family_member_display_names, member_display_names
 
 
-def _apportion(raw: dict, order: list, target: float) -> dict:
-    """Largest-remainder cent display whose values add to the shown target."""
-
-    target_cents = round(target * 100)
-    bases: dict = {}
-    remainders: dict = {}
-    for key in order:
-        scaled = raw[key] * 100
-        base = math.floor(scaled + 1e-9)
-        bases[key] = base
-        remainders[key] = scaled - base
-    needed = target_cents - sum(bases.values())
-    result = dict(bases)
-    if needed > 0:
-        ranking = sorted(order, key=lambda key: (-remainders[key], str(key)))
-        for key in ranking[:needed]:
-            result[key] += 1
-    elif needed < 0:
-        ranking = sorted(order, key=lambda key: (remainders[key], str(key)))
-        for key in ranking[:-needed]:
-            result[key] -= 1
-    return {key: result[key] / 100.0 for key in order}
+def _apportion(raw: dict, order: list, target: float, currency: str) -> dict:
+    """Largest-remainder display whose values add in the currency's minor units."""
+    return apportion_currency_amounts(raw, order, target, currency)
 
 
 def entity_shares_raw(expense: dict, members: list) -> dict:
@@ -56,7 +36,8 @@ def expense_share_breakdown(expense: dict, members: list) -> dict:
         return output
 
     order = sorted(raw)
-    shown = _apportion(raw, order, output["amount"])
+    currency = expense.get("currency") or "INR"
+    shown = _apportion(raw, order, output["amount"], currency)
     family_participants = expense.get("family_participants") or {}
     for entity_id in order:
         member = members_by_id.get(entity_id)
@@ -82,6 +63,7 @@ def expense_share_breakdown(expense: dict, members: list) -> dict:
                     {person_id: allocated[person_id] for person_id in participants},
                     participants,
                     shown[entity_id],
+                    currency,
                 ) if participants else {}
                 entity["members"] = [
                     {

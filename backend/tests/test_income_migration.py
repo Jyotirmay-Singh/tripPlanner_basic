@@ -64,3 +64,15 @@ class TestSimulateTrip:
         sim = simulate_trip(members, rows, [])
         expense_only = compute_net(members, [rows[0]], [])
         assert sim["before"] == expense_only
+
+    def test_compute_net_uses_three_decimal_trip_precision(self):
+        members = [_ind("A"), _ind("B")]
+        expense = {
+            **_row("e1", 0.003, "expense", "A", ["A", "B"]),
+            "split_mode": "EXACT",
+            "custom_amounts": {"A": 0.001, "B": 0.002},
+        }
+        assert compute_net(members, [expense], [], "KWD") == {
+            "A": 0.002,
+            "B": -0.002,
+        }

@@ -77,7 +77,8 @@ def distribute_chronological(events: list, roster: list) -> dict:
     roster: the family's member ids (result keys + the even-split fallback divisor).
 
     Returns RAW (unrounded) positions over ``roster`` summing to the family's post-settlement net
-    within float epsilon; the caller apportions to an exact 2dp sum. Never ÷0. Empty ``roster`` -> {}.
+    within float epsilon; the caller apportions to an exact ISO-minor-unit sum. Never ÷0. Empty
+    ``roster`` -> {}.
     """
     pos = {mid: 0.0 for mid in roster}
     if not roster:
@@ -195,7 +196,7 @@ def minimize_transfers(net: dict) -> list:
     precise = {str(member_id): to_scaled(value) for member_id, value in net.items()}
     transfers, _projection = build_settlement_projection(
         precise,
-        "COMPAT",
+        "INR",
         whole_unit_enabled=False,
     )
     return transfers

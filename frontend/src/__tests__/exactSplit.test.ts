@@ -50,6 +50,20 @@ describe('reconcile', () => {
     ];
     expect(reconcile(rows, 100)).toEqual({ assigned: 100, remaining: 0, isValid: true });
   });
+  it('reconciles zero- and three-decimal currencies in their own minor units', () => {
+    expect(reconcile([
+      row({ memberId: 'a', amount: 60 }),
+      row({ memberId: 'b', amount: 40 }),
+    ], 100, 'JPY').isValid).toBe(true);
+    expect(reconcile([
+      row({ memberId: 'a', amount: 0.617 }),
+      row({ memberId: 'b', amount: 0.617 }),
+    ], 1.234, 'KWD')).toEqual({
+      assigned: 1.234,
+      remaining: 0,
+      isValid: true,
+    });
+  });
 });
 
 describe('resolveEntityShares', () => {
@@ -68,6 +82,12 @@ describe('resolveEntityShares', () => {
       row({ memberId: 'i1', entityId: 'i1', amount: 10 }),
     ];
     expect(resolveEntityShares(rows)).toEqual({ fA: 80, i1: 10 });
+  });
+  it('preserves three-decimal entity rollups', () => {
+    expect(resolveEntityShares([
+      row({ memberId: 'a1', entityId: 'fA', amount: 0.617 }),
+      row({ memberId: 'a2', entityId: 'fA', amount: 0.617 }),
+    ], 'KWD')).toEqual({ fA: 1.234 });
   });
 });
 
@@ -90,6 +110,13 @@ describe('splitRemainingEqually', () => {
     const rows = [row({ memberId: 'a' }), row({ memberId: 'b' })];
     splitRemainingEqually(rows, 100);
     expect(rows.every((r) => r.amount === null)).toBe(true);
+  });
+  it('uses the selected currency increment for the deterministic remainder', () => {
+    const rows = ['a', 'b', 'c'].map((m) => row({ memberId: m }));
+    expect(splitRemainingEqually(rows, 100, 'JPY').map((r) => r.amount))
+      .toEqual([33, 33, 34]);
+    expect(splitRemainingEqually(rows, 1, 'KWD').map((r) => r.amount))
+      .toEqual([0.333, 0.333, 0.334]);
   });
 });
 

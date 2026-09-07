@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database import db, client  # noqa: E402
 from services.income_migration import simulate_trip, to_negative_expense  # noqa: E402
+from utils.currency_rules import currency_minor_units  # noqa: E402
 
 
 async def _affected_trip_ids() -> list:
@@ -38,8 +39,8 @@ async def _load_trip_context(trip_id: str):
     return trip, expenses, settlements
 
 
-def _fmt_money(v) -> str:
-    return f"{v:,.2f}"
+def _fmt_money(value, currency: str) -> str:
+    return f"{value:,.{currency_minor_units(currency)}f}"
 
 
 async def dry_run() -> int:
@@ -59,8 +60,9 @@ async def dry_run() -> int:
             print(f"\n! Orphan income rows for missing trip {tid} (will still be migrated).")
             continue
         members = trip.get("members", [])
+        currency = trip.get("currency", "INR")
         name_by_id = {m["id"]: m.get("name", m["id"]) for m in members}
-        sim = simulate_trip(members, expenses, settlements)
+        sim = simulate_trip(members, expenses, settlements, currency)
         total_income_rows += len(sim["income_rows"])
 
         print(f"\nTrip: {trip.get('name','?')}   (id {tid})")
@@ -68,13 +70,14 @@ async def dry_run() -> int:
         for e in sim["income_rows"]:
             payer = name_by_id.get(e.get("paid_by_member_id"), "?")
             print(f"    - {e.get('date','?')}  {e.get('category','?'):<14} "
-                  f"{_fmt_money(e['amount'])} (received by {payer}) "
-                  f"-> stored as {_fmt_money(-abs(e['amount']))}")
+                  f"{_fmt_money(e['amount'], currency)} {currency} (received by {payer}) "
+                  f"-> stored as {_fmt_money(-abs(e['amount']), currency)} {currency}")
         if sim["deltas"]:
             print("  Balance changes (member: before -> after):")
             for mid, d in sim["deltas"].items():
                 print(f"    - {name_by_id.get(mid, mid):<18} "
-                      f"{_fmt_money(d['before'])} -> {_fmt_money(d['after'])}")
+                      f"{_fmt_money(d['before'], currency)} -> "
+                      f"{_fmt_money(d['after'], currency)} {currency}")
         else:
             print("  Balance changes: none (income nets to zero against participants).")
         if sim["settled_flips"]:

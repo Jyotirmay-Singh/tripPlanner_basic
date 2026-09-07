@@ -6,15 +6,25 @@ from fastapi import HTTPException
 
 from config import WHOLE_UNIT_SETTLEMENTS_ENABLED
 from services.settlement_engine import POLICY_VERSION, settlement_increment
+from utils.currency_rules import (
+    CurrencyPrecisionError,
+    currency_quantum,
+    precision_error_detail,
+    validate_currency_precision,
+)
 
 
-# Compatibility removal gate: the API's legacy numeric net is jointly rounded to cents, so values
-# whose magnitude is below half a cent still display as settled.
+# Backward-compatible INR default for callers that import the constant; currency-aware gates derive
+# their actual threshold as half of the trip currency's minor unit.
 SETTLED_EPS = 0.005
 
 
-def is_settled(net_value: float) -> bool:
-    return abs(net_value) < SETTLED_EPS
+def settled_epsilon(currency: str = "INR") -> float:
+    return float(currency_quantum(currency) / 2)
+
+
+def is_settled(net_value: float, currency: str = "INR") -> bool:
+    return abs(net_value) < settled_epsilon(currency)
 
 
 def entity_net(balances: dict, member_id: str) -> float:
@@ -38,7 +48,9 @@ def is_precisely_settled(balances: dict, member_id: str) -> bool:
     """A removable entity cannot leave a precise residual with no owner in the live roster."""
 
     precise = precise_entity_net(balances, member_id)
-    return is_settled(entity_net(balances, member_id)) if precise is None else precise == 0
+    return is_settled(
+        entity_net(balances, member_id), balances.get("currency", "INR")
+    ) if precise is None else precise == 0
 
 
 def family_rows(balances: dict, family_id: str) -> list:
@@ -58,7 +70,7 @@ def family_member_net(balances: dict, family_id: str, family_member_id: str):
 def unsettled_family_members(balances: dict, family_id: str) -> list:
     return [
         row for row in family_rows(balances, family_id)
-        if not is_settled(row.get("net", 0.0))
+        if not is_settled(row.get("net", 0.0), balances.get("currency", "INR"))
     ]
 
 
@@ -82,13 +94,16 @@ def whole_unit_policy_enabled(trip: dict) -> bool:
 def validate_new_amount(trip: dict, value: object) -> tuple[Decimal, dict]:
     """Validate a newly recorded or amount-edited value and return audit fields."""
 
-    amount = decimal_amount(value)
+    currency = str(trip.get("currency", "INR")).upper()
+    try:
+        amount = validate_currency_precision(value, currency)
+    except CurrencyPrecisionError as exc:
+        raise HTTPException(422, precision_error_detail(exc)) from exc
     if amount <= 0:
         raise HTTPException(400, "Amount must be greater than zero")
     if not whole_unit_policy_enabled(trip):
         return amount, {}
     if amount != amount.to_integral_value():
-        currency = str(trip.get("currency", "LKR")).upper()
         raise HTTPException(400, f"{currency} payments must be whole-rupee amounts")
     return amount, {
         "settlement_policy_version": POLICY_VERSION,
@@ -97,6 +112,8 @@ def validate_new_amount(trip: dict, value: object) -> tuple[Decimal, dict]:
 
 
 def payable_tolerance(trip: dict) -> Decimal:
-    """Legacy clients retain the old cent tolerance; whole-unit writes are exact."""
+    """Allow only sub-minor-unit transport noise; a full legal unit can never overpay."""
 
-    return Decimal("0") if whole_unit_policy_enabled(trip) else Decimal("0.01")
+    if whole_unit_policy_enabled(trip):
+        return Decimal("0")
+    return currency_quantum(trip.get("currency", "INR")) / 2

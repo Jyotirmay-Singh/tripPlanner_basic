@@ -8,7 +8,7 @@ expense write.
 
 import asyncio
 from datetime import date as calendar_date, datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
 import httpx
@@ -17,11 +17,11 @@ from pymongo.errors import DuplicateKeyError
 
 from database import db
 from utils.common import gen_id, now_utc
+from utils.currency_rules import quantize_currency, validate_currency_precision
 
 
 PROVIDER = "frankfurter_v2_blended"
 PROVIDER_URL = "https://api.frankfurter.dev/v2/rate/{source}/{target}"
-MONEY_QUANTUM = Decimal("0.01")
 LATEST_FRESH_FOR = timedelta(minutes=15)
 LATEST_STALE_FOR = timedelta(hours=24)
 QUOTE_LIFETIME = timedelta(minutes=30)
@@ -68,14 +68,16 @@ def error_detail(exc: ExchangeRateError) -> dict:
     return {"code": exc.code, "message": str(exc), "retryable": exc.retryable}
 
 
-def money(value: Any) -> Decimal:
+def money(value: Any, currency: str = "INR", *, reject_precision: bool = False) -> Decimal:
     try:
         parsed = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError):
         raise ValueError("Amount must be a number")
     if not parsed.is_finite() or parsed == 0:
         raise ValueError("Amount must be a finite non-zero number")
-    return parsed.quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+    if reject_precision:
+        return validate_currency_precision(parsed, currency)
+    return quantize_currency(parsed, currency)
 
 
 def positive_decimal(value: Any, label: str) -> Decimal:
@@ -426,7 +428,7 @@ async def create_quote(*, user_id: str, source_currency: str, target_currency: s
     else:
         raise ValueError("Unsupported exchange-rate mode")
 
-    source = money(source_amount)
+    source = money(source_amount, source_currency, reject_precision=True)
     if source_currency == target_currency:
         if mode != "automatic":
             raise ValueError("Same-currency expenses always use rate 1")
@@ -437,11 +439,14 @@ async def create_quote(*, user_id: str, source_currency: str, target_currency: s
     elif mode == "manual":
         if manual_input_type == "rate":
             rate = positive_decimal(manual_rate, "Manual rate")
-            target = (source * rate).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+            target = quantize_currency(source * rate, target_currency)
             manual_value = rate
         elif manual_input_type == "target_amount":
-            magnitude = positive_decimal(manual_target_amount, "Manual final amount") \
-                .quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+            magnitude = validate_currency_precision(
+                positive_decimal(manual_target_amount, "Manual final amount"),
+                target_currency,
+                label="Manual final amount",
+            )
             target = magnitude.copy_sign(source)
             rate = magnitude / abs(source)
             manual_value = magnitude
@@ -461,7 +466,7 @@ async def create_quote(*, user_id: str, source_currency: str, target_currency: s
         rate_data = await get_reference_rate(
             source_currency, target_currency, requested_date, refresh=refresh
         )
-        target = (source * rate_data["rate"]).quantize(MONEY_QUANTUM, rounding=ROUND_HALF_UP)
+        target = quantize_currency(source * rate_data["rate"], target_currency)
         manual_input_type = None
         manual_value = None
 

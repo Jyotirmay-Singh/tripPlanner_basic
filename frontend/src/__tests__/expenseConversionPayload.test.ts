@@ -1,6 +1,7 @@
 import {
   applyExpenseEditConversionContract,
   createExpenseAmountFields,
+  requiresMultiCurrencyCapabilityForEdit,
 } from '../expenseConversionPayload';
 
 const conversion = {
@@ -122,4 +123,47 @@ it('sends original-currency EXACT allocations without canonical shares or a requ
     original_custom_amounts: { ann: 500, bob: 500 },
     expected_conversion_version: 4,
   });
+});
+
+it('allows metadata-only edits to an already locked foreign expense during a rollout pause', () => {
+  expect(requiresMultiCurrencyCapabilityForEdit({
+    tripCurrency: 'INR',
+    sourceCurrency: 'USD',
+    baselineSourceCurrency: 'USD',
+    hasLockedConversion: true,
+    conversionInputsChanged: false,
+    exactChanged: false,
+    requoteRequired: false,
+  })).toBe(false);
+});
+
+it.each([
+  ['changed source amount', true, false, false, true],
+  ['changed exact allocation', false, true, false, true],
+  ['explicit requote', false, false, true, true],
+] as const)(
+  'requires capability for a foreign edit with %s',
+  (_label, conversionInputsChanged, exactChanged, requoteRequired, expected) => {
+    expect(requiresMultiCurrencyCapabilityForEdit({
+      tripCurrency: 'INR',
+      sourceCurrency: 'USD',
+      baselineSourceCurrency: 'USD',
+      hasLockedConversion: true,
+      conversionInputsChanged,
+      exactChanged,
+      requoteRequired,
+    })).toBe(expected);
+  },
+);
+
+it('requires capability when changing a locked foreign expense back to the trip currency', () => {
+  expect(requiresMultiCurrencyCapabilityForEdit({
+    tripCurrency: 'INR',
+    sourceCurrency: 'INR',
+    baselineSourceCurrency: 'USD',
+    hasLockedConversion: true,
+    conversionInputsChanged: true,
+    exactChanged: false,
+    requoteRequired: false,
+  })).toBe(true);
 });

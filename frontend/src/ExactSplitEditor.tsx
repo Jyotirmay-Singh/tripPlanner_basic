@@ -9,7 +9,8 @@ import { familyMemberIds } from './familyParticipation';
 import { familyMemberDisplayNames } from './displayNames';
 import { formatMoney } from './format';
 import { parseAmount } from './signedAmount';
-import { ExactRow, reconcile } from './exactSplit';
+import { ExactRow, reconcile, splitRemainingEqually } from './exactSplit';
+import { currencyAmountPlaceholder, currencyPrecisionIssue } from './currencies';
 
 type Member = { id: string; name: string; kind: string; family_members: string[]; family_member_ids?: string[] };
 
@@ -39,6 +40,15 @@ export default function ExactSplitEditor({ members, currency, total, initialRows
     () => Object.fromEntries(initialRows.map((r) => [r.memberId, r.amount != null ? String(r.amount) : ''])),
   );
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const precisionIssues = useMemo(
+    () => Object.fromEntries(
+      Object.entries(texts).map(([memberId, text]) => [
+        memberId,
+        currencyPrecisionIssue(text, currency, 'Exact split amount'),
+      ]),
+    ),
+    [currency, texts],
+  );
 
   // Derive the canonical person-level rows from local display state + the roster (entity mapping).
   const rows = useMemo<ExactRow[]>(() => {
@@ -46,18 +56,23 @@ export default function ExactSplitEditor({ members, currency, total, initialRows
     const add = (memberId: string, entityId: string) => {
       const t = (texts[memberId] ?? '').trim();
       const amt = t === '' ? NaN : parseAmount(t);
-      out.push({ memberId, entityId, included: included[memberId] ?? false, amount: Number.isFinite(amt) ? amt : null });
+      out.push({
+        memberId,
+        entityId,
+        included: included[memberId] ?? false,
+        amount: Number.isFinite(amt) && !precisionIssues[memberId] ? amt : null,
+      });
     };
     for (const m of members) {
       if (m.kind === 'family') for (const rid of familyMemberIds(m)) add(rid, m.id);
       else add(m.id, m.id);
     }
     return out;
-  }, [members, texts, included]);
+  }, [members, texts, included, precisionIssues]);
 
   useEffect(() => { onChange(rows); }, [rows]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const rec = reconcile(rows, total);
+  const rec = reconcile(rows, total, currency);
   const byEntity = (eid: string) => rows.filter((r) => r.entityId === eid);
   const famIncluded = (eid: string) => byEntity(eid).some((r) => r.included);
   const famSubtotal = (eid: string) =>
@@ -83,31 +98,42 @@ export default function ExactSplitEditor({ members, currency, total, initialRows
     // the filled amounts back into the text inputs.
     const blanks = rows.filter((r) => r.included && r.amount == null);
     if (blanks.length === 0) return;
-    let assignedC = 0;
-    for (const r of rows) if (r.included && r.amount != null) assignedC += Math.round(r.amount * 100);
-    const remainingC = Math.max(0, Math.round(Math.abs(total) * 100) - assignedC);
-    const base = Math.floor(remainingC / blanks.length);
+    const split = splitRemainingEqually(rows, total, currency);
+    const byId = Object.fromEntries(split.map((row) => [row.memberId, row.amount]));
     setTexts((s) => {
       const o = { ...s };
-      blanks.forEach((r, i) => {
-        const c = i === blanks.length - 1 ? remainingC - base * (blanks.length - 1) : base;
-        o[r.memberId] = String(c / 100);
+      blanks.forEach((r) => {
+        o[r.memberId] = String(byId[r.memberId] ?? 0);
       });
       return o;
     });
   };
 
   const amountInput = (mid: string) => (
-    <TextInput
-      testID={`exact-amount-${mid}`}
-      value={texts[mid] ?? ''}
-      onChangeText={(v) => setText(mid, v)}
-      editable={editable}
-      keyboardType="numbers-and-punctuation"
-      placeholder="0.00"
-      placeholderTextColor={colors.textMuted}
-      style={[styles.amount, { color: colors.textMain, borderColor: colors.border, backgroundColor: colors.surface }]}
-    />
+    <View style={styles.amountWrap}>
+      <TextInput
+        testID={`exact-amount-${mid}`}
+        value={texts[mid] ?? ''}
+        onChangeText={(v) => setText(mid, v)}
+        editable={editable}
+        keyboardType="numbers-and-punctuation"
+        placeholder={currencyAmountPlaceholder(currency)}
+        placeholderTextColor={colors.textMuted}
+        style={[
+          styles.amount,
+          {
+            color: colors.textMain,
+            borderColor: precisionIssues[mid] ? colors.danger : colors.border,
+            backgroundColor: colors.surface,
+          },
+        ]}
+      />
+      {precisionIssues[mid] ? (
+        <T variant="caption" color={colors.danger} testID={`exact-precision-${mid}`}>
+          {precisionIssues[mid]}
+        </T>
+      ) : null}
+    </View>
   );
 
   const barColor = rec.isValid ? colors.success : rec.remaining < 0 ? colors.danger : colors.primary;
@@ -143,7 +169,9 @@ export default function ExactSplitEditor({ members, currency, total, initialRows
               </TouchableOpacity>
               <TouchableOpacity onPress={() => toggleExpand(m.id)} testID={`exact-fam-expand-${m.id}`} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <T style={{ flex: 1, fontWeight: '600' }}>{displayNames[m.id]}</T>
-                <T variant="caption" muted>{ids.length} members · {currency} {formatMoney(subtotal)}</T>
+                <T variant="caption" muted>
+                  {ids.length} members · {formatMoney(subtotal, { currency })}
+                </T>
                 <Icon name={open ? 'chevron-down' : 'chevron-right'} size={18} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
@@ -174,9 +202,11 @@ export default function ExactSplitEditor({ members, currency, total, initialRows
       <View style={{ marginTop: SPACING.xs, gap: 6 }}>
         <ProgressBar progress={Math.abs(total) > 0 ? rec.assigned / Math.abs(total) : 0} color={barColor} />
         <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-          <T variant="caption" muted testID="exact-assigned">Assigned {currency} {formatMoney(rec.assigned)}</T>
+          <T variant="caption" muted testID="exact-assigned">
+            Assigned {formatMoney(rec.assigned, { currency })}
+          </T>
           <T variant="caption" color={rec.isValid ? colors.success : colors.danger} testID="exact-remaining">
-            {rec.isValid ? 'Balanced' : `Remaining ${currency} ${formatMoney(rec.remaining)}`}
+            {rec.isValid ? 'Balanced' : `Remaining ${formatMoney(rec.remaining, { currency })}`}
           </T>
         </View>
         {editable ? (
@@ -195,6 +225,7 @@ const styles = StyleSheet.create({
     padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1,
   },
   tick: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flex: 1 },
+  amountWrap: { minWidth: 110, maxWidth: 190, gap: 3 },
   amount: {
     minWidth: 96, textAlign: 'right', fontFamily: FONTS.number, fontSize: 16,
     paddingHorizontal: 10, paddingVertical: 8, borderRadius: RADIUS.sm, borderWidth: 1,

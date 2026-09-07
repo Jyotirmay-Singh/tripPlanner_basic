@@ -6,8 +6,27 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from openpyxl import load_workbook
+from openpyxl import Workbook
 
 from routes import reports
+
+
+def test_xlsx_money_values_and_formats_follow_iso_precision():
+    assert reports._money_value("1.005", "USD") == 1.01
+    assert reports._money_value("2.5", "JPY") == 3.0
+    assert reports._money_value("1.2345", "KWD") == 1.235
+
+    workbook = Workbook()
+    sheet = workbook.active
+    expected_formats = {
+        "JPY": "#,##0;[Red](#,##0)",
+        "USD": "#,##0.00;[Red](#,##0.00)",
+        "KWD": "#,##0.000;[Red](#,##0.000)",
+    }
+    for row, (currency, expected) in enumerate(expected_formats.items(), start=1):
+        cell = sheet.cell(row=row, column=1, value=reports._money_value("1", currency))
+        reports._money(cell, currency)
+        assert cell.number_format == expected
 
 
 class _Cursor:

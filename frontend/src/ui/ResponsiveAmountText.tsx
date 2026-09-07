@@ -36,15 +36,20 @@ export function responsiveMoneyCandidates(
 ): Candidate[] {
   const visualCurrency = opts.showCurrency === false ? undefined : opts.currency;
   const exact = opts.whole
-    ? formatWholeMoney(value, { currency: visualCurrency, signed: opts.signed })
-    : formatMoney(value, { currency: visualCurrency, signed: opts.signed });
+    ? formatWholeMoney(value, {
+      currency: opts.currency, signed: opts.signed, showCurrency: opts.showCurrency,
+    })
+    : formatMoney(value, {
+      currency: opts.currency, signed: opts.signed, showCurrency: opts.showCurrency,
+    });
   const candidates: Candidate[] = [{ text: exact, detachedCurrency: false }];
 
   for (const maximumFractionDigits of [2, 1, 0] as const) {
     candidates.push({
       text: formatCompactMoney(value, {
-        currency: visualCurrency,
+        currency: opts.currency,
         signed: opts.signed,
+        showCurrency: opts.showCurrency,
         maximumFractionDigits,
       }),
       detachedCurrency: false,

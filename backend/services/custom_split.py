@@ -12,15 +12,22 @@ Person-level id space = every standalone-individual entity id ∪ every family's
 (`services.member_breakdown.family_member_ids`). A family's entity share = Σ of its involved members'
 amounts; a standalone individual's share = their own amount.
 
-All reconciliation is done in INTEGER CENTS. The one hard rule (Σ amounts == total) is validated here and
-the amounts are snapped (largest-remainder) so the resolved entity shares always sum EXACTLY to the
-stored total. This module is the single source of truth every EXACT branch point calls into.
+All reconciliation is done in integer currency minor units. The one hard rule (Σ amounts == total)
+is validated here so resolved entity shares always sum exactly to the stored total. This module is
+the single source of truth every EXACT branch point calls into.
 """
 
-import math
-from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
+from decimal import Decimal, ROUND_DOWN
 
 from services.member_breakdown import family_member_ids
+from utils.currency_rules import (
+    CurrencyPrecisionError,
+    apportion_currency_amounts,
+    currency_minor_units,
+    currency_units,
+    quantize_currency,
+    validate_currency_precision,
+)
 
 
 def _person_to_entity(members: list) -> dict:
@@ -47,7 +54,12 @@ def ordered_exact_member_ids(members: list) -> list:
     return list(_person_to_entity(members).keys())
 
 
-def validate_original_exact_amounts(total: Decimal, custom_amounts: dict, members: list) -> dict:
+def validate_original_exact_amounts(
+    total: Decimal,
+    custom_amounts: dict,
+    members: list,
+    currency: str = "INR",
+) -> dict:
     """Validate positive original-currency allocation magnitudes against ``abs(total)``.
 
     Refund allocations stay positive in the edit/audit model; the expense sign is applied only to
@@ -67,88 +79,80 @@ def validate_original_exact_amounts(total: Decimal, custom_amounts: dict, member
             raise ValueError("Exact split: every amount must be a number.")
         if not value.is_finite():
             raise ValueError("Exact split: every amount must be a finite number.")
-        value = value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        value = validate_currency_precision(value, currency, label="Exact split amount")
         if value < 0:
             raise ValueError("Exact split: amounts cannot be negative.")
         normalized[pid] = value
     if not any(value > 0 for value in normalized.values()):
         raise ValueError("Exact split: at least one amount must be greater than 0.")
-    expected = abs(total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    actual = sum(normalized.values(), Decimal("0.00"))
+    expected = validate_currency_precision(abs(total), currency)
+    actual = sum(normalized.values(), Decimal(0))
     if actual != expected:
+        digits = currency_minor_units(currency)
         raise ValueError(
-            f"Exact split: amounts must add up to the original total ({expected:.2f}); "
-            f"they currently add up to {actual:.2f}."
+            f"Exact split: amounts must add up to the original total ({expected:.{digits}f}); "
+            f"they currently add up to {actual:.{digits}f}."
         )
     return normalized
 
 
 def convert_original_exact_amounts(original_amounts: dict, rate: Decimal,
-                                   canonical_total: Decimal, members: list) -> dict:
-    """Convert original magnitudes and apportion target cents by largest remainder."""
+                                   canonical_total: Decimal, members: list,
+                                   target_currency: str = "INR") -> dict:
+    """Convert original magnitudes and apportion target currency units by largest remainder."""
     roster_order = ordered_exact_member_ids(members)
     order = [pid for pid in roster_order if pid in original_amounts]
     # Defensive stable ordering for a valid legacy/synthetic id not represented by current roster.
     order.extend(sorted(pid for pid in original_amounts if pid not in order))
     bases: dict[str, int] = {}
     remainders: dict[str, Decimal] = {}
+    scale = Decimal(10) ** currency_minor_units(target_currency)
     for pid in order:
-        raw_cents = Decimal(str(original_amounts[pid])) * rate * Decimal("100")
-        base = int(raw_cents.to_integral_value(rounding=ROUND_DOWN))
+        raw_units = Decimal(str(original_amounts[pid])) * rate * scale
+        base = int(raw_units.to_integral_value(rounding=ROUND_DOWN))
         bases[pid] = base
-        remainders[pid] = raw_cents - Decimal(base)
-    target_cents = int(
-        abs(canonical_total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) * Decimal("100")
-    )
-    needed = target_cents - sum(bases.values())
+        remainders[pid] = raw_units - Decimal(base)
+    target_units = abs(currency_units(canonical_total, target_currency))
+    needed = target_units - sum(bases.values())
     if needed < 0 or needed > len(order):
         raise ValueError("Exact split conversion could not be reconciled to the canonical total")
     ranking = sorted(order, key=lambda pid: (-remainders[pid], roster_order.index(pid)
                                               if pid in roster_order else len(roster_order)))
-    cents = dict(bases)
+    units = dict(bases)
     for pid in ranking[:needed]:
-        cents[pid] += 1
+        units[pid] += 1
     sign = -1 if canonical_total < 0 else 1
-    out = {pid: sign * cents[pid] / 100.0 for pid in order}
-    if round(sum(out.values()) * 100) != round(float(canonical_total) * 100):
+    numeric_scale = 10 ** currency_minor_units(target_currency)
+    out = {pid: sign * units[pid] / numeric_scale for pid in order}
+    if sum(units.values()) != target_units:
         raise ValueError("Exact split conversion did not sum to the canonical total")
     return out
 
 
-def _snap_to_cents(amounts: dict, order: list, target_c: int) -> dict:
-    """Largest-remainder snap so the returned float amounts sum EXACTLY to `target_c` cents. All EXACT
+def _snap_to_units(amounts: dict, order: list, target_units: int, currency: str) -> dict:
+    """Largest-remainder snap so returned floats sum exactly in the currency's minor units. All EXACT
     amounts are >= 0, so flooring toward 0 is correct. Deterministic: ties broken by `order`.
-    (Self-contained mirror of the `_apportion` helper duplicated across the split services, kept local
-    so this module stays independently pure.)"""
-    base: dict = {}
-    rem: dict = {}
-    for k in order:
-        vc = amounts[k] * 100.0
-        b = math.floor(vc + 1e-9)
-        base[k] = b
-        rem[k] = vc - b
-    need = target_c - sum(base.values())
-    out_c = dict(base)
-    if need > 0:
-        ranked = sorted(order, key=lambda k: (-rem[k], order.index(k)))
-        for k in ranked[:need]:
-            out_c[k] += 1
-    elif need < 0:
-        ranked = sorted(order, key=lambda k: (rem[k], order.index(k)))
-        for k in ranked[: -need]:
-            out_c[k] -= 1
-    return {k: out_c[k] / 100.0 for k in order}
+    The shared currency helper keeps this write-time path aligned with reports and breakdowns."""
+    scale = Decimal(10) ** currency_minor_units(currency)
+    target = Decimal(target_units) / scale
+    return apportion_currency_amounts(amounts, order, target, currency)
 
 
-def validate_exact_amounts(total: float, custom_amounts: dict, valid_member_ids) -> dict:
-    """Validate an EXACT payload and return NORMALIZED (cent-snapped) amounts summing exactly to
-    round(total, 2). Raises ValueError (which the API converts to HTTP 422) on any violation:
+def validate_exact_amounts(
+    total: float,
+    custom_amounts: dict,
+    valid_member_ids,
+    currency: str = "INR",
+) -> dict:
+    """Validate an EXACT payload and return minor-unit-normalized amounts summing exactly to total.
+
+    Raises ValueError (which the API converts to HTTP 422) on any violation:
 
     - `custom_amounts` empty                       -> "select at least one person ..."
     - a key not in `valid_member_ids`              -> "unknown member ..."
     - any amount NaN/inf or < 0                    -> "amount ... cannot be negative"
     - all amounts 0                                -> "at least one amount must be greater than 0"
-    - Σ amounts differs from total by > 0.01       -> "amounts must add up to the total ..."
+    - Σ amounts differs from total                 -> "amounts must add up to the total ..."
 
     No I/O. `valid_member_ids` is anything supporting `in` (typically the set from
     `valid_exact_member_ids`)."""
@@ -156,44 +160,62 @@ def validate_exact_amounts(total: float, custom_amounts: dict, valid_member_ids)
     if not ca:
         raise ValueError("Exact split: select at least one person and enter their amounts.")
 
+    expected = validate_currency_precision(total, currency, label="Total")
     valid = set(valid_member_ids)
+    normalized: dict[str, Decimal] = {}
     for pid, amt in ca.items():
         if pid not in valid:
             raise ValueError(f"Exact split: '{pid}' is not a member of this trip.")
-        if amt is None or not math.isfinite(amt):
+        try:
+            value = validate_currency_precision(
+                amt, currency, label="Exact split amount"
+            )
+        except CurrencyPrecisionError:
+            raise
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Exact split: every amount must be a number.") from exc
+        if not value.is_finite():
             raise ValueError("Exact split: every amount must be a number.")
-        if amt < 0:
+        if value < 0:
             raise ValueError("Exact split: amounts cannot be negative.")
+        normalized[pid] = value
 
     order = list(ca.keys())
-    raw_sum = sum(float(ca[k]) for k in order)
-    if round(raw_sum * 100) <= 0:
+    actual = sum(normalized.values(), Decimal(0))
+    if actual <= 0:
         raise ValueError("Exact split: at least one amount must be greater than 0.")
 
-    total_c = round(total * 100)
-    if abs(round(raw_sum * 100) - total_c) > 1:
+    if actual != expected:
+        digits = currency_minor_units(currency)
         raise ValueError(
-            f"Exact split: amounts must add up to the total ({total:.2f}); "
-            f"they currently add up to {raw_sum:.2f}."
+            f"Exact split: amounts must add up to the total ({expected:.{digits}f}); "
+            f"they currently add up to {actual:.{digits}f}."
         )
 
-    return _snap_to_cents({k: float(ca[k]) for k in order}, order, total_c)
+    scale = 10 ** currency_minor_units(currency)
+    total_units = int(expected * scale)
+    return _snap_to_units(
+        {key: float(normalized[key]) for key in order}, order, total_units, currency
+    )
 
 
-def resolve_exact_entity_shares(custom_amounts: dict, members: list) -> dict:
-    """Roll person-level `custom_amounts` UP to `{entity_id -> amount}`, integer-cent safe. A family's
-    share = Σ of its members present; a standalone individual's share = their own amount. Keys are
-    top-level entity ids, exactly like `split_per_capita` / `split_per_family`, so the ledger consumes
-    it unchanged. Zero-valued entities are omitted (they neither owe nor are owed). Unknown keys are
-    ignored here (the write-time validator already rejects them)."""
+def resolve_exact_entity_shares(custom_amounts: dict, members: list, currency: str = "INR") -> dict:
+    """Roll person-level `custom_amounts` up to entity amounts using currency minor units.
+
+    A family's share is the sum of its members present; a standalone individual's share is their own
+    amount. Keys are top-level entity ids, exactly like `split_per_capita` / `split_per_family`, so
+    the ledger consumes them unchanged. Zero-valued entities are omitted. Unknown keys are ignored
+    here because the write-time validator already rejects them.
+    """
     mapping = _person_to_entity(members)
-    cents: dict = {}
+    units: dict = {}
     for pid, amt in (custom_amounts or {}).items():
         eid = mapping.get(pid)
         if eid is None:
             continue
-        cents[eid] = cents.get(eid, 0) + round((amt or 0.0) * 100)
-    return {eid: c / 100.0 for eid, c in cents.items() if c != 0}
+        units[eid] = units.get(eid, 0) + currency_units(amt or 0.0, currency)
+    scale = 10 ** currency_minor_units(currency)
+    return {eid: value / scale for eid, value in units.items() if value != 0}
 
 
 def exact_member_shares(custom_amounts: dict, roster_ids: list) -> dict:

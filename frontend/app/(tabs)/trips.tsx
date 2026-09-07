@@ -28,7 +28,9 @@ function tripSubtitle(trip: Trip): string {
   return [
     formatTripDates(trip),
     trip.currency,
-    trip.budget != null ? `Budget ${formatMoney(trip.budget)}` : null,
+    trip.budget != null
+      ? `Budget ${formatMoney(trip.budget, { currency: trip.currency, showCurrency: false })}`
+      : null,
   ].filter((value): value is string => Boolean(value)).join(' · ');
 }
 
@@ -62,7 +64,10 @@ export default function Trips() {
       results.forEach((result, index) => {
         const tripId = list[index].id;
         nextBalances[tripId] = result.status === 'fulfilled'
-          ? tripBalanceState(resolveUserTripBalance(result.value, user?.id))
+          ? tripBalanceState(
+            resolveUserTripBalance(result.value, user?.id),
+            result.value.currency || list[index].currency,
+          )
           : UNAVAILABLE_BALANCE;
       });
 

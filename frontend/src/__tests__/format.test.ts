@@ -22,6 +22,19 @@ describe('formatMoney', () => {
   it('prefixes a currency code when given', () => {
     expect(formatMoney(1200, { currency: 'INR' })).toBe('INR 1,200.00');
     expect(formatMoney(-99.9, { currency: 'USD', signed: true })).toBe('USD -99.90');
+    expect(formatMoney(1200, { currency: 'JPY', showCurrency: false })).toBe('1,200');
+  });
+
+  it('uses ISO precision for zero- and three-decimal currencies', () => {
+    expect(formatMoney(1234.6, { currency: 'JPY' })).toBe('JPY 1,235');
+    expect(formatMoney(-0.4, { currency: 'KRW' })).toBe('KRW 0');
+    expect(formatMoney(12.3, { currency: 'KWD' })).toBe('KWD 12.300');
+    expect(formatMoney(12.3456, { currency: 'OMR' })).toBe('OMR 12.346');
+  });
+
+  it('rounds decimal midpoint values half-up without binary-float drift', () => {
+    expect(formatMoney(10.075, { currency: 'USD' })).toBe('USD 10.08');
+    expect(formatMoney(-10.075, { currency: 'USD' })).toBe('USD -10.08');
   });
 
   it('falls back to 0.00 for non-finite input', () => {
@@ -42,6 +55,12 @@ describe('formatCompactMoney', () => {
     expect(formatCompactMoney(-123_456_789, { currency: 'USD', maximumFractionDigits: 1 })).toBe('USD -123.5M');
     expect(formatCompactMoney(123_456_789, { signed: true, maximumFractionDigits: 0 })).toBe('+123M');
     expect(formatCompactMoney(NaN, { currency: 'INR' })).toBe('INR 0.00');
+  });
+
+  it('uses currency precision even when the code is visually hidden', () => {
+    expect(formatCompactMoney(12.345, {
+      currency: 'KWD', showCurrency: false,
+    })).toBe('12.345');
   });
 });
 

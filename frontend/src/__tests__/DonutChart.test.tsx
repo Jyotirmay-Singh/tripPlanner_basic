@@ -192,6 +192,7 @@ describe('DonutChart drill-down affordances', () => {
       r = TestRenderer.create(
         <DonutChart
           data={SINGLE}
+          currency="KWD"
           centerValue="123.46M"
           centerLabel="INR"
           centerAccessibilityLabel="Total spent, INR 123,456,789.00"
@@ -203,6 +204,6 @@ describe('DonutChart drill-down affordances', () => {
     expect(r.root.findByType('Svg' as any).props.accessibilityLabel)
       .toBe('Total spent, INR 123,456,789.00');
     expect(pressable(r, 'donut-legend-Food').props.accessibilityLabel)
-      .toBe('Show Food transactions, 100.00');
+      .toBe('Show Food transactions, KWD 100.000');
   });
 });

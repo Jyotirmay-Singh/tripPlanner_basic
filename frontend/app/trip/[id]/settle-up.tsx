@@ -23,6 +23,11 @@ import type { BalanceResponse } from '../../../src/settlementProjection';
 import { formatMoney, formatWholeMoney } from '../../../src/format';
 import { formatIST } from '../../../src/istTime';
 import {
+  currencyAmountPlaceholder,
+  fromCurrencyUnits,
+  toCurrencyUnits,
+} from '../../../src/currencies';
+import {
   Screen, Card, Button, Icon, IconButton, Input, EmptyState, AmountText, SkeletonCard, useToast,
 } from '../../../src/ui';
 
@@ -36,7 +41,9 @@ type Member = {
 type Balances = BalanceResponse<Member>;
 type Trip = RoleTrip & { members: Member[] };
 
-const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+const roundCurrency = (n: number, currency: string) => {
+  return fromCurrencyUnits(toCurrencyUnits(n, currency), currency);
+};
 
 export default function SettleUp() {
   const params = useLocalSearchParams<{
@@ -161,9 +168,9 @@ export default function SettleUp() {
         ? currentSuggestedAmount(
           recommendations, payment.from_member_id, payment.to_member_id,
         ) + payment.amount
-        : round2(currentSuggestedAmount(
+        : roundCurrency(currentSuggestedAmount(
           recommendations, payment.from_member_id, payment.to_member_id,
-        ) + payment.amount),
+        ) + payment.amount, currency),
       paymentId: payment.id,
       note: payment.note ?? '',
       originalAmount: payment.amount,
@@ -267,7 +274,7 @@ export default function SettleUp() {
           body={projection?.status === 'settled_within_rounding'
             ? (wholeUnit
               ? 'No whole-rupee payment remains. Small exact balances are kept and will carry into future expenses.'
-              : 'No 0.01-unit payment remains. Small exact balances are kept and will carry into future expenses.')
+              : `No ${projection?.increment || 'minor-unit'} payment remains. Small exact balances are kept and will carry into future expenses.`)
             : 'No one owes anything on this trip.'}
           testID="settle-empty"
         />
@@ -430,15 +437,22 @@ export function AmountModal({
 }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const [amountStr, setAmountStr] = useState(String(wholeUnit ? initial : round2(initial)));
+  const [amountStr, setAmountStr] = useState(
+    String(wholeUnit ? initial : roundCurrency(initial, currency)),
+  );
   const [noteStr, setNoteStr] = useState(initialNote);
   const [error, setError] = useState<string | null>(null);
 
   const submit = () => {
     const parsed = Number(amountStr);
     const unchangedLegacy = allowLegacyDecimal && parsed === initial;
-    const amt = unchangedLegacy ? parsed : (wholeUnit ? parsed : round2(parsed));
-    const v = validatePaymentAmount(amt, max, { wholeUnit: wholeUnit && !unchangedLegacy });
+    const amt = parsed;
+    const v = validatePaymentAmount(amt, max, {
+      wholeUnit: wholeUnit && !unchangedLegacy,
+      currency,
+      rawAmount: amountStr,
+      allowLegacyPrecision: unchangedLegacy,
+    });
     if (!v.ok) { setError(v.error); return; }
     onSubmit(amt, noteStr);
   };
@@ -500,6 +514,7 @@ export function AmountModal({
                 onChangeText={(t) => { setAmountStr(t); if (error) setError(null); }}
                 keyboardType={wholeUnit ? 'number-pad' : 'decimal-pad'}
                 inputMode={wholeUnit ? 'numeric' : 'decimal'}
+                placeholder={currencyAmountPlaceholder(currency)}
                 helper={wholeUnit
                   ? (allowLegacyDecimal && !Number.isInteger(initial)
                     ? `Keep the current decimal for a note-only edit, or enter a whole ${currency} amount up to ${formatWholeMoney(Math.floor(max), { currency })}`

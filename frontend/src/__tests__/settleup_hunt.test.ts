@@ -40,10 +40,11 @@ describe('badge state machine (open -> partial -> paid)', () => {
     expect(paymentStatus(0, 100)).toBe('paid');
   });
 
-  it('treats a sub-cent residual as paid but a sub-cent payment as still open', () => {
-    expect(paymentStatus(0.01, 100)).toBe('paid');
-    expect(paymentStatus(0.0101, 100)).toBe('partial');
-    expect(paymentStatus(100, 0.01)).toBe('open');
+  it('ignores only half-minor-unit transport noise', () => {
+    expect(paymentStatus(0.005, 100)).toBe('paid');
+    expect(paymentStatus(0.0051, 100)).toBe('partial');
+    expect(paymentStatus(100, 0.005)).toBe('open');
+    expect(paymentStatus(100, 0.01)).toBe('partial');
   });
 });
 
@@ -109,9 +110,9 @@ describe('validatePaymentAmount — adversarial input', () => {
     expect(validatePaymentAmount(-Infinity, 100).ok).toBe(false);
   });
 
-  it('caps at max + 1 cent tolerance', () => {
+  it('caps at max and rejects excessive entered precision', () => {
     expect(validatePaymentAmount(100.5, 100).ok).toBe(false);
-    expect(validatePaymentAmount(100.004, 100).ok).toBe(true);
+    expect(validatePaymentAmount(100.004, 100).ok).toBe(false);
     expect(validatePaymentAmount(100, 100)).toEqual({ ok: true, error: null });
   });
 

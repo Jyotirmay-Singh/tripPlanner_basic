@@ -1,5 +1,6 @@
 import { compareExpensesDesc, type SortableExpense } from './expenseSort';
 import type { SpendEntity, SpendSummary } from './spend';
+import { fromCurrencyUnits, toCurrencyUnits } from './currencies';
 
 export type CategorySpendMember = {
   id: string;
@@ -27,20 +28,24 @@ export type CategorySpendBreakdown<T extends CategorySpendExpense = CategorySpen
   transactions: T[];
 };
 
-function cents(value: number): number {
-  return Number.isFinite(value) ? Math.round(value * 100) : 0;
+function units(value: number, currency: string): number {
+  return Number.isFinite(value) ? toCurrencyUnits(value, currency) : 0;
 }
 
-function compareCategoryTransactions(a: CategorySpendExpense, b: CategorySpendExpense): number {
-  const aCents = cents(a.amount);
-  const bCents = cents(b.amount);
-  const aGroup = aCents > 0 ? 0 : aCents < 0 ? 1 : 2;
-  const bGroup = bCents > 0 ? 0 : bCents < 0 ? 1 : 2;
+function compareCategoryTransactions(
+  a: CategorySpendExpense,
+  b: CategorySpendExpense,
+  currency: string,
+): number {
+  const aUnits = units(a.amount, currency);
+  const bUnits = units(b.amount, currency);
+  const aGroup = aUnits > 0 ? 0 : aUnits < 0 ? 1 : 2;
+  const bGroup = bUnits > 0 ? 0 : bUnits < 0 ? 1 : 2;
   if (aGroup !== bGroup) return aGroup - bGroup;
 
-  if (aGroup === 0 && aCents !== bCents) return bCents - aCents;
-  if (aGroup === 1 && Math.abs(aCents) !== Math.abs(bCents)) {
-    return Math.abs(bCents) - Math.abs(aCents);
+  if (aGroup === 0 && aUnits !== bUnits) return bUnits - aUnits;
+  if (aGroup === 1 && Math.abs(aUnits) !== Math.abs(bUnits)) {
+    return Math.abs(bUnits) - Math.abs(aUnits);
   }
   return compareExpensesDesc(a, b);
 }
@@ -53,6 +58,7 @@ export function buildCategorySpendBreakdown<T extends CategorySpendExpense>(
   expenses: T[] | null | undefined,
   members: CategorySpendMember[] | null | undefined,
   category: string,
+  currency = 'INR',
 ): CategorySpendBreakdown<T> {
   const matched = (expenses ?? []).filter((expense) => expense.category === category);
   const memberById = new Map((members ?? []).map((member) => [member.id, member]));
@@ -62,7 +68,7 @@ export function buildCategorySpendBreakdown<T extends CategorySpendExpense>(
   let refundCents = 0;
 
   for (const expense of matched) {
-    const amountCents = cents(expense.amount);
+    const amountCents = units(expense.amount, currency);
     netCents += amountCents;
     if (amountCents > 0) {
       grossCents += amountCents;
@@ -81,21 +87,21 @@ export function buildCategorySpendBreakdown<T extends CategorySpendExpense>(
       entity_id: entityId,
       entity_type: member?.kind === 'family' ? 'family' : 'individual',
       name: member?.name || 'Unknown payer',
-      paid: aggregate.paid / 100,
+      paid: fromCurrencyUnits(aggregate.paid, currency),
       expense_count: aggregate.expenseCount,
     };
   });
 
   return {
-    net: netCents / 100,
-    grossPaid: grossCents / 100,
-    refunds: refundCents / 100,
+    net: fromCurrencyUnits(netCents, currency),
+    grossPaid: fromCurrencyUnits(grossCents, currency),
+    refunds: fromCurrencyUnits(refundCents, currency),
     transactionCount: matched.length,
     payerSummary: {
-      total: grossCents / 100,
+      total: fromCurrencyUnits(grossCents, currency),
       count: entities.length,
       entities,
     },
-    transactions: [...matched].sort(compareCategoryTransactions),
+    transactions: [...matched].sort((a, b) => compareCategoryTransactions(a, b, currency)),
   };
 }

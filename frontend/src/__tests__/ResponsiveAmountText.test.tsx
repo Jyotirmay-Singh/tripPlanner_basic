@@ -41,6 +41,14 @@ describe('responsive money presentation', () => {
     expect(candidates[0]).toEqual({ text: 'LKR 1,250', detachedCurrency: false });
   });
 
+  it('keeps currency precision when the visual currency code is hidden', () => {
+    const candidates = responsiveMoneyCandidates(12.345, {
+      currency: 'KWD',
+      showCurrency: false,
+    });
+    expect(candidates[0]).toEqual({ text: '12.345', detachedCurrency: false });
+  });
+
   it('chooses the first measured fit and otherwise the shortest candidate', () => {
     expect(firstFittingCandidate([false, true, true], 3)).toBe(1);
     expect(firstFittingCandidate([false, false, false], 3)).toBe(2);

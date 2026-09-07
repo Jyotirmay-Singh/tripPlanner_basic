@@ -285,7 +285,7 @@ async def delete_family_member(trip_id: str, family_id: str, fm_id: str,
 
     bal = await _compute_balances(trip_id)
     n = family_member_net(bal, family_id, fm_id)
-    if n is None or not is_settled(n):
+    if n is None or not is_settled(n, bal.get("currency", trip.get("currency", "INR"))):
         who = names[idx] if idx < len(names) else "This member"
         raise HTTPException(409, f"{who} has an outstanding balance. Settle up before removing.")
 

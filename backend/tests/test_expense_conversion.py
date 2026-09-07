@@ -8,6 +8,7 @@ from bson.decimal128 import Decimal128
 from models.exchange_rate import ConversionRequest
 from services import expense_conversion as conversion
 from services.exchange_rates import ExchangeRateError
+from utils.currency_rules import CurrencyPrecisionError
 
 
 MEMBERS = [
@@ -194,3 +195,42 @@ def test_bson_serialization_keeps_metadata_decimals_as_strings():
         "original_amount": Decimal128("1000.00"),
         "rate": Decimal128("3.5204"),
     }) == {"original_amount": "1000.00", "rate": "3.5204"}
+
+
+def test_jpy_refund_converts_to_kwd_with_three_decimal_canonical_amount(monkeypatch):
+    refund_quote = quote(
+        target="-1.235", rate="0.2469", target_currency="KWD",
+        source="-5", source_currency="JPY",
+    )
+    monkeypatch.setattr(conversion, "load_quote", AsyncMock(return_value=refund_quote))
+
+    result = run(conversion.convert_expense(
+        user_id="u1", trip_currency="KWD", date="28-08-26",
+        split_mode="PER_CAPITA", members=MEMBERS,
+        original_amount="-5", original_currency="JPY", original_custom_amounts=None,
+        conversion=approved(), version=1, reason="created",
+    ))
+
+    assert result["amount"] == -1.235
+    assert result["metadata"]["original_amount"].to_decimal() == Decimal("-5")
+    assert result["metadata"]["original_currency"] == "JPY"
+
+
+@pytest.mark.parametrize(
+    "source_currency,source_amount",
+    [("JPY", "1.1"), ("INR", "1.001"), ("KWD", "1.0001")],
+)
+def test_expense_conversion_rejects_excessive_source_precision(
+    monkeypatch, source_currency, source_amount
+):
+    loader = AsyncMock()
+    monkeypatch.setattr(conversion, "load_quote", loader)
+    with pytest.raises(CurrencyPrecisionError):
+        run(conversion.convert_expense(
+            user_id="u1", trip_currency="LKR", date="28-08-26",
+            split_mode="PER_CAPITA", members=MEMBERS,
+            original_amount=source_amount, original_currency=source_currency,
+            original_custom_amounts=None, conversion=approved(), version=1,
+            reason="created",
+        ))
+    loader.assert_not_awaited()

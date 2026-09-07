@@ -139,6 +139,21 @@ it('shows a locked conversion without requiring a new quote for unrelated edits'
   expect(onRequoteRequiredChange).toHaveBeenLastCalledWith(false);
 });
 
+it('keeps an unchanged locked conversion visible while new conversions are disabled', () => {
+  let renderer: any;
+  act(() => {
+    renderer = TestRenderer.create(
+      <ExchangeRatePanel {...props({ enabled: false, locked })} />,
+    );
+  });
+
+  expect(renderer.root.findByProps({ testID: 'exchange-rate-locked' })).toBeTruthy();
+  expect(textContent(renderer)).toContain('LKR 3,520.40');
+  expect(mockUseExchangeRateQuote).toHaveBeenLastCalledWith(
+    expect.objectContaining({ enabled: false }),
+  );
+});
+
 it('approves an automatic cached stale quote and clears approval when an input changes', () => {
   mockUseExchangeRateQuote.mockReturnValue({
     status: 'success', quote: automaticQuote, error: null, valid: true, retry: jest.fn(),
@@ -202,6 +217,27 @@ it('submits an explicit manual final-amount conversion', () => {
       manual_input_type: 'target_amount', manual_target_amount: '3600.00',
     },
   });
+});
+
+it('rejects a manual KWD final amount with more than three decimals', () => {
+  let renderer: any;
+  act(() => {
+    renderer = TestRenderer.create(
+      <ExchangeRatePanel {...props({ targetCurrency: 'KWD' })} />,
+    );
+  });
+
+  act(() => renderer.root.findByProps({ testID: 'exchange-rate-manual' }).props.onPress());
+  act(() => renderer.root.findByProps({ testID: 'exchange-rate-manual-target' }).props.onPress());
+  act(() => renderer.root.findByType(TextInput).props.onChangeText('1.2345'));
+
+  expect(renderer.root.findByProps({ testID: 'exchange-rate-precision' })).toBeTruthy();
+  expect(textContent(renderer)).toContain(
+    'Manual final amount in KWD allows at most 3 decimal places.',
+  );
+  expect(mockUseExchangeRateQuote).toHaveBeenLastCalledWith(
+    expect.objectContaining({ enabled: false, manualValue: '1.2345' }),
+  );
 });
 
 it('shows a retryable provider error and invokes retry', () => {

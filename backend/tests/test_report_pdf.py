@@ -2,6 +2,7 @@
 
 import io
 
+import pytest
 from bson.decimal128 import Decimal128
 from pypdf import PdfReader
 
@@ -196,3 +197,24 @@ def test_whole_unit_projection_is_auditable_in_pdf():
     assert "Exact balance" in text and "Rounding adjustment" in text
     assert "Minimum payment plan" in text
     assert "3.00" not in text
+
+
+@pytest.mark.parametrize(
+    "currency,amount,expected,forbidden",
+    [("JPY", 1235, "1,235", "1,235.00"),
+     ("KWD", 1.235, "1.235", "1.24")],
+)
+def test_pdf_money_uses_iso_precision(currency, amount, expected, forbidden):
+    members = [_member("ann", "Ann")]
+    expenses = [_expense("dinner", amount, "ann")]
+    trip = _trip(f"{currency} precision")
+    trip["currency"] = currency
+    reconciliation = build_spend_reconciliation(members, expenses, currency)
+    payload = build_report_pdf(
+        trip, members, expenses, currency, reconciliation=reconciliation,
+    )
+    text = "\n".join(
+        page.extract_text() or "" for page in PdfReader(io.BytesIO(payload)).pages
+    )
+    assert expected in text
+    assert forbidden not in text

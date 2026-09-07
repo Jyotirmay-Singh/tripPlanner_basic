@@ -223,6 +223,33 @@ def test_projection_is_integer_for_lkr_npr_and_cent_based_elsewhere():
     assert projection["increment"] == "0.01"
 
 
+@pytest.mark.parametrize(
+    "currency,debit,credit,increment,expected_amount",
+    [
+        ("JPY", "-10.4", "10.4", "1", 10),
+        ("USD", "-1.234", "1.234", "0.01", 1.23),
+        ("KWD", "-1.2344", "1.2344", "0.001", 1.234),
+    ],
+)
+def test_projection_uses_iso_minor_unit_increment(
+    currency, debit, credit, increment, expected_amount
+):
+    transfers, projection = build_settlement_projection(
+        {"a": to_scaled(debit), "b": to_scaled(credit)},
+        currency,
+        whole_unit_enabled=True,
+    )
+    assert projection["enabled"] is False
+    assert projection["increment"] == increment
+    assert projection["policy_version"] == "iso_minor_unit_v1"
+    assert transfers == [{
+        "from_member_id": "a", "to_member_id": "b", "amount": expected_amount,
+    }]
+    scale = 10 ** {"JPY": 0, "USD": 2, "KWD": 3}[currency]
+    assert all(round(value * scale) == value * scale
+               for value in projection["rounded_net"].values())
+
+
 def test_same_state_is_byte_deterministic_regardless_of_mapping_order():
     items = [("z", to_scaled("3.334")), ("b", to_scaled("3.333")),
              ("a", to_scaled("-10")), ("c", to_scaled("3.333"))]

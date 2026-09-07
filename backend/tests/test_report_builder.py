@@ -3,6 +3,8 @@
 # test_per_capita.py / test_per_family.py.
 import math
 
+import pytest
+
 from bson.decimal128 import Decimal128
 
 from services.member_breakdown import family_member_ids
@@ -14,6 +16,7 @@ from services.report_builder import (
     build_spend_reconciliation,
     build_transaction_rows,
 )
+from utils.currency_rules import currency_units
 
 
 def _fam(mid, size, name=None):
@@ -138,6 +141,19 @@ class TestPerCapita:
         rows = build_per_capita_rows([_exp("e1", 100.0, [])], _roster())
         assert abs(sum(r["member_share"] for r in rows) - 100.0) <= 0.005 * len(rows) + 1e-9
 
+    @pytest.mark.parametrize(
+        "currency,amount,expected",
+        [("JPY", 100, [33.0, 33.0, 34.0]),
+         ("KWD", 1.000, [0.333, 0.333, 0.334])],
+    )
+    def test_iso_precision_shares_reconcile_exactly(self, currency, amount, expected):
+        members = [_ind("a"), _ind("b"), _ind("c")]
+        rows = build_per_capita_rows([_exp("e", amount, [])], members, currency)
+        shares = [row["member_share"] for row in rows]
+        assert sorted(shares) == expected
+        assert currency_units(sum(shares), currency) == currency_units(amount, currency)
+        assert rows == build_per_capita_rows([_exp("e", amount, [])], members, currency)
+
 
 class TestPerFamily:
 
@@ -187,6 +203,20 @@ class TestPerFamily:
         rows = build_per_family_rows(
             [_exp("e1", 100.0, [], mode="PER_FAMILY")], _roster())
         assert abs(sum(r["member_share"] for r in rows) - 100.0) <= 0.005 * len(rows) + 1e-9
+
+    @pytest.mark.parametrize(
+        "currency,amount,expected",
+        [("JPY", -100, [-34.0, -33.0, -33.0]),
+         ("KWD", -1.000, [-0.334, -0.333, -0.333])],
+    )
+    def test_refund_shares_use_iso_precision_and_reconcile(self, currency, amount, expected):
+        members = [_ind("a"), _ind("b"), _ind("c")]
+        rows = build_per_family_rows(
+            [_exp("e", amount, [], mode="PER_FAMILY")], members, currency
+        )
+        shares = [row["member_share"] for row in rows]
+        assert sorted(shares) == expected
+        assert currency_units(sum(shares), currency) == currency_units(amount, currency)
 
 
 class TestTransactions:
@@ -392,6 +422,23 @@ class TestSpendReconciliation:
         assert out["categories"] == []
         assert out["totals"] == {"gross": 0.0, "reimbursements": 0.0, "net": 0.0}
 
+    @pytest.mark.parametrize(
+        "currency,half_unit,expected",
+        [("JPY", 0.5, 1.0), ("USD", 0.005, 0.01), ("KWD", 0.0005, 0.001)],
+    )
+    def test_legacy_half_units_are_rounded_half_up_in_reconciliation(
+        self, currency, half_unit, expected
+    ):
+        members = [_ind("i1", "Ann")]
+        out = build_spend_reconciliation(
+            members,
+            [self._row("gross", half_unit), self._row("refund", -half_unit)],
+            currency,
+        )
+        assert out["totals"] == {
+            "gross": expected, "reimbursements": expected, "net": 0.0,
+        }
+
 
 class TestEmptyInputs:
 
@@ -492,8 +539,9 @@ class TestExplodedTransactions:
         members, expenses = self._oracle()
         out = build_expense_member_rows(expenses, members)
         pivot = {r["name"]: r["total"] for r in out["pivot"]["rows"]}
-        assert pivot == {"Bheem": 7525.0, "Chutki": 7085.0, "Golmal": 13060.0,
-                         "Jaggu": 9085.0, "Jerry": 10410.0, "Raju": 7085.0, "Tom": 8850.0}
+        assert pivot == {"Bheem": 7525.0, "Chutki": 7084.99, "Golmal": 13060.0,
+                         "Jaggu": 9084.99, "Jerry": 10410.01,
+                         "Raju": 7085.0, "Tom": 8850.01}
         # pivot is alphabetical by person name
         assert [r["name"] for r in out["pivot"]["rows"]] == \
             ["Bheem", "Chutki", "Golmal", "Jaggu", "Jerry", "Raju", "Tom"]
@@ -550,12 +598,15 @@ class TestExplodedTransactions:
             assert water[p]["payable"] == 75.0
         assert water["Golmal"]["payable"] == 300.0
 
-    def test_negative_refund_naive_rounding(self):
+    def test_negative_refund_is_jointly_rounded_and_reconciles(self):
         members, expenses = self._oracle()
         refund = build_expense_member_rows(expenses, members)["blocks"][2]
-        assert all(r["payable"] == -85.71 for r in refund["rows"])
+        assert [r["payable"] for r in refund["rows"]] == [
+            -85.71, -85.71, -85.71, -85.71, -85.72, -85.72, -85.72,
+        ]
         assert all(r["participates"] is True for r in refund["rows"])  # nonzero (negative)
-        assert refund["block_payable"] == -599.97  # naive: -85.71 * 7 (drift cancels in grand total)
+        assert refund["block_payable"] == -600.0
+        assert sum(row["payable"] for row in refund["rows"]) == -600.0
 
     def test_family_member_rows_sum_to_family_entity_share(self):
         members, expenses = self._oracle()
@@ -587,3 +638,18 @@ class TestExplodedTransactions:
         out = build_expense_member_rows([e], members)
         assert out["blocks"] == []
         assert out["grand_amount"] == 0.0
+
+    @pytest.mark.parametrize("currency,amount", [("JPY", 1), ("KWD", 0.001)])
+    def test_zero_display_shares_remain_participants_and_block_reconciles(
+        self, currency, amount
+    ):
+        members = [_ind("a", "A"), _ind("b", "B"), _ind("c", "C")]
+        expense = _exp("tiny", amount, [], paid_by="a")
+        out = build_expense_member_rows([expense], members, currency)
+        block = out["blocks"][0]
+        assert currency_units(sum(row["payable"] for row in block["rows"]), currency) == \
+            currency_units(amount, currency)
+        assert block["block_payable"] == amount
+        assert all(row["participates"] is True for row in block["rows"])
+        assert out["grand_amount"] == out["grand_payable"] == \
+            out["pivot"]["grand_total"] == amount

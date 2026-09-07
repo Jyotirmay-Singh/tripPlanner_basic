@@ -11,27 +11,31 @@ compute exactly which trips/members change so a human can sign off before any wr
 """
 
 from services.settlement_engine import (
-    CENT_INCREMENT_SCALED,
     build_precise_net,
     joint_round,
     scaled_number,
+    settlement_increment,
 )
+from utils.currency_rules import quantize_currency
 from utils.settlement_gate import is_settled
 
 
-def compute_net(members: list, expenses: list, settlements: list) -> dict:
+def compute_net(
+    members: list, expenses: list, settlements: list, currency: str = "INR"
+) -> dict:
     """member_id -> rounded net. Faithful replica of ``utils.balances._compute_balances`` net loop:
     signed amounts, PER_CAPITA via resolve_weights+split_per_capita / PER_FAMILY via split_per_family,
-    then settlements, then a single round(2). Every row passed in is treated as a signed expense (no
-    ``kind`` filtering happens here — the caller decides which rows to include).
+    then settlements, then one joint round to the currency's ISO minor unit. Every row passed in is
+    treated as a signed expense (no ``kind`` filtering happens here — the caller chooses the rows).
 
     PER_CAPITA honors ``family_participants`` exactly like the ledger: a family restricted to a subset
     of its roster counts as its involved-member count. The migration uses this symmetrically (before
     and after both go through here), so the income->negative deltas are unaffected by it."""
     precise = build_precise_net(members, expenses, settlements)
-    rounded = joint_round(precise, CENT_INCREMENT_SCALED)
+    increment, _enabled = settlement_increment(currency, False)
+    rounded = joint_round(precise, increment)
     return {
-        member_id: scaled_number(value * CENT_INCREMENT_SCALED)
+        member_id: scaled_number(value * increment)
         for member_id, value in rounded.items()
     }
 
@@ -48,7 +52,9 @@ def _is_income(e: dict) -> bool:
     return e.get("kind") == "income"
 
 
-def simulate_trip(members: list, expenses: list, settlements: list) -> dict:
+def simulate_trip(
+    members: list, expenses: list, settlements: list, currency: str = "INR"
+) -> dict:
     """Before/after balance simulation for ONE trip.
 
     before = current behaviour (income rows EXCLUDED from the ledger).
@@ -60,17 +66,19 @@ def simulate_trip(members: list, expenses: list, settlements: list) -> dict:
     """
     income_rows = [e for e in expenses if _is_income(e)]
     expense_rows = [e for e in expenses if not _is_income(e)]
-    before = compute_net(members, expense_rows, settlements)
+    before = compute_net(members, expense_rows, settlements, currency)
     after_rows = expense_rows + [to_negative_expense(e) for e in income_rows]
-    after = compute_net(members, after_rows, settlements)
+    after = compute_net(members, after_rows, settlements, currency)
 
     deltas = {
         mid: {"before": before.get(mid, 0.0), "after": after.get(mid, 0.0)}
         for mid in before
-        if round(after.get(mid, 0.0) - before.get(mid, 0.0), 2) != 0.0
+        if quantize_currency(
+            after.get(mid, 0.0) - before.get(mid, 0.0), currency
+        ) != 0
     }
-    before_settled = all(is_settled(v) for v in before.values())
-    after_settled = all(is_settled(v) for v in after.values())
+    before_settled = all(is_settled(v, currency) for v in before.values())
+    after_settled = all(is_settled(v, currency) for v in after.values())
     return {
         "income_rows": income_rows,
         "before": before,

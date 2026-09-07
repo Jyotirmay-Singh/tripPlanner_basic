@@ -24,6 +24,12 @@ describe('isSettled', () => {
     expect(isSettled(0.01)).toBe(false);
     expect(isSettled(-0.01)).toBe(false);
   });
+  it('derives the settled threshold from JPY and KWD precision', () => {
+    expect(isSettled(0.49, 'JPY')).toBe(true);
+    expect(isSettled(0.5, 'JPY')).toBe(false);
+    expect(isSettled(0.00049, 'KWD')).toBe(true);
+    expect(isSettled(0.0005, 'KWD')).toBe(false);
+  });
 });
 
 describe('isOwnerRow', () => {

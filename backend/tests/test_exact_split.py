@@ -52,12 +52,35 @@ class TestValidate:
         out = validate_exact_amounts(100.0, {"a": 33.33, "b": 33.33, "c": 33.34}, {"a", "b", "c"})
         assert round(sum(out.values()) * 100) == 10000
 
-    def test_within_one_cent_is_snapped_up(self):
-        # 33.33 * 3 = 99.99, one cent under 100 -> allowed (±0.01) and snapped to sum exactly 100.00.
-        out = validate_exact_amounts(100.0, {"a": 33.33, "b": 33.33, "c": 33.33}, {"a", "b", "c"})
-        assert round(sum(out.values()) * 100) == 10000
-        # the extra cent lands on exactly one row
-        assert sorted(_cents(out).values()) == [3333, 3333, 3334]
+    def test_one_minor_unit_short_is_rejected(self):
+        # User-entered exact shares must add up exactly; the server never changes a person's input.
+        with pytest.raises(ValueError, match="must add up to the total"):
+            validate_exact_amounts(
+                100.0, {"a": 33.33, "b": 33.33, "c": 33.33}, {"a", "b", "c"}
+            )
+
+    @pytest.mark.parametrize(
+        ("currency", "total", "amounts"),
+        [
+            ("JPY", 100, {"a": 60, "b": 40}),
+            ("INR", 1.23, {"a": 1.0, "b": 0.23}),
+            ("KWD", 1.234, {"a": 1.001, "b": 0.233}),
+        ],
+    )
+    def test_accepts_exact_0_2_3_decimal_currency_splits(self, currency, total, amounts):
+        assert validate_exact_amounts(total, amounts, set(amounts), currency) == amounts
+
+    @pytest.mark.parametrize(
+        ("currency", "total", "amounts"),
+        [
+            ("JPY", 2, {"a": 1.5, "b": 0.5}),
+            ("INR", 1.001, {"a": 1.001}),
+            ("KWD", 1.0001, {"a": 1.0001}),
+        ],
+    )
+    def test_rejects_excess_precision(self, currency, total, amounts):
+        with pytest.raises(ValueError):
+            validate_exact_amounts(total, amounts, set(amounts), currency)
 
     def test_sum_under_raises(self):
         with pytest.raises(ValueError):

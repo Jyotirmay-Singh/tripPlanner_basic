@@ -3,6 +3,8 @@
 // partition/match logic is unit-testable without a component render (like src/bill.ts and
 // src/tripSettled.ts).
 
+import { currencyMinorUnits } from './currencies';
+
 export type SettlementStatus = 'pending' | 'paid';
 
 export type Settlement = {
@@ -47,15 +49,20 @@ export function partitionSettlements(
 
 /**
  * True iff a live suggested transfer already has a matching PENDING record (same from/to members
- * and amount within a cent). Used to swap the Suggested-section "Record" button for a muted
+ * and amount within one currency minor unit). Used to swap the Suggested-section "Record" button for a muted
  * "Recorded" chip so the same transfer can't be recorded twice.
  */
-export function isRecorded(transfer: Transfer, pending: Settlement[]): boolean {
+export function isRecorded(
+  transfer: Transfer,
+  pending: Settlement[],
+  currency = 'INR',
+): boolean {
+  const increment = 10 ** -currencyMinorUnits(currency);
   return pending.some(
     (s) =>
       s.from_member_id === transfer.from_member_id &&
       s.to_member_id === transfer.to_member_id &&
-      Math.abs(s.amount - transfer.amount) < 0.01,
+      Math.abs(s.amount - transfer.amount) < increment,
   );
 }
 

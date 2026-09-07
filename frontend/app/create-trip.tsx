@@ -9,6 +9,7 @@ import T from '../src/T';
 import { FormScreen, Input, DateField, Button, CurrencyPicker, Pill, Icon, SegmentedControl, useToast } from '../src/ui';
 import { toISO, isRangeValid, INVALID_DATE_MESSAGE, END_BEFORE_START_MESSAGE } from '../src/date';
 import { SelfKind, identityIssue, buildIdentityFields } from '../src/createIdentity';
+import { currencyAmountPlaceholder, currencyPrecisionIssue } from '../src/currencies';
 
 export default function CreateTrip() {
   const { colors } = useTheme();
@@ -22,6 +23,7 @@ export default function CreateTrip() {
   const [budget, setBudget] = useState('');
   const [currency, setCurrency] = useState('INR');
   const [saving, setSaving] = useState(false);
+  const budgetPrecisionIssue = currencyPrecisionIssue(budget, currency, 'Budget');
 
   // Phase 26 — the creator's own identity in this trip. "individual" (default) keeps the legacy
   // behavior; "family" makes them ONE member of a family they set up here (their login email +
@@ -45,6 +47,10 @@ export default function CreateTrip() {
 
   const submit = async () => {
     if (!name.trim()) return toast.show('Trip name is required', 'error');
+    if (budgetPrecisionIssue) return toast.show(budgetPrecisionIssue, 'error');
+    if (budget.trim() && !Number.isFinite(Number(budget))) {
+      return toast.show('Enter a valid budget', 'error');
+    }
     const startISO = startDate.trim() ? toISO(startDate) : null;
     const endISO = endDate.trim() ? toISO(endDate) : null;
     if ((startDate.trim() && !startISO) || (endDate.trim() && !endISO)) {
@@ -81,7 +87,16 @@ export default function CreateTrip() {
             <Input testID="ct-name" label="Trip name *" value={name} onChangeText={setName} placeholder="e.g. Goa December" icon="plane" />
             <DateField testID="ct-start" label="Start date (optional)" value={startDate} onChangeText={(v) => { setStartDate(v); setDateError(null); }} error={dateError} />
             <DateField testID="ct-end" label="End date (optional)" value={endDate} onChangeText={(v) => { setEndDate(v); setDateError(null); }} minISO={toISO(startDate) ?? undefined} />
-            <Input testID="ct-budget" label="Budget (optional)" value={budget} onChangeText={setBudget} keyboardType="decimal-pad" placeholder="0" icon="wallet" />
+            <Input
+              testID="ct-budget"
+              label="Budget (optional)"
+              value={budget}
+              onChangeText={setBudget}
+              keyboardType="decimal-pad"
+              placeholder={currencyAmountPlaceholder(currency)}
+              error={budgetPrecisionIssue}
+              icon="wallet"
+            />
 
             <CurrencyPicker
               testID="ct-currency"
@@ -169,7 +184,7 @@ export default function CreateTrip() {
               </View>
             )}
 
-            <Button label="Create trip" icon="check" onPress={submit} loading={saving} fullWidth size="lg" testID="ct-submit" style={{ marginTop: SPACING.sm }} />
+            <Button label="Create trip" icon="check" onPress={submit} loading={saving} disabled={!!budgetPrecisionIssue} fullWidth size="lg" testID="ct-submit" style={{ marginTop: SPACING.sm }} />
           </View>
     </FormScreen>
   );

@@ -13,6 +13,7 @@ from utils.balances import _compute_balances
 from utils.display_names import member_display_names
 from utils.ist_time import format_ist
 from utils.security import decode_token
+from utils.currency_rules import currency_minor_units, quantize_currency
 from services.report_builder import (
     build_expense_member_rows,
     build_members_families_rows,
@@ -39,8 +40,6 @@ _BOLD = Font(bold=True)
 _RIGHT = Alignment(horizontal="right")
 _THIN_BRAND = Side(style="thin", color=_BRAND)
 _MEDIUM_BRAND = Side(style="medium", color=_BRAND)
-# Thousands separator, 2dp, negatives in red parentheses (professional accounting format).
-_MONEY_FMT = "#,##0.00;[Red](#,##0.00)"
 _WHOLE_MONEY_FMT = "#,##0;[Red](#,##0)"
 
 
@@ -52,10 +51,18 @@ def _style_header_row(ws, row: int, ncols: int) -> None:
         c.fill = _HEADER_FILL
 
 
-def _money(cell) -> None:
-    """Right-align a numeric cell and apply the currency number format."""
-    cell.number_format = _MONEY_FMT
+def _money(cell, currency: str = "INR") -> None:
+    """Right-align a numeric cell using the currency's ISO minor-unit format."""
+    digits = currency_minor_units(currency)
+    fraction = f".{''.join('0' for _ in range(digits))}" if digits else ""
+    cell.number_format = f"#,##0{fraction};[Red](#,##0{fraction})"
     cell.alignment = _RIGHT
+
+
+def _money_value(value, currency: str = "INR") -> float:
+    """Numeric workbook value rounded half-up to the currency's ISO precision."""
+
+    return float(quantize_currency(value, currency))
 
 
 def _whole_money(cell) -> None:
@@ -109,12 +116,19 @@ async def report(trip_id: str, user=Depends(get_current_user)):
         by_cat[e["category"]] = by_cat.get(e["category"], 0) + e["amount"]
         by_date[e["date"]] = by_date.get(e["date"], 0) + e["amount"]
         total_expense += e["amount"]
+    currency = trip.get("currency", "INR")
     return {
         "trip": trip,
-        "total_expense": round(total_expense, 2),
+        "total_expense": float(quantize_currency(total_expense, currency)),
         "budget": trip.get("budget"),
-        "by_category": [{"category": k, "amount": round(v, 2)} for k, v in by_cat.items()],
-        "by_date": [{"date": k, "amount": round(v, 2)} for k, v in sorted(by_date.items())],
+        "by_category": [
+            {"category": k, "amount": float(quantize_currency(v, currency))}
+            for k, v in by_cat.items()
+        ],
+        "by_date": [
+            {"date": k, "amount": float(quantize_currency(v, currency))}
+            for k, v in sorted(by_date.items())
+        ],
         "balances": bal,
     }
 
@@ -135,7 +149,7 @@ async def report_xlsx(trip_id: str, token: str,
 
     members = trip["members"]
     cur = trip.get("currency", "INR")
-    reconciliation = build_spend_reconciliation(members, expenses)
+    reconciliation = build_spend_reconciliation(members, expenses, cur)
     # The SAME two overlays _compute_balances applies to `net` (read-only; no engine change): the
     # non-pending settlements AND every Phase-20 payment. Both must feed the Settlements column or it
     # diverges from the ledger `net` the sheet reconciles against. Fetched once and reused (the
@@ -162,12 +176,12 @@ async def report_xlsx(trip_id: str, token: str,
         row += 1
     s1.cell(row=row, column=1, value="Budget").font = _BOLD
     if trip.get("budget") is not None:
-        _money(s1.cell(row=row, column=2, value=round(trip["budget"], 2)))
+        _money(s1.cell(row=row, column=2, value=_money_value(trip["budget"], cur)), cur)
     else:
         s1.cell(row=row, column=2, value="N/A")
     row += 1
     s1.cell(row=row, column=1, value="Net spend").font = _BOLD
-    _money(s1.cell(row=row, column=2, value=reconciliation["totals"]["net"]))
+    _money(s1.cell(row=row, column=2, value=reconciliation["totals"]["net"]), cur)
     row += 2
 
     # One reconciliation model feeds both dimensions: gross, reimbursements, then net.
@@ -188,10 +202,10 @@ async def report_xlsx(trip_id: str, token: str,
     for item in gross_entities:
         s1.cell(row=row, column=1, value=item["name"])
         s1.cell(row=row, column=2, value=item["type"])
-        _money(s1.cell(row=row, column=3, value=item["gross"]))
+        _money(s1.cell(row=row, column=3, value=item["gross"]), cur)
         row += 1
     s1.cell(row=row, column=1, value="Gross spend subtotal")
-    _money(s1.cell(row=row, column=3, value=reconciliation["totals"]["gross"]))
+    _money(s1.cell(row=row, column=3, value=reconciliation["totals"]["gross"]), cur)
     _style_summary_total(s1, row, 3)
     row += 2
 
@@ -210,14 +224,14 @@ async def report_xlsx(trip_id: str, token: str,
     for item in reimbursement_entities:
         s1.cell(row=row, column=1, value=item["name"])
         s1.cell(row=row, column=2, value=item["type"])
-        _money(s1.cell(row=row, column=3, value=item["reimbursements"]))
+        _money(s1.cell(row=row, column=3, value=item["reimbursements"]), cur)
         row += 1
     s1.cell(row=row, column=1, value="Total reimbursements")
-    _money(s1.cell(row=row, column=3, value=reconciliation["totals"]["reimbursements"]))
+    _money(s1.cell(row=row, column=3, value=reconciliation["totals"]["reimbursements"]), cur)
     _style_summary_total(s1, row, 3)
     row += 1
     s1.cell(row=row, column=1, value="Net spend")
-    _money(s1.cell(row=row, column=3, value=reconciliation["totals"]["net"]))
+    _money(s1.cell(row=row, column=3, value=reconciliation["totals"]["net"]), cur)
     _style_summary_total(s1, row, 3, strong=True)
     row += 3
 
@@ -234,10 +248,10 @@ async def report_xlsx(trip_id: str, token: str,
         if item["gross"] == 0:
             continue
         s1.cell(row=row, column=1, value=item["category"])
-        _money(s1.cell(row=row, column=2, value=item["gross"]))
+        _money(s1.cell(row=row, column=2, value=item["gross"]), cur)
         row += 1
     s1.cell(row=row, column=1, value="Gross spend subtotal")
-    _money(s1.cell(row=row, column=2, value=reconciliation["totals"]["gross"]))
+    _money(s1.cell(row=row, column=2, value=reconciliation["totals"]["gross"]), cur)
     _style_summary_total(s1, row, 2)
     row += 2
 
@@ -252,14 +266,14 @@ async def report_xlsx(trip_id: str, token: str,
         if item["reimbursements"] == 0:
             continue
         s1.cell(row=row, column=1, value=item["category"])
-        _money(s1.cell(row=row, column=2, value=item["reimbursements"]))
+        _money(s1.cell(row=row, column=2, value=item["reimbursements"]), cur)
         row += 1
     s1.cell(row=row, column=1, value="Total reimbursements")
-    _money(s1.cell(row=row, column=2, value=reconciliation["totals"]["reimbursements"]))
+    _money(s1.cell(row=row, column=2, value=reconciliation["totals"]["reimbursements"]), cur)
     _style_summary_total(s1, row, 2)
     row += 1
     s1.cell(row=row, column=1, value="Net spend")
-    _money(s1.cell(row=row, column=2, value=reconciliation["totals"]["net"]))
+    _money(s1.cell(row=row, column=2, value=reconciliation["totals"]["net"]), cur)
     _style_summary_total(s1, row, 2, strong=True)
     _set_widths(s1, [28, 22, 18])
 
@@ -273,7 +287,9 @@ async def report_xlsx(trip_id: str, token: str,
     # settlements + payments = the exact overlay set _compute_balances lays over `net`, so the
     # Settlements column matches the ledger (partial payments included) and Net still foots.
     settle_map = settle_adj_by_entity(settlements + payments)
-    for mf in build_members_families_rows(bal["per_person"], paid_map, settle_map, display):
+    for mf in build_members_families_rows(
+        bal["per_person"], paid_map, settle_map, display, cur
+    ):
         s2.append([mf["name"], mf["type"], mf["family"],
                    mf["paid"] if mf["paid"] is not None else "—",
                    mf["share"] if mf["share"] is not None else "—",
@@ -283,7 +299,7 @@ async def report_xlsx(trip_id: str, token: str,
         for col in range(4, 8):
             c = s2.cell(row=rr, column=col)
             if isinstance(c.value, (int, float)):
-                _money(c)
+                _money(c, cur)
             else:
                 c.alignment = _RIGHT
         if mf["kind"] in ("family_subtotal", "total"):
@@ -300,24 +316,25 @@ async def report_xlsx(trip_id: str, token: str,
                   "Participant Type", "Units", f"Per-Unit Cost ({cur})", f"Allocated ({cur})"]
     s3.append(sm_headers)
     _style_header_row(s3, 1, len(sm_headers))
-    for blk in build_split_math_rows(expenses, members):
-        amt = round(blk["amount"], 2)
+    for blk in build_split_math_rows(expenses, members, cur):
+        amt = _money_value(blk["amount"], cur)
         for p in blk["participants"]:
             s3.append([blk["expense"], blk["date"], amt, blk["mode"], p["participant"],
-                       p["ptype"], p["units"], round(p["per_unit"], 2), round(p["allocated"], 2)])
+                       p["ptype"], p["units"], _money_value(p["per_unit"], cur),
+                       _money_value(p["allocated"], cur)])
             rr = s3.max_row
-            _money(s3.cell(row=rr, column=3))
+            _money(s3.cell(row=rr, column=3), cur)
             s3.cell(row=rr, column=7).alignment = _RIGHT
-            _money(s3.cell(row=rr, column=8))
-            _money(s3.cell(row=rr, column=9))
+            _money(s3.cell(row=rr, column=8), cur)
+            _money(s3.cell(row=rr, column=9), cur)
         s3.append([f"{blk['expense']} — Subtotal", "", amt, blk["mode"], "", "",
                    blk["subtotal_units"], "", blk["subtotal_allocated"]])
         rr = s3.max_row
         for col in range(1, len(sm_headers) + 1):
             s3.cell(row=rr, column=col).font = _BOLD
-        _money(s3.cell(row=rr, column=3))
+        _money(s3.cell(row=rr, column=3), cur)
         s3.cell(row=rr, column=7).alignment = _RIGHT
-        _money(s3.cell(row=rr, column=9))
+        _money(s3.cell(row=rr, column=9), cur)
     s3.freeze_panes = "A2"
     _set_widths(s3, [24, 18, 14, 12, 20, 16, 8, 16, 16])
 
@@ -327,7 +344,7 @@ async def report_xlsx(trip_id: str, token: str,
     # show "-". A right-side pivot totals each person; the bottom row grand-totals Amount and Total
     # Payable. All figures come from build_expense_member_rows (reuses the ledger split math).
     s4 = wb.create_sheet("Transactions")
-    tx = build_expense_member_rows(expenses, members)
+    tx = build_expense_member_rows(expenses, members, cur)
     tx_headers = [
         "Sr No", "Category", "Description", "Date", f"Canonical Amount ({cur})",
         "Original Amount", "Original Currency", "Exchange Rate", "Effective Rate Date",
@@ -344,8 +361,10 @@ async def report_xlsx(trip_id: str, token: str,
                 blk["category"] if first else None,
                 blk["description"] if first else None,
                 blk["date"] if first else None,
-                round(blk["amount"], 2) if first else None,
-                round(blk["original_amount"], 2) if first else None,
+                _money_value(blk["amount"], cur) if first else None,
+                _money_value(
+                    blk["original_amount"], blk["original_currency"] or cur
+                ) if first else None,
                 blk["original_currency"] if first else None,
                 blk["exchange_rate"] if first else None,
                 blk["exchange_rate_date"] if first else None,
@@ -359,11 +378,11 @@ async def report_xlsx(trip_id: str, token: str,
             ])
             rr = s4.max_row
             if first:
-                _money(s4.cell(row=rr, column=5))
-                _money(s4.cell(row=rr, column=6))
+                _money(s4.cell(row=rr, column=5), cur)
+                _money(s4.cell(row=rr, column=6), blk["original_currency"] or cur)
             pc = s4.cell(row=rr, column=17)
             if r["participates"]:
-                _money(pc)
+                _money(pc, cur)
             else:
                 pc.alignment = _RIGHT
     # Grand Total row (Sum(Amount) == Sum(Total Payable))
@@ -372,8 +391,8 @@ async def report_xlsx(trip_id: str, token: str,
     gr = s4.max_row
     for col in (1, 5, 17):
         s4.cell(row=gr, column=col).font = _BOLD
-    _money(s4.cell(row=gr, column=5))
-    _money(s4.cell(row=gr, column=17))
+    _money(s4.cell(row=gr, column=5), cur)
+    _money(s4.cell(row=gr, column=17), cur)
 
     # Right-side pivot (Person Name | Sum of Total Payable), one blank column after the main table.
     PV_NAME, PV_SUM = 19, 20
@@ -386,11 +405,11 @@ async def report_xlsx(trip_id: str, token: str,
     pr = 2
     for prow in tx["pivot"]["rows"]:
         s4.cell(row=pr, column=PV_NAME, value=prow["name"])
-        _money(s4.cell(row=pr, column=PV_SUM, value=prow["total"]))
+        _money(s4.cell(row=pr, column=PV_SUM, value=prow["total"]), cur)
         pr += 1
     s4.cell(row=pr, column=PV_NAME, value="Grand Total").font = _BOLD
     gt = s4.cell(row=pr, column=PV_SUM, value=tx["pivot"]["grand_total"])
-    _money(gt)
+    _money(gt, cur)
     gt.font = _BOLD
 
     s4.freeze_panes = "A2"
@@ -410,14 +429,15 @@ async def report_xlsx(trip_id: str, token: str,
     for p in payments:
         dt_label = format_ist(p.get("created_at"))  # stored UTC -> IST display (Phase 24)
         s5.append([display.get(p["from_member_id"], "?"), display.get(p["to_member_id"], "?"),
-                   round(p["amount"], 2), dt_label, (p.get("note") or "").strip() or "—"])
-        _money(s5.cell(row=s5.max_row, column=3))
-        pay_total += round(p["amount"], 2)
-    s5.append(["Total", "", round(pay_total, 2), "", ""])
+                   _money_value(p["amount"], cur), dt_label,
+                   (p.get("note") or "").strip() or "—"])
+        _money(s5.cell(row=s5.max_row, column=3), cur)
+        pay_total += _money_value(p["amount"], cur)
+    s5.append(["Total", "", _money_value(pay_total, cur), "", ""])
     tr = s5.max_row
     for col in range(1, len(pay_headers) + 1):
         s5.cell(row=tr, column=col).font = _BOLD
-    _money(s5.cell(row=tr, column=3))
+    _money(s5.cell(row=tr, column=3), cur)
 
     projection = bal.get("settlement_projection") or {}
     if projection.get("enabled"):
@@ -492,7 +512,9 @@ async def report_pdf(trip_id: str, token: str,
     trip = await _trip_or_404(trip_id, user["id"])
     members = trip["members"]
     expenses = await _load_report_expenses(trip_id)
-    reconciliation = build_spend_reconciliation(members, expenses)
+    reconciliation = build_spend_reconciliation(
+        members, expenses, trip.get("currency", "INR")
+    )
     payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}) \
         .sort("created_at", 1).to_list(None)
     # Members & Families rows — identical construction to the XLSX route (same builders + the same
@@ -503,7 +525,9 @@ async def report_pdf(trip_id: str, token: str,
         {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}).to_list(None)
     paid_map, _ = entity_ledger_components(expenses, members)
     settle_map = settle_adj_by_entity(settlements + payments)
-    mf_rows = build_members_families_rows(bal["per_person"], paid_map, settle_map, display)
+    mf_rows = build_members_families_rows(
+        bal["per_person"], paid_map, settle_map, display, trip.get("currency", "INR")
+    )
     pdf_bytes = build_report_pdf(
         trip, members, expenses, trip.get("currency", "INR"),
         reconciliation=reconciliation, payments=payments, mf_rows=mf_rows,

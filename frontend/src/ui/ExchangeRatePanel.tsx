@@ -12,6 +12,11 @@ import {
   ManualExchangeInput,
 } from '../api';
 import { useExchangeRateQuote } from '../useExchangeRateQuote';
+import {
+  currencyAmountPlaceholder,
+  currencyMinorUnits,
+  currencyPrecisionIssue,
+} from '../currencies';
 import Button from './Button';
 import Input from './Input';
 
@@ -57,9 +62,16 @@ function displayDate(value: string | null | undefined): string {
   return `${Number(match[3])} ${MONTHS[Number(match[2]) - 1]} ${match[1]}`;
 }
 
-function moneyKey(value: string | number): string {
+function moneyKey(value: string | number, currency: string): string {
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed.toFixed(2) : String(value);
+  return Number.isFinite(parsed)
+    ? parsed.toFixed(currencyMinorUnits(currency))
+    : String(value);
+}
+
+function decimalKey(value: string | number): string {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? String(parsed) : String(value);
 }
 
 export default function ExchangeRatePanel({
@@ -94,20 +106,37 @@ export default function ExchangeRatePanel({
 
   const inputsDifferFromLock = useMemo(() => {
     if (!locked) return true;
-    if (moneyKey(amount) !== moneyKey(locked.sourceAmount)) return true;
+    if (
+      moneyKey(amount, sourceCurrency)
+      !== moneyKey(locked.sourceAmount, locked.sourceCurrency)
+    ) return true;
     if (sourceCurrency !== locked.sourceCurrency || date !== locked.requestedDate) return true;
     if (mode !== locked.mode) return true;
     if (mode === 'manual') {
       if (manualInputType !== locked.manualInputType) return true;
-      if (moneyKey(manualValue) !== moneyKey(locked.manualInputValue || '')) return true;
+      const currentKey = manualInputType === 'target_amount'
+        ? moneyKey(manualValue, targetCurrency)
+        : decimalKey(manualValue);
+      const lockedKey = manualInputType === 'target_amount'
+        ? moneyKey(locked.manualInputValue || '', targetCurrency)
+        : decimalKey(locked.manualInputValue || '');
+      if (currentKey !== lockedKey) return true;
     }
     return false;
-  }, [amount, date, locked, manualInputType, manualValue, mode, sourceCurrency]);
+  }, [
+    amount, date, locked, manualInputType, manualValue, mode, sourceCurrency,
+    targetCurrency,
+  ]);
 
   const foreign = sourceCurrency !== targetCurrency;
   const quoteActive = foreign && (!locked || inputsDifferFromLock || explicitRequote);
+  const sourcePrecisionIssue = currencyPrecisionIssue(amount, sourceCurrency);
+  const manualPrecisionIssue = mode === 'manual' && manualInputType === 'target_amount'
+    ? currencyPrecisionIssue(manualValue, targetCurrency, 'Manual final amount')
+    : null;
+  const precisionIssue = sourcePrecisionIssue || manualPrecisionIssue;
   const quoteResult = useExchangeRateQuote({
-    enabled: enabled && quoteActive,
+    enabled: enabled && quoteActive && !precisionIssue,
     sourceCurrency,
     targetCurrency,
     amount,
@@ -136,8 +165,8 @@ export default function ExchangeRatePanel({
   }, [onQuoteChange, quoteResult.quote]);
 
   useEffect(() => {
-    onRequoteRequiredChange?.(enabled && quoteActive);
-  }, [enabled, onRequoteRequiredChange, quoteActive]);
+    onRequoteRequiredChange?.(quoteActive);
+  }, [onRequoteRequiredChange, quoteActive]);
 
   const chooseMode = (next: ExchangeRateMode) => {
     setMode(next);
@@ -171,15 +200,6 @@ export default function ExchangeRatePanel({
     );
   }
 
-  if (!enabled) {
-    return (
-      <View testID={`${testID}-disabled`} style={[styles.panel, { borderColor: colors.warning, backgroundColor: colors.surfaceMuted }]}>
-        <T variant="label" color={colors.warning}>Exchange rate required</T>
-        <T variant="caption" muted>Multi-currency expenses are not enabled on this server yet.</T>
-      </View>
-    );
-  }
-
   if (locked && !quoteActive) {
     return (
       <View testID={`${testID}-locked`} style={[styles.panel, { borderColor: colors.border, backgroundColor: colors.surfaceMuted }]}>
@@ -201,6 +221,15 @@ export default function ExchangeRatePanel({
           size="sm"
           onPress={() => { setMode('automatic'); setExplicitRequote(true); }}
         />
+      </View>
+    );
+  }
+
+  if (!enabled) {
+    return (
+      <View testID={`${testID}-disabled`} style={[styles.panel, { borderColor: colors.warning, backgroundColor: colors.surfaceMuted }]}>
+        <T variant="label" color={colors.warning}>Exchange rate required</T>
+        <T variant="caption" muted>Multi-currency expenses are not enabled on this server yet.</T>
       </View>
     );
   }
@@ -254,12 +283,19 @@ export default function ExchangeRatePanel({
             value={manualValue}
             onChangeText={setManualValue}
             keyboardType="decimal-pad"
-            placeholder="0.00"
+            placeholder={manualInputType === 'target_amount'
+              ? currencyAmountPlaceholder(targetCurrency)
+              : '0.000000'}
+            error={manualPrecisionIssue || undefined}
           />
         </>
       ) : null}
 
-      {quoteResult.status === 'idle' ? (
+      {precisionIssue ? (
+        <T variant="caption" color={colors.danger} testID={`${testID}-precision`}>
+          {precisionIssue}
+        </T>
+      ) : quoteResult.status === 'idle' ? (
         <T variant="caption" muted>Enter a valid amount, date, and conversion input to preview.</T>
       ) : null}
       {quoteResult.status === 'loading' ? (

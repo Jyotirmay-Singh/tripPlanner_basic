@@ -9,22 +9,37 @@ Pure (plain dicts/lists, no DB/IO), mirroring ``frontend/src/payments.ts`` and t
 helpers (``services/spend_summary.py`` etc.). Reused by reconciliation tests.
 """
 
-_EPS = 0.01
+from utils.currency_rules import currency_minor_units, quantize_currency
 
 
 def _dir(row: dict) -> tuple:
     return (row.get("from_member_id"), row.get("to_member_id"))
 
 
-def payment_status(current_payable: float, paid: float) -> str:
+def _increment(currency: str) -> float:
+    return 10 ** -currency_minor_units(currency)
+
+
+def _zero_tolerance(currency: str) -> float:
+    """Stay tolerant of float transport noise without hiding one legal minor unit."""
+
+    return _increment(currency) / 2
+
+
+def _round_money(value: float, currency: str) -> float:
+    return float(quantize_currency(value, currency))
+
+
+def payment_status(current_payable: float, paid: float, currency: str = "INR") -> str:
     """Derived state for a pair: 'paid' (fully settled with payments), 'partial' (some paid, some
     left), or 'open' (nothing recorded). Mirrors ``paymentStatus`` in ``frontend/src/payments.ts``."""
-    if paid <= _EPS:
+    epsilon = _zero_tolerance(currency)
+    if paid <= epsilon:
         return "open"
-    return "paid" if current_payable <= _EPS else "partial"
+    return "paid" if current_payable <= epsilon else "partial"
 
 
-def pair_blocks(transfers: list, payments: list) -> list:
+def pair_blocks(transfers: list, payments: list, currency: str = "INR") -> list:
     """Roll payment records up per debtor->creditor direction.
 
     ``transfers``: the current backend suggestions (``[{from_member_id,to_member_id,amount}]``) — each
@@ -52,13 +67,13 @@ def pair_blocks(transfers: list, payments: list) -> list:
         d = _dir(t)
         seen.add(d)
         recs = by_dir.get(d, [])
-        paid = round(sum(r["amount"] for r in recs), 2)
-        current = round(t.get("amount", 0.0), 2)
+        paid = _round_money(sum(r["amount"] for r in recs), currency)
+        current = _round_money(t.get("amount", 0.0), currency)
         blocks.append({
             "from_member_id": d[0], "to_member_id": d[1],
             "current_payable": current, "paid": paid,
-            "original_payable": round(current + paid, 2),
-            "status": payment_status(current, paid),
+            "original_payable": _round_money(current + paid, currency),
+            "status": payment_status(current, paid, currency),
             "payments": recs,
         })
 
@@ -67,12 +82,12 @@ def pair_blocks(transfers: list, payments: list) -> list:
     leftovers.sort(key=lambda d: (by_dir[d][0].get("created_at") or ""), reverse=True)
     for d in leftovers:
         recs = by_dir[d]
-        paid = round(sum(r["amount"] for r in recs), 2)
+        paid = _round_money(sum(r["amount"] for r in recs), currency)
         blocks.append({
             "from_member_id": d[0], "to_member_id": d[1],
             "current_payable": 0.0, "paid": paid,
             "original_payable": paid,
-            "status": payment_status(0.0, paid),
+            "status": payment_status(0.0, paid, currency),
             "payments": recs,
         })
     return blocks

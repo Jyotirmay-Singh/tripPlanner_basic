@@ -34,11 +34,13 @@ function arcPath(cx: number, cy: number, rOuter: number, rInner: number, startDe
 }
 
 export default function DonutChart({
-  data, size = 220, thickness = 36, centerLabel, centerValue, centerAccessibilityLabel, onSlicePress,
+  data, size = 220, thickness = 36, currency, centerLabel, centerValue,
+  centerAccessibilityLabel, onSlicePress,
 }: {
   data: DonutSlice[];
   size?: number;
   thickness?: number;
+  currency?: string;
   centerLabel?: string;
   centerValue?: string;
   centerAccessibilityLabel?: string;
@@ -145,13 +147,15 @@ export default function DonutChart({
               style={styles.legendRow}
               testID={`donut-legend-${d.key}`}
               accessibilityRole="button"
-              accessibilityLabel={`Show ${d.label} transactions, ${formatMoney(d.value)}`}
+              accessibilityLabel={`Show ${d.label} transactions, ${formatMoney(d.value, { currency })}`}
             >
               <View style={[styles.dot, { backgroundColor: d.color }]} />
               <T variant="caption" style={{ flex: 1 }} numberOfLines={1}>{d.label}</T>
               <T variant="caption" muted>{pct.toFixed(0)}%</T>
               <ResponsiveAmountText
                 value={d.value}
+                currency={currency}
+                showCurrency={false}
                 variant="caption"
                 label={`${d.label} amount`}
                 style={styles.legendValue}

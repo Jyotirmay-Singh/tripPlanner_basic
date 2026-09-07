@@ -24,7 +24,7 @@ type Member = {
   family_member_user_ids?: (string | null)[] | null;
   user_id?: string | null; email?: string | null;
 };
-type Trip = { id: string; name: string; owner_id: string; admin_ids: string[]; user_ids?: string[]; members: Member[] };
+type Trip = { id: string; name: string; currency: string; owner_id: string; admin_ids: string[]; user_ids?: string[]; members: Member[] };
 type FamRow = { id: string; name: string; net: number };
 type Balances = { net: Record<string, number>; per_person: { member_id: string; members?: FamRow[] }[] };
 
@@ -99,8 +99,11 @@ export default function ManageMember() {
   const famRows: FamRow[] = balances
     ? (balances.per_person.find((p) => p.member_id === member.id)?.members ?? [])
     : [];
-  const blockReason = balances ? entityBlockReason(member, entityNet, famRows) : null;
-  const removable = !!balances && entityRemovable(member, entityNet, famRows);
+  const blockReason = balances
+    ? entityBlockReason(member, entityNet, famRows, trip.currency)
+    : null;
+  const removable =
+    !!balances && entityRemovable(member, entityNet, famRows, trip.currency);
 
   const toggleAdmin = async (uid: string | null | undefined, currentlyAdmin: boolean) => {
     if (!uid) return;
@@ -324,14 +327,16 @@ export default function ManageMember() {
                 <T variant="caption" muted>Loading balances…</T>
               ) : (
                 famRows.map((row) => {
-                  const settled = isSettled(row.net);
+                  const settled = isSettled(row.net, trip.currency);
                   const disabled = busy || isLastFamilyMember(member) || !settled;
                   return (
                     <View key={row.id} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <T numberOfLines={1}>↳ {row.name}</T>
                         <T variant="caption" color={settled ? colors.textMuted : colors.danger}>
-                          {settled ? 'Settled' : `${formatMoney(row.net, { signed: true })} · settle up first`}
+                          {settled ? 'Settled' : `${formatMoney(row.net, {
+                            currency: trip.currency, signed: true, showCurrency: false,
+                          })} · settle up first`}
                         </T>
                       </View>
                       <IconButton

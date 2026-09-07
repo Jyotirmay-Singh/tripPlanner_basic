@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from services import exchange_rates as rates
+from utils.currency_rules import CurrencyPrecisionError
 
 
 def run(awaitable):
@@ -224,3 +225,78 @@ def test_same_currency_quote_uses_identity_without_provider(monkeypatch):
     assert result["target_amount"] == "125.50"
     assert result["provider"] == "identity"
     provider.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "source_amount,target_currency,rate,expected",
+    [
+        ("1.00", "USD", "1.005", "1.01"),
+        ("1.00", "JPY", "2.5", "3"),
+        ("1.00", "KWD", "1.2345", "1.235"),
+        ("-1.00", "JPY", "2.5", "-3"),
+        ("-1.00", "KWD", "1.2345", "-1.235"),
+    ],
+)
+def test_automatic_quote_rounds_half_up_to_target_precision(
+    monkeypatch, source_amount, target_currency, rate, expected
+):
+    quotes = SimpleNamespace(insert_one=AsyncMock())
+    monkeypatch.setattr(rates, "db", SimpleNamespace(exchange_rate_quotes=quotes))
+    monkeypatch.setattr(rates, "gen_id", lambda: "q-precision")
+    monkeypatch.setattr(rates, "get_reference_rate", AsyncMock(return_value={
+        "rate_id": "r1", "rate": Decimal(rate), "effective_date": "2026-08-28",
+        "provider": rates.PROVIDER, "provider_sources": [], "cache_revision": 1,
+        "cache_hit": False, "stale": False,
+    }))
+
+    result = run(rates.create_quote(
+        user_id="u1", source_currency="INR", target_currency=target_currency,
+        source_amount=source_amount, requested_date="2026-08-28", mode="automatic",
+    ))
+
+    assert result["target_amount"] == expected
+    assert quotes.insert_one.await_args.args[0]["target_amount"].to_decimal() == Decimal(expected)
+
+
+@pytest.mark.parametrize(
+    "source_currency,source_amount",
+    [("JPY", "12.1"), ("USD", "12.345"), ("KWD", "12.3456")],
+)
+def test_quote_rejects_excessive_source_precision(source_currency, source_amount):
+    with pytest.raises(CurrencyPrecisionError):
+        run(rates.create_quote(
+            user_id="u1", source_currency=source_currency, target_currency="INR",
+            source_amount=source_amount, requested_date="2026-08-28", mode="automatic",
+        ))
+
+
+@pytest.mark.parametrize(
+    "target_currency,target_amount",
+    [("JPY", "12.1"), ("USD", "12.345"), ("KWD", "12.3456")],
+)
+def test_manual_final_amount_rejects_excessive_target_precision(
+    target_currency, target_amount
+):
+    with pytest.raises(CurrencyPrecisionError):
+        run(rates.create_quote(
+            user_id="u1", source_currency="INR", target_currency=target_currency,
+            source_amount="10.00", requested_date="2026-08-28", mode="manual",
+            manual_input_type="target_amount", manual_target_amount=target_amount,
+        ))
+
+
+@pytest.mark.parametrize(
+    "target_currency,rate,expected",
+    [("JPY", "2.5", "3"), ("KWD", "1.2345", "1.235")],
+)
+def test_manual_rate_quote_rounds_half_up_to_target_precision(
+    monkeypatch, target_currency, rate, expected
+):
+    quotes = SimpleNamespace(insert_one=AsyncMock())
+    monkeypatch.setattr(rates, "db", SimpleNamespace(exchange_rate_quotes=quotes))
+    result = run(rates.create_quote(
+        user_id="u1", source_currency="INR", target_currency=target_currency,
+        source_amount="1.00", requested_date="2026-08-28", mode="manual",
+        manual_input_type="rate", manual_rate=rate,
+    ))
+    assert result["target_amount"] == expected

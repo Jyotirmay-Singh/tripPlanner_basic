@@ -114,11 +114,9 @@ export default function Dashboard() {
           <View style={styles.currencyBalances}>
             {currencyBalances.map((balance) => (
               <View key={balance.currency} style={styles.currencyBalanceRow}>
-                <T variant="label" color={colors.primaryText} style={{ opacity: 0.8 }}>
-                  {balance.currency}
-                </T>
                 <AmountText
                   value={balance.value}
+                  currency={balance.currency}
                   signed={balance.cents > 0}
                   color={colors.primaryText}
                 />

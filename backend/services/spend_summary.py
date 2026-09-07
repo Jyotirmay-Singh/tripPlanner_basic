@@ -14,8 +14,12 @@ mapping the payer to its member is needed. Nothing here touches ``_compute_balan
 settlement engine, or any persisted document.
 """
 
+from decimal import Decimal
 
-def aggregate_spend(members: list, expenses: list) -> dict:
+from utils.currency_rules import decimal_amount, quantize_currency
+
+
+def aggregate_spend(members: list, expenses: list, currency: str = "INR") -> dict:
     """Gross paid per entity, for the spend-ranking chart.
 
     Shape::
@@ -31,14 +35,17 @@ def aggregate_spend(members: list, expenses: list) -> dict:
 
     Only positive amounts count (refunds / zero excluded — gross, not net). An expense whose
     ``paid_by_member_id`` is not a current member is skipped (defensive — e.g. a removed payer).
-    Per-entity ``paid`` is rounded to 2dp and ``total`` sums those rounded values so the header
-    figure equals the sum of the rendered bars.
+    Per-entity ``paid`` is rounded to the trip currency's legal precision and ``total`` sums those
+    rendered values so the header figure equals the sum of the bars.
     """
-    paid = {m["id"]: 0.0 for m in members}
+    paid = {m["id"]: Decimal(0) for m in members}
     counts = {m["id"]: 0 for m in members}
     for e in expenses:
-        amount = e.get("amount", 0.0)
-        if amount is None or amount <= 0:
+        try:
+            amount = decimal_amount(e.get("amount", 0), label="Expense amount")
+        except ValueError:
+            continue
+        if amount <= 0:
             continue  # gross positive spend only — refunds and zero rows do not count
         pid = e.get("paid_by_member_id")
         if pid not in paid:
@@ -50,11 +57,13 @@ def aggregate_spend(members: list, expenses: list) -> dict:
             "entity_id": m["id"],
             "entity_type": m.get("kind", "individual"),
             "name": m.get("name", ""),
-            "paid": round(paid[m["id"]], 2),
+            "paid": float(quantize_currency(paid[m["id"]], currency)),
             "expense_count": counts[m["id"]],
         }
         for m in members
     ]
-    total = round(sum(ent["paid"] for ent in entities), 2)
+    total = float(quantize_currency(
+        sum((Decimal(str(ent["paid"])) for ent in entities), Decimal(0)), currency
+    ))
     count = sum(1 for ent in entities if ent["paid"] > 0)
     return {"total": total, "count": count, "entities": entities}

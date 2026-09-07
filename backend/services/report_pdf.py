@@ -11,6 +11,7 @@ Render's free-tier constraints. Builds entirely in-memory and returns PDF bytes.
 """
 
 import io
+from decimal import Decimal
 from functools import partial
 
 from reportlab.lib import colors
@@ -29,6 +30,7 @@ from services.report_builder import (
 from utils.date_rules import trip_date_label
 from utils.display_names import member_display_names
 from utils.ist_time import format_ist
+from utils.currency_rules import currency_minor_units, quantize_currency
 
 _BRAND = colors.HexColor("#1C3F39")      # header fill / headings (matches the XLSX _BRAND)
 _RED = colors.HexColor("#C0392B")        # negatives (mirrors the XLSX [Red] number format)
@@ -49,12 +51,13 @@ _CELL_HDR = ParagraphStyle("cellHdr", fontSize=7.3, leading=8.6, fontName="Helve
                            textColor=colors.white)
 
 
-def _fmt_money(v) -> str:
-    """'#,##0.00' with negatives in parentheses (paired with red text) — mirrors the XLSX format."""
+def _fmt_money(v, currency: str = "INR") -> str:
+    """ISO-precision accounting format with negatives in parentheses."""
     if v is None:
         return ""
-    s = f"{abs(v):,.2f}"
-    return f"({s})" if v < 0 else s
+    amount = quantize_currency(v, currency)
+    s = f"{abs(amount):,.{currency_minor_units(currency)}f}"
+    return f"({s})" if amount < 0 else s
 
 
 def _fmt_whole(v) -> str:
@@ -181,6 +184,7 @@ def _summary_section(base, trip, members, reconciliation, currency):
     """Section 1: trip metadata plus entity/category spend reconciliations."""
     flow = _section(base, "Summary")
     totals = reconciliation["totals"]
+    money = partial(_fmt_money, currency=currency)
 
     budget = trip.get("budget")
     meta = [
@@ -188,8 +192,8 @@ def _summary_section(base, trip, members, reconciliation, currency):
         ["Share code", trip.get("code", "")],
         ["Currency", currency],
         ["Members", composition_label(members)],
-        ["Budget", _fmt_money(round(budget, 2)) if budget is not None else "N/A"],
-        ["Net spend", _fmt_money(totals["net"])],
+        ["Budget", money(budget) if budget is not None else "N/A"],
+        ["Net spend", money(totals["net"])],
     ]
     meta_tbl = Table([[_p(k, bold=True), _p(v)] for k, v in meta], colWidths=[90, 320])
     meta_tbl.setStyle(TableStyle([
@@ -216,9 +220,9 @@ def _summary_section(base, trip, members, reconciliation, currency):
         if row["gross"] != 0 or row["entity_id"] is not None
     ]
     gross_data = [[_hp("Entity"), _hp("Type"), _hp(f"Amount ({currency})")]]
-    gross_data.extend([_p(row["name"]), row["type"], _fmt_money(row["gross"])]
+    gross_data.extend([_p(row["name"]), row["type"], money(row["gross"])]
                       for row in entity_gross)
-    gross_data.append([_p("Gross spend subtotal", bold=True), "", _fmt_money(totals["gross"])])
+    gross_data.append([_p("Gross spend subtotal", bold=True), "", money(totals["gross"])])
     gross_total_row = len(gross_data) - 1
     gross_tail_start = max(1, gross_total_row - 1)
     flow += [
@@ -236,14 +240,14 @@ def _summary_section(base, trip, members, reconciliation, currency):
     )
     reimbursement_data = [[_hp("Entity"), _hp("Type"), _hp(f"Amount ({currency})")]]
     reimbursement_data.extend(
-        [_p(row["name"]), row["type"], _fmt_money(row["reimbursements"])]
+        [_p(row["name"]), row["type"], money(row["reimbursements"])]
         for row in entity_reimbursements
     )
     reimbursement_data.append([
-        _p("Total reimbursements", bold=True), "", _fmt_money(totals["reimbursements"]),
+        _p("Total reimbursements", bold=True), "", money(totals["reimbursements"]),
     ])
     entity_reimbursement_total = len(reimbursement_data) - 1
-    reimbursement_data.append([_p("Net spend", bold=True), "", _fmt_money(totals["net"])])
+    reimbursement_data.append([_p("Net spend", bold=True), "", money(totals["net"])])
     entity_net_row = len(reimbursement_data) - 1
     entity_neg = [(2, entity_net_row)] if totals["net"] < 0 else []
     entity_tail_start = max(1, entity_reimbursement_total - 1)
@@ -262,10 +266,10 @@ def _summary_section(base, trip, members, reconciliation, currency):
     category_gross = [row for row in reconciliation["categories"] if row["gross"] != 0]
     category_gross_data = [[_hp("Category"), _hp(f"Amount ({currency})")]]
     category_gross_data.extend(
-        [_p(row["category"]), _fmt_money(row["gross"])] for row in category_gross
+        [_p(row["category"]), money(row["gross"])] for row in category_gross
     )
     category_gross_data.append([
-        _p("Gross spend subtotal", bold=True), _fmt_money(totals["gross"]),
+        _p("Gross spend subtotal", bold=True), money(totals["gross"]),
     ])
     category_gross_total = len(category_gross_data) - 1
     category_gross_tail = max(1, category_gross_total - 1)
@@ -283,15 +287,15 @@ def _summary_section(base, trip, members, reconciliation, currency):
     ]
     category_reimbursement_data = [[_hp("Category"), _hp(f"Amount ({currency})")]]
     category_reimbursement_data.extend(
-        [_p(row["category"]), _fmt_money(row["reimbursements"])]
+        [_p(row["category"]), money(row["reimbursements"])]
         for row in category_reimbursements
     )
     category_reimbursement_data.append([
-        _p("Total reimbursements", bold=True), _fmt_money(totals["reimbursements"]),
+        _p("Total reimbursements", bold=True), money(totals["reimbursements"]),
     ])
     category_reimbursement_total = len(category_reimbursement_data) - 1
     category_reimbursement_data.append([
-        _p("Net spend", bold=True), _fmt_money(totals["net"]),
+        _p("Net spend", bold=True), money(totals["net"]),
     ])
     category_net_row = len(category_reimbursement_data) - 1
     category_neg = [(1, category_net_row)] if totals["net"] < 0 else []
@@ -307,6 +311,7 @@ def _summary_section(base, trip, members, reconciliation, currency):
 def _members_families_section(base, mf_rows, currency):
     """Section 2 — hierarchical Members & Families with the payment-inclusive Settlements column."""
     flow = _section(base, "Members & Families")
+    money = partial(_fmt_money, currency=currency)
     headers = ["Name", "Type", "Family", f"Gross Spent ({currency})",
                f"Share of Expenses ({currency})", f"Settlements ({currency})",
                f"Net Balance ({currency})"]
@@ -322,7 +327,7 @@ def _members_families_section(base, mf_rows, currency):
         row = [name_cell, mf["type"], mf["family"]]
         for ci, key in zip((3, 4, 5, 6), ("paid", "share", "settle", "net")):
             v = mf[key]
-            row.append(_fmt_money(v) if isinstance(v, (int, float)) else "—")
+            row.append(money(v) if isinstance(v, (int, float)) else "—")
             if isinstance(v, (int, float)) and v < 0:
                 neg_cells.append((ci, ri))
         data.append(row)
@@ -338,6 +343,7 @@ def _members_families_section(base, mf_rows, currency):
 def _transactions_section(base, tx, currency):
     """Section 3 — exploded per-member Transactions + per-person pivot (unchanged data/totals)."""
     flow = _section(base, "Transactions")
+    money = partial(_fmt_money, currency=currency)
     headers = [
         "Sr", "Category", "Description", "Date", f"Canonical ({currency})", "Original",
         "FX audit", "Split Mode", "Paid By", "Family", "Person",
@@ -351,7 +357,9 @@ def _transactions_section(base, tx, currency):
             first = i == 0
             participates = row["participates"]
             original = (
-                f"{blk['original_currency']} {_fmt_money(blk['original_amount'])}" if first else ""
+                f"{blk['original_currency']} "
+                f"{_fmt_money(blk['original_amount'], blk['original_currency'] or currency)}"
+                if first else ""
             )
             fx_parts = []
             if first:
@@ -369,14 +377,14 @@ def _transactions_section(base, tx, currency):
                 _p(blk["category"] if first else ""),
                 _p(blk["description"] if first else ""),
                 blk["date"] if first else "",
-                _fmt_money(round(blk["amount"], 2)) if first else "",
+                money(blk["amount"]) if first else "",
                 _p(original),
                 _p("<br/>".join(fx_parts)),
                 blk["mode"] if first else "",
                 _p(blk["paid_by"] if first else ""),
                 _p(row["family"]),
                 _p(row["person"]),
-                _fmt_money(row["payable"]) if participates else "-",
+                money(row["payable"]) if participates else "-",
             ])
             if first and blk["amount"] < 0:
                 neg_cells.append((4, r))
@@ -384,8 +392,8 @@ def _transactions_section(base, tx, currency):
                 neg_cells.append((11, r))
             r += 1
     data.append([
-        _p("Grand Total", bold=True), "", "", "", _fmt_money(tx["grand_amount"]), "", "",
-        "", "", "", "", _fmt_money(tx["grand_payable"]),
+        _p("Grand Total", bold=True), "", "", "", money(tx["grand_amount"]), "", "",
+        "", "", "", "", money(tx["grand_payable"]),
     ])
     gt_row = r
     if tx["grand_amount"] < 0:
@@ -403,10 +411,10 @@ def _transactions_section(base, tx, currency):
     pdata = [[_hp("Person"), _hp(f"Sum of Total Payable ({currency})")]]
     pneg = []
     for i, prow in enumerate(tx["pivot"]["rows"], start=1):
-        pdata.append([_p(prow["name"]), _fmt_money(prow["total"])])
+        pdata.append([_p(prow["name"]), money(prow["total"])])
         if prow["total"] < 0:
             pneg.append((1, i))
-    pdata.append([_p("Grand Total", bold=True), _fmt_money(tx["pivot"]["grand_total"])])
+    pdata.append([_p("Grand Total", bold=True), money(tx["pivot"]["grand_total"])])
     if tx["pivot"]["grand_total"] < 0:
         pneg.append((1, len(pdata) - 1))
     flow.append(_styled_table(pdata, [150, 160], right_cols=(1,),
@@ -417,20 +425,21 @@ def _transactions_section(base, tx, currency):
 def _payments_section(base, payments, members, currency):
     """Section 4 — the recorded (partial) payments log; 'Receiver' names the creditor."""
     flow = _section(base, "Payments")
+    money = partial(_fmt_money, currency=currency)
     names = member_display_names(members)
     data = [[_hp("Payer"), _hp("Receiver"), _hp(f"Amount ({currency})"), _hp("Date & Time"),
              _hp("Remark")]]
-    total = 0.0
+    total = Decimal(0)
     for p in payments:
         data.append([
             _p(names.get(p["from_member_id"], "?")),
             _p(names.get(p["to_member_id"], "?")),
-            _fmt_money(round(p["amount"], 2)),
+            money(p["amount"]),
             format_ist(p.get("created_at")),  # stored UTC -> IST display (Phase 24)
             _p((p.get("note") or "").strip() or "—"),
         ])
-        total += round(p["amount"], 2)
-    data.append([_p("Total", bold=True), "", _fmt_money(round(total, 2)), "", ""])
+        total += quantize_currency(p["amount"], currency)
+    data.append([_p("Total", bold=True), "", money(total), "", ""])
     flow.append(_styled_table(data, [130, 140, 100, 120, 150], right_cols=(2,),
                               total_row=len(data) - 1))
     return flow
@@ -490,7 +499,7 @@ def build_report_pdf(trip: dict, members: list, expenses: list, currency: str,
     ``mf_rows`` is supplied by the route because it needs the async ledger; when None the Members &
     Families section is skipped. ``payments`` appends the payment log when non-empty.
     """
-    tx = build_expense_member_rows(expenses, members)
+    tx = build_expense_member_rows(expenses, members, currency)
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf, pagesize=landscape(A4),

@@ -32,4 +32,6 @@ def test_other_currencies_and_disabled_flag_retain_decimal_compatibility(monkeyp
 
 def test_whole_unit_payable_comparison_has_no_cent_overpayment_tolerance():
     assert settlement_gate.payable_tolerance({"currency": "LKR"}) == Decimal("0")
-    assert settlement_gate.payable_tolerance({"currency": "INR"}) == Decimal("0.01")
+    assert settlement_gate.payable_tolerance({"currency": "INR"}) == Decimal("0.005")
+    assert settlement_gate.payable_tolerance({"currency": "JPY"}) == Decimal("0.5")
+    assert settlement_gate.payable_tolerance({"currency": "KWD"}) == Decimal("0.0005")

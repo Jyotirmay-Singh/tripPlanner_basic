@@ -6,6 +6,7 @@ import { SPACING, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
 import { FormScreen, Input, DateField, Button, CurrencyPicker, useToast } from '../../../src/ui';
 import { fromISO, toISO, isRangeValid, INVALID_DATE_MESSAGE, END_BEFORE_START_MESSAGE } from '../../../src/date';
+import { currencyAmountPlaceholder, currencyPrecisionIssue } from '../../../src/currencies';
 
 export default function EditTrip() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -18,6 +19,7 @@ export default function EditTrip() {
   const [budget, setBudget] = useState('');
   const [currency, setCurrency] = useState('INR');
   const [saving, setSaving] = useState(false);
+  const budgetPrecisionIssue = currencyPrecisionIssue(budget, currency, 'Budget');
 
   useEffect(() => {
     api<any>(`/trips/${id}`).then((t) => {
@@ -28,6 +30,10 @@ export default function EditTrip() {
   }, [id]);
 
   const save = async () => {
+    if (budgetPrecisionIssue) return toast.show(budgetPrecisionIssue, 'error');
+    if (budget.trim() && !Number.isFinite(Number(budget))) {
+      return toast.show('Enter a valid budget', 'error');
+    }
     const startISO = startDate.trim() ? toISO(startDate) : null;
     const endISO = endDate.trim() ? toISO(endDate) : null;
     if ((startDate.trim() && !startISO) || (endDate.trim() && !endISO)) {
@@ -58,7 +64,16 @@ export default function EditTrip() {
             <Input testID="et-name" label="Name" value={name} onChangeText={setName} icon="plane" />
             <DateField testID="et-start" label="Start date (dd/mm/yyyy)" value={startDate} onChangeText={(v) => { setStartDate(v); setDateError(null); }} error={dateError} />
             <DateField testID="et-end" label="End date (dd/mm/yyyy)" value={endDate} onChangeText={(v) => { setEndDate(v); setDateError(null); }} minISO={toISO(startDate) ?? undefined} />
-            <Input testID="et-budget" label="Budget" value={budget} onChangeText={setBudget} keyboardType="decimal-pad" icon="wallet" />
+            <Input
+              testID="et-budget"
+              label="Budget"
+              value={budget}
+              onChangeText={setBudget}
+              keyboardType="decimal-pad"
+              placeholder={currencyAmountPlaceholder(currency)}
+              error={budgetPrecisionIssue}
+              icon="wallet"
+            />
 
             <CurrencyPicker
               testID="et-currency"
@@ -68,7 +83,7 @@ export default function EditTrip() {
               helper="Locked when the trip was created so balances and settlements stay consistent."
             />
 
-            <Button label="Save" icon="check" onPress={save} loading={saving} fullWidth size="lg" testID="et-save" style={{ marginTop: SPACING.sm }} />
+            <Button label="Save" icon="check" onPress={save} loading={saving} disabled={!!budgetPrecisionIssue} fullWidth size="lg" testID="et-save" style={{ marginTop: SPACING.sm }} />
           </View>
     </FormScreen>
   );

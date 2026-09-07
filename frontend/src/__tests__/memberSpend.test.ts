@@ -81,6 +81,14 @@ describe('memberSpendHistory', () => {
     expect(memberSpendHistory(expenses, 'A').total).toBe(0.3);
   });
 
+  it('sums cleanly in a three-decimal trip currency', () => {
+    const expenses = [
+      mk({ id: 'e1', amount: 0.001, paid_by_member_id: 'A' }),
+      mk({ id: 'e2', amount: 0.002, paid_by_member_id: 'A' }),
+    ];
+    expect(memberSpendHistory(expenses, 'A', 'KWD').total).toBe(0.003);
+  });
+
   it('empty / no-match yields { rows: [], total: 0 }', () => {
     expect(memberSpendHistory([], 'A')).toEqual({ rows: [], total: 0 });
     expect(memberSpendHistory(null, 'A')).toEqual({ rows: [], total: 0 });

@@ -1,3 +1,5 @@
+import { fromCurrencyUnits, toCurrencyUnits } from './currencies';
+
 export type BalanceMember = {
   id: string;
   name: string;
@@ -45,10 +47,10 @@ export type CurrencyBalance = {
   value: number;
 };
 
-/** Convert a finite money value to signed integer cents, normalizing negative zero. */
-export function moneyCents(value: number): number | null {
+/** Convert a finite money value to signed currency minor units, normalizing negative zero. */
+export function moneyCents(value: number, currency = 'INR'): number | null {
   if (!Number.isFinite(value)) return null;
-  const absolute = Math.round((Math.abs(value) + Number.EPSILON) * 100);
+  const absolute = Math.abs(toCurrencyUnits(value, currency));
   if (absolute === 0) return 0;
   return value < 0 ? -absolute : absolute;
 }
@@ -91,19 +93,32 @@ export function resolveUserTripBalance(
 }
 
 /** Map a rounded balance to its one unambiguous presentation state. */
-export function tripBalanceState(value: number | null | undefined): TripBalanceState {
+export function tripBalanceState(
+  value: number | null | undefined,
+  currency = 'INR',
+): TripBalanceState {
   if (value == null) {
     return { kind: 'unavailable', label: BALANCE_COPY.unavailable, amount: null, cents: null };
   }
-  const cents = moneyCents(value);
+  const cents = moneyCents(value, currency);
   if (cents == null) {
     return { kind: 'unavailable', label: BALANCE_COPY.unavailable, amount: null, cents: null };
   }
   if (cents > 0) {
-    return { kind: 'owed', label: BALANCE_COPY.owed, amount: cents / 100, cents };
+    return {
+      kind: 'owed',
+      label: BALANCE_COPY.owed,
+      amount: fromCurrencyUnits(cents, currency),
+      cents,
+    };
   }
   if (cents < 0) {
-    return { kind: 'owe', label: BALANCE_COPY.owe, amount: Math.abs(cents) / 100, cents };
+    return {
+      kind: 'owe',
+      label: BALANCE_COPY.owe,
+      amount: fromCurrencyUnits(Math.abs(cents), currency),
+      cents,
+    };
   }
   return { kind: 'settled', label: BALANCE_COPY.settled, amount: 0, cents: 0 };
 }
@@ -114,14 +129,18 @@ export function groupBalancesByCurrency(
 ): CurrencyBalance[] {
   const totals = new Map<string, number>();
   for (const row of rows) {
-    const cents = moneyCents(row.balance);
-    if (cents == null) continue;
     const currency = row.currency || 'INR';
+    const cents = moneyCents(row.balance, currency);
+    if (cents == null) continue;
     totals.set(currency, (totals.get(currency) ?? 0) + cents);
   }
   return [...totals.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([currency, cents]) => ({ currency, cents, value: cents / 100 }));
+    .map(([currency, cents]) => ({
+      currency,
+      cents,
+      value: fromCurrencyUnits(cents, currency),
+    }));
 }
 
 export function netPositionMessage(groups: CurrencyBalance[]): string {

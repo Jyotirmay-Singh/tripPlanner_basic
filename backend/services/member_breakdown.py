@@ -7,9 +7,8 @@ Pure helper (plain dicts/lists; imports only ``services.calculator`` + ``utils.d
 mirroring ``services/report_builder.py``).
 
 Two paths, chosen per family:
-  * **No participation restriction on any expense** -> every member's share is exactly
-    ``round(net / size, 2)``, byte-identical to the legacy uniform ``net_per_person`` shown for each
-    roster member.
+  * **No participation restriction on any expense** -> the family net is divided uniformly, with
+    any indivisible minor units assigned deterministically so member rows still foot to the family.
   * **>=1 expense restricts participation** -> CHRONOLOGICAL replay via ``distribute_chronological``:
     the family's expenses AND non-pending settlements are replayed in time order. Each expense's net
     ((amount if the family paid else 0) minus its consumption share) is split EVENLY among only the
@@ -27,8 +26,6 @@ family's involved headcount, so its entity total is already smaller upstream (CL
 participation. Either way this module distributes whatever ``net`` it is given.
 """
 
-import math
-
 from services.calculator import (
     _chosen_participants,
     distribute_chronological,
@@ -37,6 +34,7 @@ from services.calculator import (
     split_per_family,
 )
 from utils.display_names import family_member_display_names
+from utils.currency_rules import apportion_currency_amounts
 
 
 def family_member_ids(family: dict) -> list:
@@ -51,30 +49,12 @@ def family_member_ids(family: dict) -> list:
     return ids[: len(names)] if names else []
 
 
-def _apportion(raw: dict, order: list, target: float) -> dict:
-    """Largest-remainder apportionment in cents so the 2dp results sum EXACTLY to round(target, 2).
+def _apportion(raw: dict, order: list, target: float, currency: str = "INR") -> dict:
+    """Largest-remainder apportionment so results sum in the currency's minor units.
 
     Works for negative values (floor toward -inf). Deterministic: ties broken by ``order``.
     """
-    target_c = round(target * 100)
-    base = {}
-    rem = {}
-    for k in order:
-        vc = raw[k] * 100
-        b = math.floor(vc + 1e-9)
-        base[k] = b
-        rem[k] = vc - b
-    need = target_c - sum(base.values())
-    out_c = dict(base)
-    if need > 0:
-        ranked = sorted(order, key=lambda k: (-rem[k], order.index(k)))
-        for k in ranked[:need]:
-            out_c[k] += 1
-    elif need < 0:
-        ranked = sorted(order, key=lambda k: (rem[k], order.index(k)))
-        for k in ranked[: -need]:
-            out_c[k] -= 1
-    return {k: out_c[k] / 100.0 for k in order}
+    return apportion_currency_amounts(raw, order, target, currency)
 
 
 def _weight_map(members: list) -> dict:
@@ -87,12 +67,18 @@ def _weight_map(members: list) -> dict:
     return out
 
 
-def family_member_breakdown(members: list, expenses: list, settlements: list, net: dict) -> dict:
+def family_member_breakdown(
+    members: list,
+    expenses: list,
+    settlements: list,
+    net: dict,
+    currency: str = "INR",
+) -> dict:
     """family entity id -> [{"id", "name", "net"}] (one row per roster member, in roster order).
 
     ``expenses``/``net`` must be the same data ``_compute_balances`` used (all of the trip's expense
     rows, signed; ``net`` already post-(non-pending)-settlement), so the no-restriction path
-    reproduces ``net_per_person`` exactly. The restricted path replays the family's expenses AND
+    produces a uniform allocation. The restricted path replays the family's expenses AND
     non-pending settlements in CHRONOLOGICAL order (``distribute_chronological``): each expense's net
     touches only its participants, and a settlement scales the running positions toward 0 — so settled
     money disappears per member and only later (unsettled) expenses remain — apportioned to sum EXACTLY
@@ -184,15 +170,19 @@ def family_member_breakdown(members: list, expenses: list, settlements: list, ne
                 timed.append((s.get("paid_at") or s.get("created_at") or "", "settle", delta, None, None))
 
         if not restricted:
-            npp = round(net.get(fid, 0.0) / size, 2)  # byte-identical to legacy net_per_person
-            rows = [{"id": ids[i], "name": names[i], "net": npp} for i in range(len(ids))]
+            raw = {member_id: net.get(fid, 0.0) / size for member_id in ids}
+            apport = _apportion(raw, ids, net.get(fid, 0.0), currency)
+            rows = [
+                {"id": ids[index], "name": names[index], "net": apport[ids[index]]}
+                for index in range(len(ids))
+            ]
         else:
             # Replay chronologically (ISO timestamps sort correctly; legacy/blank sort earliest). Each
             # settlement scales the running positions toward 0, so settled money clears per member.
             timed.sort(key=lambda ev: ev[0])
             events = [(kind, value, chosen, weights) for (_, kind, value, chosen, weights) in timed]
             raw = distribute_chronological(events, ids)
-            apport = _apportion(raw, ids, net.get(fid, 0.0))
+            apport = _apportion(raw, ids, net.get(fid, 0.0), currency)
             rows = [{"id": ids[i], "name": names[i], "net": apport[ids[i]]} for i in range(len(ids))]
 
         for row in rows:

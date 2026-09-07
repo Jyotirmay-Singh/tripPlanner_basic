@@ -69,6 +69,18 @@ describe('buildCategorySpendBreakdown', () => {
     expect(result.net).toBe(0.2);
   });
 
+  it('aggregates a three-decimal currency without float drift', () => {
+    const result = buildCategorySpendBreakdown([
+      expense('a1', 0.001, 'a'),
+      expense('a2', 0.002, 'a'),
+      expense('r1', -0.001, 'a'),
+    ], members, 'Food', 'KWD');
+    expect(result.grossPaid).toBe(0.003);
+    expect(result.refunds).toBe(0.001);
+    expect(result.net).toBe(0.002);
+    expect(result.payerSummary.entities[0].paid).toBe(0.003);
+  });
+
   it('orders largest spends first, then largest refunds, with newest ties first', () => {
     const result = buildCategorySpendBreakdown([
       expense('small', 20, 'a'),

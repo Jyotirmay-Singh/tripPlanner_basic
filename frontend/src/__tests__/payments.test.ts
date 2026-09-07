@@ -33,6 +33,11 @@ describe('paymentStatus', () => {
   it('treats a sub-cent payment as still open', () => {
     expect(paymentStatus(100, 0.005)).toBe('open');
   });
+  it('does not hide one legal yen as zero', () => {
+    expect(paymentStatus(100, 1, 'JPY')).toBe('partial');
+    expect(paymentStatus(1, 100, 'JPY')).toBe('partial');
+    expect(paymentStatus(0, 1, 'JPY')).toBe('paid');
+  });
 });
 
 describe('originalPayable', () => {
@@ -54,6 +59,13 @@ describe('paymentsForPair / pairPaid', () => {
     expect(pairPaid(list, 'a', 'b')).toBe(50);
     expect(pairPaid(list, 'c', 'b')).toBe(99);
     expect(pairPaid(list, 'b', 'a')).toBe(0);
+  });
+  it('sums three-decimal payments in integer KWD minor units', () => {
+    const kwd = [
+      pay({ amount: 0.001 }),
+      pay({ id: 'two', amount: 0.002 }),
+    ];
+    expect(pairPaid(kwd, 'a', 'b', 'KWD')).toBe(0.003);
   });
   it('tolerates null input', () => {
     expect(paymentsForPair(null, 'a', 'b')).toEqual([]);
@@ -106,14 +118,31 @@ describe('validatePaymentAmount', () => {
   it('rejects overpayment beyond a cent of tolerance', () => {
     expect(validatePaymentAmount(100.5, 100).ok).toBe(false);
   });
-  it('accepts a valid amount up to the max (with cent tolerance)', () => {
+  it('accepts valid amounts up to the max and rejects hidden extra precision', () => {
     expect(validatePaymentAmount(100, 100)).toEqual({ ok: true, error: null });
-    expect(validatePaymentAmount(100.004, 100).ok).toBe(true);
+    expect(validatePaymentAmount(100.004, 100).ok).toBe(false);
     expect(validatePaymentAmount(40, 100).ok).toBe(true);
+  });
+  it('enforces JPY and KWD precision and caps', () => {
+    expect(validatePaymentAmount(40.5, 100, {
+      currency: 'JPY', rawAmount: '40.5',
+    }).ok).toBe(false);
+    expect(validatePaymentAmount(101, 100, {
+      currency: 'JPY', rawAmount: '101',
+    }).ok).toBe(false);
+    expect(validatePaymentAmount(1.234, 2, {
+      currency: 'KWD', rawAmount: '1.234',
+    })).toEqual({ ok: true, error: null });
+    expect(validatePaymentAmount(1.2345, 2, {
+      currency: 'KWD', rawAmount: '1.2345',
+    }).ok).toBe(false);
+    expect(validatePaymentAmount(2.001, 2, {
+      currency: 'KWD', rawAmount: '2.001',
+    }).ok).toBe(false);
   });
   it('enforces exact whole-unit amounts when requested', () => {
     expect(validatePaymentAmount(40.5, 100, { wholeUnit: true })).toEqual({
-      ok: false, error: 'Enter a whole-rupee amount',
+      ok: false, error: 'Enter a whole INR amount',
     });
     expect(validatePaymentAmount(101, 100, { wholeUnit: true }).ok).toBe(false);
     expect(validatePaymentAmount(40, 100, { wholeUnit: true })).toEqual({ ok: true, error: null });

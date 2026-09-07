@@ -1,4 +1,5 @@
 import type { Transfer } from './settlements';
+import { currencyMinorUnits } from './currencies';
 
 export type SettlementStatus = 'open' | 'settled_exactly' | 'settled_within_rounding';
 
@@ -44,8 +45,11 @@ export function formatPreciseMoney(value: string | undefined, currency: string):
   const grouped = match[2].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   const rawFraction = match[3] ?? '';
   const fraction = rawFraction.replace(/0+$/, '');
-  const shownFraction = fraction.length > 0 ? fraction : '00';
-  return `${currency} ${sign}${grouped}.${shownFraction}`;
+  const minimumDigits = currencyMinorUnits(currency);
+  const shownFraction = fraction.padEnd(minimumDigits, '0');
+  return shownFraction
+    ? `${currency} ${sign}${grouped}.${shownFraction}`
+    : `${currency} ${sign}${grouped}`;
 }
 
 export function currentSuggestedAmount(

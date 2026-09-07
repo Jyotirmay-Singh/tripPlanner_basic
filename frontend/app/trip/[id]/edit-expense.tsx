@@ -21,7 +21,15 @@ import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displ
 import { buildFamilyParticipants, excludedFromParticipants, familyMemberIds, familyShareEach } from '../../../src/familyParticipation';
 import { formatMoney } from '../../../src/format';
 import { parseAmount, isValidAmount, refundExceedsSpend, REFUND_WARNING } from '../../../src/signedAmount';
-import { applyExpenseEditConversionContract } from '../../../src/expenseConversionPayload';
+import {
+  applyExpenseEditConversionContract,
+  requiresMultiCurrencyCapabilityForEdit,
+} from '../../../src/expenseConversionPayload';
+import {
+  currencyAmountPlaceholder,
+  currencyMinorUnits,
+  currencyPrecisionIssue,
+} from '../../../src/currencies';
 import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { ddmmyyToDDMMYYYY, ddmmyyyyToDDMMYY, toISO } from '../../../src/date';
@@ -61,16 +69,32 @@ function numericMap(values?: Record<string, string | number> | null): Record<str
   return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, Number(value)]));
 }
 
-function exactMapKey(values?: Record<string, string | number> | null): string {
+function exactMapKey(
+  values: Record<string, string | number> | null | undefined,
+  currency: string,
+): string {
+  const digits = currencyMinorUnits(currency);
   return JSON.stringify(Object.entries(values || {})
-    .map(([key, value]) => [key, Number(value).toFixed(2)])
+    .map(([key, value]) => [key, Number(value).toFixed(digits)])
     .sort(([left], [right]) => String(left).localeCompare(String(right))));
+}
+
+function amountKey(value: string | number, currency: string): string {
+  const parsed = Number(value);
+  return Number.isFinite(parsed)
+    ? parsed.toFixed(currencyMinorUnits(currency))
+    : String(value);
 }
 
 export default function EditExpense() {
   const { id, eid } = useLocalSearchParams<{ id: string; eid: string }>();
   const { colors } = useTheme();
-  const { user, multiCurrencyExpensesEnabled } = useAuth();
+  const {
+    user,
+    multiCurrencyCapability,
+    multiCurrencyExpensesEnabled,
+    refreshRuntimeConfig,
+  } = useAuth();
   const router = useRouter();
   const { show: showToast } = useToast();
   const [trip, setTrip] = useState<Trip | null>(null);
@@ -114,6 +138,10 @@ export default function EditExpense() {
   const handleRequoteRequired = useCallback((required: boolean) => {
     setRequoteRequired(required);
   }, []);
+
+  useEffect(() => {
+    void refreshRuntimeConfig().catch(() => {});
+  }, [refreshRuntimeConfig]);
 
   useEffect(() => {
     (async () => {
@@ -200,9 +228,8 @@ export default function EditExpense() {
   const save = async (force = false) => {
     if (!trip || !paidBy || !loadedExpense) return;
     const isForeign = expenseCurrency !== trip.currency;
-    if (isForeign && !multiCurrencyExpensesEnabled) {
-      return showToast('Use the official currency until exchange rates are available.', 'error');
-    }
+    const precisionIssue = currencyPrecisionIssue(amount, expenseCurrency);
+    if (precisionIssue) return showToast(precisionIssue, 'error');
     const a = parseAmount(amount);
     if (!isValidAmount(a)) return showToast('Enter a non-zero amount', 'error');
     const date = ddmmyyyyToDDMMYY(dateDisplay);  // -> stored DD-MM-YY (format unchanged)
@@ -210,10 +237,38 @@ export default function EditExpense() {
     const baselineAmount = Number(loadedExpense.original_amount ?? loadedExpense.amount);
     const baselineCurrency = loadedExpense.original_currency
       || loadedExpense.currency || trip.currency;
-    const amountChanged = Number(a.toFixed(2)) !== Number(baselineAmount.toFixed(2));
+    const amountChanged =
+      amountKey(a, expenseCurrency) !== amountKey(baselineAmount, baselineCurrency);
     const currencyChanged = expenseCurrency !== baselineCurrency;
     const dateChanged = date !== loadedExpense.date;
     const conversionInputsChanged = amountChanged || currencyChanged || dateChanged;
+    const currentExact = splitMode === 'EXACT' ? rowsToCustomAmounts(exactRows) : null;
+    const baselineExact = loadedExpense.original_custom_amounts
+      || (loadedExpense.custom_amounts
+        ? Object.fromEntries(Object.entries(loadedExpense.custom_amounts)
+          .map(([key, value]) => [key, Math.abs(value)]))
+        : null);
+    const exactChanged = splitMode === 'EXACT'
+      && (
+        loadedExpense.split_mode !== 'EXACT'
+        || exactMapKey(currentExact, expenseCurrency)
+          !== exactMapKey(baselineExact, baselineCurrency)
+      );
+    const capabilityRequired = requiresMultiCurrencyCapabilityForEdit({
+      tripCurrency: trip.currency,
+      sourceCurrency: expenseCurrency,
+      baselineSourceCurrency: baselineCurrency,
+      hasLockedConversion: !!lockedConversion,
+      conversionInputsChanged,
+      exactChanged,
+      requoteRequired,
+    });
+    if (capabilityRequired && multiCurrencyCapability !== 'enabled') {
+      const message = multiCurrencyCapability === 'disabled'
+        ? 'Currency conversion changes are disabled by the server rollout setting.'
+        : 'Could not verify currency conversion. Check your connection and try again.';
+      return showToast(message, 'error');
+    }
     if (isForeign && (conversionInputsChanged || requoteRequired) && !approvedConversion) {
       return showToast('Review and approve the updated conversion before saving.', 'error');
     }
@@ -222,11 +277,11 @@ export default function EditExpense() {
       let body: any;
       if (splitMode === 'EXACT') {
         // Phase 22 hard rule (mirror of the backend 422): amounts must add up to the total.
-        if (!reconcile(exactRows, a).isValid) {
+        if (!reconcile(exactRows, a, expenseCurrency).isValid) {
           setSaving(false);
           return showToast('Assigned amounts must add up to the total.', 'error');
         }
-        const shares = resolveEntityShares(exactRows);
+        const shares = resolveEntityShares(exactRows, expenseCurrency);
         body = {
           amount: a, currency: expenseCurrency, category: cat, description: desc, date, time: time || null,
           paid_by_member_id: paidBy,
@@ -272,14 +327,6 @@ export default function EditExpense() {
           custom_amounts: null,  // clear any stale EXACT amounts when saving in another mode
         };
       }
-      const currentExact = splitMode === 'EXACT' ? rowsToCustomAmounts(exactRows) : null;
-      const baselineExact = loadedExpense.original_custom_amounts
-        || (loadedExpense.custom_amounts
-          ? Object.fromEntries(Object.entries(loadedExpense.custom_amounts)
-            .map(([key, value]) => [key, Math.abs(value)]))
-          : null);
-      const exactChanged = splitMode === 'EXACT'
-        && (loadedExpense.split_mode !== 'EXACT' || exactMapKey(currentExact) !== exactMapKey(baselineExact));
       body = applyExpenseEditConversionContract({
         body,
         multiCurrencyEnabled: multiCurrencyExpensesEnabled,
@@ -318,7 +365,7 @@ export default function EditExpense() {
     catch (e: any) { showToast(e.message || 'Delete failed', 'error'); }
   };
 
-  if (!trip) {
+  if (!trip || !loadedExpense) {
     return (
       <Screen edges={['left', 'right', 'bottom']}><SkeletonCard count={4} /></Screen>
     );
@@ -334,14 +381,43 @@ export default function EditExpense() {
     });
   const displayNames = memberDisplayNames(trip.members);
   const parsedAmount = Number.isFinite(parseAmount(amount)) ? parseAmount(amount) : 0;
-  const exactRec = reconcile(exactRows, parsedAmount);
+  const exactRec = reconcile(exactRows, parsedAmount, expenseCurrency);
   const isForeign = expenseCurrency !== trip.currency;
-  const currencyBlocked = isForeign && !multiCurrencyExpensesEnabled;
+  const baselineAmount = Number(loadedExpense.original_amount ?? loadedExpense.amount);
+  const baselineCurrency = loadedExpense.original_currency
+    || loadedExpense.currency || trip.currency;
+  const conversionInputsChanged =
+    amountKey(parsedAmount, expenseCurrency) !== amountKey(baselineAmount, baselineCurrency)
+    || expenseCurrency !== baselineCurrency
+    || ddmmyyyyToDDMMYY(dateDisplay) !== loadedExpense.date;
+  const currentExact = splitMode === 'EXACT' ? rowsToCustomAmounts(exactRows) : null;
+  const baselineExact = loadedExpense.original_custom_amounts
+    || (loadedExpense.custom_amounts
+      ? Object.fromEntries(Object.entries(loadedExpense.custom_amounts)
+        .map(([key, value]) => [key, Math.abs(value)]))
+      : null);
+  const exactChanged = splitMode === 'EXACT'
+    && (
+      loadedExpense.split_mode !== 'EXACT'
+      || exactMapKey(currentExact, expenseCurrency)
+        !== exactMapKey(baselineExact, baselineCurrency)
+    );
+  const capabilityRequired = requiresMultiCurrencyCapabilityForEdit({
+    tripCurrency: trip.currency,
+    sourceCurrency: expenseCurrency,
+    baselineSourceCurrency: baselineCurrency,
+    hasLockedConversion: !!lockedConversion,
+    conversionInputsChanged,
+    exactChanged,
+    requoteRequired,
+  });
+  const currencyBlocked = capabilityRequired && multiCurrencyCapability !== 'enabled';
   const conversionPending = isForeign && multiCurrencyExpensesEnabled
     && requoteRequired && !approvedConversion;
   const canonicalPreview = isForeign
     ? (previewCanonicalAmount ?? (!requoteRequired ? lockedConversion?.targetAmount ?? null : null))
     : parsedAmount;
+  const amountPrecisionIssue = currencyPrecisionIssue(amount, expenseCurrency);
 
   return (
     <>
@@ -373,11 +449,30 @@ export default function EditExpense() {
               >
                 <Icon name="info" size={18} color={colors.warning} />
                 <View style={{ flex: 1, gap: 3 }}>
-                  <T variant="label">Exchange rate required</T>
+                  <T variant="label">
+                    {multiCurrencyCapability === 'disabled'
+                      ? 'Currency conversion rollout is off'
+                      : multiCurrencyCapability === 'loading'
+                        ? 'Checking currency conversion'
+                        : 'Currency conversion status unavailable'}
+                  </T>
                   <T variant="caption" muted>
-                    {expenseCurrency} expenses can be saved after currency conversion is added.
+                    {multiCurrencyCapability === 'disabled'
+                      ? 'This server has not enabled foreign-currency expenses yet.'
+                      : multiCurrencyCapability === 'loading'
+                        ? 'Checking the server before allowing a foreign-currency expense.'
+                        : 'The server could not be reached. Retry when you are online.'}
                   </T>
                 </View>
+                {multiCurrencyCapability === 'unknown' ? (
+                  <Button
+                    label="Retry"
+                    size="sm"
+                    variant="secondary"
+                    onPress={() => { void refreshRuntimeConfig().catch(() => {}); }}
+                    testID="ee-currency-retry"
+                  />
+                ) : null}
                 {canModify ? (
                   <TouchableOpacity
                     onPress={() => setExpenseCurrency(trip.currency)}
@@ -396,8 +491,15 @@ export default function EditExpense() {
                 <T style={{ fontFamily: FONTS.number, fontSize: 28, color: colors.textMuted }}>{expenseCurrency}</T>
                 <TextInput testID="ee-amount" value={amount} onChangeText={setAmount} keyboardType="numbers-and-punctuation"
                   editable={canModify}
+                  placeholder={currencyAmountPlaceholder(expenseCurrency)}
+                  placeholderTextColor={colors.textMuted}
                   style={[styles.amountInput, { color: colors.textMain }]} />
               </View>
+              {amountPrecisionIssue ? (
+                <T testID="ee-amount-precision" variant="caption" color={colors.danger}>
+                  {amountPrecisionIssue}
+                </T>
+              ) : null}
               {canonicalPreview != null && refundExceedsSpend(canonicalPreview, tripNetSpendExcl) ? (
                 <T testID="ee-refund-warn" variant="caption" color={colors.warning} style={{ marginTop: 6 }}>{REFUND_WARNING}</T>
               ) : null}
@@ -422,7 +524,9 @@ export default function EditExpense() {
               <TimeField testID="ee-time" label="Time" value={time} onChange={setTime} editable={canModify} containerStyle={{ flex: 1 }} />
             </View>
 
-            {multiCurrencyExpensesEnabled || !isForeign ? (
+            {multiCurrencyCapability === 'enabled'
+              || !isForeign
+              || (!!lockedConversion && !currencyBlocked) ? (
               <ExchangeRatePanel
                 testID="ee-exchange-rate"
                 enabled={multiCurrencyExpensesEnabled}
@@ -460,7 +564,7 @@ export default function EditExpense() {
               onChange={setSplitMode}
               subLabel={splitPreviewLabel({
                 amount: parseFloat(amount), mode: splitMode, members: trip.members, splitSel, weightOverrides, currency: expenseCurrency, familyExcluded,
-                exactShares: resolveEntityShares(exactRows), names: displayNames,
+                exactShares: resolveEntityShares(exactRows, expenseCurrency), names: displayNames,
               })}
             />
 
@@ -523,7 +627,9 @@ export default function EditExpense() {
                             <T variant="caption" color={colors.danger}>At least one member must take part.</T>
                           ) : includedCount < roster.length ? (
                             <T variant="caption" muted testID={`ee-fam-preview-${m.id}`}>
-                              {expenseCurrency} {formatMoney(familyShareEach(parseFloat(amount), trip.members, splitSel, weightOverrides, m.id, includedCount, splitMode, familyExcluded))} each (excluded owe 0)
+                              {expenseCurrency} {formatMoney(familyShareEach(parseFloat(amount), trip.members, splitSel, weightOverrides, m.id, includedCount, splitMode, familyExcluded), {
+                                currency: expenseCurrency, showCurrency: false,
+                              })} each (excluded owe 0)
                             </T>
                           ) : null}
                         </View>
@@ -564,7 +670,7 @@ export default function EditExpense() {
 
             {canModify && (
               <>
-                <Button label="Save changes" icon="check" onPress={() => save(false)} loading={saving} disabled={currencyBlocked || conversionPending || (splitMode === 'EXACT' && !exactRec.isValid)} fullWidth size="lg" testID="ee-save" style={{ marginTop: SPACING.sm }} />
+                <Button label="Save changes" icon="check" onPress={() => save(false)} loading={saving} disabled={!!amountPrecisionIssue || currencyBlocked || conversionPending || (splitMode === 'EXACT' && !exactRec.isValid)} fullWidth size="lg" testID="ee-save" style={{ marginTop: SPACING.sm }} />
                 <Button label="Delete transaction" icon="trash" variant="destructive" onPress={() => setConfirmDelete(true)} fullWidth testID="ee-delete" />
               </>
             )}

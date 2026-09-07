@@ -6,6 +6,11 @@ from database import db
 from models.trip import TripIn, TripUpdate, AdminGrant, OwnershipTransfer
 from models.join import JoinRequest, JoinPreviewRequest
 from utils.common import gen_id, gen_trip_code, now_utc
+from utils.currency_rules import (
+    CurrencyPrecisionError,
+    precision_error_detail,
+    validate_currency_precision,
+)
 from utils.date_rules import assert_valid_range, ensure_date_range
 from utils.deps import get_current_user, _trip_or_404, _trip_admin_or_403, _trip_owner_or_403
 from utils.email_rules import assert_gmail, normalize_email
@@ -29,6 +34,22 @@ from services.invites import record_invite_use, resolve_join_credential, revoke_
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _validated_budget(value, currency: str):
+    if value is None:
+        return None
+    try:
+        return float(validate_currency_precision(value, currency, label="Budget"))
+    except CurrencyPrecisionError as exc:
+        raise HTTPException(422, precision_error_detail(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(422, {
+            "code": "invalid_currency_amount",
+            "message": str(exc),
+            "currency": currency,
+            "retryable": False,
+        }) from exc
 
 
 # ---------- Trips ----------
@@ -77,10 +98,11 @@ async def create_trip(body: TripIn, user=Depends(get_current_user)):
     # Create the owner's member automatically. Phase 26: the creator declares whether they're a
     # standalone individual (default, legacy behavior) or ONE member inside a family they set up here.
     owner_member = _build_owner_member(body, user)
+    currency = body.currency or "INR"
     doc = {
         "id": tid, "code": code, "name": body.name,
         "start_date": start_date, "end_date": end_date,
-        "budget": body.budget, "currency": body.currency or "INR",
+        "budget": _validated_budget(body.budget, currency), "currency": currency,
         "owner_id": user["id"], "user_ids": [user["id"]],
         "admin_ids": [user["id"]],
         "members": [owner_member],
@@ -122,6 +144,10 @@ async def update_trip(trip_id: str, body: TripUpdate, user=Depends(get_current_u
         if updates["currency"] != trip.get("currency", "INR"):
             raise HTTPException(409, "Official currency cannot be changed after trip creation")
         updates.pop("currency")
+    if "budget" in updates:
+        updates["budget"] = _validated_budget(
+            updates["budget"], trip.get("currency", "INR")
+        )
     # If either date is changing, validate the resulting range against the existing values.
     if "start_date" in updates or "end_date" in updates:
         existing = ensure_date_range(dict(trip))

@@ -66,6 +66,7 @@ it('marks the deployed chat protocol as supported', async () => {
   await mount();
 
   expect(latest.chatCapability).toBe('supported');
+  expect(latest.multiCurrencyCapability).toBe('enabled');
   expect(latest.multiCurrencyExpensesEnabled).toBe(true);
   expect(latest.inviteLinksEnabled).toBe(true);
   expect(latest.user).toBeNull();
@@ -81,7 +82,10 @@ it('refreshes a changed invite rollout flag on demand before sharing', async () 
   let snapshot: Awaited<ReturnType<typeof latest.refreshRuntimeConfig>> | undefined;
   await act(async () => { snapshot = await latest.refreshRuntimeConfig(); });
 
-  expect(snapshot).toEqual({ inviteLinksEnabled: true });
+  expect(snapshot).toEqual({
+    inviteLinksEnabled: true,
+    multiCurrencyCapability: 'disabled',
+  });
   expect(latest.inviteLinksEnabled).toBe(true);
   expect(apiModule.api).toHaveBeenLastCalledWith('/meta/config', { auth: false });
 });
@@ -105,6 +109,7 @@ it('identifies a successful old-server config response as unsupported', async ()
   await mount();
 
   expect(latest.chatCapability).toBe('unsupported');
+  expect(latest.multiCurrencyCapability).toBe('disabled');
   expect(latest.multiCurrencyExpensesEnabled).toBe(false);
 });
 
@@ -113,7 +118,41 @@ it('leaves capability unknown when public config cannot be reached', async () =>
   await mount();
 
   expect(latest.chatCapability).toBe('unknown');
+  expect(latest.multiCurrencyCapability).toBe('unknown');
   expect(latest.multiCurrencyExpensesEnabled).toBe(false);
+});
+
+it('retries an unknown currency capability and enables it after a successful config fetch', async () => {
+  (apiModule.api as jest.Mock)
+    .mockRejectedValueOnce(new Error('offline'))
+    .mockResolvedValueOnce({
+      chat_protocol_version: 1,
+      multi_currency_expenses_enabled: true,
+    });
+  await mount();
+  expect(latest.multiCurrencyCapability).toBe('unknown');
+
+  await act(async () => { await latest.refreshRuntimeConfig(); });
+
+  expect(latest.multiCurrencyCapability).toBe('enabled');
+  expect(latest.multiCurrencyExpensesEnabled).toBe(true);
+});
+
+it('does not downgrade a previously confirmed currency capability during an outage', async () => {
+  (apiModule.api as jest.Mock)
+    .mockResolvedValueOnce({
+      chat_protocol_version: 1,
+      multi_currency_expenses_enabled: true,
+    })
+    .mockRejectedValueOnce(new Error('offline'));
+  await mount();
+
+  await act(async () => {
+    await latest.refreshRuntimeConfig().catch(() => {});
+  });
+
+  expect(latest.multiCurrencyCapability).toBe('enabled');
+  expect(latest.multiCurrencyExpensesEnabled).toBe(true);
 });
 
 it('clears invalid authentication while retaining the saved login email', async () => {

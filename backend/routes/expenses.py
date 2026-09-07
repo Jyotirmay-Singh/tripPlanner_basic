@@ -1,5 +1,3 @@
-from decimal import Decimal, ROUND_HALF_UP
-
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
 
 from config import CATEGORIES, MULTI_CURRENCY_EXPENSES_ENABLED
@@ -11,7 +9,7 @@ from utils.deps import get_current_user, _trip_or_404, _expense_modify_or_403
 from services.receipts import delete_receipts_for_expense
 from services.expense_shares import expense_share_breakdown
 from services.push_notifications import enqueue_notification_event
-from services.exchange_rates import ExchangeRateError, decimal_value, error_detail, money
+from services.exchange_rates import ExchangeRateError, decimal_value, error_detail
 from services.expense_conversion import (
     convert_create_body,
     convert_expense,
@@ -21,6 +19,12 @@ from services.expense_conversion import (
     stored_original_currency,
     stored_original_custom_amounts,
 )
+from utils.currency_rules import (
+    CurrencyPrecisionError,
+    currency_minor_units,
+    precision_error_detail,
+    quantize_currency,
+)
 
 router = APIRouter()
 
@@ -28,6 +32,8 @@ router = APIRouter()
 def _conversion_http_error(exc: Exception):
     if isinstance(exc, ExchangeRateError):
         raise HTTPException(exc.status_code, error_detail(exc))
+    if isinstance(exc, CurrencyPrecisionError):
+        raise HTTPException(422, precision_error_detail(exc))
     raise HTTPException(422, {
         "code": "invalid_conversion", "message": str(exc), "retryable": False,
     })
@@ -59,7 +65,7 @@ def _conversion_conflict():
 
 def _same_money(left, right) -> bool:
     try:
-        return money(left) == money(right)
+        return decimal_value(left) == decimal_value(right)
     except (TypeError, ValueError):
         return False
 
@@ -71,8 +77,7 @@ def _same_amount_map(left, right) -> bool:
         return False
     try:
         return all(
-            decimal_value(left[key]).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            == decimal_value(right[key]).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            decimal_value(left[key]) == decimal_value(right[key])
             for key in left
         )
     except Exception:
@@ -107,8 +112,10 @@ def _budget_warning(trip: dict, current: float, candidate: float) -> str | None:
     budget = trip.get("budget")
     if budget is None or current + candidate <= budget:
         return None
-    over = (current + candidate) - budget
-    return f"This expense puts you {over:.2f} {trip.get('currency', 'INR')} over the trip budget."
+    currency = trip.get("currency", "INR")
+    over = quantize_currency((current + candidate) - budget, currency)
+    digits = currency_minor_units(currency)
+    return f"This expense puts you {over:.{digits}f} {currency} over the trip budget."
 
 
 def _clean_family_participants(raw, split_mode, split_ids, members):
@@ -166,7 +173,7 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
                                                      split_ids, trip["members"])
 
     # Phase 22 — EXACT: the per-person amounts MUST sum to the total (422 otherwise). Persist the
-    # normalized (cent-snapped) amounts so the ledger/breakdown/report always foot exactly.
+    # normalized minor-unit amounts so the ledger/breakdown/report always foot exactly.
     try:
         converted = await convert_create_body(body, trip, user["id"])
     except (ExchangeRateError, ValueError) as exc:

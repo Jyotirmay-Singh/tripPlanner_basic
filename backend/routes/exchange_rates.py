@@ -6,7 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from config import MULTI_CURRENCY_EXPENSES_ENABLED
 from services.exchange_rates import ExchangeRateError, create_quote, error_detail
-from utils.currency_rules import normalize_currency
+from utils.currency_rules import (
+    CurrencyPrecisionError,
+    normalize_currency,
+    precision_error_detail,
+)
 from utils.date_rules import parse_iso_date
 from utils.deps import get_current_user
 
@@ -56,10 +60,11 @@ async def quote_exchange_rate(
         )
     except ExchangeRateError as exc:
         raise HTTPException(exc.status_code, error_detail(exc))
+    except CurrencyPrecisionError as exc:
+        raise HTTPException(422, precision_error_detail(exc))
     except ValueError as exc:
         raise HTTPException(422, {
             "code": "invalid_conversion",
             "message": str(exc),
             "retryable": False,
         })
-

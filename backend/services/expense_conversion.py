@@ -1,6 +1,6 @@
 """Server-authoritative expense conversion and immutable audit metadata."""
 
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from typing import Any, Optional
 
 from bson.decimal128 import Decimal128
@@ -17,6 +17,7 @@ from services.exchange_rates import (
     money,
 )
 from utils.common import now_utc
+from utils.currency_rules import quantize_currency, validate_currency_precision
 from utils.date_rules import expense_date_to_iso
 
 
@@ -57,7 +58,7 @@ def serialize_bson(value: Any) -> Any:
 def stored_original_amount(expense: dict) -> Decimal:
     if expense.get("original_amount") is not None:
         return decimal_value(expense["original_amount"])
-    return money(expense.get("amount"))
+    return decimal_value(expense.get("amount"))
 
 
 def stored_original_currency(expense: dict, trip_currency: str) -> str:
@@ -77,12 +78,16 @@ def stored_original_custom_amounts(expense: dict) -> Optional[dict]:
 def reallocate_exact_with_locked_rate(expense: dict, original_custom_amounts: dict,
                                       members: list) -> tuple[dict, dict]:
     """Rebuild EXACT shares without fetching/replacing an otherwise locked conversion rate."""
+    canonical_currency = expense.get("currency") or "INR"
+    original_currency = stored_original_currency(expense, canonical_currency)
     original = validate_original_exact_amounts(
-        stored_original_amount(expense), original_custom_amounts, members
+        stored_original_amount(expense), original_custom_amounts, members, original_currency
     )
     rate = decimal_value(expense.get("exchange_rate", Decimal("1")))
-    canonical = money(expense.get("amount"))
-    canonical_custom = convert_original_exact_amounts(original, rate, canonical, members)
+    canonical = quantize_currency(expense.get("amount"), canonical_currency)
+    canonical_custom = convert_original_exact_amounts(
+        original, rate, canonical, members, canonical_currency
+    )
     return _decimal_map(original), canonical_custom
 
 
@@ -104,7 +109,9 @@ def locked_exact_reallocation_update(*, expense: dict, original_custom_amounts: 
         "original_amount": _decimal128(original_amount),
         "original_currency": original_currency,
         "original_custom_amounts": original_map,
-        "canonical_amount": float(money(expense.get("amount"))),
+        "canonical_amount": float(quantize_currency(
+            expense.get("amount"), expense.get("currency") or "INR"
+        )),
         "canonical_currency": expense.get("currency") or "INR",
         "canonical_custom_amounts": canonical_custom,
         "rate": _decimal128(rate),
@@ -131,11 +138,17 @@ def locked_exact_reallocation_update(*, expense: dict, original_custom_amounts: 
     }
 
 
-def _quote_manual_value(conversion: ConversionRequest) -> Optional[Decimal]:
+def _quote_manual_value(
+    conversion: ConversionRequest, target_currency: str
+) -> Optional[Decimal]:
     if conversion.manual_input_type == "rate":
         return conversion.manual_rate
     if conversion.manual_input_type == "target_amount":
-        return conversion.manual_target_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return validate_currency_precision(
+            conversion.manual_target_amount,
+            target_currency,
+            label="Manual final amount",
+        )
     return None
 
 
@@ -175,7 +188,7 @@ async def _validated_rate_result(*, user_id: str, source_amount: Decimal,
     if conversion.mode == "manual":
         if quote.get("manual_input_type") != conversion.manual_input_type:
             raise _confirmation_error("The approved manual quote no longer matches the selected mode")
-        supplied = _quote_manual_value(conversion)
+        supplied = _quote_manual_value(conversion, target_currency)
         stored = decimal_value(quote.get("manual_input_value"))
         if supplied is None or stored != supplied:
             raise _confirmation_error("The approved manual quote no longer matches the entered value")
@@ -201,7 +214,7 @@ async def convert_expense(*, user_id: str, trip_currency: str, date: str,
                           original_custom_amounts: Optional[dict],
                           conversion: Optional[ConversionRequest], version: int,
                           reason: str) -> dict:
-    source_amount = money(original_amount)
+    source_amount = money(original_amount, original_currency, reject_precision=True)
     requested_date = expense_date_to_iso(date)
     rate_result = await _validated_rate_result(
         user_id=user_id,
@@ -211,9 +224,7 @@ async def convert_expense(*, user_id: str, trip_currency: str, date: str,
         requested_date=requested_date,
         conversion=conversion,
     )
-    canonical = rate_result["target_amount"].quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP
-    )
+    canonical = quantize_currency(rate_result["target_amount"], trip_currency)
     if canonical == 0:
         raise ValueError("Converted amount rounds to zero in the trip currency")
 
@@ -221,10 +232,10 @@ async def convert_expense(*, user_id: str, trip_currency: str, date: str,
     canonical_custom = None
     if split_mode == "EXACT":
         normalized_original_custom = validate_original_exact_amounts(
-            source_amount, original_custom_amounts or {}, members
+            source_amount, original_custom_amounts or {}, members, original_currency
         )
         canonical_custom = convert_original_exact_amounts(
-            normalized_original_custom, rate_result["rate"], canonical, members
+            normalized_original_custom, rate_result["rate"], canonical, members, trip_currency
         )
 
     timestamp = now_utc()

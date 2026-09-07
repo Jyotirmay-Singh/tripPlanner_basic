@@ -126,9 +126,10 @@ class TestFamilyMemberBreakdown:
         assert round(sum(sharma.values()), 2) == -35.0         # members sum EXACTLY to the family total
         for mid in ("a", "v", "s"):
             assert abs(sharma[mid] - (-35.0 / 3)) < 0.01       # ~ -11.67 each
-        # Gupta (no restriction) stays uniform; individual has no per-member breakdown.
-        uniform = round(net_yes["G"] / 2, 2)
-        assert all(row["net"] == uniform for row in bd["G"])
+        # Gupta has no restriction, but -23.33 cannot be divided equally at INR precision.
+        # The indivisible paisa is assigned in stable roster order and the rows still reconcile.
+        assert [row["net"] for row in bd["G"]] == [-11.66, -11.67]
+        assert sum(row["net"] for row in bd["G"]) == -23.33
         assert "I" not in bd
 
     def test_no_restriction_is_byte_identical_to_net_per_person(self):

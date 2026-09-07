@@ -5,6 +5,8 @@ import { api, getToken, setToken } from './api';
 import type { ChatCapability } from './chat';
 import { unregisterCurrentPushInstallation } from './pushNotifications';
 
+export type MultiCurrencyCapability = 'loading' | 'enabled' | 'disabled' | 'unknown';
+
 export type User = {
   id: string;
   email: string;
@@ -28,6 +30,7 @@ type Ctx = {
   emailFeaturesEnabled: boolean;
   inviteLinksEnabled: boolean;
   pendingInvitePath: string | null;
+  multiCurrencyCapability: MultiCurrencyCapability;
   multiCurrencyExpensesEnabled: boolean;
   chatCapability: ChatCapability;
   refreshRuntimeConfig: () => Promise<RuntimeConfigSnapshot>;
@@ -44,6 +47,7 @@ type Ctx = {
 
 export type RuntimeConfigSnapshot = {
   inviteLinksEnabled: boolean;
+  multiCurrencyCapability: Exclude<MultiCurrencyCapability, 'loading' | 'unknown'>;
 };
 
 const AuthCtx = createContext<Ctx>({} as Ctx);
@@ -54,12 +58,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [emailFeaturesEnabled, setEmailFeaturesEnabled] = useState(true);
   const [inviteLinksEnabled, setInviteLinksEnabled] = useState(false);
   const [pendingInvitePath, setPendingInvitePath] = useState<string | null>(null);
-  const [multiCurrencyExpensesEnabled, setMultiCurrencyExpensesEnabled] = useState(false);
+  const [multiCurrencyCapability, setMultiCurrencyCapability] =
+    useState<MultiCurrencyCapability>('loading');
   const [chatCapability, setChatCapability] = useState<ChatCapability>('loading');
+  const multiCurrencyExpensesEnabled = multiCurrencyCapability === 'enabled';
 
   // Public, DB-free capability fetch. It is callable by share actions so a long-running app never
   // relies on the flag value captured at launch during a coordinated backend/APK rollout.
   const refreshRuntimeConfig = useCallback(async (): Promise<RuntimeConfigSnapshot> => {
+    setMultiCurrencyCapability((current) =>
+      current === 'unknown' || current === 'loading' ? 'loading' : current
+    );
     try {
       const config = await api<{
       email_features_enabled?: boolean;
@@ -68,14 +77,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       multi_currency_expenses_enabled?: boolean;
       }>('/meta/config', { auth: false });
       const linksEnabled = config?.invite_links_enabled === true;
+      const currencyCapability = config?.multi_currency_expenses_enabled === true
+        ? 'enabled'
+        : 'disabled';
       setEmailFeaturesEnabled(config?.email_features_enabled !== false);
       setInviteLinksEnabled(linksEnabled);
-      setMultiCurrencyExpensesEnabled(config?.multi_currency_expenses_enabled === true);
+      setMultiCurrencyCapability(currencyCapability);
       setChatCapability(config?.chat_protocol_version === 1 ? 'supported' : 'unsupported');
-      return { inviteLinksEnabled: linksEnabled };
+      return { inviteLinksEnabled: linksEnabled, multiCurrencyCapability: currencyCapability };
     } catch (error) {
       // A temporary config outage must not downgrade a capability that was already confirmed.
       setChatCapability((current) => current === 'loading' ? 'unknown' : current);
+      setMultiCurrencyCapability((current) =>
+        current === 'enabled' || current === 'disabled' ? current : 'unknown'
+      );
       throw error;
     }
   }, []);
@@ -183,6 +198,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       emailFeaturesEnabled,
       inviteLinksEnabled,
       pendingInvitePath,
+      multiCurrencyCapability,
       multiCurrencyExpensesEnabled,
       chatCapability,
       refreshRuntimeConfig,

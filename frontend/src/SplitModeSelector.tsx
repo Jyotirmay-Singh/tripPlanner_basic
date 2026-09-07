@@ -5,6 +5,7 @@ import { useTheme } from './ThemeContext';
 import { SPACING, RADIUS, FONTS, SHADOW } from './theme';
 import T from './T';
 import { perCapitaHumans } from './familyParticipation';
+import { formatMoney } from './format';
 
 export type SplitMode = 'PER_CAPITA' | 'PER_FAMILY' | 'EXACT';
 
@@ -89,7 +90,9 @@ export function splitPreviewLabel(opts: {
     // §5C: each entity's exact rollup (family = Σ its members, individual = own).
     const entries = Object.entries(opts.exactShares ?? {});
     if (!entries.length) return 'Assign each person an exact amount';
-    return entries.map(([eid, amt]) => `${opts.names?.[eid] ?? eid} ${currency} ${amt.toFixed(2)}`).join(' · ');
+    return entries.map(([eid, amt]) =>
+      `${opts.names?.[eid] ?? eid} ${formatMoney(amt, { currency })}`
+    ).join(' · ');
   }
 
   // amount may be negative (money back); only 0 / blank falls back to the hint.
@@ -99,7 +102,7 @@ export function splitPreviewLabel(opts: {
     // §5B: divide equally across entities; family size is ignored.
     const E = splitSel.length;
     const per = amount / E;
-    return `${currency} ${per.toFixed(2)} per group`;
+    return `${formatMoney(per, { currency })} per group`;
   }
 
   // §5A: divide across total INVOLVED humans (individual = 1, family = override ?? involved count ??
@@ -107,7 +110,7 @@ export function splitPreviewLabel(opts: {
   const H = perCapitaHumans(members, splitSel, weightOverrides, familyExcluded ?? {});
   if (H <= 0) return HINT;
   const per = amount / H;
-  return `${currency} ${per.toFixed(2)} per person`;
+  return `${formatMoney(per, { currency })} per person`;
 }
 
 const styles = StyleSheet.create({
