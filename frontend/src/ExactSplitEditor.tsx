@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { useTheme } from './ThemeContext';
 import { SPACING, RADIUS, FONTS } from './theme';
 import T from './T';
 import Icon from './ui/Icon';
 import ProgressBar from './ui/ProgressBar';
+import Input from './ui/Input';
 import { familyMemberIds } from './familyParticipation';
 import { familyMemberDisplayNames } from './displayNames';
 import { formatMoney } from './format';
@@ -40,6 +41,14 @@ export default function ExactSplitEditor({ members, currency, total, initialRows
     () => Object.fromEntries(initialRows.map((r) => [r.memberId, r.amount != null ? String(r.amount) : ''])),
   );
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const visibleAmountIds = useMemo(
+    () => members.flatMap((member) => (
+      member.kind === 'family'
+        ? (expanded[member.id] ? familyMemberIds(member) : [])
+        : [member.id]
+    )),
+    [expanded, members],
+  );
   const precisionIssues = useMemo(
     () => Object.fromEntries(
       Object.entries(texts).map(([memberId, text]) => [
@@ -110,30 +119,23 @@ export default function ExactSplitEditor({ members, currency, total, initialRows
   };
 
   const amountInput = (mid: string) => (
-    <View style={styles.amountWrap}>
-      <TextInput
+      <Input
         testID={`exact-amount-${mid}`}
         value={texts[mid] ?? ''}
         onChangeText={(v) => setText(mid, v)}
         editable={editable}
-        keyboardType="numbers-and-punctuation"
+        keyboardType="decimal-pad"
+        inputMode="decimal"
         placeholder={currencyAmountPlaceholder(currency)}
-        placeholderTextColor={colors.textMuted}
-        style={[
-          styles.amount,
-          {
-            color: colors.textMain,
-            borderColor: precisionIssues[mid] ? colors.danger : colors.border,
-            backgroundColor: colors.surface,
-          },
-        ]}
+        accessibilityLabel={`Exact amount for ${displayNames[mid] || 'trip member'}`}
+        error={precisionIssues[mid]}
+        errorTestID={`exact-precision-${mid}`}
+        returnKeyType={visibleAmountIds.at(-1) === mid ? 'done' : 'next'}
+        autoComplete="off"
+        containerStyle={styles.amountWrap}
+        fieldStyle={[styles.amountField, { backgroundColor: colors.surface }]}
+        style={styles.amount}
       />
-      {precisionIssues[mid] ? (
-        <T variant="caption" color={colors.danger} testID={`exact-precision-${mid}`}>
-          {precisionIssues[mid]}
-        </T>
-      ) : null}
-    </View>
   );
 
   const barColor = rec.isValid ? colors.success : rec.remaining < 0 ? colors.danger : colors.primary;
@@ -226,8 +228,6 @@ const styles = StyleSheet.create({
   },
   tick: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flex: 1 },
   amountWrap: { minWidth: 110, maxWidth: 190, gap: 3 },
-  amount: {
-    minWidth: 96, textAlign: 'right', fontFamily: FONTS.number, fontSize: 16,
-    paddingHorizontal: 10, paddingVertical: 8, borderRadius: RADIUS.sm, borderWidth: 1,
-  },
+  amountField: { minWidth: 96, paddingHorizontal: 10, borderRadius: RADIUS.sm },
+  amount: { textAlign: 'right', fontFamily: FONTS.number, fontSize: 16, paddingVertical: 8 },
 });

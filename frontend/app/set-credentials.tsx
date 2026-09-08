@@ -21,13 +21,23 @@ export default function SetCredentials() {
   const [confirm, setConfirm] = useState('');
   const [action, setAction] = useState<'save' | 'switch' | null>(null);
   const busy = action !== null;
+  const [fieldError, setFieldError] = useState<{ field: 'password' | 'confirm'; message: string } | null>(null);
 
-  const passwordError = !!password && !isValidPassword(password) ? PASSWORD_TOO_SHORT_MESSAGE : null;
-  const confirmError = !!confirm && confirm !== password ? PASSWORD_MISMATCH_MESSAGE : null;
+  const passwordError = fieldError?.field === 'password'
+    ? fieldError.message : !!password && !isValidPassword(password) ? PASSWORD_TOO_SHORT_MESSAGE : null;
+  const confirmError = fieldError?.field === 'confirm'
+    ? fieldError.message : !!confirm && confirm !== password ? PASSWORD_MISMATCH_MESSAGE : null;
 
   const submit = async () => {
-    if (!isValidPassword(password)) return toast.show(PASSWORD_TOO_SHORT_MESSAGE, 'error');
-    if (password !== confirm) return toast.show(PASSWORD_MISMATCH_MESSAGE, 'error');
+    if (!isValidPassword(password)) {
+      setFieldError({ field: 'password', message: PASSWORD_TOO_SHORT_MESSAGE });
+      return toast.show(PASSWORD_TOO_SHORT_MESSAGE, 'error');
+    }
+    if (password !== confirm) {
+      setFieldError({ field: 'confirm', message: PASSWORD_MISMATCH_MESSAGE });
+      return toast.show(PASSWORD_MISMATCH_MESSAGE, 'error');
+    }
+    setFieldError(null);
     setAction('save');
     try {
       await api('/auth/set-credentials', { method: 'POST', body: { password } });
@@ -64,7 +74,7 @@ export default function SetCredentials() {
         testID="setcred-password"
         label="Password"
         value={password}
-        onChangeText={setPassword}
+        onChangeText={(value) => { setPassword(value); if (fieldError?.field === 'password') setFieldError(null); }}
         autoCapitalize="none"
         autoComplete="new-password"
         textContentType="newPassword"
@@ -73,12 +83,14 @@ export default function SetCredentials() {
         icon="lock"
         helper={PASSWORD_HINT_MESSAGE}
         error={passwordError}
+        focusOnError={fieldError?.field === 'password'}
+        returnKeyType="next"
       />
       <Input
         testID="setcred-confirm"
         label="Confirm password"
         value={confirm}
-        onChangeText={setConfirm}
+        onChangeText={(value) => { setConfirm(value); if (fieldError?.field === 'confirm') setFieldError(null); }}
         autoCapitalize="none"
         autoComplete="new-password"
         textContentType="newPassword"
@@ -86,6 +98,7 @@ export default function SetCredentials() {
         placeholder="Re-enter your password"
         icon="lock"
         error={confirmError}
+        focusOnError={fieldError?.field === 'confirm'}
         returnKeyType="done"
         onSubmitEditing={submit}
       />

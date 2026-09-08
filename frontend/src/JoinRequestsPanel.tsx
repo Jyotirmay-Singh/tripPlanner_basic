@@ -131,6 +131,8 @@ export default function JoinRequestsPanel({ tripId, onRosterChanged }: Props) {
                   placeholder="Tell them what to check"
                   editable={busyId !== request.id}
                   maxLength={500}
+                  returnKeyType="done"
+                  autoCapitalize="sentences"
                 />
                 <View style={styles.actions}>
                   <Button

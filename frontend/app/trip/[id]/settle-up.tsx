@@ -1,5 +1,14 @@
-import React, { useCallback, useState } from 'react';
-import { View, StyleSheet, Modal, Pressable, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import {
+  AccessibilityInfo,
+  View,
+  StyleSheet,
+  Modal,
+  Pressable,
+  Platform,
+  ScrollView,
+  TextInput,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { api, listPayments, recordPayment, editPayment, deletePayment } from '../../../src/api';
@@ -30,6 +39,7 @@ import {
 import {
   Screen, Card, Button, Icon, IconButton, Input, EmptyState, AmountText, SkeletonCard, useToast,
 } from '../../../src/ui';
+import { KeyboardAvoidingView } from '../../../src/KeyboardController';
 
 type Member = {
   id: string;
@@ -442,6 +452,7 @@ export function AmountModal({
   );
   const [noteStr, setNoteStr] = useState(initialNote);
   const [error, setError] = useState<string | null>(null);
+  const amountRef = useRef<TextInput>(null);
 
   const submit = () => {
     const parsed = Number(amountStr);
@@ -453,7 +464,15 @@ export function AmountModal({
       rawAmount: amountStr,
       allowLegacyPrecision: unchangedLegacy,
     });
-    if (!v.ok) { setError(v.error); return; }
+    if (!v.ok) {
+      const message = v.error || 'Enter a valid amount';
+      setError(message);
+      requestAnimationFrame(() => {
+        amountRef.current?.focus();
+        AccessibilityInfo.announceForAccessibility(message);
+      });
+      return;
+    }
     onSubmit(amt, noteStr);
   };
 
@@ -471,7 +490,9 @@ export function AmountModal({
           fit (small screens / keyboard open). */}
       <Pressable style={styles.scrim} onPress={onCancel}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior="padding"
+          automaticOffset
+          testID="payment-keyboard-view"
           style={[
             styles.modalKav,
             {
@@ -504,11 +525,13 @@ export function AmountModal({
             <ScrollView
               style={styles.modalBody}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={{ paddingBottom: SPACING.xs }}
             >
               <T muted>{subtitle}</T>
               <Input
+                ref={amountRef}
                 label={`Amount (${currency})`}
                 value={amountStr}
                 onChangeText={(t) => { setAmountStr(t); if (error) setError(null); }}
@@ -522,6 +545,7 @@ export function AmountModal({
                   : `Max ${formatMoney(max, { currency })}`}
                 error={error}
                 autoFocus
+                returnKeyType="next"
                 containerStyle={{ marginTop: SPACING.md }}
                 testID="payment-amount-input"
               />
@@ -531,6 +555,7 @@ export function AmountModal({
                 onChangeText={setNoteStr}
                 placeholder="Made the payment on Gpay app."
                 multiline
+                submitBehavior="newline"
                 containerStyle={{ marginTop: SPACING.md }}
                 testID="payment-remark-input"
               />

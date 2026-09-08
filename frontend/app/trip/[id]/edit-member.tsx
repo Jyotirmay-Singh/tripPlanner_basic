@@ -7,7 +7,10 @@ import T from '../../../src/T';
 import { isGmail, GMAIL_ONLY_MESSAGE, isEmailTaken, DUPLICATE_EMAIL_MESSAGE } from '../../../src/validation';
 import ConfirmModal from '../../../src/ConfirmModal';
 import FamilyMembersEditor from '../../../src/FamilyMembersEditor';
-import { FamilyRow, familyToRows, rowsToPayload, familyEmailIssue, tripMemberEmails } from '../../../src/familyParticipation';
+import type { FamilyEditorValidationIssue } from '../../../src/FamilyMembersEditor';
+import {
+  FamilyRow, familyToRows, rowsToPayload, firstFamilyEmailIssue, tripMemberEmails,
+} from '../../../src/familyParticipation';
 import { FormScreen, Input, Button, SegmentedControl, Screen, useToast } from '../../../src/ui';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; family_member_ids?: (string | null)[]; family_member_emails?: (string | null)[]; email?: string | null; user_id?: string | null };
@@ -30,10 +33,13 @@ export default function EditMember() {
   const [delta, setDelta] = useState<{ from: number; to: number }>({ from: 0, to: 0 });
   // Other members' linked emails (excluding this row), to mirror the server's one-email rule.
   const [takenEmails, setTakenEmails] = useState<(string | null | undefined)[]>([]);
+  const [nameSubmitError, setNameSubmitError] = useState<string | null>(null);
+  const [emailSubmitError, setEmailSubmitError] = useState<string | null>(null);
+  const [familyValidationIssue, setFamilyValidationIssue] = useState<FamilyEditorValidationIssue | null>(null);
 
-  const emailError = email.trim() && !isGmail(email)
+  const emailError = emailSubmitError || (email.trim() && !isGmail(email)
     ? GMAIL_ONLY_MESSAGE
-    : isEmailTaken(email, takenEmails) ? DUPLICATE_EMAIL_MESSAGE : null;
+    : isEmailTaken(email, takenEmails) ? DUPLICATE_EMAIL_MESSAGE : null);
 
   useEffect(() => {
     (async () => {
@@ -75,18 +81,40 @@ export default function EditMember() {
 
   const submit = () => {
     if (!member) return;
-    if (!name.trim()) return toast.show('Name is required', 'error');
-    if (kind === 'individual') {
-      // Phase 26: only an individual carries a linked email; a family's emails live per-member.
-      if (email.trim() && !isGmail(email)) return toast.show(GMAIL_ONLY_MESSAGE, 'error');
-      if (isEmailTaken(email, takenEmails)) return toast.show(DUPLICATE_EMAIL_MESSAGE, 'error');
-    } else {
-      const issue = familyEmailIssue(familyRows, takenEmails);
-      if (issue === 'gmail') return toast.show(GMAIL_ONLY_MESSAGE, 'error');
-      if (issue === 'duplicate') return toast.show(DUPLICATE_EMAIL_MESSAGE, 'error');
+    if (!name.trim()) {
+      setNameSubmitError('Name is required');
+      return toast.show('Name is required', 'error');
     }
     const newFM = kind === 'family' ? rowsToPayload(familyRows).family_members : [];
-    if (kind === 'family' && newFM.length === 0) return toast.show('Add at least one family member name', 'error');
+    if (kind === 'family' && newFM.length === 0) {
+      setFamilyValidationIssue({
+        index: Math.max(0, familyRows.findIndex((row) => !row.name.trim())),
+        field: 'name',
+        message: 'Add at least one family member name',
+      });
+      return toast.show('Add at least one family member name', 'error');
+    }
+    if (kind === 'individual') {
+      // Phase 26: only an individual carries a linked email; a family's emails live per-member.
+      if (email.trim() && !isGmail(email)) {
+        setEmailSubmitError(GMAIL_ONLY_MESSAGE);
+        return toast.show(GMAIL_ONLY_MESSAGE, 'error');
+      }
+      if (isEmailTaken(email, takenEmails)) {
+        setEmailSubmitError(DUPLICATE_EMAIL_MESSAGE);
+        return toast.show(DUPLICATE_EMAIL_MESSAGE, 'error');
+      }
+    } else {
+      const issue = firstFamilyEmailIssue(familyRows, takenEmails);
+      if (issue) {
+        const message = issue.kind === 'gmail' ? GMAIL_ONLY_MESSAGE : DUPLICATE_EMAIL_MESSAGE;
+        setFamilyValidationIssue({ index: issue.index, field: 'email', message });
+        return toast.show(message, 'error');
+      }
+    }
+    setNameSubmitError(null);
+    setEmailSubmitError(null);
+    setFamilyValidationIssue(null);
     const oldW = effWeight(originalKind, originalFM);
     const newW = effWeight(kind, newFM);
     if (oldW !== newW && qualifiesForRecalc) {
@@ -110,14 +138,34 @@ export default function EditMember() {
             <SegmentedControl
               segments={[{ value: 'individual', label: 'Individual', icon: 'user' }, { value: 'family', label: 'Family', icon: 'users' }]}
               value={kind}
-              onChange={setKind}
+              onChange={(value) => {
+                setKind(value);
+                setNameSubmitError(null);
+                setEmailSubmitError(null);
+                setFamilyValidationIssue(null);
+              }}
               testIDPrefix="em-kind"
             />
 
-            <Input testID="em-name" label={`${kind === 'family' ? 'Family name' : 'Name'} *`} value={name} onChangeText={setName} />
+            <Input
+              testID="em-name"
+              label={`${kind === 'family' ? 'Family name' : 'Name'} *`}
+              value={name}
+              onChangeText={(value) => { setName(value); setNameSubmitError(null); }}
+              autoCapitalize="words"
+              returnKeyType="next"
+              error={nameSubmitError}
+              focusOnError={!!nameSubmitError}
+            />
 
             {kind === 'family' && (
-              <FamilyMembersEditor rows={familyRows} onChange={setFamilyRows} takenEmails={takenEmails} testIDPrefix="em-fam" />
+              <FamilyMembersEditor
+                rows={familyRows}
+                onChange={(rows) => { setFamilyRows(rows); setFamilyValidationIssue(null); }}
+                takenEmails={takenEmails}
+                testIDPrefix="em-fam"
+                validationIssue={familyValidationIssue}
+              />
             )}
 
             {/* Phase 26: only an individual carries a linked email; a family's emails are per-member. */}
@@ -126,12 +174,17 @@ export default function EditMember() {
                 testID="em-email"
                 label="Linked email"
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(value) => { setEmail(value); setEmailSubmitError(null); }}
                 autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="email"
+                textContentType="emailAddress"
                 keyboardType="email-address"
                 placeholder="(optional) you@gmail.com"
                 icon="mail"
                 error={emailError}
+                focusOnError={!!emailSubmitError}
+                returnKeyType="done"
               />
             )}
 

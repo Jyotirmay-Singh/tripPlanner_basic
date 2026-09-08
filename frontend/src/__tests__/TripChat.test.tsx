@@ -89,6 +89,26 @@ it('renders every sender label, family context, edited state, and composer limit
   expect(text).toContain('edited');
   expect(renderer.root.findByProps({ testID: 'chat-composer' }).props.maxLength).toBe(2000);
   expect(renderer.root.findByProps({ testID: 'chat-owner-options' })).toBeTruthy();
+  expect(renderer.root.findByProps({ testID: 'trip-chat-keyboard-view' }).props)
+    .toEqual(expect.objectContaining({ behavior: 'translate-with-padding', automaticOffset: true }));
+  expect(renderer.root.findByProps({ testID: 'chat-composer' }).props)
+    .toEqual(expect.objectContaining({ multiline: true, submitBehavior: 'newline' }));
+  act(() => renderer.unmount());
+});
+
+it('shows the themed composer focus border without changing the draft', async () => {
+  const controller = baseController();
+  let renderer: any;
+  await act(async () => {
+    renderer = TestRenderer.create(
+      <TripChat header={null} controller={controller} currentUserId="u1" isOwner={false} canSend />,
+    );
+  });
+  const input = renderer.root.findByProps({ testID: 'chat-composer' });
+  act(() => input.props.onChangeText('Draft'));
+  act(() => input.props.onFocus());
+  expect(renderer.root.findByProps({ testID: 'chat-composer' }).props.value).toBe('Draft');
+  expect(renderer.root.findByProps({ testID: 'chat-composer' }).props.cursorColor).toBe('#1c3f39');
   act(() => renderer.unmount());
 });
 

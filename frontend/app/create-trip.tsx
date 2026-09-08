@@ -19,10 +19,15 @@ export default function CreateTrip() {
   const [name, setName] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [dateError, setDateError] = useState<string | null>(null);
+  const [dateError, setDateError] = useState<{
+    field: 'start' | 'end'; message: string;
+  } | null>(null);
   const [budget, setBudget] = useState('');
   const [currency, setCurrency] = useState('INR');
   const [saving, setSaving] = useState(false);
+  const [fieldError, setFieldError] = useState<{
+    field: 'name' | 'budget' | 'familyName' | 'member'; message: string; index?: number;
+  } | null>(null);
   const budgetPrecisionIssue = currencyPrecisionIssue(budget, currency, 'Budget');
 
   // Phase 26 — the creator's own identity in this trip. "individual" (default) keeps the legacy
@@ -46,24 +51,41 @@ export default function CreateTrip() {
   };
 
   const submit = async () => {
-    if (!name.trim()) return toast.show('Trip name is required', 'error');
-    if (budgetPrecisionIssue) return toast.show(budgetPrecisionIssue, 'error');
-    if (budget.trim() && !Number.isFinite(Number(budget))) {
-      return toast.show('Enter a valid budget', 'error');
+    if (!name.trim()) {
+      setFieldError({ field: 'name', message: 'Trip name is required' });
+      return toast.show('Trip name is required', 'error');
     }
     const startISO = startDate.trim() ? toISO(startDate) : null;
     const endISO = endDate.trim() ? toISO(endDate) : null;
-    if ((startDate.trim() && !startISO) || (endDate.trim() && !endISO)) {
-      setDateError(INVALID_DATE_MESSAGE);
+    if (startDate.trim() && !startISO) {
+      setDateError({ field: 'start', message: INVALID_DATE_MESSAGE });
+      return;
+    }
+    if (endDate.trim() && !endISO) {
+      setDateError({ field: 'end', message: INVALID_DATE_MESSAGE });
       return;
     }
     if (startISO && endISO && !isRangeValid(startISO, endISO)) {
-      setDateError(END_BEFORE_START_MESSAGE);
+      setDateError({ field: 'end', message: END_BEFORE_START_MESSAGE });
       return;
     }
     setDateError(null);
+    if (budgetPrecisionIssue) {
+      setFieldError({ field: 'budget', message: budgetPrecisionIssue });
+      return toast.show(budgetPrecisionIssue, 'error');
+    }
+    if (budget.trim() && !Number.isFinite(Number(budget))) {
+      setFieldError({ field: 'budget', message: 'Enter a valid budget' });
+      return toast.show('Enter a valid budget', 'error');
+    }
     const idIssue = identityIssue({ self_kind: selfKind, familyName, memberNames, selfIndex });
-    if (idIssue) return toast.show(idIssue, 'error');
+    if (idIssue) {
+      setFieldError(idIssue === 'Family name is required'
+        ? { field: 'familyName', message: idIssue }
+        : { field: 'member', index: selfIndex, message: idIssue });
+      return toast.show(idIssue, 'error');
+    }
+    setFieldError(null);
     setSaving(true);
     try {
       const trip = await api<{ id: string }>('/trips', {
@@ -84,18 +106,46 @@ export default function CreateTrip() {
           <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
             <T variant="h1">New Trip</T>
 
-            <Input testID="ct-name" label="Trip name *" value={name} onChangeText={setName} placeholder="e.g. Goa December" icon="plane" />
-            <DateField testID="ct-start" label="Start date (optional)" value={startDate} onChangeText={(v) => { setStartDate(v); setDateError(null); }} error={dateError} />
-            <DateField testID="ct-end" label="End date (optional)" value={endDate} onChangeText={(v) => { setEndDate(v); setDateError(null); }} minISO={toISO(startDate) ?? undefined} />
+            <Input
+              testID="ct-name"
+              label="Trip name *"
+              value={name}
+              onChangeText={(value) => { setName(value); if (fieldError?.field === 'name') setFieldError(null); }}
+              placeholder="e.g. Goa December"
+              icon="plane"
+              autoCapitalize="words"
+              returnKeyType="next"
+              error={fieldError?.field === 'name' ? fieldError.message : null}
+              focusOnError={fieldError?.field === 'name'}
+            />
+            <DateField
+              testID="ct-start"
+              label="Start date (optional)"
+              value={startDate}
+              onChangeText={(v) => { setStartDate(v); setDateError(null); }}
+              error={dateError?.field === 'start' ? dateError.message : null}
+            />
+            <DateField
+              testID="ct-end"
+              label="End date (optional)"
+              value={endDate}
+              onChangeText={(v) => { setEndDate(v); setDateError(null); }}
+              error={dateError?.field === 'end' ? dateError.message : null}
+              minISO={toISO(startDate) ?? undefined}
+            />
             <Input
               testID="ct-budget"
               label="Budget (optional)"
               value={budget}
-              onChangeText={setBudget}
+              onChangeText={(value) => { setBudget(value); if (fieldError?.field === 'budget') setFieldError(null); }}
               keyboardType="decimal-pad"
               placeholder={currencyAmountPlaceholder(currency)}
-              error={budgetPrecisionIssue}
+              error={fieldError?.field === 'budget' ? fieldError.message : budgetPrecisionIssue}
+              focusOnError={fieldError?.field === 'budget'}
               icon="wallet"
+              inputMode="decimal"
+              autoComplete="off"
+              returnKeyType={selfKind === 'family' ? 'next' : 'done'}
             />
 
             <CurrencyPicker
@@ -114,7 +164,7 @@ export default function CreateTrip() {
                   { value: 'family', label: "I'm in a family", icon: 'users' },
                 ]}
                 value={selfKind}
-                onChange={setSelfKind}
+                onChange={(value) => { setSelfKind(value); setFieldError(null); }}
                 testIDPrefix="ct-self"
               />
             </View>
@@ -125,9 +175,13 @@ export default function CreateTrip() {
                   testID="ct-family-name"
                   label="Family name *"
                   value={familyName}
-                  onChangeText={setFamilyName}
+                  onChangeText={(value) => { setFamilyName(value); if (fieldError?.field === 'familyName') setFieldError(null); }}
                   placeholder="e.g. Sharma Family"
                   icon="users"
+                  autoCapitalize="words"
+                  returnKeyType="next"
+                  error={fieldError?.field === 'familyName' ? fieldError.message : null}
+                  focusOnError={fieldError?.field === 'familyName'}
                 />
                 <T variant="label" muted>Family members *</T>
                 {memberNames.map((nm, i) => (
@@ -144,8 +198,17 @@ export default function CreateTrip() {
                         <Input
                           testID={`ct-fam-name-${i}`}
                           value={nm}
-                          onChangeText={(t) => setMemberName(i, t)}
+                          onChangeText={(t) => {
+                            setMemberName(i, t);
+                            if (fieldError?.field === 'member' && fieldError.index === i) setFieldError(null);
+                          }}
                           placeholder={`Member ${i + 1}`}
+                          autoCapitalize="words"
+                          autoCorrect={false}
+                          returnKeyType={i === memberNames.length - 1 ? 'done' : 'next'}
+                          error={fieldError?.field === 'member' && fieldError.index === i
+                            ? fieldError.message : null}
+                          focusOnError={fieldError?.field === 'member' && fieldError.index === i}
                         />
                       </View>
                       {memberNames.length > 1 && (

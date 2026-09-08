@@ -19,9 +19,14 @@ export default function VerifyEmail() {
   const params = useLocalSearchParams<{ token?: string }>();
   const [token, setToken] = useState((params.token as string) || '');
   const [status, setStatus] = useState<Status>(params.token ? 'verifying' : 'idle');
+  const [tokenError, setTokenError] = useState<string | null>(null);
 
   const verify = async (t: string) => {
-    if (!t) return toast.show('Enter the token from your email', 'error');
+    if (!t.trim()) {
+      setTokenError('Enter the token from your email');
+      return toast.show('Enter the token from your email', 'error');
+    }
+    setTokenError(null);
     setStatus('verifying');
     try {
       await api('/auth/verify-email', { method: 'POST', body: { token: t.trim() }, auth: false });
@@ -73,10 +78,17 @@ export default function VerifyEmail() {
         testID="verify-token"
         label="Verification token"
         value={token}
-        onChangeText={setToken}
+        onChangeText={(value) => { setToken(value); setTokenError(null); }}
         autoCapitalize="none"
+        autoCorrect={false}
+        autoComplete="one-time-code"
+        textContentType="oneTimeCode"
         placeholder="Token from email"
         icon="key"
+        error={tokenError}
+        focusOnError={!!tokenError}
+        returnKeyType="done"
+        onSubmitEditing={() => verify(token)}
       />
       <Button label="Verify email" icon="check" onPress={() => verify(token)} fullWidth size="lg" testID="verify-submit" />
       <Button label="Back to sign in" variant="ghost" onPress={goOn} fullWidth testID="verify-back" />

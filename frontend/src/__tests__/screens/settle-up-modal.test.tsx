@@ -78,6 +78,9 @@ describe('settle-up AmountModal (✕ close + reachable footer)', () => {
     expect(continueButton).toBeTruthy();
     expect(cancel.props.fullWidth).toBe(true);
     expect(continueButton.props.fullWidth).toBe(true);
+    expect(host(r, 'payment-keyboard-view').props).toEqual(expect.objectContaining({
+      behavior: 'padding', automaticOffset: true,
+    }));
     expect(StyleSheet.flatten(cancel.parent?.parent?.props.style).flex).toBe(1);
     expect(StyleSheet.flatten(continueButton.parent?.parent?.props.style).flex).toBe(1);
   });

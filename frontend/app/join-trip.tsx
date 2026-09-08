@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -413,7 +412,7 @@ export default function JoinTrip() {
         </View>
         <T variant="h1" style={styles.titleTop}>Join a trip</T>
         <T muted>Enter the 6-character code shared by the trip organizer.</T>
-        <TextInput
+        <Input
           testID="jt-code"
           value={code}
           onChangeText={(value) => {
@@ -425,18 +424,19 @@ export default function JoinTrip() {
           placeholderTextColor={colors.textMuted}
           autoCapitalize="characters"
           autoCorrect={false}
+          autoComplete="off"
+          textContentType="none"
           editable={!busy}
           accessibilityLabel="Trip code"
-          style={[
-            styles.codeInput,
-            {
-              color: colors.textMain,
-              backgroundColor: colors.surfaceMuted,
-              borderColor: error ? colors.danger : colors.border,
-            },
-          ]}
+          error={error}
+          errorTestID="jt-error"
+          focusOnError={!!error}
+          returnKeyType="done"
+          onSubmitEditing={() => { if (code.length === 6 && !busy) void loadPreview(); }}
+          containerStyle={styles.codeContainer}
+          fieldStyle={styles.codeField}
+          style={styles.codeInput}
         />
-        {error ? <T testID="jt-error" variant="caption" color={colors.danger}>{error}</T> : null}
         <Button
           label="Continue"
           iconRight="chevron-right"
@@ -827,6 +827,11 @@ export default function JoinTrip() {
               onChangeText={(value) => { setFamilyName(value); if (error) setError(null); }}
               placeholder="e.g. Sharma family"
               editable={!busy}
+              autoCapitalize="words"
+              autoCorrect={false}
+              returnKeyType="next"
+              error={error === 'Family name is required' ? error : null}
+              focusOnError={error === 'Family name is required'}
             />
             <Input
               testID="jt-family-members"
@@ -836,6 +841,11 @@ export default function JoinTrip() {
               placeholder="e.g. Arjun, Priya, Rohan"
               editable={!busy}
               helper="Include yourself first. The family's expenses are divided among these people."
+              autoCapitalize="words"
+              autoCorrect={false}
+              returnKeyType="done"
+              error={error === 'Add at least one family member name' ? error : null}
+              focusOnError={error === 'Add at least one family member name'}
             />
           </View>
         ) : null}
@@ -895,16 +905,14 @@ const styles = StyleSheet.create({
   },
   titleTop: { marginTop: SPACING.sm },
   codeInput: {
-    minHeight: COMPONENT_SIZE.minTouchTarget,
-    paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.md,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
     fontSize: TYPESCALE.xxl,
     letterSpacing: SPACING.sm,
     textAlign: 'center',
     fontFamily: FONTS.numberBold,
   },
+  codeContainer: { width: '100%' },
+  codeField: { minHeight: COMPONENT_SIZE.minTouchTarget, borderRadius: RADIUS.md },
   back: {
     minHeight: COMPONENT_SIZE.minTouchTarget,
     flexDirection: 'row',

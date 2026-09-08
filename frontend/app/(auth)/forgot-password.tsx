@@ -11,12 +11,20 @@ export default function ForgotPassword() {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const emailError = !!email && !isGmail(email) ? GMAIL_ONLY_MESSAGE : null;
+  const emailError = submitError || (!!email && !isGmail(email) ? GMAIL_ONLY_MESSAGE : null);
 
   const submit = async () => {
-    if (!email) return toast.show('Enter your email', 'error');
-    if (!isGmail(email)) return toast.show(GMAIL_ONLY_MESSAGE, 'error');
+    if (!email.trim()) {
+      setSubmitError('Enter your email');
+      return toast.show('Enter your email', 'error');
+    }
+    if (!isGmail(email)) {
+      setSubmitError(GMAIL_ONLY_MESSAGE);
+      return toast.show(GMAIL_ONLY_MESSAGE, 'error');
+    }
+    setSubmitError(null);
     setBusy(true);
     try {
       await api('/auth/request-password-reset', { method: 'POST', body: { email: email.trim() }, auth: false });
@@ -50,12 +58,18 @@ export default function ForgotPassword() {
         testID="forgot-pw-email"
         label="Email"
         value={email}
-        onChangeText={setEmail}
+        onChangeText={(value) => { setEmail(value); setSubmitError(null); }}
         autoCapitalize="none"
+        autoCorrect={false}
+        autoComplete="email"
+        textContentType="emailAddress"
         keyboardType="email-address"
         placeholder="you@gmail.com"
         icon="mail"
         error={emailError}
+        focusOnError={!!submitError}
+        returnKeyType="done"
+        onSubmitEditing={submit}
       />
       <Button
         label={busy ? 'Sending…' : 'Send reset link'}

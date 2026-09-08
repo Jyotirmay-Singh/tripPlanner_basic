@@ -17,6 +17,7 @@ import { FONTS } from '../src/theme';
 import { authRedirectTarget, navResetTo, isPublicTokenRoute } from '../src/authNav';
 import PushNotificationCoordinator from '../src/PushNotificationCoordinator';
 import AppSystemBars from '../src/AppSystemBars';
+import { AppKeyboardProvider } from '../src/KeyboardController';
 
 // Keep the native splash up until our fonts are ready, so text never flashes in a fallback face.
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -102,17 +103,19 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-        <ThemeProvider>
-          <AppSystemBars>
-            <ToastProvider>
-              <AuthProvider>
-                <Inner />
-              </AuthProvider>
-            </ToastProvider>
-          </AppSystemBars>
-        </ThemeProvider>
-      </SafeAreaProvider>
+      <AppKeyboardProvider>
+        <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+          <ThemeProvider>
+            <AppSystemBars>
+              <ToastProvider>
+                <AuthProvider>
+                  <Inner />
+                </AuthProvider>
+              </ToastProvider>
+            </AppSystemBars>
+          </ThemeProvider>
+        </SafeAreaProvider>
+      </AppKeyboardProvider>
     </GestureHandlerRootView>
   );
 }

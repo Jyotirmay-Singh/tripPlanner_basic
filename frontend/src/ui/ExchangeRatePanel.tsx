@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, TouchableOpacity, View, type TextInputProps } from 'react-native';
 
 import T from '../T';
 import { useTheme } from '../ThemeContext';
@@ -52,6 +52,7 @@ type Props = {
   onQuoteChange?: (quote: ExchangeRateQuote | null) => void;
   onRequoteRequiredChange?: (required: boolean) => void;
   testID?: string;
+  returnKeyType?: TextInputProps['returnKeyType'];
 };
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -85,6 +86,7 @@ export default function ExchangeRatePanel({
   onQuoteChange,
   onRequoteRequiredChange,
   testID = 'exchange-rate',
+  returnKeyType = 'done',
 }: Props) {
   const { colors } = useTheme();
   const [mode, setMode] = useState<ExchangeRateMode>('automatic');
@@ -283,10 +285,13 @@ export default function ExchangeRatePanel({
             value={manualValue}
             onChangeText={setManualValue}
             keyboardType="decimal-pad"
+            inputMode="decimal"
             placeholder={manualInputType === 'target_amount'
               ? currencyAmountPlaceholder(targetCurrency)
               : '0.000000'}
             error={manualPrecisionIssue || undefined}
+            returnKeyType={returnKeyType}
+            autoComplete="off"
           />
         </>
       ) : null}

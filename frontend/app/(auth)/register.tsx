@@ -22,16 +22,39 @@ export default function Register() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
+  const [fieldError, setFieldError] = useState<{
+    field: 'name' | 'email' | 'password' | 'confirm'; message: string;
+  } | null>(null);
 
-  const emailError = !!email && !isGmail(email) ? GMAIL_ONLY_MESSAGE : null;
-  const passwordError = !!password && !isValidPassword(password) ? PASSWORD_TOO_SHORT_MESSAGE : null;
-  const confirmError = !!confirm && confirm !== password ? PASSWORD_MISMATCH_MESSAGE : null;
+  const emailError = fieldError?.field === 'email'
+    ? fieldError.message : !!email && !isGmail(email) ? GMAIL_ONLY_MESSAGE : null;
+  const passwordError = fieldError?.field === 'password'
+    ? fieldError.message : !!password && !isValidPassword(password) ? PASSWORD_TOO_SHORT_MESSAGE : null;
+  const confirmError = fieldError?.field === 'confirm'
+    ? fieldError.message : !!confirm && confirm !== password ? PASSWORD_MISMATCH_MESSAGE : null;
 
   const submit = async () => {
-    if (!name.trim() || !email.trim()) return toast.show('Enter your name and email', 'error');
-    if (!isGmail(email)) return toast.show(GMAIL_ONLY_MESSAGE, 'error');
-    if (!isValidPassword(password)) return toast.show(PASSWORD_TOO_SHORT_MESSAGE, 'error');
-    if (password !== confirm) return toast.show(PASSWORD_MISMATCH_MESSAGE, 'error');
+    if (!name.trim()) {
+      setFieldError({ field: 'name', message: 'Enter your name' });
+      return toast.show('Enter your name', 'error');
+    }
+    if (!email.trim()) {
+      setFieldError({ field: 'email', message: 'Enter your email' });
+      return toast.show('Enter your email', 'error');
+    }
+    if (!isGmail(email)) {
+      setFieldError({ field: 'email', message: GMAIL_ONLY_MESSAGE });
+      return toast.show(GMAIL_ONLY_MESSAGE, 'error');
+    }
+    if (!isValidPassword(password)) {
+      setFieldError({ field: 'password', message: PASSWORD_TOO_SHORT_MESSAGE });
+      return toast.show(PASSWORD_TOO_SHORT_MESSAGE, 'error');
+    }
+    if (password !== confirm) {
+      setFieldError({ field: 'confirm', message: PASSWORD_MISMATCH_MESSAGE });
+      return toast.show(PASSWORD_MISMATCH_MESSAGE, 'error');
+    }
+    setFieldError(null);
     setLoading(true);
     try {
       await register(email.trim(), name.trim(), password);
@@ -50,12 +73,25 @@ export default function Register() {
       title="Let's get started"
       subtitle="Your trips, shared seamlessly."
     >
-      <Input testID="reg-name" label="Your name" value={name} onChangeText={setName} placeholder="Jane Doe" icon="user" />
+      <Input
+        testID="reg-name"
+        label="Your name"
+        value={name}
+        onChangeText={(value) => { setName(value); if (fieldError?.field === 'name') setFieldError(null); }}
+        placeholder="Jane Doe"
+        icon="user"
+        autoCapitalize="words"
+        autoComplete="name"
+        textContentType="name"
+        error={fieldError?.field === 'name' ? fieldError.message : null}
+        focusOnError={fieldError?.field === 'name'}
+        returnKeyType="next"
+      />
       <Input
         testID="reg-email"
         label="Email"
         value={email}
-        onChangeText={setEmail}
+        onChangeText={(value) => { setEmail(value); if (fieldError?.field === 'email') setFieldError(null); }}
         autoCapitalize="none"
         autoComplete="email"
         textContentType="emailAddress"
@@ -63,12 +99,14 @@ export default function Register() {
         placeholder="you@gmail.com"
         icon="mail"
         error={emailError}
+        focusOnError={fieldError?.field === 'email'}
+        returnKeyType="next"
       />
       <Input
         testID="reg-password"
         label="Password"
         value={password}
-        onChangeText={setPassword}
+        onChangeText={(value) => { setPassword(value); if (fieldError?.field === 'password') setFieldError(null); }}
         autoCapitalize="none"
         autoComplete="new-password"
         textContentType="newPassword"
@@ -77,12 +115,14 @@ export default function Register() {
         icon="lock"
         helper={PASSWORD_HINT_MESSAGE}
         error={passwordError}
+        focusOnError={fieldError?.field === 'password'}
+        returnKeyType="next"
       />
       <Input
         testID="reg-confirm-password"
         label="Confirm password"
         value={confirm}
-        onChangeText={setConfirm}
+        onChangeText={(value) => { setConfirm(value); if (fieldError?.field === 'confirm') setFieldError(null); }}
         autoCapitalize="none"
         autoComplete="new-password"
         textContentType="newPassword"
@@ -90,6 +130,7 @@ export default function Register() {
         placeholder="Re-enter your password"
         icon="lock"
         error={confirmError}
+        focusOnError={fieldError?.field === 'confirm'}
         returnKeyType="done"
         onSubmitEditing={submit}
       />

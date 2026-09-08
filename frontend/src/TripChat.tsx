@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
@@ -35,6 +34,7 @@ import {
 } from './theme';
 import type { TripChatController } from './useTripChat';
 import { ActionSheet, Button, Icon, IconButton, useToast } from './ui';
+import { KeyboardAvoidingView } from './KeyboardController';
 
 type Props = {
   header: React.ReactNode;
@@ -81,6 +81,7 @@ export default function TripChat({
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [showJump, setShowJump] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [composerFocused, setComposerFocused] = useState(false);
 
   const { connection } = controller;
   const permanentlyUnavailable = connection.status === 'unavailable' && connection.attempt === 0;
@@ -400,7 +401,12 @@ export default function TripChat({
   );
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior="translate-with-padding"
+      automaticOffset
+      testID="trip-chat-keyboard-view"
+    >
       <FlatList
         ref={listRef}
         data={controller.messages}
@@ -475,22 +481,37 @@ export default function TripChat({
               {composerNotice}
             </T>
           ) : null}
-          <View style={[styles.composer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={[
+            styles.composer,
+            {
+              backgroundColor: colors.surface,
+              borderColor: composerFocused ? colors.primary : colors.border,
+            },
+          ]}>
             <TextInput
               value={draft}
               onChangeText={setDraft}
               placeholder="Message the trip…"
               placeholderTextColor={colors.textMuted}
               multiline
+              submitBehavior="newline"
               maxLength={2000}
               editable={composerEnabled}
               accessibilityLabel={editing ? 'Edit message' : 'Message the trip'}
+              accessibilityState={{ disabled: !composerEnabled }}
+              cursorColor={colors.primary}
+              selectionColor={colors.primary + '55'}
+              selectionHandleColor={colors.primary}
+              autoCapitalize="sentences"
+              autoCorrect
               style={[styles.input, { color: colors.textMain }]}
               onFocus={() => {
+                setComposerFocused(true);
                 if (nearBottom.current) {
                   requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
                 }
               }}
+              onBlur={() => setComposerFocused(false)}
               onKeyPress={(event: any) => {
                 if (Platform.OS === 'web' && event.nativeEvent.key === 'Enter' && !event.nativeEvent.shiftKey) {
                   event.preventDefault?.();

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View, TextInput, TouchableOpacity, StyleSheet, ScrollView,
+  View, TouchableOpacity, StyleSheet, ScrollView,
   Image, Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -48,6 +48,7 @@ export default function AddExpense() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [expenseCurrency, setExpenseCurrency] = useState('INR');
   const [amount, setAmount] = useState('');
+  const [amountError, setAmountError] = useState<string | null>(null);
   // Net of every existing transaction's signed amount — drives the soft "refund > spend" warning only.
   const [tripNetSpend, setTripNetSpend] = useState(0);
   const [desc, setDesc] = useState('');
@@ -55,6 +56,7 @@ export default function AddExpense() {
   // Date is held in display form (dd/mm/yyyy) for the calendar picker; converted to the stored
   // DD-MM-YY format only at submit. Time is optional ('HH:MM' or '' = none), empty by default.
   const [dateDisplay, setDateDisplay] = useState(formatDDMMYYYY(partsFromLocalDate(new Date())));
+  const [dateError, setDateError] = useState<string | null>(null);
   const [time, setTime] = useState('');
   const [paidBy, setPaidBy] = useState<string | null>(null);
   const [splitSel, setSplitSel] = useState<string[]>([]);
@@ -140,11 +142,22 @@ export default function AddExpense() {
       return toast.show(message, 'error');
     }
     const precisionIssue = currencyPrecisionIssue(amount, expenseCurrency);
-    if (precisionIssue) return toast.show(precisionIssue, 'error');
+    if (precisionIssue) {
+      setAmountError(precisionIssue);
+      return toast.show(precisionIssue, 'error');
+    }
     const a = parseAmount(amount);
-    if (!isValidAmount(a)) return toast.show('Enter a non-zero amount', 'error');
+    if (!isValidAmount(a)) {
+      setAmountError('Enter a non-zero amount');
+      return toast.show('Enter a non-zero amount', 'error');
+    }
+    setAmountError(null);
     const date = ddmmyyyyToDDMMYY(dateDisplay);  // -> stored DD-MM-YY (format unchanged)
-    if (!date) return toast.show('Enter a valid date as dd/mm/yyyy', 'error');
+    if (!date) {
+      setDateError('Enter a valid date as dd/mm/yyyy');
+      return toast.show('Enter a valid date as dd/mm/yyyy', 'error');
+    }
+    setDateError(null);
     if (isForeign && !approvedConversion) {
       return toast.show('Review and approve the conversion before saving.', 'error');
     }
@@ -251,7 +264,7 @@ export default function AddExpense() {
               testID="ae-currency"
               label="Expense currency"
               value={expenseCurrency}
-              onChange={setExpenseCurrency}
+              onChange={(value) => { setExpenseCurrency(value); setAmountError(null); }}
               helper={`Official trip currency: ${trip.currency}`}
             />
             {currencyBlocked ? (
@@ -300,23 +313,37 @@ export default function AddExpense() {
               <T variant="label" muted>{expenseCurrency} amount * (use a minus for money back)</T>
               <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: SPACING.sm, marginTop: 6 }}>
                 <T style={{ fontFamily: FONTS.number, fontSize: 28, color: colors.textMuted }}>{expenseCurrency}</T>
-                <TextInput testID="ae-amount" value={amount} onChangeText={setAmount}
+                <Input
+                  testID="ae-amount"
+                  value={amount}
+                  onChangeText={(value) => { setAmount(value); setAmountError(null); }}
                   keyboardType="numbers-and-punctuation"
                   placeholder={currencyAmountPlaceholder(expenseCurrency)}
-                  placeholderTextColor={colors.textMuted}
-                  style={[styles.amountInput, { color: colors.textMain }]} />
+                  accessibilityLabel={`${expenseCurrency} amount`}
+                  error={amountError || amountPrecisionIssue}
+                  errorTestID="ae-amount-precision"
+                  focusOnError={!!amountError}
+                  returnKeyType="next"
+                  autoComplete="off"
+                  containerStyle={styles.amountContainer}
+                  fieldStyle={styles.amountField}
+                  style={styles.amountInput}
+                />
               </View>
-              {amountPrecisionIssue ? (
-                <T testID="ae-amount-precision" variant="caption" color={colors.danger}>
-                  {amountPrecisionIssue}
-                </T>
-              ) : null}
               {canonicalPreview != null && refundExceedsSpend(canonicalPreview, tripNetSpend) ? (
                 <T testID="ae-refund-warn" variant="caption" color={colors.warning} style={{ marginTop: 6 }}>{REFUND_WARNING}</T>
               ) : null}
             </Card>
 
-            <Input testID="ae-desc" label="Description" value={desc} onChangeText={setDesc} placeholder="e.g. Dinner at The Leela" />
+            <Input
+              testID="ae-desc"
+              label="Description"
+              value={desc}
+              onChangeText={setDesc}
+              placeholder="e.g. Dinner at The Leela"
+              autoCapitalize="sentences"
+              returnKeyType="next"
+            />
 
             {/* Category */}
             <View>
@@ -332,7 +359,14 @@ export default function AddExpense() {
 
             {/* Date (calendar picker) + optional time, side by side */}
             <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
-              <DateField testID="ae-date" label="Date *" value={dateDisplay} onChangeText={setDateDisplay} containerStyle={{ flex: 1 }} />
+              <DateField
+                testID="ae-date"
+                label="Date *"
+                value={dateDisplay}
+                onChangeText={(value) => { setDateDisplay(value); setDateError(null); }}
+                error={dateError}
+                containerStyle={{ flex: 1 }}
+              />
               <TimeField testID="ae-time" label="Time" value={time} onChange={setTime} containerStyle={{ flex: 1 }} />
             </View>
 
@@ -346,6 +380,7 @@ export default function AddExpense() {
                 date={toISO(dateDisplay)}
                 onApprovalChange={handleApprovalChange}
                 onQuoteChange={handleQuoteChange}
+                returnKeyType={splitMode === 'EXACT' ? 'next' : 'done'}
               />
             ) : null}
 
@@ -509,7 +544,9 @@ export default function AddExpense() {
 }
 
 const styles = StyleSheet.create({
-  amountInput: { flex: 1, fontFamily: FONTS.numberBold, fontSize: 44, letterSpacing: -1, paddingVertical: 4 },
+  amountContainer: { flex: 1 },
+  amountField: { backgroundColor: 'transparent', borderRadius: RADIUS.md },
+  amountInput: { fontFamily: FONTS.numberBold, fontSize: 44, letterSpacing: -1, paddingVertical: 4 },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
     padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1,

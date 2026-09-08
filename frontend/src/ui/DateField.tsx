@@ -43,7 +43,9 @@ export default function DateField({
           testID={testID}
           value={value}
           onChangeText={onChangeText}
+          accessibilityLabel={label || 'Date'}
           error={error}
+          focusOnError={!!error}
           placeholder="dd/mm/yyyy"
           autoCapitalize="none"
           autoCorrect={false}

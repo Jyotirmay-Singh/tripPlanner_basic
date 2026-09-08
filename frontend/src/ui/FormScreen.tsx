@@ -1,8 +1,6 @@
 import React from 'react';
 import {
-  KeyboardAvoidingView,
   Platform,
-  ScrollView,
   StyleSheet,
   View,
   type StyleProp,
@@ -11,6 +9,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../ThemeContext';
 import { CONTENT_MAX_WIDTH, SPACING } from '../theme';
+import { KeyboardAwareScrollView } from '../KeyboardController';
 
 type Props = {
   children: React.ReactNode;
@@ -26,17 +25,17 @@ export default function FormScreen({ children, contentStyle, testID }: Props) {
       edges={['left', 'right', 'bottom']}
       testID={testID}
     >
-      <KeyboardAvoidingView
+      <KeyboardAwareScrollView
         style={styles.fill}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        contentContainerStyle={styles.scroll}
+        mode="insets"
+        bottomOffset={48}
+        disableScrollOnKeyboardHide
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
       >
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={[styles.column, contentStyle]}>{children}</View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        <View style={[styles.column, contentStyle]}>{children}</View>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }

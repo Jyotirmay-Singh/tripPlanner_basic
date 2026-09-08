@@ -55,8 +55,10 @@ export default function ChangePassword() {
           placeholder="Enter current password"
           icon="lock"
           error={currentError}
+          focusOnError={!!currentError}
           textContentType="password"
           autoComplete="current-password"
+          returnKeyType="next"
         />
         <Input
           testID="cp-new"
@@ -71,6 +73,7 @@ export default function ChangePassword() {
           error={newError}
           textContentType="newPassword"
           autoComplete="new-password"
+          returnKeyType="next"
         />
         <Input
           testID="cp-confirm"
@@ -84,6 +87,7 @@ export default function ChangePassword() {
           error={confirmError}
           textContentType="newPassword"
           autoComplete="new-password"
+          returnKeyType="done"
         />
         <Button
           label="Update password"

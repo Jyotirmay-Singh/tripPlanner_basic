@@ -61,19 +61,27 @@ export function tripMemberEmails(
  *  members' emails). UX mirror of the backend gate (assert_gmail + assert_unique_email_in_trip +
  *  assert_unique_family_member_emails); the server stays authoritative. `rowEmail(i)` reports which
  *  row failed so the editor can highlight it. */
+export function firstFamilyEmailIssue(
+  rows: FamilyRow[],
+  taken: (string | null | undefined)[],
+): { index: number; kind: 'gmail' | 'duplicate' } | null {
+  const seen: string[] = [];
+  for (let index = 0; index < rows.length; index += 1) {
+    const r = rows[index];
+    const e = (r.email || '').trim();
+    if (!e) continue;
+    if (!isGmail(e)) return { index, kind: 'gmail' };
+    if (isEmailTaken(e, [...taken, ...seen])) return { index, kind: 'duplicate' };
+    seen.push(e);
+  }
+  return null;
+}
+
 export function familyEmailIssue(
   rows: FamilyRow[],
   taken: (string | null | undefined)[],
 ): 'gmail' | 'duplicate' | null {
-  const seen: string[] = [];
-  for (const r of rows) {
-    const e = (r.email || '').trim();
-    if (!e) continue;
-    if (!isGmail(e)) return 'gmail';
-    if (isEmailTaken(e, [...taken, ...seen])) return 'duplicate';
-    seen.push(e);
-  }
-  return null;
+  return firstFamilyEmailIssue(rows, taken)?.kind ?? null;
 }
 
 /** Stored family -> editor rows (parallel names + ids + emails; missing id/email -> null). */

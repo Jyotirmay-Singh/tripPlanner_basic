@@ -1,6 +1,6 @@
 /* eslint-disable import/first, @typescript-eslint/no-require-imports */
 import React from 'react';
-import { ScrollView } from 'react-native';
+import { Platform, ScrollView } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 
 jest.mock('react-native-safe-area-context', () => {
@@ -23,6 +23,7 @@ jest.mock('@react-navigation/bottom-tabs', () => ({ useBottomTabBarHeight: () =>
 import Screen from '../ui/Screen';
 import TabScreen from '../ui/TabScreen';
 import AuthShell from '../ui/AuthShell';
+import FormScreen from '../ui/FormScreen';
 
 function safeAreaFor(element: React.ReactElement) {
   let renderer: any;
@@ -58,5 +59,28 @@ describe('safe-area ownership', () => {
   it('keeps side and bottom edges for AuthShell routes beneath a native header', () => {
     expect(safeAreaFor(<AuthShell title="Register" nativeHeader>content</AuthShell>).props.edges)
       .toEqual(['left', 'right', 'bottom']);
+  });
+
+  it('uses stable keyboard insets, preserves scroll position, and accepts first-tap actions', () => {
+    const originalOS = Platform.OS;
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+    let form: any;
+    let auth: any;
+    act(() => {
+      form = TestRenderer.create(<FormScreen>content</FormScreen>);
+      auth = TestRenderer.create(<AuthShell title="Sign in">content</AuthShell>);
+    });
+
+    for (const renderer of [form, auth]) {
+      const scroll = renderer.root.findByType(ScrollView);
+      expect(scroll.props).toEqual(expect.objectContaining({
+        mode: 'insets',
+        bottomOffset: 48,
+        disableScrollOnKeyboardHide: true,
+        keyboardShouldPersistTaps: 'handled',
+        keyboardDismissMode: 'on-drag',
+      }));
+    }
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: originalOS });
   });
 });

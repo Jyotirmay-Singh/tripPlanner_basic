@@ -1,10 +1,11 @@
 import React from 'react';
-import { View, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Image, ImageSourcePropType } from 'react-native';
+import { View, Platform, StyleSheet, Image, ImageSourcePropType } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../ThemeContext';
 import { SPACING, RADIUS, CONTENT_MAX_WIDTH } from '../theme';
 import T from '../T';
 import Icon, { IconName } from './Icon';
+import { KeyboardAwareScrollView } from '../KeyboardController';
 
 type Props = {
   title: string;
@@ -32,9 +33,16 @@ export default function AuthShell({
       style={{ flex: 1, backgroundColor: colors.background }}
       edges={nativeHeader ? ['left', 'right', 'bottom'] : ['top', 'left', 'right', 'bottom']}
     >
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-          <View style={styles.column}>
+      <KeyboardAwareScrollView
+        style={styles.fill}
+        contentContainerStyle={styles.scroll}
+        mode="insets"
+        bottomOffset={48}
+        disableScrollOnKeyboardHide
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+      >
+        <View style={styles.column}>
             {brandImage ? (
               <Image
                 source={brandImage}
@@ -51,14 +59,14 @@ export default function AuthShell({
             <T variant="h1" style={{ marginTop: SPACING.lg }}>{title}</T>
             {subtitle ? <T muted style={{ marginTop: SPACING.xs }}>{subtitle}</T> : null}
             <View style={{ marginTop: SPACING.xl, gap: SPACING.md }}>{children}</View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </View>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  fill: { flex: 1 },
   scroll: { padding: SPACING.lg, flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
   column: { width: '100%', maxWidth: CONTENT_MAX_WIDTH },
   brand: { width: 56, height: 56, borderRadius: RADIUS.lg, alignItems: 'center', justifyContent: 'center' },

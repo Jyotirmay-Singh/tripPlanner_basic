@@ -2,6 +2,7 @@
 // jest-expo's babel transform handles TS/JSX consistently with the app.
 module.exports = {
   preset: 'jest-expo',
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   // Unit tests run without a native Firebase/notification runtime. Resolve the app's explicit
   // platform seams to their no-op implementations; native behavior is covered through pure
   // routing tests and TypeScript/native-build validation.

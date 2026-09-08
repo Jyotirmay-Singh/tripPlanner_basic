@@ -7,6 +7,12 @@ import { Input, Icon } from './ui';
 import { FamilyRow } from './familyParticipation';
 import { isGmail, GMAIL_ONLY_MESSAGE, isEmailTaken, DUPLICATE_EMAIL_MESSAGE } from './validation';
 
+export type FamilyEditorValidationIssue = {
+  index: number;
+  field: 'name' | 'email';
+  message: string;
+};
+
 /**
  * Structured family-roster editor: one card per member carrying a name, its stable member id
  * (existing rows keep their id so past-expense participation never misassigns; new rows have a null
@@ -21,11 +27,13 @@ export default function FamilyMembersEditor({
   onChange,
   takenEmails = [],
   testIDPrefix = 'fam',
+  validationIssue = null,
 }: {
   rows: FamilyRow[];
   onChange: (rows: FamilyRow[]) => void;
   takenEmails?: (string | null | undefined)[];
   testIDPrefix?: string;
+  validationIssue?: FamilyEditorValidationIssue | null;
 }) {
   const { colors } = useTheme();
   const setName = (i: number, name: string) => onChange(rows.map((r, j) => (j === i ? { ...r, name } : r)));
@@ -64,6 +72,13 @@ export default function FamilyMembersEditor({
                 value={r.name}
                 onChangeText={(t) => setName(i, t)}
                 placeholder={`Member ${i + 1}`}
+                accessibilityLabel={`Family member ${i + 1} name`}
+                autoCapitalize="words"
+                autoCorrect={false}
+                returnKeyType="next"
+                error={validationIssue?.index === i && validationIssue.field === 'name'
+                  ? validationIssue.message : null}
+                focusOnError={validationIssue?.index === i && validationIssue.field === 'name'}
               />
             </View>
             <TouchableOpacity
@@ -80,10 +95,17 @@ export default function FamilyMembersEditor({
             value={r.email || ''}
             onChangeText={(t) => setEmail(i, t)}
             autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="email"
+            textContentType="emailAddress"
             keyboardType="email-address"
             placeholder="(optional) email@gmail.com"
+            accessibilityLabel={`Family member ${i + 1} linked email`}
             icon="mail"
-            error={rowEmailError(i)}
+            error={validationIssue?.index === i && validationIssue.field === 'email'
+              ? validationIssue.message : rowEmailError(i)}
+            focusOnError={validationIssue?.index === i && validationIssue.field === 'email'}
+            returnKeyType={i === rows.length - 1 ? 'done' : 'next'}
           />
         </View>
       ))}

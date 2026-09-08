@@ -15,10 +15,13 @@ export default function EditTrip() {
   const [name, setName] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [dateError, setDateError] = useState<string | null>(null);
+  const [dateError, setDateError] = useState<{
+    field: 'start' | 'end'; message: string;
+  } | null>(null);
   const [budget, setBudget] = useState('');
   const [currency, setCurrency] = useState('INR');
   const [saving, setSaving] = useState(false);
+  const [budgetError, setBudgetError] = useState<string | null>(null);
   const budgetPrecisionIssue = currencyPrecisionIssue(budget, currency, 'Budget');
 
   useEffect(() => {
@@ -30,21 +33,30 @@ export default function EditTrip() {
   }, [id]);
 
   const save = async () => {
-    if (budgetPrecisionIssue) return toast.show(budgetPrecisionIssue, 'error');
-    if (budget.trim() && !Number.isFinite(Number(budget))) {
-      return toast.show('Enter a valid budget', 'error');
-    }
     const startISO = startDate.trim() ? toISO(startDate) : null;
     const endISO = endDate.trim() ? toISO(endDate) : null;
-    if ((startDate.trim() && !startISO) || (endDate.trim() && !endISO)) {
-      setDateError(INVALID_DATE_MESSAGE);
+    if (startDate.trim() && !startISO) {
+      setDateError({ field: 'start', message: INVALID_DATE_MESSAGE });
+      return;
+    }
+    if (endDate.trim() && !endISO) {
+      setDateError({ field: 'end', message: INVALID_DATE_MESSAGE });
       return;
     }
     if (startISO && endISO && !isRangeValid(startISO, endISO)) {
-      setDateError(END_BEFORE_START_MESSAGE);
+      setDateError({ field: 'end', message: END_BEFORE_START_MESSAGE });
       return;
     }
     setDateError(null);
+    if (budgetPrecisionIssue) {
+      setBudgetError(budgetPrecisionIssue);
+      return toast.show(budgetPrecisionIssue, 'error');
+    }
+    if (budget.trim() && !Number.isFinite(Number(budget))) {
+      setBudgetError('Enter a valid budget');
+      return toast.show('Enter a valid budget', 'error');
+    }
+    setBudgetError(null);
     setSaving(true);
     try {
       await api(`/trips/${id}`, {
@@ -61,18 +73,43 @@ export default function EditTrip() {
           <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
             <T variant="h1">Edit trip</T>
 
-            <Input testID="et-name" label="Name" value={name} onChangeText={setName} icon="plane" />
-            <DateField testID="et-start" label="Start date (dd/mm/yyyy)" value={startDate} onChangeText={(v) => { setStartDate(v); setDateError(null); }} error={dateError} />
-            <DateField testID="et-end" label="End date (dd/mm/yyyy)" value={endDate} onChangeText={(v) => { setEndDate(v); setDateError(null); }} minISO={toISO(startDate) ?? undefined} />
+            <Input
+              testID="et-name"
+              label="Name"
+              value={name}
+              onChangeText={setName}
+              icon="plane"
+              autoCapitalize="words"
+              returnKeyType="next"
+            />
+            <DateField
+              testID="et-start"
+              label="Start date (dd/mm/yyyy)"
+              value={startDate}
+              onChangeText={(v) => { setStartDate(v); setDateError(null); }}
+              error={dateError?.field === 'start' ? dateError.message : null}
+            />
+            <DateField
+              testID="et-end"
+              label="End date (dd/mm/yyyy)"
+              value={endDate}
+              onChangeText={(v) => { setEndDate(v); setDateError(null); }}
+              error={dateError?.field === 'end' ? dateError.message : null}
+              minISO={toISO(startDate) ?? undefined}
+            />
             <Input
               testID="et-budget"
               label="Budget"
               value={budget}
-              onChangeText={setBudget}
+              onChangeText={(value) => { setBudget(value); setBudgetError(null); }}
               keyboardType="decimal-pad"
               placeholder={currencyAmountPlaceholder(currency)}
-              error={budgetPrecisionIssue}
+              error={budgetError || budgetPrecisionIssue}
+              focusOnError={!!budgetError}
               icon="wallet"
+              inputMode="decimal"
+              autoComplete="off"
+              returnKeyType="done"
             />
 
             <CurrencyPicker

@@ -18,13 +18,26 @@ export default function Login() {
   const [email, setEmail] = useState(savedEmail || '');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [fieldError, setFieldError] = useState<{ field: 'email' | 'password'; message: string } | null>(null);
 
-  const emailError = !!email && !isGmail(email) ? GMAIL_ONLY_MESSAGE : null;
+  const emailError = fieldError?.field === 'email'
+    ? fieldError.message
+    : !!email && !isGmail(email) ? GMAIL_ONLY_MESSAGE : null;
 
   const submit = async () => {
-    if (!email.trim()) return toast.show('Enter your email', 'error');
-    if (!isGmail(email)) return toast.show(GMAIL_ONLY_MESSAGE, 'error');
-    if (!password) return toast.show('Enter your password', 'error');
+    if (!email.trim()) {
+      setFieldError({ field: 'email', message: 'Enter your email' });
+      return toast.show('Enter your email', 'error');
+    }
+    if (!isGmail(email)) {
+      setFieldError({ field: 'email', message: GMAIL_ONLY_MESSAGE });
+      return toast.show(GMAIL_ONLY_MESSAGE, 'error');
+    }
+    if (!password) {
+      setFieldError({ field: 'password', message: 'Enter your password' });
+      return toast.show('Enter your password', 'error');
+    }
+    setFieldError(null);
     setLoading(true);
     try {
       await signIn(email.trim(), password);
@@ -38,6 +51,7 @@ export default function Login() {
     await forgetSavedEmail();
     setEmail('');
     setPassword('');
+    setFieldError(null);
   };
 
   return (
@@ -56,7 +70,10 @@ export default function Login() {
           testID="login-email"
           label="Email"
           value={email}
-          onChangeText={setEmail}
+          onChangeText={(value) => {
+            setEmail(value);
+            if (fieldError?.field === 'email') setFieldError(null);
+          }}
           autoCapitalize="none"
           autoComplete="email"
           textContentType="emailAddress"
@@ -64,6 +81,8 @@ export default function Login() {
           placeholder="you@gmail.com"
           icon="mail"
           error={emailError}
+          focusOnError={fieldError?.field === 'email'}
+          returnKeyType="next"
         />
       )}
 
@@ -71,7 +90,10 @@ export default function Login() {
         testID="login-password"
         label="Password"
         value={password}
-        onChangeText={setPassword}
+        onChangeText={(value) => {
+          setPassword(value);
+          if (fieldError?.field === 'password') setFieldError(null);
+        }}
         autoCapitalize="none"
         autoComplete="current-password"
         textContentType="password"
@@ -81,6 +103,8 @@ export default function Login() {
         autoFocus={!!savedEmail}
         returnKeyType="done"
         onSubmitEditing={submit}
+        error={fieldError?.field === 'password' ? fieldError.message : null}
+        focusOnError={fieldError?.field === 'password'}
       />
 
       <Button label="Sign in" icon="lock" onPress={submit} loading={loading} fullWidth size="lg" testID="login-submit" />

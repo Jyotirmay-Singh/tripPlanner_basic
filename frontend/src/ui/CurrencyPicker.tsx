@@ -82,6 +82,8 @@ export default function CurrencyPicker({
           icon="search"
           autoCapitalize="none"
           autoCorrect={false}
+          autoComplete="off"
+          returnKeyType="done"
           accessibilityLabel="Search currencies"
         />
         <ScrollView

@@ -18,14 +18,29 @@ export default function ResetPassword() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
+  const [fieldError, setFieldError] = useState<{
+    field: 'token' | 'password' | 'confirm'; message: string;
+  } | null>(null);
 
-  const passwordError = !!password && !isValidPassword(password) ? PASSWORD_TOO_SHORT_MESSAGE : null;
-  const confirmError = !!confirm && confirm !== password ? PASSWORD_MISMATCH_MESSAGE : null;
+  const passwordError = fieldError?.field === 'password'
+    ? fieldError.message : !!password && !isValidPassword(password) ? PASSWORD_TOO_SHORT_MESSAGE : null;
+  const confirmError = fieldError?.field === 'confirm'
+    ? fieldError.message : !!confirm && confirm !== password ? PASSWORD_MISMATCH_MESSAGE : null;
 
   const submit = async () => {
-    if (!token) return toast.show('Enter the token from your email', 'error');
-    if (!isValidPassword(password)) return toast.show(PASSWORD_TOO_SHORT_MESSAGE, 'error');
-    if (password !== confirm) return toast.show(PASSWORD_MISMATCH_MESSAGE, 'error');
+    if (!token.trim()) {
+      setFieldError({ field: 'token', message: 'Enter the token from your email' });
+      return toast.show('Enter the token from your email', 'error');
+    }
+    if (!isValidPassword(password)) {
+      setFieldError({ field: 'password', message: PASSWORD_TOO_SHORT_MESSAGE });
+      return toast.show(PASSWORD_TOO_SHORT_MESSAGE, 'error');
+    }
+    if (password !== confirm) {
+      setFieldError({ field: 'confirm', message: PASSWORD_MISMATCH_MESSAGE });
+      return toast.show(PASSWORD_MISMATCH_MESSAGE, 'error');
+    }
+    setFieldError(null);
     setBusy(true);
     try {
       await api('/auth/reset-password', {
@@ -49,32 +64,47 @@ export default function ResetPassword() {
         testID="reset-pw-token"
         label="Reset token"
         value={token}
-        onChangeText={setToken}
+        onChangeText={(value) => { setToken(value); if (fieldError?.field === 'token') setFieldError(null); }}
         autoCapitalize="none"
+        autoCorrect={false}
+        autoComplete="one-time-code"
+        textContentType="oneTimeCode"
         placeholder="Token from email"
         icon="key"
+        error={fieldError?.field === 'token' ? fieldError.message : null}
+        focusOnError={fieldError?.field === 'token'}
+        returnKeyType="next"
       />
       <Input
         testID="reset-pw-password"
         label="New password"
         value={password}
-        onChangeText={setPassword}
+        onChangeText={(value) => { setPassword(value); if (fieldError?.field === 'password') setFieldError(null); }}
         autoCapitalize="none"
+        autoComplete="new-password"
+        textContentType="newPassword"
         secureTextEntry
         placeholder="At least 9 characters"
         icon="lock"
         error={passwordError}
+        focusOnError={fieldError?.field === 'password'}
+        returnKeyType="next"
       />
       <Input
         testID="reset-pw-confirm"
         label="Confirm password"
         value={confirm}
-        onChangeText={setConfirm}
+        onChangeText={(value) => { setConfirm(value); if (fieldError?.field === 'confirm') setFieldError(null); }}
         autoCapitalize="none"
+        autoComplete="new-password"
+        textContentType="newPassword"
         secureTextEntry
         placeholder="Re-enter your password"
         icon="lock"
         error={confirmError}
+        focusOnError={fieldError?.field === 'confirm'}
+        returnKeyType="done"
+        onSubmitEditing={submit}
       />
       <Button
         label={busy ? 'Updating…' : 'Set new password'}
