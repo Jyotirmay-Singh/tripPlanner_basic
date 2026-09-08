@@ -14,7 +14,8 @@ Android devices.
 - Creating a join request immediately awaits permission and registration synchronization so a
   first-trip requester can receive approval or rejection. Sign-in and foreground synchronization
   retry interrupted, offline, or unavailable attempts.
-- On Android 13+, the first eligible account with undecided permission sees the private rationale.
+- On Android 13+, the first eligible account with undecided permission sees a rationale explaining
+  that alerts identify the trip and activity type while excluding personal and activity details.
   Android's dialog appears only after **Enable notifications** is pressed.
 - **Not now** is remembered and suppresses later automatic rationale prompts. Recovery remains
   available from Profile and Android app settings.
@@ -63,7 +64,7 @@ Do not print environment-variable values or credential contents while gathering 
 
 1. Fresh-install the same APK on both devices and sign in as Member.
 2. Grant notification permission and confirm the **Trip activity** channel exists at high
-   importance with sound and private lock-screen visibility.
+   importance with sound and Android-controlled lock-screen visibility.
 3. Foreground each device and allow synchronization to finish.
 4. In a redacted MongoDB query, require exactly two active, unique Android installations owned by
    Member. Report only the count and uniqueness result.
@@ -79,7 +80,8 @@ and `expense.created:<sourceId>` event key without exposing expense content:
    `inserted=true`.
 2. `push.delivery_snapshot` reports one expected recipient and two active Android deliveries.
 3. Expo returns two successful tickets.
-4. Both devices display exactly one notification within two minutes.
+4. Both devices display exactly one **Expense added** notification with the sanitized trip name
+   within two minutes.
 5. The receipt-check cycle reaches two `receipt_ok` statuses; allow up to 20 minutes.
 6. Tapping on each device opens the activity trip's Expenses tab and matching expense. Repeat a
    tap and confirm it does not add another navigation entry.
@@ -91,22 +93,23 @@ boundary, then repeat the canary.
 
 Allow two minutes for display and 20 minutes for a terminal Expo receipt. Run one event at a time.
 
-| Event | Receiver state | Eligible audience | Exact generic body | Tap destination |
+| Event | Receiver state | Eligible audience | Exact title / supporting line | Tap destination |
 | --- | --- | --- | --- | --- |
-| Expense created | Foreground | Member's two active devices, not Owner | `A new expense was added to one of your trips.` | Activity trip Expenses tab and matching expense |
-| Chat message created | Background | Member's two active devices, not Owner | `A new group message was sent in one of your trips.` | Activity trip Chat tab and matching message |
-| Payment recorded | Swiped away, not force-stopped | Member's two active devices, not Owner | `A payment was recorded in one of your trips.` | Activity trip Settle Up and matching payment |
-| Settlement marked paid | Background | Member's two active devices, not Owner | `A settlement was marked paid in one of your trips.` | Activity trip Settle Up and matching settlement |
-| Join request created | One owner/admin device foreground and one background | Current owner/admin devices only, not Requester or non-admins | `A join request needs review in one of your trips.` | Members request view and matching request |
-| First-trip request rejected | Background | Zero-trip Requester's active devices | `Your request to join a trip was reviewed.` | Request status and locally authorized admin reason |
-| First-trip request approved | Swiped away, not force-stopped | Zero-trip Requester's active devices | `Your request to join a trip was approved.` | Newly joined trip summary |
+| Expense created | Foreground | Member's two active devices, not Owner | `Expense added` / trip name | Activity trip Expenses tab and matching expense |
+| Chat message created | Background | Member's two active devices, not Owner | `New group message` / trip name | Activity trip Chat tab and matching message |
+| Payment recorded | Swiped away, not force-stopped | Member's two active devices, not Owner | `Payment recorded` / trip name | Activity trip Settle Up and matching payment |
+| Settlement marked paid | Background | Member's two active devices, not Owner | `Settlement marked paid` / trip name | Activity trip Settle Up and matching settlement |
+| Join request created | One owner/admin device foreground and one background | Current owner/admin devices only, not Requester or non-admins | `Join request received` / trip name | Members request view and matching request |
+| First-trip request rejected | Background | Zero-trip Requester's active devices | `Join request declined` / trip name | Request status and locally authorized admin reason |
+| First-trip request approved | Swiped away, not force-stopped | Zero-trip Requester's active devices | `Join request approved` / trip name | Newly joined trip summary |
 
 For every positive case require:
 
-- title **Trip Splitter**, one notification per eligible active installation, and sound/banner
-  appropriate to the device state;
-- no trip name, person name, email, amount, currency, note, expense details, rejection reason, or
-  chat text on the lock screen;
+- the exact action-first title, sanitized trip-name supporting line, one notification per eligible
+  active installation, and sound/banner appropriate to the device state;
+- no person name, email, amount, currency, note, expense details, rejection reason, or chat text in
+  notification copy; the trip name is the only user-authored text allowed;
+- a white monochrome **TS** status icon and the configured mint notification accent;
 - `payloadVersion=1`, the exact `eventKey`, `eventType`, `tripId`, `sourceId`, target, and exactly one
   matching typed source key: `expenseId`, `messageId`, `paymentId`, `settlementId`, or `requestId`;
 - correct authorized warm and cold-start navigation; repeated taps must not duplicate navigation;

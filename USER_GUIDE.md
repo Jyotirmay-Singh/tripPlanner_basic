@@ -97,8 +97,9 @@ Settled trips remain tappable and can still be opened normally.
   - An owner/admin can **Approve** or **Reject** the request and may include an optional rejection
     reason. Approval links your account to the existing person; if an old Gmail was saved, your Gmail
     replaces it while the old value remains in the request's audit record.
-  - The requester receives a privacy-safe device notification when the request is approved or
-    rejected. Tapping a rejection notification returns to the request status and any admin note.
+  - The requester receives a device notification identifying the trip when the request is approved
+    or declined. It never includes an admin note. Tapping a declined notification returns to the
+    request status, where an authorized requester can view that note.
   - After rejection, you can choose a different person immediately, but must wait **24 hours** before
     requesting the same person again.
 - If nobody listed is you, tap **None of these is me**, then choose:
@@ -338,10 +339,10 @@ claims the profile.
 - Removing a linked person from the trip immediately removes their chat access. Their historical
   sender label remains understandable to the people who still have access.
 
-On Android, a new message can also produce a privacy-safe push notification for other signed-in
-trip members. The lock screen shows only that a group message was sent, never the sender or message
-text; tapping it opens the matching trip's Chat tab. Chat v1 does not include images, reactions,
-typing/online presence, or per-message seen receipts.
+On Android, a new message can also produce a push notification for other signed-in trip members.
+The notification identifies the trip but never includes the sender or message text; tapping it
+opens the matching trip's Chat tab. Chat v1 does not include images, reactions, typing/online
+presence, or per-message seen receipts.
 
 ---
 

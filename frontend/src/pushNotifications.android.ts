@@ -99,7 +99,7 @@ async function showRationaleOnce(): Promise<boolean> {
   return new Promise((resolve) => {
     Alert.alert(
       'Stay updated on your trips',
-      'Trip Splitter can send private alerts for new expenses, recorded payments, paid settlements, group messages, and join requests. Amounts, names, and message text are never shown on the lock screen.',
+      'Trip Splitter can show the trip name and activity type in alerts. People\'s names, amounts, notes, message text, and rejection reasons are never included.',
       [
         {
           text: 'Not now',

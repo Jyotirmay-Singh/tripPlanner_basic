@@ -175,55 +175,58 @@ def test_recipient_resolution_excludes_actor_and_duplicates():
 
 
 @pytest.mark.parametrize(
-    ("event_type", "target", "id_key", "body"),
+    ("event_type", "target", "id_key", "title"),
     [
         (
             "expense.created", "trip_expenses", "expenseId",
-            "A new expense was added to one of your trips.",
+            "Expense added",
         ),
         (
             "payment.recorded", "settle_up", "paymentId",
-            "A payment was recorded in one of your trips.",
+            "Payment recorded",
         ),
         (
             "settlement.paid", "settle_up", "settlementId",
-            "A settlement was marked paid in one of your trips.",
+            "Settlement marked paid",
         ),
         (
             "chat.message.created", "trip_chat", "messageId",
-            "A new group message was sent in one of your trips.",
+            "New group message",
         ),
         (
             "join.request.created", "trip_members", "requestId",
-            "A join request needs review in one of your trips.",
+            "Join request received",
         ),
         (
             "join.request.approved", "trip_summary", "requestId",
-            "Your request to join a trip was approved.",
+            "Join request approved",
         ),
         (
             "join.request.rejected", "join_request", "requestId",
-            "Your request to join a trip was reviewed.",
+            "Join request declined",
         ),
     ],
 )
 def test_payload_is_private_versioned_and_contains_typed_routing_data(
-    event_type, target, id_key, body,
+    event_type, target, id_key, title,
 ):
     event = {
         "event_key": f"{event_type}:{SOURCE_ID}",
         "event_type": event_type,
         "source_id": SOURCE_ID,
         "trip_id": TRIP_ID,
+        "trip_name": "Weekend in Goa",
         "target": target,
         "amount": 999,
         "note": "private note",
         "text": "private message",
+        "person_name": "Private Person",
+        "rejection_reason": "private reason",
     }
     message = notifications.build_expo_message(event, {"token": VALID_TOKEN})
 
-    assert message["title"] == "Trip Splitter"
-    assert message["body"] == body
+    assert message["title"] == title
+    assert message["body"] == "Weekend in Goa"
     assert message["channelId"] == "trip_activity"
     assert message["priority"] == "high"
     assert message["data"] == {
@@ -238,6 +241,30 @@ def test_payload_is_private_versioned_and_contains_typed_routing_data(
     assert "999" not in str(message)
     assert "private note" not in str(message)
     assert "private message" not in str(message)
+    assert "Private Person" not in str(message)
+    assert "private reason" not in str(message)
+
+
+def test_trip_name_is_single_line_bounded_and_has_a_generic_fallback():
+    assert notifications.notification_trip_name("  Goa\n  Weekend\t2026  ") == "Goa Weekend 2026"
+    assert notifications.notification_trip_name(None) is None
+    assert notifications.notification_trip_name(" \n\t ") is None
+
+    long_name = "A" * 80
+    compact = notifications.notification_trip_name(long_name)
+    assert compact == ("A" * 59) + "…"
+    assert len(compact) == notifications.TRIP_NAME_MAX_LENGTH
+
+    event = {
+        "event_key": f"expense.created:{SOURCE_ID}",
+        "event_type": "expense.created",
+        "source_id": SOURCE_ID,
+        "trip_id": TRIP_ID,
+        "target": "trip_expenses",
+    }
+    message = notifications.build_expo_message(event, {"token": VALID_TOKEN})
+    assert message["title"] == "Expense added"
+    assert message["body"] == "One of your trips"
 
 
 def test_enqueue_is_idempotent_and_schedules_immediate_dispatch(monkeypatch):
@@ -260,6 +287,7 @@ def test_enqueue_is_idempotent_and_schedules_immediate_dispatch(monkeypatch):
     stored = outbox.insert_one.await_args.args[0]
     assert stored["event_key"] == "expense.created:e1"
     assert stored["status"] == "pending"
+    assert stored["trip_name"] is None
     assert stored["deliveries"] == []
     background.add_task.assert_called_once_with(
         notifications.dispatch_outbox_event, "expense.created:e1",
@@ -384,7 +412,10 @@ def test_delivery_snapshot_uses_current_membership_and_active_android_devices(mo
         "actor_user_id": "u1",
         "delivery_snapshot_at": None,
     }
-    trips = SimpleNamespace(find_one=AsyncMock(return_value={"user_ids": ["u1", "u2", "u3"]}))
+    trips = SimpleNamespace(find_one=AsyncMock(return_value={
+        "name": "  Weekend\n in Goa  ",
+        "user_ids": ["u1", "u2", "u3"],
+    }))
     devices = SimpleNamespace(find=Mock(return_value=FakeCursor([
         {"installation_id": "i2", "user_id": "u2", "token": VALID_TOKEN},
     ])))
@@ -398,6 +429,9 @@ def test_delivery_snapshot_uses_current_membership_and_active_android_devices(mo
     assert query["user_id"]["$in"] == ["u2", "u3"]
     assert query["active"] is True and query["platform"] == "android"
     assert [delivery["user_id"] for delivery in event["deliveries"]] == ["u2"]
+    assert event["trip_name"] == "Weekend in Goa"
+    persisted = outbox.update_one.await_args.args[1]["$set"]
+    assert persisted["trip_name"] == "Weekend in Goa"
 
 
 def test_delivery_snapshot_honors_explicit_request_recipient_outside_trip_membership(monkeypatch):

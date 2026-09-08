@@ -138,16 +138,19 @@ describe('Android push notification registration', () => {
     expect(mockGetExpoPushToken).not.toHaveBeenCalled();
   });
 
-  it('shows the private rationale once and remembers Not now without a system prompt', async () => {
+  it('shows the trip-aware privacy rationale once and remembers Not now without a system prompt', async () => {
     const firstSync = syncPushRegistrationIfEligible({ allowPermissionPrompt: true });
     await pressRationale('Not now');
 
     await expect(firstSync).resolves.toBe('undetermined');
     expect(mockAlert).toHaveBeenCalledWith(
       'Stay updated on your trips',
-      expect.stringContaining('group messages, and join requests'),
+      expect.stringContaining('trip name and activity type'),
       expect.any(Array),
       { cancelable: false },
+    );
+    expect(mockAlert.mock.calls.at(-1)?.[1]).toContain(
+      "People's names, amounts, notes, message text, and rejection reasons are never included.",
     );
     expect(mockStorage.get('push_rationale_seen')).toBe('true');
     expect(mockStorage.get('push_rationale_accepted')).toBe('false');

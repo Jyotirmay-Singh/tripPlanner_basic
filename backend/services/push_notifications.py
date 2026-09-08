@@ -2,10 +2,12 @@
 
 Business writes only enqueue an idempotent event. A best-effort FastAPI background task sends it
 immediately, while the single-process dispatcher reclaims due or interrupted work from MongoDB.
-No financial details, chat text, names, or push tokens are copied into notification copy or logs.
+No financial details, chat text, personal names, or push tokens are copied into notification copy
+or logs. A compact trip name is the only user-authored notification text.
 """
 
 import asyncio
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -24,46 +26,47 @@ from utils.common import now_utc
 
 EXPO_SEND_URL = "https://exp.host/--/api/v2/push/send"
 EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts"
-PUSH_TITLE = "Trip Splitter"
 PUSH_CHANNEL_ID = "trip_activity"
+TRIP_NAME_MAX_LENGTH = 60
+TRIP_NAME_FALLBACK = "One of your trips"
 
 # This map is the notification contract. Callers provide an event type and source id; routing,
 # lock-screen copy, and the type-specific payload key are derived here so they cannot drift apart.
 _EVENT_DEFINITIONS = {
     "expense.created": {
+        "title": "Expense added",
         "target": "trip_expenses",
         "id_key": "expenseId",
-        "body": "A new expense was added to one of your trips.",
     },
     "payment.recorded": {
+        "title": "Payment recorded",
         "target": "settle_up",
         "id_key": "paymentId",
-        "body": "A payment was recorded in one of your trips.",
     },
     "settlement.paid": {
+        "title": "Settlement marked paid",
         "target": "settle_up",
         "id_key": "settlementId",
-        "body": "A settlement was marked paid in one of your trips.",
     },
     "chat.message.created": {
+        "title": "New group message",
         "target": "trip_chat",
         "id_key": "messageId",
-        "body": "A new group message was sent in one of your trips.",
     },
     "join.request.created": {
+        "title": "Join request received",
         "target": "trip_members",
         "id_key": "requestId",
-        "body": "A join request needs review in one of your trips.",
     },
     "join.request.approved": {
+        "title": "Join request approved",
         "target": "trip_summary",
         "id_key": "requestId",
-        "body": "Your request to join a trip was approved.",
     },
     "join.request.rejected": {
+        "title": "Join request declined",
         "target": "join_request",
         "id_key": "requestId",
-        "body": "Your request to join a trip was reviewed.",
     },
 }
 
@@ -104,8 +107,20 @@ def notification_event_key(event_type: str, source_id: str) -> str:
     return f"{event_type}:{source_id}"
 
 
+def notification_trip_name(value: Any) -> Optional[str]:
+    """Return a compact, single-line trip label suitable for Android notification chrome."""
+    if not isinstance(value, str):
+        return None
+    clean = re.sub(r"\s+", " ", value).strip()
+    if not clean:
+        return None
+    if len(clean) > TRIP_NAME_MAX_LENGTH:
+        return clean[:TRIP_NAME_MAX_LENGTH - 1].rstrip() + "…"
+    return clean
+
+
 def build_expo_message(event: dict, delivery: dict) -> dict:
-    """Build an allowlisted lock-screen payload without private trip activity data."""
+    """Build an allowlisted payload with an action title and compact trip context."""
     definition = _EVENT_DEFINITIONS.get(event.get("event_type"))
     if not definition:
         raise ValueError("unsupported notification event type")
@@ -121,8 +136,8 @@ def build_expo_message(event: dict, delivery: dict) -> dict:
     }
     return {
         "to": delivery["token"],
-        "title": PUSH_TITLE,
-        "body": definition["body"],
+        "title": definition["title"],
+        "body": notification_trip_name(event.get("trip_name")) or TRIP_NAME_FALLBACK,
         "sound": "default",
         "channelId": PUSH_CHANNEL_ID,
         "priority": "high",
@@ -167,6 +182,9 @@ async def enqueue_notification_event(
         "event_type": event_type,
         "source_id": source_id,
         "trip_id": trip_id,
+        # Filled from the authoritative trip during delivery preparation. Keeping the snapshot in
+        # the outbox makes retries use the same concise supporting line without logging the name.
+        "trip_name": None,
         "actor_user_id": actor_user_id,
         # Join-request events have narrower audiences than ordinary trip activity.  Routes derive
         # this allowlist from the authoritative trip/request documents; clients never supply it.
@@ -338,7 +356,9 @@ async def _prepare_deliveries(event: dict, timestamp: datetime) -> bool:
     if event.get("delivery_snapshot_at") is not None:
         return True
 
-    trip = await db.trips.find_one({"id": event["trip_id"]}, {"_id": 0, "user_ids": 1})
+    trip = await db.trips.find_one(
+        {"id": event["trip_id"]}, {"_id": 0, "user_ids": 1, "name": 1},
+    )
     if not trip:
         await db.notification_outbox.update_one(
             {"event_key": event["event_key"]},
@@ -394,11 +414,13 @@ async def _prepare_deliveries(event: dict, timestamp: datetime) -> bool:
         })
 
     event["deliveries"] = deliveries
+    event["trip_name"] = notification_trip_name(trip.get("name"))
     event["delivery_snapshot_at"] = timestamp
     await db.notification_outbox.update_one(
         {"event_key": event["event_key"]},
         {"$set": {
             "deliveries": deliveries,
+            "trip_name": event["trip_name"],
             "delivery_snapshot_at": timestamp,
             "updated_at": timestamp,
         }},
