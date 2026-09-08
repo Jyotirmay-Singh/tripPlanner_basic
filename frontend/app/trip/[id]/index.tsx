@@ -292,7 +292,7 @@ export default function TripDetail() {
         }
       }
       await Share.share({
-        message: tripInviteShareMessage(trip.name, invite.url),
+        message: tripInviteShareMessage(trip.name, trip.code, invite.url),
       });
       setInviteRefreshKey((value) => value + 1);
     } catch (error: any) {

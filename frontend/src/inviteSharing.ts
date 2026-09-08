@@ -1,4 +1,5 @@
 import { roleOf, type RoleTrip } from './permissions';
+import { ANDROID_APK_DOWNLOAD_URL } from './inviteNavigation';
 
 
 export function canShareSecureInvite(
@@ -10,10 +11,21 @@ export function canShareSecureInvite(
 }
 
 export function tripCodeShareMessage(tripName: string, code: string): string {
-  return `Join my trip "${tripName}" on Trip Splitter. Code: ${code}`;
+  return `Join my trip "${tripName}" on Trip Splitter.`
+    + `\n\nTrip code: ${code}`
+    + '\n\nDownload the Trip Splitter APK (Android phones only):'
+    + `\n${ANDROID_APK_DOWNLOAD_URL}`;
 }
 
-export function tripInviteShareMessage(tripName: string, inviteUrl: string): string {
-  return `Join my trip "${tripName}" on Trip Splitter:\n${inviteUrl}`
-    + '\n\nThis private link expires in 7 days.';
+export function tripInviteShareMessage(
+  tripName: string,
+  code: string,
+  inviteUrl: string,
+): string {
+  return `Join my trip "${tripName}" on Trip Splitter.`
+    + `\n\nOpen trip / join:\n${inviteUrl}`
+    + `\n\nTrip code: ${code}`
+    + '\n\nDownload the Trip Splitter APK (Android phones only):'
+    + `\n${ANDROID_APK_DOWNLOAD_URL}`
+    + '\n\nThis private invite link expires in 7 days.';
 }

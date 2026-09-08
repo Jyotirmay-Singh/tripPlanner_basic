@@ -89,6 +89,68 @@ describe('invite landing', () => {
     });
   });
 
+  it.each([
+    ['desktop', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140'],
+    ['iOS', 'Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) Mobile/15E148'],
+  ])('sends an authenticated %s web user to the join preview', async (_device, userAgent) => {
+    const originalPlatform = Platform.OS;
+    const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'web' });
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { userAgent },
+    });
+
+    try {
+      await act(async () => {
+        TestRenderer.create(<InviteLanding />);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(mockReplace).toHaveBeenCalledWith({
+        pathname: '/join-trip', params: { inviteToken: token },
+      });
+    } finally {
+      Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform });
+      if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+      else Reflect.deleteProperty(globalThis, 'navigator');
+    }
+  });
+
+  it('preserves a signed-out web invite when continuing through authentication', async () => {
+    const originalPlatform = Platform.OS;
+    const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'web' });
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140' },
+    });
+    mockUser = null;
+
+    try {
+      let renderer: any;
+      await act(async () => {
+        renderer = TestRenderer.create(<InviteLanding />);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      await act(async () => {
+        renderer.root.findByProps({ testID: 'invite-continue-web' }).props.onPress();
+        await Promise.resolve();
+      });
+
+      expect(mockRememberInvite).toHaveBeenCalledWith(`/invite/${token}`);
+      expect(mockPush).toHaveBeenCalledWith({
+        pathname: '/(auth)/login', params: { returnTo: `/invite/${token}` },
+      });
+    } finally {
+      Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform });
+      if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+      else Reflect.deleteProperty(globalThis, 'navigator');
+    }
+  });
+
   it('rejects a malformed token without calling the public API', async () => {
     mockParams = { token: 'short' };
     mockUser = null;
@@ -120,23 +182,13 @@ describe('invite landing', () => {
     expect(mockClearPendingInvite).toHaveBeenCalledTimes(1);
   });
 
-  it('automatically starts the latest APK once after validating an Android web invite', async () => {
-    jest.useFakeTimers();
+  it('keeps Android browsers on the landing page and downloads only after a manual tap', async () => {
     const originalPlatform = Platform.OS;
     const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
-    const storageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
-    const storageValues = new Map<string, string>();
     Object.defineProperty(Platform, 'OS', { configurable: true, value: 'web' });
     Object.defineProperty(globalThis, 'navigator', {
       configurable: true,
       value: { userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 9) Chrome/140' },
-    });
-    Object.defineProperty(globalThis, 'sessionStorage', {
-      configurable: true,
-      value: {
-        getItem: (key: string) => storageValues.get(key) ?? null,
-        setItem: (key: string, value: string) => storageValues.set(key, value),
-      },
     });
     const openUrl = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
 
@@ -147,10 +199,14 @@ describe('invite landing', () => {
         await Promise.resolve();
         await Promise.resolve();
       });
-      expect(renderer.root.findByProps({ testID: 'invite-auto-download-status' })).toBeTruthy();
+      expect(mockReplace).not.toHaveBeenCalled();
+      expect(renderer.root.findByProps({ testID: 'invite-open-app' })).toBeTruthy();
+      expect(renderer.root.findByProps({ testID: 'invite-download-apk' })).toBeTruthy();
+      expect(renderer.root.findByProps({ testID: 'invite-continue-web' })).toBeTruthy();
+      expect(openUrl).not.toHaveBeenCalled();
 
       await act(async () => {
-        jest.advanceTimersByTime(900);
+        renderer.root.findByProps({ testID: 'invite-download-apk' }).props.onPress();
         await Promise.resolve();
       });
       expect(openUrl).toHaveBeenCalledTimes(1);
@@ -161,13 +217,10 @@ describe('invite landing', () => {
       Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform });
       if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
       else Reflect.deleteProperty(globalThis, 'navigator');
-      if (storageDescriptor) Object.defineProperty(globalThis, 'sessionStorage', storageDescriptor);
-      else Reflect.deleteProperty(globalThis, 'sessionStorage');
     }
   });
 
-  it('never auto-downloads for an invalid invite even in an Android browser', async () => {
-    jest.useFakeTimers();
+  it('never downloads for an invalid Android-browser invite without a manual tap', async () => {
     const originalPlatform = Platform.OS;
     const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
     Object.defineProperty(Platform, 'OS', { configurable: true, value: 'web' });
@@ -182,7 +235,6 @@ describe('invite landing', () => {
     try {
       await act(async () => {
         TestRenderer.create(<InviteLanding />);
-        jest.advanceTimersByTime(2_000);
         await Promise.resolve();
       });
       expect(openUrl).not.toHaveBeenCalled();

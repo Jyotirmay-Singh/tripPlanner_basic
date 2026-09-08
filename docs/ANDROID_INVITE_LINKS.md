@@ -19,23 +19,30 @@ six-character codes remain backward compatible.
 3. If the app is installed, the link opens `/invite/<token>` in package `com.tripsplitter.app`, then
    routes an authenticated user directly to the existing identity-aware Join wizard.
 4. If the app is absent or the link opens in an embedded browser, the same URL renders the invite
-   landing page. After validating an active token, an Android browser starts the stable
-   `/download/android` APK once per token/session and keeps **Open Trip Splitter**, **Download
-   Android APK**, and web-join controls visible as fallbacks. Desktop, iOS, invalid, expired,
-   revoked, disabled, and offline states never auto-download.
+   landing page. Android browsers stay there with **Open Trip Splitter**, **Download Android APK**,
+   and **Continue on web** controls; no APK download starts automatically. Signed-in desktop and iOS
+   web users proceed directly to the join preview, while signed-out users return there after auth.
 5. A raw APK has no Play Store install-referrer/deferred-deep-link handoff. After installation, the
    user returns to WhatsApp and taps the original invitation again; the HTTPS App Link carries the
    token into the joining page.
+6. The join preview sends an existing member to `/trip/<id>` Summary and shows the existing Join Trip
+   identity flow to a non-member. Invalid, expired, revoked, disabled, and offline states keep their
+   existing dedicated handling.
+
+The rich share message includes the private URL, permanent trip code, Android-only download link,
+and seven-day expiry notice. The currently published build 8 receives secure-link capability from
+the server flag, but its native share text remains the older invite-only copy; web sharing has the
+rich message now, and Android receives it with the next normal APK release.
 
 ## Rollout order
 
-1. Deploy the backward-compatible backend, web route, and Digital Asset Links document while
-   `INVITE_LINKS_ENABLED=false`.
-2. Build and verify a new EAS `preview` APK signed with the certificate listed in
-   `frontend/public/.well-known/assetlinks.json`.
-3. Point `/download/android` at that artifact and verify anonymous download.
-4. Set `INVITE_BASE_URL=https://tripsplitter-web.vercel.app`, enable invite links, and verify the
-   end-to-end flow before announcing it.
+1. Publish the already-verified build 8 APK as durable GitHub release
+   `android-v1.0.0-build.8`; do not rebuild it for this rollout.
+2. Point the temporary `/download/android` redirect at that durable release asset and verify the
+   anonymous download, package/version, checksum, and signing certificate.
+3. Deploy this web flow and verify the invite landing page plus Digital Asset Links document.
+4. Confirm `INVITE_BASE_URL=https://tripsplitter-web.vercel.app`, set
+   `INVITE_LINKS_ENABLED=true`, and verify `/api/meta/config` plus member/non-member flows.
 
 The flag doubles as a kill switch. Disabling it stops token creation/resolution without affecting
 manual codes or already-joined members.

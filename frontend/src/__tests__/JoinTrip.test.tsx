@@ -227,6 +227,26 @@ describe('join existing trip identity flow', () => {
     expect(renderer!.root.findAllByProps({ testID: 'join-trip-code-screen' })).toHaveLength(0);
   });
 
+  it('sends an existing member from an invite preview to the trip Summary', async () => {
+    const inviteToken = 'b'.repeat(43);
+    mockParams = { inviteToken };
+    mockPreviewJoin.mockResolvedValueOnce({
+      ...rosterPreview,
+      already_member: true,
+      existing_people: [],
+    });
+
+    await act(async () => {
+      TestRenderer.create(<JoinTrip />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockPreviewJoin).toHaveBeenCalledWith({ invite_token: inviteToken });
+    expect(mockClearPendingInvite).toHaveBeenCalledTimes(1);
+    expect(mockReplace).toHaveBeenCalledWith('/trip/trip-1');
+  });
+
   it('requests a standalone existing individual without a family member id', async () => {
     mockRequestExistingPerson.mockResolvedValueOnce({
       ...pendingRequest,

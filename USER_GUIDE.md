@@ -74,16 +74,22 @@ Settled trips remain tappable and can still be opened normally.
 3. Tap **Create trip**. You're taken to the trip page; a unique **6-character trip code** is generated (e.g. `AX27R9`).
 
 ### 3.2 Share & let others join
-- An owner/admin taps the trip-code chip to create a private link that expires after **7 days**, then
-  shares it through WhatsApp, email, or another Android share target. Recent links and their status
-  appear under **Members → Invite links**, where an owner/admin can revoke them early.
+- Any linked trip member can tap the trip-code chip to rotate their private link, which expires after
+  **7 days**, then share it through WhatsApp, email, or another share target. The message includes the
+  secure link, permanent six-character code, and Android-only APK download URL. Each member can review
+  or revoke their own links under **Members → Invite links**; owners/admins can manage all links.
 - On Android, the link opens the Join wizard directly when Trip Splitter is installed. Without the
-  app, it opens a branded page with **Download Android APK** and **Continue on web**. After installing
-  the APK, return to that page and tap **Open Trip Splitter** so Android can pass the invitation in.
+  app, it stays on a branded page with **Open Trip Splitter**, **Download Android APK**, and
+  **Continue on web**. The APK downloads only after a manual tap. After installing it, return to the
+  original invitation and open it again so Android can pass the invitation in.
+- Signed-in desktop and iOS web users go straight to the join preview. Existing trip members land on
+  that trip's **Summary**; everyone else continues through the normal identity-aware Join wizard.
 - Sign-in, registration, Google sign-in, and first-time password setup preserve the invitation. The
   Join wizard skips manual code entry but still performs the identity/approval checks below.
-- Regular members retain the existing code-only share behavior. Anyone can also use
-  **Home → Join Trip** and enter a valid six-character code manually.
+- Build 8 can create secure links once the server rollout flag is enabled, but its installed native
+  share sheet still uses the older invite-only wording. The full link + code + Android-download copy
+  is live when sharing on web and will reach Android in the next normal APK release.
+- Anyone can also use **Home → Join Trip** and enter a valid six-character code manually.
 - The Join wizard checks the existing roster **before** offering to create another profile. Available
   **Individuals** and **Family members** are listed separately; choose your name if the owner or an
   admin already added you.

@@ -19,12 +19,23 @@ it('allows every actual trip member to use secure sharing when the rollout flag 
   expect(canShareSecureInvite(trip, 'owner-1', false)).toBe(false);
 });
 
-it('keeps secure invitation messages code-free and preserves the member code fallback', () => {
+it('builds the exact secure invitation message with link, code, APK, and expiry', () => {
   const url = `https://tripsplitter-web.vercel.app/invite/${'a'.repeat(43)}`;
-  const secure = tripInviteShareMessage('Coast trip', url);
-  const legacy = tripCodeShareMessage('Coast trip', 'ABC123');
+  expect(tripInviteShareMessage('Coast trip', 'ABC123', url)).toBe(
+    `Join my trip "Coast trip" on Trip Splitter.\n\n`
+    + `Open trip / join:\n${url}\n\n`
+    + 'Trip code: ABC123\n\n'
+    + 'Download the Trip Splitter APK (Android phones only):\n'
+    + 'https://tripsplitter-web.vercel.app/download/android\n\n'
+    + 'This private invite link expires in 7 days.',
+  );
+});
 
-  expect(secure).toContain(url);
-  expect(secure).not.toContain('ABC123');
-  expect(legacy).toContain('Code: ABC123');
+it('builds the exact code fallback with the Android-only APK download', () => {
+  expect(tripCodeShareMessage('Coast trip', 'ABC123')).toBe(
+    'Join my trip "Coast trip" on Trip Splitter.\n\n'
+    + 'Trip code: ABC123\n\n'
+    + 'Download the Trip Splitter APK (Android phones only):\n'
+    + 'https://tripsplitter-web.vercel.app/download/android',
+  );
 });

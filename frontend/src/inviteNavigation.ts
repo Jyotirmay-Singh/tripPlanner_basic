@@ -3,6 +3,7 @@ import type { Href } from 'expo-router';
 
 export const INVITE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 export const DEFAULT_APP_ORIGIN = 'https://tripsplitter-web.vercel.app';
+export const ANDROID_APK_DOWNLOAD_URL = `${DEFAULT_APP_ORIGIN}/download/android`;
 
 export function invitePath(token: string): string | null {
   const normalized = token.trim();

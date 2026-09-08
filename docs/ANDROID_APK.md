@@ -7,6 +7,11 @@ additive artifact — it does not affect the Vercel web deploy or the Render bac
 App: **Trip Splitter** · package `com.tripsplitter.app` · version `1.0.0`
 (the `versionCode` is auto-incremented by EAS — `eas.json` `appVersionSource: "remote"`).
 
+Current public binary: **build 8** (`versionCode 8`), SHA-256
+`8640AFA4B44E103CA47EB106F28792EF8C23BE5196B7083ACC9DA52B9BEDEAB0`, published
+without rebuilding as GitHub release `android-v1.0.0-build.8` with asset
+`trip-splitter-android-1.0.0-build-8.apk`.
+
 ---
 
 ## 1. How the APK is built (for maintainers)
@@ -93,8 +98,8 @@ SHA-1.
 1. On your Android phone, open the stable download link:
    - `https://tripsplitter-web.vercel.app/download/android`
 
-   This temporary redirect is refreshed after each verified EAS build, so testers do not need a
-   new URL when an Expo artifact changes or expires. The redirected `.apk` downloads anonymously.
+   This remains a temporary redirect, but its destination is the durable GitHub release asset rather
+   than an expiring EAS artifact. Testers keep one URL and the redirected `.apk` downloads anonymously.
 2. When the browser/Files app asks, **allow "Install from unknown sources"** for that app
    (Settings → Apps → Special access → Install unknown apps → enable for your browser/Files).
 3. Tap the downloaded `.apk` → **Install** → **Open**.

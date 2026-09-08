@@ -22,7 +22,7 @@
   "redirects": [
     {
       "source": "/download/android",
-      "destination": "https://expo.dev/artifacts/eas/CQIfzIVtjGjaVbFGXiODBNE1c5mH8QPsJR2I5L0DAmM.apk",
+      "destination": "https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/download/android-v1.0.0-build.8/trip-splitter-android-1.0.0-build-8.apk",
       "permanent": false
     }
   ],

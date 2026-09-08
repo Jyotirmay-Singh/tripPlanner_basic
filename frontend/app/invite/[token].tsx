@@ -17,17 +17,12 @@ import { useTheme } from '../../src/ThemeContext';
 import T from '../../src/T';
 import { Button, Icon } from '../../src/ui';
 import {
-  DEFAULT_APP_ORIGIN,
+  ANDROID_APK_DOWNLOAD_URL,
   invitePath,
   joinHref,
   passwordSetupHref,
   postAuthHref,
 } from '../../src/inviteNavigation';
-import {
-  claimInviteApkAutoDownload,
-  INVITE_APK_AUTO_DOWNLOAD_DELAY_MS,
-  isAndroidWebBrowser,
-} from '../../src/inviteAutoDownload';
 import { CONTENT_MAX_WIDTH, FONTS, RADIUS, SPACING } from '../../src/theme';
 
 
@@ -82,12 +77,9 @@ export default function InviteLanding() {
   const [loading, setLoading] = useState(!!path);
   const [retryKey, setRetryKey] = useState(0);
   const [openAppError, setOpenAppError] = useState(false);
-  const [autoDownloadFailed, setAutoDownloadFailed] = useState(false);
   const active = !!invite && !failure;
-  const androidWebBrowser = isAndroidWebBrowser(
-    Platform.OS,
-    typeof navigator === 'undefined' ? '' : navigator.userAgent,
-  );
+  const androidWebBrowser = Platform.OS === 'web'
+    && /android/i.test(typeof navigator === 'undefined' ? '' : navigator.userAgent);
 
   useEffect(() => {
     if (!path) return;
@@ -127,31 +119,14 @@ export default function InviteLanding() {
   }, [clearPendingInvite, path, rememberInvite, retryKey, token]);
 
   useEffect(() => {
-    if (Platform.OS === 'web' || !invite || !user) return;
+    if (!invite || !user || (Platform.OS === 'web' && androidWebBrowser)) return;
     if (user.credentials_set === false) {
       router.replace(passwordSetupHref(path));
       return;
     }
     const href = joinHref(token);
     if (href) router.replace(href);
-  }, [invite, path, router, token, user]);
-
-  useEffect(() => {
-    if (!active || !androidWebBrowser) return undefined;
-    let storage: Storage | null = null;
-    try {
-      storage = typeof sessionStorage === 'undefined' ? null : sessionStorage;
-    } catch {
-      storage = null;
-    }
-    if (!claimInviteApkAutoDownload(token, storage)) return undefined;
-
-    const timer = setTimeout(() => {
-      void Linking.openURL(`${DEFAULT_APP_ORIGIN}/download/android`)
-        .catch(() => setAutoDownloadFailed(true));
-    }, INVITE_APK_AUTO_DOWNLOAD_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [active, androidWebBrowser, token]);
+  }, [androidWebBrowser, invite, path, router, token, user]);
 
   const signIn = () => {
     if (!path) return;
@@ -185,7 +160,7 @@ export default function InviteLanding() {
   };
 
   const downloadApp = () => {
-    void Linking.openURL(`${DEFAULT_APP_ORIGIN}/download/android`);
+    void Linking.openURL(ANDROID_APK_DOWNLOAD_URL);
   };
 
   const dismiss = () => {
@@ -261,18 +236,6 @@ export default function InviteLanding() {
                         fullWidth
                         testID="invite-download-apk"
                       />
-                      {androidWebBrowser ? (
-                        <T
-                          variant="caption"
-                          muted={!autoDownloadFailed}
-                          color={autoDownloadFailed ? colors.danger : undefined}
-                          testID="invite-auto-download-status"
-                        >
-                          {autoDownloadFailed
-                            ? 'The automatic download was blocked. Tap Download Android APK.'
-                            : 'The latest APK download will start automatically on this Android device.'}
-                        </T>
-                      ) : null}
                       <Button
                         label="Continue on web"
                         variant="ghost"
@@ -305,7 +268,7 @@ export default function InviteLanding() {
                       <Button label="Try again" icon="retry" onPress={() => setRetryKey((value) => value + 1)} fullWidth />
                     ) : null}
                     {Platform.OS === 'web' ? (
-                      <Button label="Download Trip Splitter" icon="download" variant="secondary" onPress={downloadApp} fullWidth />
+                      <Button label="Download Android APK" icon="download" variant="secondary" onPress={downloadApp} fullWidth />
                     ) : null}
                   </View>
                 </>
