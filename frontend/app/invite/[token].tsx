@@ -28,6 +28,8 @@ import { CONTENT_MAX_WIDTH, FONTS, RADIUS, SPACING } from '../../src/theme';
 
 type LandingFailure = 'invalid' | 'expired' | 'revoked' | 'disabled' | 'offline';
 
+const APP_LOGO = require('../../assets/images/icon.png');
+
 const failureCopy: Record<LandingFailure, { title: string; body: string }> = {
   invalid: {
     title: 'This invite is not valid',
@@ -201,7 +203,13 @@ export default function InviteLanding() {
               ) : active ? (
                 <>
                   <View style={[styles.iconTile, { backgroundColor: colors.surfaceMuted }]}>
-                    <Icon name="plane" size={25} color={colors.primary} />
+                    <Image
+                      source={APP_LOGO}
+                      style={styles.appLogo}
+                      resizeMode="contain"
+                      accessibilityLabel="Trip Splitter app logo"
+                      testID="invite-app-logo"
+                    />
                   </View>
                   <T variant="h1" testID="invite-trip-name">Join {invite.trip_name}</T>
                   <T muted>
@@ -217,7 +225,7 @@ export default function InviteLanding() {
                     <View style={styles.actions}>
                       <Button
                         label="Open Trip Splitter"
-                        icon="plane"
+                        iconSource={APP_LOGO}
                         onPress={openApp}
                         fullWidth
                         size="lg"
@@ -312,6 +320,7 @@ const styles = StyleSheet.create({
   iconTile: {
     width: 48, height: 48, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center',
   },
+  appLogo: { width: 40, height: 40 },
   expiry: {
     minHeight: 46, borderTopWidth: 1, borderBottomWidth: 1, flexDirection: 'row',
     alignItems: 'center', gap: SPACING.sm, paddingVertical: SPACING.sm,

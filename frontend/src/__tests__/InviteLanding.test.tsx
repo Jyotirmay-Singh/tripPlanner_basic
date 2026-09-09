@@ -52,8 +52,8 @@ jest.mock('../../src/ui', () => {
   const R = require('react');
   const { Text, TouchableOpacity } = require('react-native');
   return {
-    Button: ({ label, onPress, testID }: any) => R.createElement(
-      TouchableOpacity, { onPress, testID }, R.createElement(Text, null, label),
+    Button: ({ label, onPress, testID, icon, iconSource }: any) => R.createElement(
+      TouchableOpacity, { onPress, testID, icon, iconSource }, R.createElement(Text, null, label),
     ),
     Icon: ({ name }: any) => R.createElement(Text, null, name),
   };
@@ -213,6 +213,37 @@ describe('invite landing', () => {
       expect(openUrl).toHaveBeenCalledWith(
         'https://tripsplitter-web.vercel.app/download/android',
       );
+    } finally {
+      Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform });
+      if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+      else Reflect.deleteProperty(globalThis, 'navigator');
+    }
+  });
+
+  it('uses the Trip Splitter app logo for the invite badge and open-app button', async () => {
+    const originalPlatform = Platform.OS;
+    const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: 'web' });
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 9) Chrome/140' },
+    });
+
+    try {
+      let renderer: any;
+      await act(async () => {
+        renderer = TestRenderer.create(<InviteLanding />);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const logoSource = require('../../assets/images/icon.png');
+      expect(renderer.root.findByProps({ testID: 'invite-app-logo' }).props.source)
+        .toBe(logoSource);
+      expect(renderer.root.findByProps({ testID: 'invite-open-app' }).props.iconSource)
+        .toBe(logoSource);
+      expect(renderer.root.findByProps({ testID: 'invite-open-app' }).props.icon)
+        .toBeUndefined();
     } finally {
       Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatform });
       if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);

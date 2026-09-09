@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
 import {
-  Animated, Pressable, StyleSheet, ActivityIndicator, Platform,
-  type ViewStyle, type StyleProp,
+  Animated, Pressable, StyleSheet, ActivityIndicator, Image, Platform,
+  type ImageSourcePropType, type ViewStyle, type StyleProp,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../ThemeContext';
@@ -24,6 +24,7 @@ type Props = {
   variant?: ButtonVariant;
   size?: ButtonSize;
   icon?: IconName;
+  iconSource?: ImageSourcePropType;
   iconRight?: IconName;
   loading?: boolean;
   disabled?: boolean;
@@ -35,7 +36,7 @@ type Props = {
 };
 
 export default function Button({
-  label, onPress, variant = 'primary', size = 'md', icon, iconRight,
+  label, onPress, variant = 'primary', size = 'md', icon, iconSource, iconRight,
   loading = false, disabled = false, fullWidth = false, haptic = true,
   style, testID, accessibilityLabel,
 }: Props) {
@@ -93,7 +94,14 @@ export default function Button({
           <ActivityIndicator size="small" color={fg} />
         ) : (
           <>
-            {icon ? <Icon name={icon} size={dim.icon} color={fg} /> : null}
+            {iconSource ? (
+              <Image
+                source={iconSource}
+                style={{ width: dim.icon, height: dim.icon }}
+                resizeMode="contain"
+                accessible={false}
+              />
+            ) : icon ? <Icon name={icon} size={dim.icon} color={fg} /> : null}
             <T style={{ fontFamily: FONTS.bodyBold, fontSize: dim.font }} color={fg}>{label}</T>
             {iconRight ? <Icon name={iconRight} size={dim.icon} color={fg} /> : null}
           </>
