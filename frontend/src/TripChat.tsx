@@ -34,7 +34,7 @@ import {
 } from './theme';
 import type { TripChatController } from './useTripChat';
 import { ActionSheet, Button, Icon, IconButton, useToast } from './ui';
-import { KeyboardAvoidingView } from './KeyboardController';
+import { KeyboardStickyView, useAppKeyboardState } from './KeyboardController';
 
 type Props = {
   header: React.ReactNode;
@@ -69,6 +69,7 @@ export default function TripChat({
 }: Props) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const keyboard = useAppKeyboardState();
   const toast = useToast();
   const listRef = useRef<FlatList<LocalChatMessage>>(null);
   const initialScrollDone = useRef(false);
@@ -147,6 +148,11 @@ export default function TripChat({
       index, animated: false, viewPosition: 0.5,
     }));
   }, [controller.messages, focusMessageId]);
+
+  useEffect(() => {
+    if (!keyboard.isVisible || !nearBottom.current) return;
+    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
+  }, [keyboard.height, keyboard.isVisible]);
 
   const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -410,20 +416,21 @@ export default function TripChat({
     </View>
   );
 
+  const visibleKeyboardHeight = keyboard.isVisible ? keyboard.height : 0;
+
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior="translate-with-padding"
-      automaticOffset
-      testID="trip-chat-keyboard-view"
-    >
+    <View style={styles.root} testID="trip-chat-keyboard-view">
       <FlatList
         ref={listRef}
+        style={styles.list}
         data={controller.messages}
         keyExtractor={chatMessageKey}
         renderItem={renderMessage}
         ListHeaderComponent={listHeader}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          visibleKeyboardHeight > 0 && { paddingBottom: visibleKeyboardHeight + SPACING.xl },
+        ]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         onScroll={onScroll}
@@ -449,29 +456,37 @@ export default function TripChat({
         testID="trip-chat-list"
       />
 
-      {showJump ? (
-        <Pressable
-          onPress={() => {
-            listRef.current?.scrollToEnd({ animated: true });
-            nearBottom.current = true;
-            setShowJump(false);
-          }}
-          accessibilityRole="button"
-          style={[styles.jump, { backgroundColor: colors.primary }]}
-        >
-          <T variant="caption" color={colors.primaryText} style={{ fontFamily: FONTS.bodyBold }}>New messages ↓</T>
-        </Pressable>
-      ) : null}
+      <KeyboardStickyView
+        offset={{ closed: 0, opened: 0 }}
+        style={styles.stickyComposer}
+        testID="trip-chat-keyboard-sticky"
+      >
+        {showJump ? (
+          <Pressable
+            onPress={() => {
+              listRef.current?.scrollToEnd({ animated: true });
+              nearBottom.current = true;
+              setShowJump(false);
+            }}
+            accessibilityRole="button"
+            style={[styles.jump, { backgroundColor: colors.primary }]}
+          >
+            <T variant="caption" color={colors.primaryText} style={{ fontFamily: FONTS.bodyBold }}>New messages ↓</T>
+          </Pressable>
+        ) : null}
 
-      <View style={[
-        styles.composerShell,
-        {
-          backgroundColor: colors.background,
-          borderTopColor: colors.border,
-          paddingBottom: insets.bottom + SPACING.sm,
-        },
-      ]}>
-        <View style={[styles.composerInner, { maxWidth: CONTENT_MAX_WIDTH }]}>
+        <View
+          style={[
+            styles.composerShell,
+            {
+              backgroundColor: colors.background,
+              borderTopColor: colors.border,
+              paddingBottom: (keyboard.isVisible ? 0 : insets.bottom) + SPACING.sm,
+            },
+          ]}
+          testID="chat-composer-shell"
+        >
+          <View style={[styles.composerInner, { maxWidth: CONTENT_MAX_WIDTH }]}>
           {editing ? (
             <View style={[styles.editingBar, { backgroundColor: colors.surfaceMuted }]}>
               <View style={{ flex: 1 }}>
@@ -491,13 +506,16 @@ export default function TripChat({
               {composerNotice}
             </T>
           ) : null}
-          <View style={[
-            styles.composer,
-            {
-              backgroundColor: colors.surface,
-              borderColor: composerFocused ? colors.primary : colors.border,
-            },
-          ]}>
+          <View
+            style={[
+              styles.composer,
+              {
+                backgroundColor: composerFocused ? colors.surfaceMuted : colors.surface,
+                borderColor: composerFocused ? colors.primary : colors.border,
+              },
+            ]}
+            testID="chat-composer-surface"
+          >
             <TextInput
               value={draft}
               onChangeText={setDraft}
@@ -508,12 +526,15 @@ export default function TripChat({
               maxLength={2000}
               editable={composerEnabled}
               accessibilityLabel={editing ? 'Edit message' : 'Message the trip'}
+              accessibilityHint="Type a message. Use the send button when it is ready."
               accessibilityState={{ disabled: !composerEnabled }}
               cursorColor={colors.primary}
               selectionColor={colors.primary + '55'}
               selectionHandleColor={colors.primary}
               autoCapitalize="sentences"
               autoCorrect
+              blurOnSubmit={false}
+              textAlignVertical="top"
               style={[styles.input, { color: colors.textMain }]}
               onFocus={() => {
                 setComposerFocused(true);
@@ -542,8 +563,9 @@ export default function TripChat({
           {draft.length >= 1800 ? (
             <T variant="caption" muted style={{ textAlign: 'right', marginTop: 2 }}>{draft.length}/2000</T>
           ) : null}
+          </View>
         </View>
-      </View>
+      </KeyboardStickyView>
 
       <ActionSheet
         visible={!!selected}
@@ -592,11 +614,13 @@ export default function TripChat({
           },
         ]}
       />
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
+  list: { flex: 1 },
   listContent: { paddingBottom: SPACING.xl },
   chatHeader: {
     width: '100%', paddingHorizontal: SPACING.lg, paddingTop: SPACING.lg,
@@ -627,9 +651,10 @@ const styles = StyleSheet.create({
   },
   emptyMark: { width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center' },
   jump: {
-    position: 'absolute', alignSelf: 'center', bottom: 92, paddingHorizontal: SPACING.md,
+    position: 'absolute', alignSelf: 'center', bottom: 92, zIndex: 2, paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.sm, borderRadius: RADIUS.pill,
   },
+  stickyComposer: { zIndex: 1, elevation: 1 },
   composerShell: { borderTopWidth: 1, paddingHorizontal: SPACING.md, paddingTop: SPACING.sm },
   composerInner: { width: '100%', alignSelf: 'center' },
   composer: {

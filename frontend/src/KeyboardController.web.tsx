@@ -4,6 +4,7 @@ import type {
   KeyboardAwareScrollViewProps,
   KeyboardAwareScrollViewRef,
   KeyboardAvoidingViewProps,
+  KeyboardStickyViewProps,
 } from 'react-native-keyboard-controller';
 
 /** The native module is deliberately absent from the static web bundle. */
@@ -45,6 +46,25 @@ export const KeyboardAvoidingView = forwardRef<
 ) {
   return <View ref={ref} {...props} />;
 });
+
+export const KeyboardStickyView = forwardRef<
+  View,
+  React.PropsWithChildren<KeyboardStickyViewProps>
+>(function WebKeyboardStickyView(
+  {
+    enabled: _enabled,
+    offset: _offset,
+    ...props
+  },
+  ref,
+) {
+  return <View ref={ref} {...props} />;
+});
+
+/** Browsers manage their own visual viewport; native keyboard geometry is not applicable. */
+export function useAppKeyboardState() {
+  return { height: 0, isVisible: false };
+}
 
 /** Match native Next behavior without importing the native controller into the web build. */
 export function focusNextInput() {

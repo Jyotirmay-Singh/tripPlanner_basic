@@ -1,7 +1,7 @@
 /* eslint-disable import/first, @typescript-eslint/no-require-imports */
 import React from 'react';
 import { AccessibilityInfo, ScrollView, Text, TextInput, View } from 'react-native';
-import TestRenderer, { act } from 'react-test-renderer';
+import TestRenderer, { act, type ReactTestInstance } from 'react-test-renderer';
 import { KeyboardController } from 'react-native-keyboard-controller';
 
 jest.mock('../ThemeContext', () => ({
@@ -58,6 +58,13 @@ it('uses host-only fallbacks on web and does not leak native-only scroll props',
         >
           <Text>Web form</Text>
         </WebKeyboard.KeyboardAwareScrollView>
+        <WebKeyboard.KeyboardStickyView
+          enabled
+          offset={{ closed: 0, opened: 24 }}
+          testID="web-sticky"
+        >
+          <Text>Web composer</Text>
+        </WebKeyboard.KeyboardStickyView>
       </WebKeyboard.AppKeyboardProvider>,
     );
   });
@@ -66,6 +73,12 @@ it('uses host-only fallbacks on web and does not leak native-only scroll props',
   expect(scroll.props.testID).toBe('web-scroll');
   expect(scroll.props.mode).toBeUndefined();
   expect(scroll.props.bottomOffset).toBeUndefined();
+  const sticky = renderer.root.findAllByType(View)
+    .find((node: ReactTestInstance) => node.props.testID === 'web-sticky');
+  expect(sticky).toBeTruthy();
+  expect(sticky?.props.enabled).toBeUndefined();
+  expect(sticky?.props.offset).toBeUndefined();
+  expect(WebKeyboard.useAppKeyboardState()).toEqual({ height: 0, isVisible: false });
   expect(renderer.root.findAllByType('KeyboardProvider' as any)).toHaveLength(0);
 });
 

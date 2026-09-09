@@ -1,9 +1,11 @@
 /* eslint-disable import/first, @typescript-eslint/no-require-imports */
 import React from 'react';
-import { Text, TextInput } from 'react-native';
+import { StyleSheet, Text, TextInput } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
+import { useKeyboardState } from 'react-native-keyboard-controller';
 
 const mockToastShow = jest.fn();
+const mockUseKeyboardState = useKeyboardState as jest.Mock;
 
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 24, left: 0 }),
@@ -39,7 +41,10 @@ jest.mock('../ui', () => {
 import TripChat from '../TripChat';
 import type { TripChatController } from '../useTripChat';
 
-beforeEach(() => jest.useFakeTimers());
+beforeEach(() => {
+  jest.useFakeTimers();
+  mockUseKeyboardState.mockImplementation((selector: any) => selector({ height: 0, isVisible: false }));
+});
 afterEach(() => {
   act(() => { jest.runOnlyPendingTimers(); });
   jest.useRealTimers();
@@ -89,8 +94,9 @@ it('renders every sender label, family context, edited state, and composer limit
   expect(text).toContain('edited');
   expect(renderer.root.findByProps({ testID: 'chat-composer' }).props.maxLength).toBe(2000);
   expect(renderer.root.findByProps({ testID: 'chat-owner-options' })).toBeTruthy();
-  expect(renderer.root.findByProps({ testID: 'trip-chat-keyboard-view' }).props)
-    .toEqual(expect.objectContaining({ behavior: 'translate-with-padding', automaticOffset: true }));
+  expect(renderer.root.findByProps({ testID: 'trip-chat-keyboard-view' })).toBeTruthy();
+  expect(renderer.root.findByProps({ testID: 'trip-chat-keyboard-sticky' }).props.offset)
+    .toEqual({ closed: 0, opened: 0 });
   expect(renderer.root.findByProps({ testID: 'chat-composer' }).props)
     .toEqual(expect.objectContaining({ multiline: true, submitBehavior: 'newline' }));
   act(() => renderer.unmount());
@@ -109,6 +115,32 @@ it('shows the themed composer focus border without changing the draft', async ()
   act(() => input.props.onFocus());
   expect(renderer.root.findByProps({ testID: 'chat-composer' }).props.value).toBe('Draft');
   expect(renderer.root.findByProps({ testID: 'chat-composer' }).props.cursorColor).toBe('#1c3f39');
+  expect(StyleSheet.flatten(renderer.root.findByProps({ testID: 'chat-composer-surface' }).props.style))
+    .toEqual(expect.objectContaining({ backgroundColor: '#eee', borderColor: '#1c3f39' }));
+  act(() => renderer.unmount());
+});
+
+it('reserves keyboard space for messages and removes the obsolete bottom safe-area gap', async () => {
+  mockUseKeyboardState.mockImplementation((selector: any) => selector({
+    height: 320,
+    isVisible: true,
+  }));
+  const controller = baseController();
+  let renderer: any;
+  await act(async () => {
+    renderer = TestRenderer.create(
+      <TripChat header={null} controller={controller} currentUserId="u1" isOwner={false} canSend />,
+    );
+  });
+
+  const listStyle = StyleSheet.flatten(
+    renderer.root.findByProps({ testID: 'trip-chat-list' }).props.contentContainerStyle,
+  );
+  const shellStyle = StyleSheet.flatten(
+    renderer.root.findByProps({ testID: 'chat-composer-shell' }).props.style,
+  );
+  expect(listStyle.paddingBottom).toBe(352);
+  expect(shellStyle.paddingBottom).toBe(8);
   act(() => renderer.unmount());
 });
 
