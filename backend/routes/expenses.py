@@ -9,6 +9,7 @@ from utils.deps import get_current_user, _trip_or_404, _expense_modify_or_403
 from services.receipts import delete_receipts_for_expense
 from services.expense_shares import expense_share_breakdown
 from services.push_notifications import enqueue_notification_event
+from services.admin_audit import record_admin_action
 from services.exchange_rates import ExchangeRateError, decimal_value, error_detail
 from services.expense_conversion import (
     convert_create_body,
@@ -151,7 +152,7 @@ def _clean_family_participants(raw, split_mode, split_ids, members):
 async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: BackgroundTasks,
                       force: bool = False,
                       user=Depends(get_current_user)):
-    trip = await _trip_or_404(trip_id, user["id"])
+    trip = await _trip_or_404(trip_id, user)
     trip_currency = trip.get("currency", "INR")
     source_currency = body.original_currency or body.currency or trip_currency
     if source_currency != trip_currency and not MULTI_CURRENCY_EXPENSES_ENABLED:
@@ -208,6 +209,13 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
     doc["conversion_history"] = [converted["history"]]
     await db.expenses.insert_one(doc)
     doc.pop("_id", None)
+    await record_admin_action(
+        user, "expense.created", trip=trip, resource_type="expense", resource_id=eid,
+        changed_fields=(
+            "amount", "currency", "category", "description", "date", "time",
+            "paid_by_member_id", "split_member_ids", "split_mode",
+        ),
+    )
     await enqueue_notification_event(
         event_type="expense.created",
         source_id=eid,
@@ -220,7 +228,7 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
 
 @router.get("/trips/{trip_id}/expenses")
 async def list_expenses(trip_id: str, user=Depends(get_current_user)):
-    trip = await _trip_or_404(trip_id, user["id"])
+    trip = await _trip_or_404(trip_id, user)
     # Step 22: never return the heavy receipt bytes in the list. Expose a lightweight
     # `has_receipt` flag (true for a GridFS receipt_id OR a legacy inline blob) so the client
     # can render a thumbnail via the streamed GET endpoint without downloading bytes here.
@@ -247,7 +255,7 @@ async def list_expenses(trip_id: str, user=Depends(get_current_user)):
 
 @router.get("/trips/{trip_id}/expenses/{expense_id}")
 async def get_expense(trip_id: str, expense_id: str, user=Depends(get_current_user)):
-    trip = await _trip_or_404(trip_id, user["id"])
+    trip = await _trip_or_404(trip_id, user)
     expense = await db.expenses.find_one(
         {"id": expense_id, "trip_id": trip_id}, {"_id": 0}
     )
@@ -264,7 +272,7 @@ async def get_expense(trip_id: str, expense_id: str, user=Depends(get_current_us
 @router.patch("/trips/{trip_id}/expenses/{expense_id}")
 async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
                          user=Depends(get_current_user)):
-    trip, expense = await _expense_modify_or_403(trip_id, expense_id, user["id"])
+    trip, expense = await _expense_modify_or_403(trip_id, expense_id, user)
     raw = body.model_dump(exclude_unset=True)
     force = bool(raw.pop("force", False))
     if not raw:
@@ -490,13 +498,17 @@ async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
     saved = await db.expenses.find_one(
         {"id": expense_id, "trip_id": trip_id}, {"_id": 0}
     )
+    await record_admin_action(
+        user, "expense.updated", trip=trip, resource_type="expense", resource_id=expense_id,
+        changed_fields=updates.keys(),
+    )
     return serialize_bson(saved)
 
 
 @router.post("/trips/{trip_id}/expenses/{expense_id}/reconvert")
 async def reconvert_expense(trip_id: str, expense_id: str, body: ReconvertIn,
                             user=Depends(get_current_user)):
-    trip, expense = await _expense_modify_or_403(trip_id, expense_id, user["id"])
+    trip, expense = await _expense_modify_or_403(trip_id, expense_id, user)
     if not MULTI_CURRENCY_EXPENSES_ENABLED:
         _foreign_disabled()
     current_version = int(expense.get("conversion_version") or 0)
@@ -545,14 +557,24 @@ async def reconvert_expense(trip_id: str, expense_id: str, body: ReconvertIn,
     saved = await db.expenses.find_one(
         {"id": expense_id, "trip_id": trip_id}, {"_id": 0}
     )
+    await record_admin_action(
+        user, "expense.reconverted", trip=trip, resource_type="expense",
+        resource_id=expense_id,
+        changed_fields=(
+            "amount", "currency", "custom_amounts", "conversion_history", "conversion_version",
+        ),
+    )
     return {"expense": serialize_bson(saved), "warning": warning}
 
 
 @router.delete("/trips/{trip_id}/expenses/{expense_id}")
 async def delete_expense(trip_id: str, expense_id: str, user=Depends(get_current_user)):
     # Step 10: only the expense creator or a trip admin may delete (404 if missing, 403 otherwise).
-    await _expense_modify_or_403(trip_id, expense_id, user["id"])
+    trip, _expense = await _expense_modify_or_403(trip_id, expense_id, user)
     # Step 22: clean up any GridFS receipt so we never leave orphaned receipts.files/.chunks.
     await delete_receipts_for_expense(expense_id)
     await db.expenses.delete_one({"id": expense_id, "trip_id": trip_id})
+    await record_admin_action(
+        user, "expense.deleted", trip=trip, resource_type="expense", resource_id=expense_id,
+    )
     return {"ok": True}

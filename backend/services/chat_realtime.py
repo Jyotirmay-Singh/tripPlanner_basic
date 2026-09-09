@@ -11,12 +11,14 @@ from config import logger
 
 class ChatConnectionManager:
     def __init__(self) -> None:
-        self._connections: dict[str, dict[WebSocket, str]] = defaultdict(dict)
+        self._connections: dict[str, dict[WebSocket, tuple[str, bool]]] = defaultdict(dict)
         self._lock = asyncio.Lock()
 
-    async def connect(self, trip_id: str, user_id: str, websocket: WebSocket) -> None:
+    async def connect(
+        self, trip_id: str, user_id: str, websocket: WebSocket, *, privileged: bool = False
+    ) -> None:
         async with self._lock:
-            self._connections[trip_id][websocket] = user_id
+            self._connections[trip_id][websocket] = (user_id, privileged)
 
     async def disconnect(self, trip_id: str, websocket: WebSocket) -> None:
         async with self._lock:
@@ -31,8 +33,9 @@ class ChatConnectionManager:
         allowed = set(allowed_user_ids)
         async with self._lock:
             targets = list(self._connections.get(trip_id, {}).items())
-        for websocket, user_id in targets:
-            if user_id not in allowed:
+        for websocket, connection in targets:
+            user_id, privileged = connection
+            if user_id not in allowed and not privileged:
                 await self._close_and_remove(trip_id, websocket, 4403)
                 continue
             try:
@@ -52,8 +55,8 @@ class ChatConnectionManager:
         async with self._lock:
             targets = [
                 websocket
-                for websocket, user_id in self._connections.get(trip_id, {}).items()
-                if user_id in revoked
+                for websocket, connection in self._connections.get(trip_id, {}).items()
+                if connection[0] in revoked and not connection[1]
             ]
         for websocket in targets:
             await self._close_and_remove(trip_id, websocket, 4403)

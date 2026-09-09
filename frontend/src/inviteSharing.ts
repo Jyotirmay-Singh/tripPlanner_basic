@@ -6,8 +6,9 @@ export function canShareSecureInvite(
   trip: RoleTrip,
   userId: string | undefined,
   inviteLinksEnabled: boolean,
+  isSuperAdmin = false,
 ): boolean {
-  return inviteLinksEnabled && roleOf(trip, userId) !== null;
+  return inviteLinksEnabled && roleOf(trip, userId, isSuperAdmin) !== null;
 }
 
 export function tripCodeShareMessage(tripName: string, code: string): string {

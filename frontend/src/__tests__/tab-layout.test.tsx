@@ -4,6 +4,8 @@ import { Platform } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import { TYPESCALE } from '../theme';
 
+let mockIsSuperAdmin = false;
+
 jest.mock('expo-router', () => {
   const R = require('react');
   const Tabs = (props: any) => R.createElement('Tabs', props, props.children);
@@ -27,6 +29,9 @@ jest.mock('../ui', () => {
   const R = require('react');
   return { Icon: (props: any) => R.createElement('Icon', props) };
 });
+jest.mock('../AuthContext', () => ({
+  useAuth: () => ({ user: { is_super_admin: mockIsSuperAdmin } }),
+}));
 
 import TabsLayout from '../../app/(tabs)/_layout';
 
@@ -38,6 +43,7 @@ function renderTabs() {
 
 describe('tab navigator layout', () => {
   afterEach(() => {
+    mockIsSuperAdmin = false;
     jest.restoreAllMocks();
   });
 
@@ -54,6 +60,15 @@ describe('tab navigator layout', () => {
 
     expect(visibleScreens.map((screen: any) => screen.props.name)).toEqual(['dashboard', 'trips', 'reports']);
     expect(profile.props.options).toEqual({ href: null, title: 'Profile' });
+  });
+
+  it('adds the dedicated Admin destination only for the application super-admin', () => {
+    mockIsSuperAdmin = true;
+    const screens = renderTabs().findAllByType('TabsScreen' as any);
+    const visibleScreens = screens.filter((screen: any) => screen.props.options.href !== null);
+
+    expect(visibleScreens.map((screen: any) => screen.props.name))
+      .toEqual(['dashboard', 'trips', 'admin', 'reports']);
   });
 
   it.each([

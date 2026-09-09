@@ -41,6 +41,7 @@ type Props = {
   controller: TripChatController;
   currentUserId?: string;
   isOwner: boolean;
+  canModerateMessages?: boolean;
   canSend: boolean;
   focusMessageId?: string;
 };
@@ -62,6 +63,7 @@ export default function TripChat({
   controller,
   currentUserId,
   isOwner,
+  canModerateMessages = false,
   canSend,
   focusMessageId,
 }: Props) {
@@ -89,12 +91,15 @@ export default function TripChat({
     || connection.status === 'permission_denied'
     || permanentlyUnavailable;
   const composerEnabled = canSend && !composerBlocked;
+  const canManageHistory = isOwner || canModerateMessages;
   const canManuallyReconnect = connection.status === 'reconnecting'
     || (connection.status === 'unavailable' && connection.attempt > 0);
   const connectionDescription = (() => {
     switch (connection.status) {
       case 'connecting': return 'Connecting to the trip conversation.';
-      case 'connected': return 'Everyone linked to this trip can join the conversation.';
+      case 'connected': return canModerateMessages
+        ? 'You are connected in privileged admin mode. Trip members can continue using this conversation normally.'
+        : 'Everyone linked to this trip can join the conversation.';
       case 'reconnecting': return 'Connection interrupted. Messages remain available while chat reconnects.';
       case 'offline': return 'You are offline. Unsent messages stay on this device for retry.';
       case 'authentication_required': return 'Sign in again to continue using Trip Chat.';
@@ -102,7 +107,9 @@ export default function TripChat({
       case 'unavailable': return connection.reason === 'configuration'
         ? 'The connected server does not support this version of Trip Chat.'
         : 'The chat service could not be reached. You can try connecting again.';
-      default: return 'Everyone linked to this trip can join the conversation.';
+      default: return canModerateMessages
+        ? 'You are connected in privileged admin mode.'
+        : 'Everyone linked to this trip can join the conversation.';
     }
   })();
   const composerNotice = !canSend
@@ -224,6 +231,7 @@ export default function TripChat({
 
   const renderMessage = ({ item, index }: { item: LocalChatMessage; index: number }) => {
     const mine = item.sender_user_id === currentUserId;
+    const canManageMessage = !item.deleted_at && !item.delivery && (mine || canModerateMessages);
     const previous = controller.messages[index - 1];
     const showDate = !previous || chatDateKey(previous.created_at) !== chatDateKey(item.created_at);
     const failed = item.delivery === 'failed';
@@ -249,11 +257,13 @@ export default function TripChat({
             </View>
           ) : null}
           <Pressable
-            disabled={!mine || !!item.deleted_at || !!item.delivery}
+            disabled={!canManageMessage}
             onPress={() => setSelected(item)}
             onLongPress={() => setSelected(item)}
-            accessibilityRole={mine && !item.deleted_at && !item.delivery ? 'button' : undefined}
-            accessibilityLabel={mine ? `Message from ${label}. Open message actions` : `Message from ${label}`}
+            accessibilityRole={canManageMessage ? 'button' : undefined}
+            accessibilityLabel={canManageMessage
+              ? `Message from ${label}. Open message actions`
+              : `Message from ${label}`}
             accessibilityState={{ selected: item.id === focusMessageId }}
             testID={`chat-message-${item.id}`}
             style={[
@@ -279,8 +289,8 @@ export default function TripChat({
               >
                 {label}{mine ? ' · You' : ''}
               </T>
-              {mine && !item.deleted_at && !item.delivery ? (
-                <Icon name="more-vertical" size={14} color={colors.primaryText} />
+              {canManageMessage ? (
+                <Icon name="more-vertical" size={14} color={mine ? colors.primaryText : colors.textMuted} />
               ) : null}
             </View>
             {item.deleted_at ? (
@@ -362,7 +372,7 @@ export default function TripChat({
           </View>
           <T variant="caption" muted>{connectionDescription}</T>
         </View>
-        {isOwner ? (
+        {canManageHistory ? (
           <IconButton
             name="more-vertical"
             variant="surface"
@@ -538,7 +548,7 @@ export default function TripChat({
       <ActionSheet
         visible={!!selected}
         onClose={() => setSelected(null)}
-        title="Your message"
+        title={selected?.sender_user_id === currentUserId ? 'Your message' : 'Moderate message'}
         actions={[
           { label: 'Edit message', icon: 'pencil', onPress: startEdit },
           {
@@ -556,7 +566,7 @@ export default function TripChat({
         visible={showOwnerActions}
         onClose={() => setShowOwnerActions(false)}
         title="Chat options"
-        message="Only the trip owner can clear the conversation for everyone."
+        message="Trip owners and application administrators can clear the conversation for everyone."
         actions={[
           {
             label: 'Clear chat history', icon: 'trash', variant: 'destructive',

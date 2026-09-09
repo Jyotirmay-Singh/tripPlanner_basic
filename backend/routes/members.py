@@ -17,6 +17,7 @@ from utils.settlement_gate import (
 from services.member_breakdown import family_member_ids
 from services.reallocation import run_member_update_with_reallocation, freeze_and_remove_member
 from services.chat_realtime import chat_connections
+from services.admin_audit import record_admin_action
 
 router = APIRouter()
 
@@ -41,7 +42,7 @@ async def _validate_family_member_emails(trip, fam_emails, exclude_id):
 # ---------- Members ----------
 @router.post("/trips/{trip_id}/members")
 async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user)):
-    trip = await _trip_admin_or_403(trip_id, user["id"])
+    trip = await _trip_admin_or_403(trip_id, user)
     name = body.name
     members = trip.get("members", [])
     email = normalize_email(body.email)
@@ -98,14 +99,24 @@ async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user
             }},
         )
         t = await db.trips.find_one({"id": trip_id}, {"_id": 0})
-        return next((m for m in t["members"] if m["id"] == merge_target["id"]), None)
+        saved = next((m for m in t["members"] if m["id"] == merge_target["id"]), None)
+        await record_admin_action(
+            user, "member.converted_to_family", trip=trip, resource_type="member",
+            resource_id=merge_target["id"],
+            changed_fields=("name", "kind", "family_members", "family_member_emails"),
+        )
+        return saved
     await db.trips.update_one({"id": trip_id}, {"$push": {"members": new_member}})
+    await record_admin_action(
+        user, "member.created", trip=trip, resource_type="member", resource_id=new_member["id"],
+        changed_fields=("name", "kind", "email", "family_members", "family_member_emails"),
+    )
     return new_member
 
 
 @router.patch("/trips/{trip_id}/members/{member_id}")
 async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=Depends(get_current_user)):
-    trip = await _trip_admin_or_403(trip_id, user["id"])
+    trip = await _trip_admin_or_403(trip_id, user)
     target = next((m for m in trip["members"] if m["id"] == member_id), None)
     if not target:
         raise HTTPException(404, "Member not found")
@@ -185,7 +196,12 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
         )
         await chat_connections.disconnect_users(trip_id, vanished_uids)
     t = await db.trips.find_one({"id": trip_id}, {"_id": 0})
-    return next((m for m in t["members"] if m["id"] == member_id), None)
+    saved = next((m for m in t["members"] if m["id"] == member_id), None)
+    await record_admin_action(
+        user, "member.updated", trip=trip, resource_type="member", resource_id=member_id,
+        changed_fields=(field.removeprefix("members.$.") for field in updates),
+    )
+    return saved
 
 
 async def _settlement_block_reason(trip_id: str, target: dict):
@@ -220,7 +236,7 @@ async def delete_member(trip_id: str, member_id: str, user=Depends(get_current_u
     access + admin rights (P2), and the gate is re-checked at write time to close the TOCTOU window
     (P5).
     """
-    trip = await _trip_admin_or_403(trip_id, user["id"])
+    trip = await _trip_admin_or_403(trip_id, user)
     target = next((m for m in trip.get("members", []) if m["id"] == member_id), None)
     # A missing member id stays an idempotent no-op (preserves the historical DELETE contract).
     if not target:
@@ -254,6 +270,9 @@ async def delete_member(trip_id: str, member_id: str, user=Depends(get_current_u
         user_ids=linked_uids, verify=_verify,
     )
     await chat_connections.disconnect_users(trip_id, linked_uids)
+    await record_admin_action(
+        user, "member.deleted", trip=trip, resource_type="member", resource_id=member_id,
+    )
     return {"ok": True}
 
 
@@ -268,7 +287,7 @@ async def delete_family_member(trip_id: str, family_id: str, fm_id: str,
     keep their stable ids; ``reweight_past=False`` pins the family's OLD weight onto past PER_CAPITA
     expenses so the family's net — and every other balance — is unchanged.
     """
-    trip = await _trip_admin_or_403(trip_id, user["id"])
+    trip = await _trip_admin_or_403(trip_id, user)
     family = next((m for m in trip.get("members", []) if m["id"] == family_id), None)
     if not family or family.get("kind") != "family":
         raise HTTPException(404, "Family not found")
@@ -325,5 +344,9 @@ async def delete_family_member(trip_id: str, family_id: str, fm_id: str,
         await chat_connections.disconnect_users(trip_id, [removed_uid])
     t = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     updated = next((m for m in t["members"] if m["id"] == family_id), None)
+    await record_admin_action(
+        user, "family_member.deleted", trip=trip, resource_type="family_member",
+        resource_id=fm_id, changed_fields=("family_members", "family_member_ids"),
+    )
     # P5: consistent shape with delete_member ({"ok": True}); the family survives, so also return it.
     return {"ok": True, "member": updated}

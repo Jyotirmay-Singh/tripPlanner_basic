@@ -5,7 +5,7 @@ import config  # noqa: F401  (loads .env and initializes logging/resend before a
 from fastapi import FastAPI, APIRouter
 from starlette.middleware.cors import CORSMiddleware
 
-from config import logger
+from config import logger, SUPER_ADMIN_EMAIL
 from database import client, db
 from utils.common import gen_id, now_utc
 from utils.date_rules import legacy_to_iso
@@ -13,7 +13,7 @@ from utils.members import demote_family_entity_email
 from utils.email_rules import is_allowed_email
 from utils.security import hash_secret
 from utils.emailer import sender_mode_summary
-from routes import auth, trips, join_requests, invites, members, expenses, balances, reports, meta, receipts, spend, payments, chat, push, exchange_rates
+from routes import auth, trips, join_requests, invites, members, expenses, balances, reports, meta, receipts, spend, payments, chat, push, exchange_rates, admin
 from services.push_notifications import start_push_dispatcher, stop_push_dispatcher
 from services.exchange_rates import start_exchange_rate_client, stop_exchange_rate_client
 from services.invites import normalize_invite_active_flags
@@ -28,10 +28,43 @@ async def _remove_retired_pin_data() -> None:
     await db.drop_collection("password_reset_tokens")
 
 
+async def _ensure_super_admin() -> None:
+    """Seed or promote the fixed operator account without replacing its credentials."""
+    admin_email = SUPER_ADMIN_EMAIL
+    if not is_allowed_email(admin_email):
+        raise RuntimeError("SUPER_ADMIN_EMAIL must be a @gmail.com address")
+    existing = await db.users.find_one({"email": admin_email})
+    if not existing:
+        admin_password = os.environ.get("ADMIN_PASSWORD", "")
+        if not admin_password:
+            raise RuntimeError(
+                "ADMIN_PASSWORD is required when the application super-admin account is missing"
+            )
+        await db.users.insert_one({
+            "id": gen_id(),
+            "email": admin_email,
+            "name": "Admin",
+            "password_hash": hash_secret(admin_password),
+            "role": "super_admin",
+            "created_at": now_utc().isoformat(),
+            "email_verified": True,
+            "credentials_set": True,
+        })
+        logger.info("Seeded application super-admin user")
+        return
+    if existing.get("role") != "super_admin":
+        await db.users.update_one(
+            {"id": existing["id"]},
+            {"$set": {"role": "super_admin", "email_verified": True}},
+        )
+        logger.info("Promoted existing application super-admin user")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.users.create_index("email", unique=True)
     await db.trips.create_index("code", unique=True)
+    await db.trips.create_index([("created_at", -1), ("id", -1)])
     await db.join_requests.create_index("id", unique=True)
     await db.join_requests.create_index(
         [("trip_id", 1), ("requester_user_id", 1)],
@@ -88,10 +121,14 @@ async def lifespan(app: FastAPI):
     await db.chat_counters.create_index("trip_id", unique=True)
     # Step 22: index GridFS receipt lookup/cleanup by the owning expense.
     await db["receipts.files"].create_index("metadata.expense_id")
+    await db["receipts.files"].create_index("metadata.trip_id")
     # Phase 9: hashed/typed email tokens (verify-email + reset-password). Unique by hash;
     # TTL index purges expired rows (expireAfterSeconds=0 => delete once expires_at passes).
     await db.auth_tokens.create_index("token_hash", unique=True)
     await db.auth_tokens.create_index("expires_at", expireAfterSeconds=0)
+    await db.admin_audit_logs.create_index("id", unique=True)
+    await db.admin_audit_logs.create_index([("created_at", -1), ("id", -1)])
+    await db.admin_audit_logs.create_index([("trip_id", 1), ("created_at", -1)])
     # Phase 9: grandfather every pre-existing user (incl. the seeded admin) as already
     # verified and credential-complete so the new email-verification / set-credentials flows
     # never lock anyone out. Idempotent: only touches docs missing the field.
@@ -179,20 +216,8 @@ async def lifespan(app: FastAPI):
         if changed:
             await db.trips.update_one({"id": t["id"]}, {"$set": {"members": members_list}})
 
-    # seed admin
-    admin_email = os.environ.get("ADMIN_EMAIL", "admin@gmail.com").lower().strip()
-    admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
-    if not is_allowed_email(admin_email):
-        logger.warning(f"ADMIN_EMAIL '{admin_email}' is not a @gmail.com address")
-    existing = await db.users.find_one({"email": admin_email})
-    if not existing:
-        await db.users.insert_one({
-            "id": gen_id(), "email": admin_email, "name": "Admin",
-            "password_hash": hash_secret(admin_password),
-            "role": "admin", "created_at": now_utc().isoformat(),
-            "email_verified": True, "credentials_set": True,
-        })
-        logger.info("Seeded admin user")
+    # Existing password/Google fields are left untouched when this promotes an account.
+    await _ensure_super_admin()
 
     # one-time, secret-free summary of how outbound email behaves in this process
     logger.info(sender_mode_summary())
@@ -210,7 +235,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Trip Splitter", lifespan=lifespan)
 api = APIRouter(prefix="/api")
 
-for module in (auth, trips, join_requests, invites, members, expenses, balances, reports, meta, receipts, spend, payments, chat, push, exchange_rates):
+for module in (auth, trips, join_requests, invites, members, expenses, balances, reports, meta, receipts, spend, payments, chat, push, exchange_rates, admin):
     api.include_router(module.router)
 
 

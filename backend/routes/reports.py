@@ -105,9 +105,9 @@ async def _load_report_expenses(trip_id: str) -> list:
 # ---------- Reports ----------
 @router.get("/trips/{trip_id}/report")
 async def report(trip_id: str, user=Depends(get_current_user)):
-    trip = ensure_date_range(await _trip_or_404(trip_id, user["id"]))
+    trip = ensure_date_range(await _trip_or_404(trip_id, user))
     expenses = await _load_report_expenses(trip_id)
-    bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user["id"]))
+    bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
     # category breakdown — signed amounts net together (a refund reduces its category + the total).
     by_cat = {}
     by_date = {}
@@ -141,9 +141,9 @@ async def report_xlsx(trip_id: str, token: str,
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
     if not user:
         raise HTTPException(401, "User not found")
-    trip = await _trip_or_404(trip_id, user["id"])
+    trip = await _trip_or_404(trip_id, user)
     expenses = await _load_report_expenses(trip_id)
-    bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user["id"]))
+    bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
     # Disambiguated top-level labels (rule a + families) — one source of truth shared with the app.
     display = member_display_names(trip["members"])
 
@@ -509,7 +509,7 @@ async def report_pdf(trip_id: str, token: str,
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
     if not user:
         raise HTTPException(401, "User not found")
-    trip = await _trip_or_404(trip_id, user["id"])
+    trip = await _trip_or_404(trip_id, user)
     members = trip["members"]
     expenses = await _load_report_expenses(trip_id)
     reconciliation = build_spend_reconciliation(
@@ -519,7 +519,7 @@ async def report_pdf(trip_id: str, token: str,
         .sort("created_at", 1).to_list(None)
     # Members & Families rows — identical construction to the XLSX route (same builders + the same
     # settlements + payments overlay), so the PDF's Settlements column and reconciliation match.
-    bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user["id"]))
+    bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
     display = member_display_names(members)
     settlements = await db.settlements.find(
         {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}).to_list(None)

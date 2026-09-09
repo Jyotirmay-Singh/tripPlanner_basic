@@ -17,7 +17,9 @@ export function canModifyExpense(
   expense: ExpenseLike,
   userId: string | undefined,
   trip: TripLike,
+  isSuperAdmin = false,
 ): boolean {
+  if (isSuperAdmin) return true;
   if (!userId) return false;
   return expense.created_by === userId || (trip.admin_ids ?? []).includes(userId);
 }
@@ -25,7 +27,7 @@ export function canModifyExpense(
 // ---------------------------------------------------------------------------
 // Trip role matrix (mirror of backend/utils/permissions.py)
 // ---------------------------------------------------------------------------
-export type Role = 'owner' | 'admin' | 'member';
+export type Role = 'super_admin' | 'owner' | 'admin' | 'member';
 export type RoleTrip = {
   owner_id?: string | null;
   admin_ids?: string[] | null;
@@ -38,7 +40,12 @@ export type RoleTrip = {
  * the user is undefined/loading or not on the trip. Tolerant of missing arrays so a
  * partially-loaded trip never throws.
  */
-export function roleOf(trip: RoleTrip, userId: string | undefined): Role | null {
+export function roleOf(
+  trip: RoleTrip,
+  userId: string | undefined,
+  isSuperAdmin = false,
+): Role | null {
+  if (isSuperAdmin) return 'super_admin';
   if (!userId) return null;
   if (trip.owner_id && trip.owner_id === userId) return 'owner';
   if ((trip.admin_ids ?? []).includes(userId)) return 'admin';
@@ -47,13 +54,17 @@ export function roleOf(trip: RoleTrip, userId: string | undefined): Role | null 
 }
 
 // Owner or admin
-export function canManageMembers(trip: RoleTrip, userId: string | undefined): boolean {
-  const r = roleOf(trip, userId);
-  return r === 'owner' || r === 'admin';
+export function canManageMembers(
+  trip: RoleTrip, userId: string | undefined, isSuperAdmin = false,
+): boolean {
+  const r = roleOf(trip, userId, isSuperAdmin);
+  return r === 'super_admin' || r === 'owner' || r === 'admin';
 }
-export function canEditTripSettings(trip: RoleTrip, userId: string | undefined): boolean {
-  const r = roleOf(trip, userId);
-  return r === 'owner' || r === 'admin';
+export function canEditTripSettings(
+  trip: RoleTrip, userId: string | undefined, isSuperAdmin = false,
+): boolean {
+  const r = roleOf(trip, userId, isSuperAdmin);
+  return r === 'super_admin' || r === 'owner' || r === 'admin';
 }
 
 /**
@@ -66,8 +77,9 @@ export function canRemoveMemberRow(
   trip: RoleTrip,
   member: { user_id?: string | null },
   userId: string | undefined,
+  isSuperAdmin = false,
 ): boolean {
-  if (!canManageMembers(trip, userId)) return false;
+  if (!canManageMembers(trip, userId, isSuperAdmin)) return false;
   return !(member.user_id && trip.owner_id && member.user_id === trip.owner_id);
 }
 
@@ -83,8 +95,9 @@ export function canMarkSettlementPaid(
   settlement: { to_member_id: string },
   userId: string | undefined,
   members: { id: string; kind?: string; user_id?: string | null; family_member_user_ids?: (string | null)[] }[],
+  isSuperAdmin = false,
 ): boolean {
-  return canRecordPayment(trip, settlement.to_member_id, userId, members);
+  return canRecordPayment(trip, settlement.to_member_id, userId, members, isSuperAdmin);
 }
 
 /**
@@ -99,7 +112,9 @@ export function canRecordPayment(
   toMemberId: string,
   userId: string | undefined,
   members: { id: string; kind?: string; user_id?: string | null; family_member_user_ids?: (string | null)[] }[],
+  isSuperAdmin = false,
 ): boolean {
+  if (isSuperAdmin) return true;
   if (!userId) return false;
   const r = roleOf(trip, userId);
   if (r === 'owner' || r === 'admin') return true;
@@ -112,12 +127,21 @@ export function canRecordPayment(
 }
 
 // Owner only
-export function canManageAdmins(trip: RoleTrip, userId: string | undefined): boolean {
-  return roleOf(trip, userId) === 'owner';
+export function canManageAdmins(
+  trip: RoleTrip, userId: string | undefined, isSuperAdmin = false,
+): boolean {
+  const role = roleOf(trip, userId, isSuperAdmin);
+  return role === 'super_admin' || role === 'owner';
 }
-export function canTransferOwnership(trip: RoleTrip, userId: string | undefined): boolean {
-  return roleOf(trip, userId) === 'owner';
+export function canTransferOwnership(
+  trip: RoleTrip, userId: string | undefined, isSuperAdmin = false,
+): boolean {
+  const role = roleOf(trip, userId, isSuperAdmin);
+  return role === 'super_admin' || role === 'owner';
 }
-export function canDeleteTrip(trip: RoleTrip, userId: string | undefined): boolean {
-  return roleOf(trip, userId) === 'owner';
+export function canDeleteTrip(
+  trip: RoleTrip, userId: string | undefined, isSuperAdmin = false,
+): boolean {
+  const role = roleOf(trip, userId, isSuperAdmin);
+  return role === 'super_admin' || role === 'owner';
 }

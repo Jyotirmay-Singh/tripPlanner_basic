@@ -67,8 +67,10 @@ export default function ManageMember() {
   const isOwner = !!member.user_id && member.user_id === trip.owner_id;
   const isMemberAdmin = !!member.user_id && adminIds.includes(member.user_id);
   const role: 'owner' | 'admin' | null = isOwner ? 'owner' : isMemberAdmin ? 'admin' : null;
-  // Managing admin roles & ownership transfer are owner-only powers (mirror of the backend).
-  const viewerIsOwner = canManageAdmins({ ...trip, admin_ids: adminIds }, user?.id);
+  // Managing admin roles & ownership transfer are owner-or-application-admin powers.
+  const viewerIsOwner = canManageAdmins(
+    { ...trip, admin_ids: adminIds }, user?.id, user?.is_super_admin === true,
+  );
   const canTransferToMember = viewerIsOwner && !!member.user_id && !isOwner;
 
   // Phase 27: admin is per-PERSON. For a family the entity carries no account, so roles live on the
@@ -94,7 +96,9 @@ export default function ManageMember() {
 
   // Removal (settled-only). The owner row is never removable; otherwise an admin may remove any
   // settled member. Settled-ness comes from the balance engine (read-only); the backend re-checks.
-  const viewerCanRemove = canRemoveMemberRow({ ...trip, admin_ids: adminIds }, member, user?.id);
+  const viewerCanRemove = canRemoveMemberRow(
+    { ...trip, admin_ids: adminIds }, member, user?.id, user?.is_super_admin === true,
+  );
   const entityNet = balances ? (balances.net[member.id] ?? 0) : 0;
   const famRows: FamRow[] = balances
     ? (balances.per_person.find((p) => p.member_id === member.id)?.members ?? [])
@@ -128,7 +132,7 @@ export default function ManageMember() {
     try {
       await api(`/trips/${id}/transfer-ownership`, { method: 'POST', body: { user_id: uid } });
       toast.show('Ownership transferred', 'success');
-      router.back(); // roster reloads via useFocusEffect; viewer is now a plain admin
+      router.back(); // roster reloads via useFocusEffect; a trip owner remains a trip admin
       return;
     } catch (e: any) {
       setError(e.message); toast.show(e.message || 'Could not transfer ownership', 'error');
@@ -388,7 +392,9 @@ export default function ManageMember() {
         visible={!!confirmTransfer}
         testID="mm-transfer-modal"
         title={`Make ${confirmTransfer?.name ?? memberLabel} the owner?`}
-        message="You will become an admin. Only the owner can manage admins and delete the trip."
+        message={user?.is_super_admin === true
+          ? 'The current owner remains a trip admin. Your application-admin access will not change.'
+          : 'You will become a trip admin. The new owner will control trip admins and deletion.'}
         onRequestClose={() => setConfirmTransfer(null)}
         actions={[
           { label: 'Transfer', variant: 'primary', testID: 'mm-transfer-confirm', onPress: () => confirmTransfer && doTransfer(confirmTransfer.uid) },

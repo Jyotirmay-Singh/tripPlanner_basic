@@ -384,7 +384,9 @@ export default function EditExpense() {
     );
   }
 
-  const canModify = canModifyExpense({ created_by: createdBy }, user?.id, trip);
+  const canModify = canModifyExpense(
+    { created_by: createdBy }, user?.id, trip, user?.is_super_admin === true,
+  );
   const toggleSplit = (mid: string) => setSplitSel((s) => s.includes(mid) ? s.filter((x) => x !== mid) : [...s, mid]);
   const toggleFamMember = (famId: string, memberId: string) =>
     setFamilyExcluded((s) => {

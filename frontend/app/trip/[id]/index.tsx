@@ -218,7 +218,14 @@ export default function TripDetail() {
     focusedExpenseId.current = null;
   }, [notificationExpenseId]);
   // One themed confirm dialog drives both trip-delete and per-expense-delete.
-  const [confirm, setConfirm] = useState<null | { title: string; message?: string; onYes: () => void; yesId?: string }>(null);
+  const [confirm, setConfirm] = useState<null | {
+    title: string;
+    message?: string;
+    onYes: () => void;
+    yesId?: string;
+    requiresTripName?: boolean;
+  }>(null);
+  const [deleteTripName, setDeleteTripName] = useState('');
   const [sharingInvite, setSharingInvite] = useState(false);
   const [inviteRefreshKey, setInviteRefreshKey] = useState(0);
 
@@ -240,7 +247,10 @@ export default function TripDetail() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const optimisticSender = resolveOptimisticSender(trip?.members, user?.id);
+  const isApplicationAdmin = user?.is_super_admin === true;
+  const optimisticSender = isApplicationAdmin
+    ? { name: 'Application Admin' }
+    : resolveOptimisticSender(trip?.members, user?.id);
   const chat = useTripChat({
     tripId: id || '',
     userId: user?.id,
@@ -251,7 +261,7 @@ export default function TripDetail() {
   });
 
   const canCreateSecureInvite = !!trip
-    && canShareSecureInvite(trip, user?.id, inviteLinksEnabled);
+    && canShareSecureInvite(trip, user?.id, inviteLinksEnabled, isApplicationAdmin);
 
   const shareCode = async () => {
     if (!trip) return;
@@ -271,7 +281,7 @@ export default function TripDetail() {
         return;
       }
 
-      if (!canShareSecureInvite(trip, user?.id, freshInviteLinksEnabled)) {
+      if (!canShareSecureInvite(trip, user?.id, freshInviteLinksEnabled, isApplicationAdmin)) {
         if (!freshInviteLinksEnabled) {
           toast.show('Secure invite links are not live yet. Sharing the trip code instead.', 'info');
         }
@@ -309,12 +319,15 @@ export default function TripDetail() {
 
   const onDelete = () => {
     if (!trip) return;
+    setDeleteTripName('');
     setConfirm({
-      title: 'Delete trip?',
-      message: 'This removes all expenses and balances. This cannot be undone.',
+      title: `Delete ${trip.name}?`,
+      message: 'This permanently removes the trip and all related expenses, balances, payments, receipts, invites, and chat data.',
       yesId: 'trip-delete-confirm',
+      requiresTripName: true,
       onYes: async () => {
         setConfirm(null);
+        setDeleteTripName('');
         try { await api(`/trips/${trip.id}`, { method: 'DELETE' }); router.back(); }
         catch (e: any) { toast.show(e.message || 'Delete failed', 'error'); }
       },
@@ -353,9 +366,10 @@ export default function TripDetail() {
   // once the whole trip squares up.
   const tripSettled = isTripSettled(balances);
   // Role gating routes through the shared src/permissions.ts matrix (mirror of the backend).
-  const meCanEditSettings = canEditTripSettings(trip, user?.id);
-  const meCanManageMembers = canManageMembers(trip, user?.id);
-  const meCanDeleteTrip = canDeleteTrip(trip, user?.id);
+  const meCanEditSettings = canEditTripSettings(trip, user?.id, isApplicationAdmin);
+  const meCanManageMembers = canManageMembers(trip, user?.id, isApplicationAdmin);
+  const meCanDeleteTrip = canDeleteTrip(trip, user?.id, isApplicationAdmin);
+  const applicationAdminIsMember = !!user?.id && (trip.user_ids ?? []).includes(user.id);
   const memberRole = (m: Member): 'owner' | 'admin' | null => {
     if (!m.user_id) return null;
     const r = roleOf(trip, m.user_id);
@@ -374,6 +388,24 @@ export default function TripDetail() {
         sharing={sharingInvite}
         secureInvite={canCreateSecureInvite}
       />
+
+      {isApplicationAdmin ? (
+        <Card variant="muted" testID="trip-privileged-mode">
+          <View style={styles.privilegedRow}>
+            <View style={[styles.privilegedIcon, { backgroundColor: colors.surface }]}>
+              <Icon name="shield-check" size={20} color={colors.primary} />
+            </View>
+            <View style={styles.privilegedCopy}>
+              <T variant="h4">Privileged admin mode</T>
+              <T variant="caption" muted>
+                {applicationAdminIsMember
+                  ? 'Application-wide controls are active. Privileged changes are recorded in the admin activity log.'
+                  : 'You are maintaining this trip without joining its roster. Its expenses and balances do not affect your account.'}
+              </T>
+            </View>
+          </View>
+        </Card>
+      ) : null}
 
       <View style={styles.actionsRow}>
         <View style={styles.actionButton}>
@@ -399,10 +431,24 @@ export default function TripDetail() {
       visible={!!confirm}
       title={confirm?.title || ''}
       message={confirm?.message}
-      onRequestClose={() => setConfirm(null)}
+      textInput={confirm?.requiresTripName ? {
+        value: deleteTripName,
+        onChangeText: setDeleteTripName,
+        label: `Type “${trip.name}” to confirm`,
+        placeholder: trip.name,
+        testID: 'trip-delete-name',
+      } : undefined}
+      onRequestClose={() => { setConfirm(null); setDeleteTripName(''); }}
       actions={[
-        { label: 'Cancel', variant: 'cancel', onPress: () => setConfirm(null) },
-        { label: 'Delete', variant: 'destructive', onPress: () => confirm?.onYes(), testID: confirm?.yesId },
+        {
+          label: 'Cancel', variant: 'cancel',
+          onPress: () => { setConfirm(null); setDeleteTripName(''); },
+        },
+        {
+          label: 'Delete', variant: 'destructive', onPress: () => confirm?.onYes(),
+          testID: confirm?.yesId,
+          disabled: !!confirm?.requiresTripName && deleteTripName !== trip.name,
+        },
       ]}
     />
   );
@@ -419,6 +465,7 @@ export default function TripDetail() {
           controller={chat}
           currentUserId={user?.id}
           isOwner={trip.owner_id === user?.id}
+          canModerateMessages={isApplicationAdmin}
           canSend={!!optimisticSender}
           focusMessageId={notificationMessageId}
         />
@@ -580,7 +627,7 @@ export default function TripDetail() {
                       </T>
                     ) : null}
                     </View>
-                    {canModifyExpense(e, user?.id, trip) && (
+                    {canModifyExpense(e, user?.id, trip, isApplicationAdmin) && (
                       <IconButton name="trash" onPress={() => deleteExpense(e)} accessibilityLabel="Delete transaction" testID={`expense-del-${e.id}`} size={18} color={colors.danger} />
                     )}
                   </View>
@@ -886,6 +933,15 @@ export default function TripDetail() {
 }
 
 const styles = StyleSheet.create({
+  privilegedRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+  privilegedIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: RADIUS.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  privilegedCopy: { flex: 1, minWidth: 0, gap: SPACING.xs },
   heroContent: { gap: SPACING.sm },
   heroMetaRow: {
     flexDirection: 'row',

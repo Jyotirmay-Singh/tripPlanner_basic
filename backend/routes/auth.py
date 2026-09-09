@@ -14,6 +14,7 @@ from utils.common import gen_id, now_utc
 from utils.email_rules import assert_gmail, normalize_email
 from utils.security import hash_secret, verify_secret, create_token
 from utils.deps import get_current_user
+from utils.permissions import is_super_admin
 from utils.auth_tokens import (
     issue_token, consume_token, seconds_since_last, VERIFY_EMAIL, RESET_PASSWORD,
 )
@@ -41,6 +42,7 @@ def _user_payload(user: dict) -> dict:
     return {
         "id": user["id"], "email": user["email"], "name": user["name"],
         "role": user.get("role", "user"),
+        "is_super_admin": is_super_admin(user),
         "email_verified": user.get("email_verified", True),
         "credentials_set": user.get("credentials_set", True),
     }

@@ -95,6 +95,13 @@ async def delete_receipts_for_expense(expense_id: str) -> None:
         await delete_receipt(f["_id"])
 
 
+async def delete_receipts_for_trip(trip_id: str) -> None:
+    """Delete every GridFS receipt owned by a trip before the trip document is removed."""
+    cursor = db["receipts.files"].find({"metadata.trip_id": trip_id}, {"_id": 1})
+    async for f in cursor:
+        await delete_receipt(f["_id"])
+
+
 def decode_data_uri(uri: Optional[str]) -> Optional[Tuple[bytes, str]]:
     """Decode a legacy ``data:<mime>;base64,<payload>`` receipt into ``(bytes, content_type)``."""
     if not uri or not isinstance(uri, str) or not uri.startswith("data:"):

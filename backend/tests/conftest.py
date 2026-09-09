@@ -4,6 +4,7 @@ import os
 
 # Use backend URL from frontend env or fallback to local server
 BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL', 'http://localhost:8000').rstrip('/')
+SUPER_ADMIN_EMAIL = "jyotirmaysingh03@gmail.com"
 
 @pytest.fixture
 def api_client():
@@ -16,8 +17,8 @@ def api_client():
 def admin_token(api_client):
     """Get admin token for tests"""
     response = api_client.post(f"{BASE_URL}/api/auth/login", json={
-        "email": "admin@gmail.com",
-        "password": "admin123"
+        "email": SUPER_ADMIN_EMAIL,
+        "password": os.environ.get("ADMIN_PASSWORD", "admin123")
     })
     if response.status_code != 200:
         pytest.skip(f"Admin login failed: {response.status_code}")

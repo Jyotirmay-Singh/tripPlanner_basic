@@ -11,8 +11,10 @@ from models.chat import ChatMessageCreate, ChatMessagePatch, ChatReadIn
 from services.chat import public_chat_message, resolve_chat_sender
 from services.chat_realtime import chat_connections
 from services.push_notifications import enqueue_notification_event
+from services.admin_audit import record_admin_action
 from utils.common import gen_id, now_utc
 from utils.deps import get_current_user, _trip_or_404, _trip_owner_or_403
+from utils.permissions import is_super_admin
 from utils.security import decode_token
 
 router = APIRouter()
@@ -56,7 +58,7 @@ async def list_chat_messages(
     limit: int = Query(default=50, ge=1, le=100),
     user=Depends(get_current_user),
 ):
-    await _trip_or_404(trip_id, user["id"])
+    await _trip_or_404(trip_id, user)
     if before_sequence is not None and after_sequence is not None:
         raise HTTPException(400, "Use either before_sequence or after_sequence, not both")
 
@@ -92,8 +94,15 @@ async def create_chat_message(
     background_tasks: BackgroundTasks,
     user=Depends(get_current_user),
 ):
-    trip = await _trip_or_404(trip_id, user["id"])
+    trip = await _trip_or_404(trip_id, user)
     sender = resolve_chat_sender(trip, user["id"])
+    if not sender and is_super_admin(user):
+        sender = {
+            "sender_person_id": f"application-admin:{user['id']}",
+            "sender_name": "Application Admin",
+            "sender_family_id": None,
+            "sender_family_name": None,
+        }
     if not sender:
         raise HTTPException(409, "Your account is not linked to a person in this trip")
 
@@ -164,6 +173,10 @@ async def create_chat_message(
         raise HTTPException(409, "Chat was cleared while this message was sending. Retry to send it now.")
 
     public = public_chat_message(doc)
+    await record_admin_action(
+        user, "chat.message_created", trip=trip, resource_type="chat_message",
+        resource_id=doc["id"],
+    )
     await enqueue_notification_event(
         event_type="chat.message.created",
         source_id=doc["id"],
@@ -188,21 +201,20 @@ async def update_chat_message(
     body: ChatMessagePatch,
     user=Depends(get_current_user),
 ):
-    trip = await _trip_or_404(trip_id, user["id"])
+    trip = await _trip_or_404(trip_id, user)
     message = await _message_or_404(trip_id, message_id)
-    if message.get("sender_user_id") != user["id"]:
+    can_moderate = is_super_admin(user)
+    if message.get("sender_user_id") != user["id"] and not can_moderate:
         raise HTTPException(403, "You can only edit your own messages")
     if message.get("deleted_at"):
         raise HTTPException(409, "Deleted messages cannot be edited")
 
     edited_at = now_utc().isoformat()
+    update_filter = {"id": message_id, "trip_id": trip_id, "deleted_at": None}
+    if not can_moderate:
+        update_filter["sender_user_id"] = user["id"]
     updated = await db.chat_messages.find_one_and_update(
-        {
-            "id": message_id,
-            "trip_id": trip_id,
-            "sender_user_id": user["id"],
-            "deleted_at": None,
-        },
+        update_filter,
         {"$set": {"text": body.text, "edited_at": edited_at}},
         return_document=ReturnDocument.AFTER,
     )
@@ -216,6 +228,10 @@ async def update_chat_message(
 
     public = public_chat_message(updated)
     await _broadcast(trip, {"type": "message.updated", "data": public})
+    await record_admin_action(
+        user, "chat.message_updated", trip=trip, resource_type="chat_message",
+        resource_id=message_id, changed_fields=("text", "edited_at"),
+    )
     return public
 
 
@@ -223,11 +239,12 @@ async def update_chat_message(
 async def delete_chat_message(
     trip_id: str, message_id: str, user=Depends(get_current_user)
 ):
-    trip = await _trip_or_404(trip_id, user["id"])
+    trip = await _trip_or_404(trip_id, user)
     message = await _message_or_404(trip_id, message_id)
-    if message.get("sender_user_id") != user["id"]:
+    if message.get("sender_user_id") != user["id"] and not is_super_admin(user):
         raise HTTPException(403, "You can only delete your own messages")
-    if not message.get("deleted_at"):
+    mutated = not message.get("deleted_at")
+    if mutated:
         deleted_at = now_utc().isoformat()
         await db.chat_messages.update_one(
             {"id": message_id, "trip_id": trip_id},
@@ -237,12 +254,17 @@ async def delete_chat_message(
         message["deleted_at"] = deleted_at
     public = public_chat_message(message)
     await _broadcast(trip, {"type": "message.updated", "data": public})
+    if mutated:
+        await record_admin_action(
+            user, "chat.message_deleted", trip=trip, resource_type="chat_message",
+            resource_id=message_id, changed_fields=("text", "deleted_at"),
+        )
     return public
 
 
 @router.get("/trips/{trip_id}/chat/unread")
 async def chat_unread(trip_id: str, user=Depends(get_current_user)):
-    await _trip_or_404(trip_id, user["id"])
+    await _trip_or_404(trip_id, user)
     state = await _chat_state(trip_id)
     read = await db.chat_reads.find_one(
         {"trip_id": trip_id, "user_id": user["id"]}, {"_id": 0}
@@ -272,7 +294,7 @@ async def chat_unread(trip_id: str, user=Depends(get_current_user)):
 
 @router.put("/trips/{trip_id}/chat/read")
 async def mark_chat_read(trip_id: str, body: ChatReadIn, user=Depends(get_current_user)):
-    await _trip_or_404(trip_id, user["id"])
+    await _trip_or_404(trip_id, user)
     state = await _chat_state(trip_id)
     if body.through_sequence > state.get("cleared_through_sequence", 0):
         exists = await db.chat_messages.find_one(
@@ -295,7 +317,7 @@ async def mark_chat_read(trip_id: str, body: ChatReadIn, user=Depends(get_curren
 
 @router.delete("/trips/{trip_id}/chat/history")
 async def clear_chat_history(trip_id: str, user=Depends(get_current_user)):
-    trip = await _trip_owner_or_403(trip_id, user["id"])
+    trip = await _trip_owner_or_403(trip_id, user)
     state = await db.chat_counters.find_one_and_update(
         {"trip_id": trip_id},
         [
@@ -313,6 +335,10 @@ async def clear_chat_history(trip_id: str, user=Depends(get_current_user)):
     await db.chat_messages.delete_many({"trip_id": trip_id, "sequence": {"$lte": boundary}})
     await _broadcast(
         trip, {"type": "chat.cleared", "data": {"through_sequence": boundary}}
+    )
+    await record_admin_action(
+        user, "chat.history_cleared", trip=trip, resource_type="chat_history",
+        resource_id=trip_id, changed_fields=("cleared_through_sequence",),
     )
     return {"ok": True, "cleared_through_sequence": boundary}
 
@@ -347,7 +373,9 @@ async def chat_websocket(websocket: WebSocket, trip_id: str):
             )
             await websocket.close(code=4401)
             return
-        user = await db.users.find_one({"id": payload.get("sub")}, {"_id": 0, "id": 1})
+        user = await db.users.find_one(
+            {"id": payload.get("sub")}, {"_id": 0, "id": 1, "email": 1, "role": 1}
+        )
         if not user:
             logger.warning(
                 "chat.websocket_rejected trip_id=%s reason=user_missing close_code=4401",
@@ -356,14 +384,19 @@ async def chat_websocket(websocket: WebSocket, trip_id: str):
             await websocket.close(code=4401)
             return
         trip = await db.trips.find_one({"id": trip_id}, {"_id": 0, "user_ids": 1})
-        if not trip or user["id"] not in trip.get("user_ids", []):
+        if not trip or (
+            user["id"] not in trip.get("user_ids", []) and not is_super_admin(user)
+        ):
             logger.warning(
                 "chat.websocket_rejected trip_id=%s reason=permission_denied close_code=4403",
                 trip_id,
             )
             await websocket.close(code=4403)
             return
-        await chat_connections.connect(trip_id, user["id"], websocket)
+        if is_super_admin(user):
+            await chat_connections.connect(trip_id, user["id"], websocket, privileged=True)
+        else:
+            await chat_connections.connect(trip_id, user["id"], websocket)
         connected = True
         await websocket.send_json({"type": "ready"})
         logger.info("chat.websocket_ready trip_id=%s", trip_id)

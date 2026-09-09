@@ -237,3 +237,31 @@ it('retries the existing queued row instead of creating another message', async 
   expect(controller.send).not.toHaveBeenCalled();
   act(() => renderer.unmount());
 });
+
+it('lets an application admin moderate any persisted message and clear history', async () => {
+  const controller = baseController();
+  let renderer: any;
+  await act(async () => {
+    renderer = TestRenderer.create(
+      <TripChat
+        header={null}
+        controller={controller}
+        currentUserId="application-admin"
+        isOwner={false}
+        canModerateMessages
+        canSend
+      />,
+    );
+  });
+
+  const otherMessage = renderer.root.findByProps({ testID: 'chat-message-m1' });
+  expect(otherMessage.props.disabled).toBe(false);
+  act(() => otherMessage.props.onPress());
+  const actions = renderer.root.findByProps({ testID: 'chat-message-actions' });
+  expect(actions.props.visible).toBe(true);
+  expect(actions.props.title).toBe('Moderate message');
+  act(() => actions.props.actions[0].onPress());
+  expect(renderer.root.findByType(TextInput).props.value).toBe('Landing at eight');
+  expect(renderer.root.findByProps({ testID: 'chat-owner-options' })).toBeTruthy();
+  act(() => renderer.unmount());
+});

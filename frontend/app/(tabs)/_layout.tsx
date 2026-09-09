@@ -8,6 +8,7 @@ import { FONTS, TYPESCALE } from '../../src/theme';
 import { Icon } from '../../src/ui';
 import { IconName } from '../../src/ui/Icon';
 import { tabBarMetrics } from '../../src/tabBarLayout';
+import { useAuth } from '../../src/AuthContext';
 
 // Named so it carries a display name (lint) — the tab icon renderer.
 function TabIcon({ name, color, focused, base = 24 }: { name: IconName; color: string; focused: boolean; base?: number }) {
@@ -15,6 +16,7 @@ function TabIcon({ name, color, focused, base = 24 }: { name: IconName; color: s
 }
 
 export default function TabsLayout() {
+  const { user } = useAuth();
   const { colors, mode } = useTheme();
   const { bottom } = useSafeAreaInsets();
   const { fontScale } = useWindowDimensions();
@@ -47,7 +49,7 @@ export default function TabsLayout() {
           height: barMetrics.height,
           elevation: 0,
         },
-        // Keep the three visible destinations evenly distributed across the bar width.
+        // Keep the visible destinations evenly distributed across the bar width.
         tabBarItemStyle: { flex: 1 },
         tabBarLabelStyle: {
           fontFamily: FONTS.bodySemibold,
@@ -61,6 +63,14 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="dashboard" options={{ title: 'Home', tabBarIcon: (p) => <TabIcon name="home" {...p} /> }} />
       <Tabs.Screen name="trips" options={{ title: 'Trips', tabBarIcon: (p) => <TabIcon name="briefcase" {...p} /> }} />
+      <Tabs.Screen
+        name="admin"
+        options={{
+          href: user?.is_super_admin === true ? undefined : null,
+          title: 'Admin',
+          tabBarIcon: (p) => <TabIcon name="shield-check" {...p} />,
+        }}
+      />
       <Tabs.Screen name="reports" options={{ title: 'Reports', tabBarIcon: (p) => <TabIcon name="spreadsheet" {...p} /> }} />
       {/* Keep Profile routable from the header avatar while removing it from the tab bar. */}
       <Tabs.Screen name="profile" options={{ href: null, title: 'Profile' }} />

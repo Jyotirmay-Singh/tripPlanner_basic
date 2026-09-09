@@ -14,6 +14,7 @@ from services.receipts import (
     delete_receipts_for_expense,
     decode_data_uri,
 )
+from services.admin_audit import record_admin_action
 
 router = APIRouter()
 
@@ -21,7 +22,7 @@ _CACHE_HEADERS = {"Cache-Control": "private, max-age=86400"}
 
 
 # ---------- Receipts (bill images) ----------
-async def _resolve_user_id(token: Optional[str], authorization: Optional[str]) -> str:
+async def _resolve_user(token: Optional[str], authorization: Optional[str]) -> dict:
     """Resolve the requesting user from a Bearer header OR a ``?token=`` query param.
 
     Mirrors the ``report.xlsx`` pattern so a React Native ``<Image>`` (which can't easily set
@@ -38,14 +39,14 @@ async def _resolve_user_id(token: Optional[str], authorization: Optional[str]) -
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
     if not user:
         raise HTTPException(401, "User not found")
-    return user["id"]
+    return user
 
 
 @router.post("/trips/{trip_id}/expenses/{expense_id}/receipt")
 async def upload_receipt(trip_id: str, expense_id: str, file: UploadFile = File(...),
                          user=Depends(get_current_user)):
     # RBAC (Step 10): only the expense creator or a trip admin may attach/replace.
-    await _expense_modify_or_403(trip_id, expense_id, user["id"])
+    trip, _expense = await _expense_modify_or_403(trip_id, expense_id, user)
     data = await file.read()
     validate_receipt_upload(file.content_type, len(data))
     # Replace semantics: drop any previous GridFS receipt for this expense first.
@@ -59,6 +60,10 @@ async def upload_receipt(trip_id: str, expense_id: str, file: UploadFile = File(
         {"id": expense_id, "trip_id": trip_id},
         {"$set": {"receipt_id": receipt_id}, "$unset": {"receipt_base64": ""}},
     )
+    await record_admin_action(
+        user, "receipt.uploaded", trip=trip, resource_type="expense_receipt",
+        resource_id=expense_id, changed_fields=("receipt_id",),
+    )
     return {"receipt_id": receipt_id}
 
 
@@ -66,8 +71,8 @@ async def upload_receipt(trip_id: str, expense_id: str, file: UploadFile = File(
 async def get_receipt(trip_id: str, expense_id: str, token: Optional[str] = None,
                       authorization: Optional[str] = Header(None)):
     # Any trip member may view; auth accepted via header or ?token= query.
-    user_id = await _resolve_user_id(token, authorization)
-    await _trip_or_404(trip_id, user_id)
+    user = await _resolve_user(token, authorization)
+    await _trip_or_404(trip_id, user)
     expense = await _expense_or_404(trip_id, expense_id)
 
     receipt_id = expense.get("receipt_id")
@@ -89,10 +94,16 @@ async def get_receipt(trip_id: str, expense_id: str, token: Optional[str] = None
 @router.delete("/trips/{trip_id}/expenses/{expense_id}/receipt")
 async def remove_receipt(trip_id: str, expense_id: str, user=Depends(get_current_user)):
     # RBAC (Step 10): only the expense creator or a trip admin may remove. Idempotent.
-    await _expense_modify_or_403(trip_id, expense_id, user["id"])
+    trip, expense = await _expense_modify_or_403(trip_id, expense_id, user)
+    had_receipt = bool(expense.get("receipt_id") or expense.get("receipt_base64"))
     await delete_receipts_for_expense(expense_id)
     await db.expenses.update_one(
         {"id": expense_id, "trip_id": trip_id},
         {"$unset": {"receipt_id": "", "receipt_base64": ""}},
     )
+    if had_receipt:
+        await record_admin_action(
+            user, "receipt.deleted", trip=trip, resource_type="expense_receipt",
+            resource_id=expense_id, changed_fields=("receipt_id",),
+        )
     return {"ok": True}

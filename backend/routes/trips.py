@@ -31,9 +31,17 @@ from services.join_requests import (
     request_payload as join_request_payload,
 )
 from services.invites import record_invite_use, resolve_join_credential, revoke_trip_invites
+from services.admin_audit import record_admin_action
+from services.receipts import delete_receipts_for_trip
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _write_changed(result) -> bool:
+    """Read Motor's UpdateResult while staying tolerant of lightweight route-test doubles."""
+    modified_count = getattr(result, "modified_count", None)
+    return modified_count > 0 if isinstance(modified_count, int) else True
 
 
 def _validated_budget(value, currency: str):
@@ -112,6 +120,10 @@ async def create_trip(body: TripIn, user=Depends(get_current_user)):
     }
     await db.trips.insert_one(doc)
     doc.pop("_id", None)
+    await record_admin_action(
+        user, "trip.created", trip=doc, resource_type="trip", resource_id=tid,
+        changed_fields=("name", "start_date", "end_date", "budget", "currency"),
+    )
     return doc
 
 
@@ -124,13 +136,13 @@ async def list_trips(user=Depends(get_current_user)):
 
 @router.get("/trips/{trip_id}")
 async def get_trip(trip_id: str, user=Depends(get_current_user)):
-    return ensure_date_range(await _trip_or_404(trip_id, user["id"]))
+    return ensure_date_range(await _trip_or_404(trip_id, user))
 
 
 @router.patch("/trips/{trip_id}")
 async def update_trip(trip_id: str, body: TripUpdate, user=Depends(get_current_user)):
     # Step 23: editing trip settings is an Owner/Admin capability; a plain member is rejected.
-    trip = await _trip_admin_or_403(trip_id, user["id"])
+    trip = await _trip_admin_or_403(trip_id, user)
     supplied = body.model_dump(exclude_unset=True)
     # Explicit null clears an optional date; other null fields retain the legacy "no change"
     # behavior.
@@ -158,23 +170,38 @@ async def update_trip(trip_id: str, body: TripUpdate, user=Depends(get_current_u
             updates["start_date"] = normalized_start
         if "end_date" in updates:
             updates["end_date"] = normalized_end
+    modified = False
     if updates:
-        await db.trips.update_one({"id": trip_id}, {"$set": updates})
-    return ensure_date_range(await db.trips.find_one({"id": trip_id}, {"_id": 0}))
+        result = await db.trips.update_one({"id": trip_id}, {"$set": updates})
+        modified = _write_changed(result)
+    saved = ensure_date_range(await db.trips.find_one({"id": trip_id}, {"_id": 0}))
+    if modified:
+        await record_admin_action(
+            user, "trip.updated", trip=saved, resource_type="trip", resource_id=trip_id,
+            changed_fields=updates.keys(),
+        )
+    return saved
 
 
 @router.delete("/trips/{trip_id}")
 async def delete_trip(trip_id: str, user=Depends(get_current_user)):
-    # Step 23: deleting a trip is owner-only (the shared role guard enforces it).
-    await _trip_owner_or_403(trip_id, user["id"])
+    # Step 23: deleting a trip is owner-or-application-admin only.
+    trip = await _trip_owner_or_403(trip_id, user)
     await revoke_trip_invites(trip_id, user["id"])
+    await delete_receipts_for_trip(trip_id)
     await db.trips.delete_one({"id": trip_id})
     await db.expenses.delete_many({"trip_id": trip_id})
     await db.settlements.delete_many({"trip_id": trip_id})
+    await db.payments.delete_many({"trip_id": trip_id})
+    await db.join_requests.delete_many({"trip_id": trip_id})
+    await db.notification_outbox.delete_many({"trip_id": trip_id})
     await db.chat_messages.delete_many({"trip_id": trip_id})
     await db.chat_reads.delete_many({"trip_id": trip_id})
     await db.chat_counters.delete_many({"trip_id": trip_id})
     await chat_connections.disconnect_trip(trip_id)
+    await record_admin_action(
+        user, "trip.deleted", trip=trip, resource_type="trip", resource_id=trip_id,
+    )
     return {"ok": True}
 
 
@@ -649,38 +676,50 @@ def _admin_payload(trip: dict) -> dict:
 
 @router.get("/trips/{trip_id}/admins")
 async def list_admins(trip_id: str, user=Depends(get_current_user)):
-    trip = await _trip_or_404(trip_id, user["id"])
+    trip = await _trip_or_404(trip_id, user)
     return _admin_payload(trip)
 
 
 @router.post("/trips/{trip_id}/admins")
 async def add_admin(trip_id: str, body: AdminGrant, user=Depends(get_current_user)):
-    # Step 23: managing admins is an owner-only power (admins cannot promote/demote).
-    trip = await _trip_owner_or_403(trip_id, user["id"])
+    # Step 23: only the trip owner or application admin can manage trip admins.
+    trip = await _trip_owner_or_403(trip_id, user)
     if body.user_id not in trip.get("user_ids", []):
         raise HTTPException(400, "User is not a member of this trip")
-    await db.trips.update_one({"id": trip_id}, {"$addToSet": {"admin_ids": body.user_id}})
+    result = await db.trips.update_one(
+        {"id": trip_id}, {"$addToSet": {"admin_ids": body.user_id}}
+    )
     trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
+    if _write_changed(result):
+        await record_admin_action(
+            user, "trip.admin_added", trip=trip, resource_type="trip_admin",
+            resource_id=body.user_id, changed_fields=("admin_ids",),
+        )
     return _admin_payload(trip)
 
 
 @router.delete("/trips/{trip_id}/admins/{user_id}")
 async def remove_admin(trip_id: str, user_id: str, user=Depends(get_current_user)):
-    # Step 23: managing admins is an owner-only power (admins cannot promote/demote).
-    trip = await _trip_owner_or_403(trip_id, user["id"])
+    # Step 23: only the trip owner or application admin can manage trip admins.
+    trip = await _trip_owner_or_403(trip_id, user)
     if user_id == trip["owner_id"]:
         raise HTTPException(400, "Cannot remove the root admin")
-    await db.trips.update_one({"id": trip_id}, {"$pull": {"admin_ids": user_id}})
+    result = await db.trips.update_one({"id": trip_id}, {"$pull": {"admin_ids": user_id}})
     trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
+    if _write_changed(result):
+        await record_admin_action(
+            user, "trip.admin_removed", trip=trip, resource_type="trip_admin",
+            resource_id=user_id, changed_fields=("admin_ids",),
+        )
     return _admin_payload(trip)
 
 
 @router.post("/trips/{trip_id}/transfer-ownership")
 async def transfer_ownership(trip_id: str, body: OwnershipTransfer, user=Depends(get_current_user)):
-    # Step 23: owner-only. Reassigns owner_id and keeps the new owner in admin_ids; the
+    # Step 23: owner-or-application-admin only. Reassigns owner_id and keeps the new owner in admin_ids; the
     # previous owner stays an admin (never dropped to plain member). Touches only the
     # owner_id / admin_ids fields — no member, family, or split data changes.
-    trip = await _trip_owner_or_403(trip_id, user["id"])
+    trip = await _trip_owner_or_403(trip_id, user)
     if body.user_id == trip["owner_id"]:
         raise HTTPException(400, "Already the owner")
     if body.user_id not in trip.get("user_ids", []):
@@ -690,4 +729,8 @@ async def transfer_ownership(trip_id: str, body: OwnershipTransfer, user=Depends
         {"$set": {"owner_id": body.user_id}, "$addToSet": {"admin_ids": body.user_id}},
     )
     trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
+    await record_admin_action(
+        user, "trip.ownership_transferred", trip=trip, resource_type="trip_owner",
+        resource_id=body.user_id, changed_fields=("owner_id", "admin_ids"),
+    )
     return _admin_payload(trip)

@@ -22,6 +22,11 @@ SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 APP_URL = os.environ.get("APP_URL", "")
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 
+# The application-wide operator account is intentionally fixed in server code.  Per-trip admins
+# live in each trip's ``admin_ids`` array; this identity is the only account allowed to bypass
+# trip membership/ownership checks for professional application maintenance.
+SUPER_ADMIN_EMAIL = "jyotirmaysingh03@gmail.com"
+
 # Secure trip-invite links are rollout-gated independently from the legacy six-character code.
 # The public URL is deliberately configurable so links can move to a branded domain without a
 # backend code change; both hosts remain supported by the Android binary during migration.

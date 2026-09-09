@@ -144,6 +144,27 @@ describe('canMarkSettlementPaid', () => {
     )).toBe(true);
     expect(canRecordPayment(TRIP, 'family', 'member', family)).toBe(false);
   });
+
+  it('reports application super-admin without trip membership', () => {
+    expect(roleOf(TRIP, undefined, true)).toBe('super_admin');
+  });
+});
+
+describe('application super-admin capabilities', () => {
+  it('allows every trip-scoped operation while preserving owner-row integrity', () => {
+    expect(canModifyExpense({ created_by: 'someone' }, undefined, TRIP, true)).toBe(true);
+    expect(canManageMembers(TRIP, undefined, true)).toBe(true);
+    expect(canEditTripSettings(TRIP, undefined, true)).toBe(true);
+    expect(canManageAdmins(TRIP, undefined, true)).toBe(true);
+    expect(canTransferOwnership(TRIP, undefined, true)).toBe(true);
+    expect(canDeleteTrip(TRIP, undefined, true)).toBe(true);
+    expect(canRecordPayment(TRIP, 'missing-member', undefined, [], true)).toBe(true);
+    expect(canMarkSettlementPaid(
+      TRIP, { to_member_id: 'missing-member' }, undefined, [], true,
+    )).toBe(true);
+    expect(canRemoveMemberRow(TRIP, { user_id: 'member' }, undefined, true)).toBe(true);
+    expect(canRemoveMemberRow(TRIP, { user_id: 'owner' }, undefined, true)).toBe(false);
+  });
 });
 
 describe('canRemoveMemberRow', () => {

@@ -13,6 +13,7 @@ from utils.permissions import can_record_payment
 from utils.balances import _compute_balances
 from utils.settlement_gate import validate_new_amount
 from services.push_notifications import enqueue_notification_event
+from services.admin_audit import record_admin_action
 
 router = APIRouter()
 
@@ -20,8 +21,8 @@ router = APIRouter()
 # ---------- Balances / Settle Up ----------
 @router.get("/trips/{trip_id}/balances")
 async def balances(trip_id: str, user=Depends(get_current_user)):
-    trip = await _trip_or_404(trip_id, user["id"])
-    return await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user["id"]))
+    trip = await _trip_or_404(trip_id, user)
+    return await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
 
 
 @router.post("/trips/{trip_id}/settle")
@@ -30,12 +31,12 @@ async def settle(trip_id: str, body: SettleIn, background_tasks: BackgroundTasks
     # Legacy one-shot "record a completed payment". Kept for backward compatibility; the doc is
     # now stamped status:"paid"/paid_at so it offsets balances (unchanged behavior) and renders
     # in the Phase 10 settlement history. New clients use POST/PATCH /settlements instead.
-    trip = await _trip_or_404(trip_id, user["id"])
+    trip = await _trip_or_404(trip_id, user)
     amount, audit_fields = validate_new_amount(trip, body.amount)
     # Phase-20 parity: a completed payment offsets balances, so recording one is receiver-or-admin
     # only — a debtor must never be able to self-settle their own debt. Validate the roster too so
     # ghost ids can't poison the ledger (amount>0 is enforced by the SettleIn schema).
-    if not can_record_payment(trip, body.to_member_id, user["id"]):
+    if not can_record_payment(trip, body.to_member_id, user):
         raise HTTPException(403, "Only the receiver or a trip admin can record this settlement")
     if body.from_member_id == body.to_member_id:
         raise HTTPException(400, "A settlement cannot be from and to the same member")
@@ -55,6 +56,11 @@ async def settle(trip_id: str, body: SettleIn, background_tasks: BackgroundTasks
            **audit_fields}
     await db.settlements.insert_one(doc)
     doc.pop("_id", None)
+    await record_admin_action(
+        user, "settlement.recorded_paid", trip=trip, resource_type="settlement",
+        resource_id=doc["id"],
+        changed_fields=("from_member_id", "to_member_id", "amount", "status"),
+    )
     await enqueue_notification_event(
         event_type="settlement.paid",
         source_id=doc["id"],
@@ -69,7 +75,7 @@ async def settle(trip_id: str, body: SettleIn, background_tasks: BackgroundTasks
 @router.get("/trips/{trip_id}/settlements")
 async def list_settlements(trip_id: str, user=Depends(get_current_user)):
     # Any trip member may view the history (pending + paid), newest first.
-    await _trip_or_404(trip_id, user["id"])
+    await _trip_or_404(trip_id, user)
     return await db.settlements.find({"trip_id": trip_id}, {"_id": 0}) \
         .sort("created_at", -1).to_list(None)
 
@@ -78,7 +84,7 @@ async def list_settlements(trip_id: str, user=Depends(get_current_user)):
 async def create_settlement(trip_id: str, body: SettlementCreate, user=Depends(get_current_user)):
     # Record a suggested transfer as a durable PENDING settlement (does not offset balances until
     # marked paid). Any trip member may record — it moves no money. Status is server-controlled.
-    trip = await _trip_or_404(trip_id, user["id"])
+    trip = await _trip_or_404(trip_id, user)
     amount, audit_fields = validate_new_amount(trip, body.amount)
     if body.from_member_id == body.to_member_id:
         raise HTTPException(400, "A settlement cannot be from and to the same member")
@@ -98,6 +104,11 @@ async def create_settlement(trip_id: str, body: SettlementCreate, user=Depends(g
            **audit_fields}
     await db.settlements.insert_one(doc)
     doc.pop("_id", None)
+    await record_admin_action(
+        user, "settlement.created", trip=trip, resource_type="settlement",
+        resource_id=doc["id"],
+        changed_fields=("from_member_id", "to_member_id", "amount", "status", "note"),
+    )
     return doc
 
 
@@ -107,7 +118,7 @@ async def mark_settlement_paid(trip_id: str, settlement_id: str, body: Settlemen
                                user=Depends(get_current_user)):
     # Flip pending -> paid (offsets balances). Gated to the lender (creditor's app user) or a trip
     # admin. Idempotent: a settlement already paid is returned unchanged.
-    trip, settlement = await _settlement_mark_paid_or_403(trip_id, settlement_id, user["id"])
+    trip, settlement = await _settlement_mark_paid_or_403(trip_id, settlement_id, user)
     if settlement.get("status") == "paid":
         return settlement
     paid_at = now_utc().isoformat()
@@ -116,6 +127,10 @@ async def mark_settlement_paid(trip_id: str, settlement_id: str, body: Settlemen
         {"$set": {"status": "paid", "paid_at": paid_at, "marked_paid_by": user["id"]}},
     )
     settlement.update({"status": "paid", "paid_at": paid_at, "marked_paid_by": user["id"]})
+    await record_admin_action(
+        user, "settlement.marked_paid", trip=trip, resource_type="settlement",
+        resource_id=settlement_id, changed_fields=("status", "paid_at", "marked_paid_by"),
+    )
     await enqueue_notification_event(
         event_type="settlement.paid",
         source_id=settlement_id,

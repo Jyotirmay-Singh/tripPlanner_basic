@@ -31,6 +31,41 @@ export type PublicTripInvite = {
   expires_at: string;
 };
 
+export type AdminTripSummary = {
+  id: string;
+  name: string;
+  code?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  travel_date?: string | null;
+  currency: string;
+  budget?: number | null;
+  created_at: string;
+  owner?: { id?: string | null; name?: string | null; email?: string | null } | null;
+  member_count: number;
+  expense_count: number;
+  net_spend: number;
+};
+
+export type AdminAuditEvent = {
+  id: string;
+  actor_user_id: string;
+  actor_email: string;
+  action: string;
+  trip_id?: string | null;
+  trip_name?: string | null;
+  resource_type: string;
+  resource_id?: string | null;
+  changed_fields: string[];
+  created_at: string;
+};
+
+export type AdminPage<T> = {
+  items: T[];
+  total: number;
+  next_cursor: string | null;
+};
+
 export class ApiError extends Error {
   status?: number;
   data?: unknown;
@@ -215,6 +250,30 @@ export function quoteExchangeRate(
 
 export function getExpense<T = any>(tripId: string, expenseId: string): Promise<T> {
   return api<T>(`/trips/${tripId}/expenses/${expenseId}`);
+}
+
+export function listAdminTrips(options: {
+  query?: string;
+  cursor?: string | null;
+  limit?: number;
+} = {}): Promise<AdminPage<AdminTripSummary>> {
+  const query = new URLSearchParams({ limit: String(options.limit ?? 25) });
+  if (options.query?.trim()) query.set('query', options.query.trim());
+  if (options.cursor) query.set('cursor', options.cursor);
+  return api<AdminPage<AdminTripSummary>>(`/admin/trips?${query.toString()}`);
+}
+
+export function listAdminActivity(options: {
+  cursor?: string | null;
+  limit?: number;
+  tripId?: string;
+  action?: string;
+} = {}): Promise<AdminPage<AdminAuditEvent>> {
+  const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
+  if (options.cursor) query.set('cursor', options.cursor);
+  if (options.tripId) query.set('trip_id', options.tripId);
+  if (options.action) query.set('action', options.action);
+  return api<AdminPage<AdminAuditEvent>>(`/admin/audit?${query.toString()}`);
 }
 
 export function reconvertExpense<T = any>(

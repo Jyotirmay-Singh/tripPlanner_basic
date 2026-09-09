@@ -13,6 +13,7 @@ from utils.settlement_gate import (
 )
 from services.push_notifications import enqueue_notification_event
 from utils.currency_rules import currency_minor_units
+from services.admin_audit import record_admin_action
 
 router = APIRouter()
 
@@ -28,7 +29,7 @@ def _suggested_amount(transfers: list, from_id: str, to_id: str):
 @router.get("/trips/{trip_id}/payments")
 async def list_payments(trip_id: str, user=Depends(get_current_user)):
     # Any trip member may view the payment log (everyone sees badges + logs), newest first.
-    await _trip_or_404(trip_id, user["id"])
+    await _trip_or_404(trip_id, user)
     return await db.payments.find({"trip_id": trip_id}, {"_id": 0}) \
         .sort("created_at", -1).to_list(None)
 
@@ -38,9 +39,9 @@ async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: Ba
                          user=Depends(get_current_user)):
     # Record a (possibly partial) payment along a CURRENTLY SUGGESTED debtor->creditor pair. The
     # receiver (creditor's app user) or a trip admin may record; the payer never self-records.
-    trip = await _trip_or_404(trip_id, user["id"])
+    trip = await _trip_or_404(trip_id, user)
     current_version = trip.get("version", 0)
-    if not can_record_payment(trip, body.to_member_id, user["id"]):
+    if not can_record_payment(trip, body.to_member_id, user):
         raise HTTPException(403, "Only the receiver or a trip admin can record this payment")
     amount, audit_fields = validate_new_amount(trip, body.amount)
     if body.from_member_id == body.to_member_id:
@@ -50,7 +51,7 @@ async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: Ba
         raise HTTPException(400, "Both members must belong to this trip")
 
     # Recommendations already include prior payments and may be rerouted after any ledger change.
-    bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user["id"]))
+    bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
     payable = _suggested_amount(bal["transfers"], body.from_member_id, body.to_member_id)
     tolerance = payable_tolerance(trip)
     if payable <= 0:
@@ -77,6 +78,10 @@ async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: Ba
         raise HTTPException(409, "Balances changed, please refresh and retry")
     await db.payments.insert_one(doc)
     doc.pop("_id", None)
+    await record_admin_action(
+        user, "payment.created", trip=trip, resource_type="payment", resource_id=doc["id"],
+        changed_fields=("from_member_id", "to_member_id", "amount", "note"),
+    )
     await enqueue_notification_event(
         event_type="payment.recorded",
         source_id=doc["id"],
@@ -93,7 +98,7 @@ async def edit_payment(trip_id: str, payment_id: str, body: PaymentPatch,
     # Edit amount/note (direction fixed). Receiver-or-admin only. A new amount may not over-settle the
     # direction: cap = current pair payable + this payment's own effect (i.e. the payable as if this
     # payment didn't exist), so create and edit share one rule.
-    trip, payment = await _payment_or_403(trip_id, payment_id, user["id"])
+    trip, payment = await _payment_or_403(trip_id, payment_id, user)
     current_version = trip.get("version", 0)
     updates: dict = {}
     if body.amount is not None:
@@ -103,7 +108,7 @@ async def edit_payment(trip_id: str, payment_id: str, body: PaymentPatch,
         # value as no amount edit so legacy decimal records remain note-editable after rollout.
         if requested != existing:
             amount, audit_fields = validate_new_amount(trip, requested)
-            bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user["id"]))
+            bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
             residual = _suggested_amount(bal["transfers"],
                                          payment["from_member_id"], payment["to_member_id"])
             cap = residual + existing
@@ -124,17 +129,24 @@ async def edit_payment(trip_id: str, payment_id: str, body: PaymentPatch,
                 raise HTTPException(409, "Balances changed, please refresh and retry")
         await db.payments.update_one({"id": payment_id, "trip_id": trip_id}, {"$set": updates})
         payment.update(updates)
+        await record_admin_action(
+            user, "payment.updated", trip=trip, resource_type="payment",
+            resource_id=payment_id, changed_fields=updates.keys(),
+        )
     return payment
 
 
 @router.delete("/trips/{trip_id}/payments/{payment_id}")
 async def delete_payment(trip_id: str, payment_id: str, user=Depends(get_current_user)):
     # Delete a recorded payment (balances self-heal on the next recompute). Receiver-or-admin only.
-    trip, _payment = await _payment_or_403(trip_id, payment_id, user["id"])
+    trip, _payment = await _payment_or_403(trip_id, payment_id, user)
     guard = await db.trips.update_one(
         {"id": trip_id, "version": trip.get("version", 0)}, {"$inc": {"version": 1}}
     )
     if guard.modified_count == 0:
         raise HTTPException(409, "Balances changed, please refresh and retry")
     await db.payments.delete_one({"id": payment_id, "trip_id": trip_id})
+    await record_admin_action(
+        user, "payment.deleted", trip=trip, resource_type="payment", resource_id=payment_id,
+    )
     return {"ok": True}

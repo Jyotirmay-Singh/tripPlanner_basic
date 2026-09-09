@@ -12,6 +12,7 @@ export type User = {
   email: string;
   name: string;
   role: string;
+  is_super_admin?: boolean;
   // Phase 9 (additive, optional so older payloads stay valid): email verification + whether a
   // Google-created account has configured its required local password.
   email_verified?: boolean;

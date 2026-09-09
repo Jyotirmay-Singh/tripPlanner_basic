@@ -114,7 +114,9 @@ export default function SettleUp() {
   const projection = bal?.settlement_projection;
   const wholeUnit = usesWholeUnits(projection);
 
-  const allow = (toId: string) => !!trip && canRecordPayment(trip, toId, user?.id, members);
+  const allow = (toId: string) => !!trip && canRecordPayment(
+    trip, toId, user?.id, members, user?.is_super_admin === true,
+  );
 
   // ---- Async mutations (only reached AFTER the ConfirmModal guard-rail) ----
   const doRecord = async (fromId: string, toId: string, amount: number, note?: string) => {

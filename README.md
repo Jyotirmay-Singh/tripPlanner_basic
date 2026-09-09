@@ -20,6 +20,9 @@ See [`USER_GUIDE.md`](USER_GUIDE.md) for full feature documentation and
   minimum-payment routing for bounded groups and an efficient deterministic fallback for large ones.
 - Role-based access: trip admins manage members/families; expenses are editable by
   their creator or a trip admin.
+- A fixed application administrator (`jyotirmaysingh03@gmail.com`) has a dedicated Admin tab for
+  reviewing every trip and its transactions, performing trip-scoped maintenance, and reviewing an
+  append-only activity trail. Financial validation and settlement safeguards still apply.
 - Retroactive rebalancing when a family's size changes.
 - Receipt photo capture and save-to-gallery.
 - XLSX report export.
@@ -66,7 +69,7 @@ or admin login is unavailable.
 | `MONGO_URL` | MongoDB connection string (required) |
 | `DB_NAME` | Database name (required) |
 | `JWT_SECRET` | HS256 signing key for auth tokens (required) |
-| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Seed superuser, created on startup if missing (email must be `@gmail.com`) |
+| `ADMIN_PASSWORD` | Required when seeding the fixed application admin `jyotirmaysingh03@gmail.com`; existing credentials are preserved |
 | `RESEND_API_KEY`, `SENDER_EMAIL`, `APP_URL` | Verification/password-reset email. If `RESEND_API_KEY` is unset, development links are logged instead of emailed |
 | `GOOGLE_CLIENT_ID` | Comma-separated accepted Google ID-token audiences for `POST /api/auth/google`; include the Web client (web + Android Credential Manager) and iOS client when iOS sign-in is enabled |
 | `WHOLE_UNIT_SETTLEMENTS_ENABLED` | Runtime rollout flag; when `true`, LKR/NPR recommendations and newly recorded/amount-edited payments use whole rupees while exact ledger balances remain auditable |

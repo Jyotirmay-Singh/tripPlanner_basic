@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, View, TouchableOpacity, StyleSheet, Pressable } from 'react-native';
+import { Modal, View, TouchableOpacity, StyleSheet, Pressable, TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from './ThemeContext';
 import { SPACING, RADIUS } from './theme';
@@ -10,6 +10,15 @@ export type ConfirmAction = {
   onPress: () => void;
   variant?: 'primary' | 'default' | 'cancel' | 'destructive';
   testID?: string;
+  disabled?: boolean;
+};
+
+export type ConfirmTextInput = {
+  value: string;
+  onChangeText: (value: string) => void;
+  label: string;
+  placeholder?: string;
+  testID?: string;
 };
 
 type Props = {
@@ -19,11 +28,14 @@ type Props = {
   actions: ConfirmAction[];
   onRequestClose?: () => void; // hardware back / scrim tap
   testID?: string;
+  textInput?: ConfirmTextInput;
 };
 
 // Reusable theme-aware confirmation modal. Unlike the native Alert, every color comes from
 // ThemeContext so it follows light/dark mode. Actions render as a vertical button stack.
-export default function ConfirmModal({ visible, title, message, actions, onRequestClose, testID }: Props) {
+export default function ConfirmModal({
+  visible, title, message, actions, onRequestClose, testID, textInput,
+}: Props) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -66,13 +78,37 @@ export default function ConfirmModal({ visible, title, message, actions, onReque
           style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <T variant="h3">{title}</T>
           {message ? <T muted style={{ marginTop: SPACING.sm, lineHeight: 20 }}>{message}</T> : null}
+          {textInput ? (
+            <View style={{ marginTop: SPACING.md }}>
+              <T variant="label" muted style={{ marginBottom: SPACING.xs }}>{textInput.label}</T>
+              <TextInput
+                value={textInput.value}
+                onChangeText={textInput.onChangeText}
+                placeholder={textInput.placeholder}
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                accessibilityLabel={textInput.label}
+                testID={textInput.testID}
+                cursorColor={colors.primary}
+                selectionColor={colors.primary + '55'}
+                style={[
+                  styles.input,
+                  { color: colors.textMain, backgroundColor: colors.surfaceMuted, borderColor: colors.border },
+                ]}
+              />
+            </View>
+          ) : null}
           <View style={{ marginTop: SPACING.lg, gap: SPACING.sm }}>
             {actions.map((a, i) => (
               <TouchableOpacity
                 key={i}
                 testID={a.testID}
                 onPress={a.onPress}
-                style={[styles.btn, btnStyle(a.variant)]}>
+                disabled={a.disabled}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !!a.disabled }}
+                style={[styles.btn, btnStyle(a.variant), a.disabled && styles.disabled]}>
                 <T color={btnTextColor(a.variant)} style={{ fontWeight: '700' }}>{a.label}</T>
               </TouchableOpacity>
             ))}
@@ -91,4 +127,11 @@ const styles = StyleSheet.create({
   },
   card: { borderRadius: RADIUS.lg, borderWidth: 1, padding: SPACING.lg },
   btn: { paddingVertical: 14, borderRadius: RADIUS.pill, alignItems: 'center' },
+  disabled: { opacity: 0.45 },
+  input: {
+    borderWidth: 1,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 12,
+  },
 });

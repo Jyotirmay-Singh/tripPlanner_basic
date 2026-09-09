@@ -19,6 +19,11 @@ it('allows every actual trip member to use secure sharing when the rollout flag 
   expect(canShareSecureInvite(trip, 'owner-1', false)).toBe(false);
 });
 
+it('allows the application super-admin to share without joining the trip', () => {
+  expect(canShareSecureInvite(trip, undefined, true, true)).toBe(true);
+  expect(canShareSecureInvite(trip, undefined, false, true)).toBe(false);
+});
+
 it('builds the exact secure invitation message with link, code, APK, and expiry', () => {
   const url = `https://tripsplitter-web.vercel.app/invite/${'a'.repeat(43)}`;
   expect(tripInviteShareMessage('Coast trip', 'ABC123', url)).toBe(

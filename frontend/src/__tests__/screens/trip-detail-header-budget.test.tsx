@@ -10,6 +10,7 @@ const mockRefreshRuntimeConfig = jest.fn();
 const mockToastShow = jest.fn();
 let mockInviteLinksEnabled = false;
 let mockRole: 'owner' | 'admin' | 'member' | null = null;
+let mockUser: any = { id: 'u1', email: 'member@gmail.com', is_super_admin: false };
 
 jest.mock('../../api', () => ({
   api: jest.fn(),
@@ -19,7 +20,7 @@ jest.mock('../../api', () => ({
   spendSummary: jest.fn(),
 }));
 jest.mock('../../AuthContext', () => ({ useAuth: () => ({
-  user: { id: 'u1' },
+  user: mockUser,
   inviteLinksEnabled: mockInviteLinksEnabled,
   refreshRuntimeConfig: mockRefreshRuntimeConfig,
 }) }));
@@ -60,7 +61,10 @@ jest.mock('../../DonutChart', () => {
 });
 jest.mock('../../SpendBarChart', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../ReceiptViewer', () => ({ __esModule: true, default: () => null }));
-jest.mock('../../ConfirmModal', () => ({ __esModule: true, default: () => null }));
+jest.mock('../../ConfirmModal', () => {
+  const R = require('react');
+  return { __esModule: true, default: (props: any) => R.createElement('ConfirmModal', props) };
+});
 jest.mock('../../TripChat', () => {
   const R = require('react');
   return { __esModule: true, default: (props: any) => R.createElement('TripChat', props) };
@@ -96,7 +100,7 @@ jest.mock('../../permissions', () => ({
   roleOf: () => mockRole,
   canEditTripSettings: () => true,
   canManageMembers: () => false,
-  canDeleteTrip: () => false,
+  canDeleteTrip: (_trip: any, _userId: any, isSuperAdmin: boolean) => isSuperAdmin,
 }));
 jest.mock('../../displayNames', () => ({
   memberDisplayNames: (members: any[]) => Object.fromEntries(members.map((member) => [member.id, member.name])),
@@ -198,6 +202,7 @@ beforeEach(() => {
   mockToastShow.mockReset();
   mockInviteLinksEnabled = false;
   mockRole = null;
+  mockUser = { id: 'u1', email: 'member@gmail.com', is_super_admin: false };
 });
 
 describe('Trip identity header', () => {
@@ -384,6 +389,42 @@ describe('Trip identity header', () => {
 
     const safeArea = renderer.root.findByType('SafeAreaView' as any);
     expect(safeArea.props.edges).toEqual(['bottom', 'left', 'right']);
+  });
+
+  it('labels non-member admin maintenance and requires the exact trip name before deletion', async () => {
+    mockUser = {
+      id: 'application-admin',
+      email: 'jyotirmaysingh03@gmail.com',
+      is_super_admin: true,
+    };
+    const renderer = await mountTrip({
+      trip: {
+        owner_id: 'owner-2',
+        admin_ids: ['owner-2'],
+        user_ids: ['owner-2'],
+        members: [{ ...INDIVIDUAL, user_id: 'owner-2' }],
+      },
+    });
+
+    const strip = hostByTestID(renderer.root, 'Card', 'trip-privileged-mode');
+    expect(strip).toBeTruthy();
+    expect(strip.findAllByType('T' as any).map(textContent).join(' '))
+      .toContain('expenses and balances do not affect your account');
+    expect(renderer.root.findAll((node: any) => node.props.testID === 'trip-my-balance'))
+      .toHaveLength(0);
+
+    act(() => hostByTestID(renderer.root, 'IconButton', 'trip-delete').props.onPress());
+    let modal = renderer.root.findByType('ConfirmModal' as any);
+    expect(modal.props.textInput).toEqual(expect.objectContaining({
+      value: '',
+      label: 'Type “Lakshadweep” to confirm',
+      testID: 'trip-delete-name',
+    }));
+    expect(modal.props.actions[1].disabled).toBe(true);
+
+    act(() => modal.props.textInput.onChangeText('Lakshadweep'));
+    modal = renderer.root.findByType('ConfirmModal' as any);
+    expect(modal.props.actions[1].disabled).toBe(false);
   });
 });
 

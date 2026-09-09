@@ -16,6 +16,7 @@ from services.join_requests import (
 from services.push_notifications import enqueue_notification_event
 from services.invites import record_invite_use, resolve_join_credential
 from utils.deps import _trip_admin_or_403, get_current_user
+from services.admin_audit import record_admin_action
 
 
 router = APIRouter()
@@ -69,7 +70,7 @@ async def admin_join_requests(
     status: Optional[Literal["pending", "approved", "rejected", "cancelled", "obsolete"]] = "pending",
     user=Depends(get_current_user),
 ):
-    await _trip_admin_or_403(trip_id, user["id"])
+    await _trip_admin_or_403(trip_id, user)
     return [request_payload(row, admin=True) for row in await list_requests(trip_id, status)]
 
 
@@ -80,7 +81,7 @@ async def approve_join_request(
     background_tasks: BackgroundTasks,
     user=Depends(get_current_user),
 ):
-    await _trip_admin_or_403(trip_id, user["id"])
+    trip = await _trip_admin_or_403(trip_id, user)
     original = await _request_for_trip_or_404(trip_id, request_id)
     document, _trip = await approve_request(request_id, user["id"])
     await enqueue_notification_event(
@@ -90,6 +91,10 @@ async def approve_join_request(
         actor_user_id=user["id"],
         recipient_user_ids_override=[original["requester_user_id"]],
         background_tasks=background_tasks,
+    )
+    await record_admin_action(
+        user, "join_request.approved", trip=trip, resource_type="join_request",
+        resource_id=request_id, changed_fields=("status", "reviewed_by", "reviewed_at"),
     )
     return request_payload(document, admin=True)
 
@@ -102,7 +107,7 @@ async def reject_join_request(
     background_tasks: BackgroundTasks,
     user=Depends(get_current_user),
 ):
-    await _trip_admin_or_403(trip_id, user["id"])
+    trip = await _trip_admin_or_403(trip_id, user)
     original = await _request_for_trip_or_404(trip_id, request_id)
     document = await reject_request(request_id, user["id"], body.reason)
     await enqueue_notification_event(
@@ -112,5 +117,9 @@ async def reject_join_request(
         actor_user_id=user["id"],
         recipient_user_ids_override=[original["requester_user_id"]],
         background_tasks=background_tasks,
+    )
+    await record_admin_action(
+        user, "join_request.rejected", trip=trip, resource_type="join_request",
+        resource_id=request_id, changed_fields=("status", "reason", "reviewed_by", "reviewed_at"),
     )
     return request_payload(document, admin=True)
