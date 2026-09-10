@@ -26,7 +26,7 @@ import {
 import { CONTENT_MAX_WIDTH, FONTS, RADIUS, SPACING } from '../../src/theme';
 
 
-type LandingFailure = 'invalid' | 'expired' | 'revoked' | 'disabled' | 'offline';
+type LandingFailure = 'invalid' | 'revoked' | 'disabled' | 'offline';
 
 const APP_LOGO = require('../../assets/images/icon.png');
 
@@ -35,13 +35,9 @@ const failureCopy: Record<LandingFailure, { title: string; body: string }> = {
     title: 'This invite is not valid',
     body: 'Check that the complete link was opened, or ask a trip admin to share a new one.',
   },
-  expired: {
-    title: 'This invite has expired',
-    body: 'Invite links last seven days. Ask a trip admin to create a new link.',
-  },
   revoked: {
     title: 'This invite is no longer active',
-    body: 'A trip admin revoked this link. Ask them to share a new invitation.',
+    body: 'A trip admin reset this link. Ask them to share the current invitation.',
   },
   disabled: {
     title: 'Invite links are temporarily unavailable',
@@ -55,14 +51,6 @@ const failureCopy: Record<LandingFailure, { title: string; body: string }> = {
 
 function firstParam(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] || '' : value || '';
-}
-
-function formattedExpiry(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'within seven days';
-  return date.toLocaleString(undefined, {
-    day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit',
-  });
 }
 
 export default function InviteLanding() {
@@ -95,20 +83,13 @@ export default function InviteLanding() {
       try {
         const result = await getPublicTripInvite(token);
         if (cancelled) return;
-        if (result.status === 'active') {
-          setInvite(result);
-        } else {
-          setInvite(null);
-          setFailure(result.status);
-          await clearPendingInvite();
-        }
+        setInvite(result);
       } catch (error: unknown) {
         if (cancelled) return;
         const code = error instanceof ApiError ? error.detailCode : undefined;
         const permanentFailure = code === 'invite_expired' || code === 'invite_revoked'
           || code === 'invite_invalid';
-        if (code === 'invite_expired') setFailure('expired');
-        else if (code === 'invite_revoked') setFailure('revoked');
+        if (code === 'invite_expired' || code === 'invite_revoked') setFailure('revoked');
         else if (code === 'invite_disabled') setFailure('disabled');
         else if (code === 'invite_invalid') setFailure('invalid');
         else setFailure('offline');
@@ -216,11 +197,6 @@ export default function InviteLanding() {
                     Your place in this trip is ready to confirm. We’ll match you with the right
                     person or ask an admin to approve your request.
                   </T>
-                  <View style={[styles.expiry, { borderColor: colors.border }]}>
-                    <Icon name="clock" size={17} color={colors.textMuted} />
-                    <T variant="caption" muted>Link active until {formattedExpiry(invite.expires_at)}</T>
-                  </View>
-
                   {Platform.OS === 'web' ? (
                     <View style={styles.actions}>
                       <Button
@@ -296,7 +272,7 @@ export default function InviteLanding() {
 
           <Button label="Not now" variant="ghost" onPress={dismiss} haptic={false} />
           <T variant="caption" muted style={styles.privacy}>
-            This private link expires automatically. Do not forward it outside your trip group.
+            Only continue if you recognize the trip and the person who shared this link.
           </T>
         </View>
       </ScrollView>
@@ -321,10 +297,6 @@ const styles = StyleSheet.create({
     width: 48, height: 48, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center',
   },
   appLogo: { width: 40, height: 40 },
-  expiry: {
-    minHeight: 46, borderTopWidth: 1, borderBottomWidth: 1, flexDirection: 'row',
-    alignItems: 'center', gap: SPACING.sm, paddingVertical: SPACING.sm,
-  },
   actions: { gap: SPACING.sm, marginTop: SPACING.sm },
   loading: { flex: 1, minHeight: 200, alignItems: 'center', justifyContent: 'center', gap: SPACING.md },
   installNote: { maxWidth: 520, gap: SPACING.xs, paddingLeft: 48 },

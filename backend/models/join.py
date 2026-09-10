@@ -6,8 +6,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 class JoinCredential(BaseModel):
     """Exactly one bearer credential for resolving a trip join.
 
-    ``code`` keeps every existing client compatible. ``invite_token`` is the revocable,
-    expiring credential used by verified HTTPS invitation links.
+    ``code`` keeps every existing client compatible. ``invite_token`` is the resettable,
+    HMAC-signed credential used by verified HTTPS invitation links.
     """
 
     code: Optional[str] = None

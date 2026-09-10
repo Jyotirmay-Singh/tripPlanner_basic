@@ -7,7 +7,7 @@ import {
   MoreVertical, ArrowLeftRight, Download, Camera, Mail, ArrowDown, ArrowUp,
   CircleAlert, Info, Receipt, Tag, Calendar, RefreshCw, Sparkles, Search,
   Circle, CircleDot, Square, SquareCheck, TrendingUp, TrendingDown,
-  Eye, EyeOff, Clock, MessageCircle, Send, RotateCcw, Bell,
+  Eye, EyeOff, Clock, MessageCircle, Send, RotateCcw, Bell, Copy,
   type LucideIcon,
 } from 'lucide-react-native';
 import { useTheme } from '../ThemeContext';
@@ -77,6 +77,7 @@ const GLYPHS = {
   send: Send,
   retry: RotateCcw,
   bell: Bell,
+  copy: Copy,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof GLYPHS;

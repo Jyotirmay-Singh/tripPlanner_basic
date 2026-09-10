@@ -5,7 +5,7 @@ import { Share, StyleSheet } from 'react-native';
 import { COMPONENT_SIZE, RADIUS, SPACING } from '../../theme';
 
 const mockRouterPush = jest.fn();
-const mockCreateTripInvite = jest.fn();
+const mockGetTripInviteLink = jest.fn();
 const mockRefreshRuntimeConfig = jest.fn();
 const mockToastShow = jest.fn();
 let mockInviteLinksEnabled = false;
@@ -14,7 +14,7 @@ let mockUser: any = { id: 'u1', email: 'member@gmail.com', is_super_admin: false
 
 jest.mock('../../api', () => ({
   api: jest.fn(),
-  createTripInvite: (...args: any[]) => mockCreateTripInvite(...args),
+  getTripInviteLink: (...args: any[]) => mockGetTripInviteLink(...args),
   getToken: jest.fn(),
   receiptUrl: jest.fn(() => 'receipt://x'),
   spendSummary: jest.fn(),
@@ -132,9 +132,10 @@ const BASE_TRIP = {
   members: [INDIVIDUAL],
 };
 const APK_DOWNLOAD_URL = 'https://tripsplitter-web.vercel.app/download/android';
-const CODE_FALLBACK_MESSAGE = 'Join my trip "Lakshadweep" on Trip Splitter.\n\n'
-  + 'Trip code: UCK3RZ\n\n'
-  + 'Download the Trip Splitter APK (Android phones only):\n'
+const CODE_FALLBACK_MESSAGE = 'You have been invited to join the trip "Lakshadweep" on Trip Splitter.\n\n'
+  + 'Trip code: UCK3RZ\n'
+  + 'Enter this code in Trip Splitter to join the trip.\n\n'
+  + 'Download Trip Splitter for Android:\n'
   + APK_DOWNLOAD_URL;
 
 type Fixture = {
@@ -196,7 +197,7 @@ beforeEach(() => {
   getTokenMock.mockResolvedValue('token');
   spendSummaryMock.mockReset();
   mockRouterPush.mockReset();
-  mockCreateTripInvite.mockReset();
+  mockGetTripInviteLink.mockReset();
   mockRefreshRuntimeConfig.mockReset();
   mockRefreshRuntimeConfig.mockResolvedValue({ inviteLinksEnabled: false });
   mockToastShow.mockReset();
@@ -256,7 +257,7 @@ describe('Trip identity header', () => {
     mockRole = 'member';
     mockRefreshRuntimeConfig.mockResolvedValue({ inviteLinksEnabled: true });
     const url = `https://tripsplitter-web.vercel.app/invite/${'a'.repeat(43)}`;
-    mockCreateTripInvite.mockResolvedValue({ id: 'invite-1', url });
+    mockGetTripInviteLink.mockResolvedValue({ url });
     const nativeShare = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
     const renderer = await mountTrip();
     const share = renderer.root.findAll((node: any) => (
@@ -266,26 +267,24 @@ describe('Trip identity header', () => {
     await act(async () => { await share.props.onPress(); });
 
     expect(mockRefreshRuntimeConfig).toHaveBeenCalledTimes(1);
-    expect(mockCreateTripInvite).toHaveBeenCalledWith('t1');
+    expect(mockGetTripInviteLink).toHaveBeenCalledWith('t1');
     expect(nativeShare).toHaveBeenCalledWith({
-      message: 'Join my trip "Lakshadweep" on Trip Splitter.\n\n'
-        + `Open trip / join:\n${url}\n\n`
-        + 'Trip code: UCK3RZ\n\n'
-        + 'Download the Trip Splitter APK (Android phones only):\n'
+      message: 'You have been invited to join the trip "Lakshadweep" on Trip Splitter.\n\n'
+        + `Open the invitation link:\n${url}\n\n`
+        + 'Trip code: UCK3RZ\n'
+        + 'You can also enter this code in Trip Splitter to join manually.\n\n'
+        + 'Download Trip Splitter for Android:\n'
         + `${APK_DOWNLOAD_URL}\n\n`
-        + 'This private invite link expires in 7 days.',
+        + 'A trip admin can reset this private invitation link at any time.',
     });
     nativeShare.mockRestore();
   });
 
-  it('retries one rotation conflict and shares the replacement secure URL', async () => {
+  it('falls back to the trip code if the stable link cannot be loaded', async () => {
     mockInviteLinksEnabled = true;
     mockRole = 'member';
     mockRefreshRuntimeConfig.mockResolvedValue({ inviteLinksEnabled: true });
-    const url = `https://tripsplitter-web.vercel.app/invite/${'b'.repeat(43)}`;
-    mockCreateTripInvite
-      .mockRejectedValueOnce({ detailCode: 'invite_rotation_conflict', retryable: true })
-      .mockResolvedValueOnce({ id: 'invite-2', url });
+    mockGetTripInviteLink.mockRejectedValue(new Error('offline'));
     const nativeShare = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
     const renderer = await mountTrip();
     const share = renderer.root.findAll((node: any) => (
@@ -294,10 +293,13 @@ describe('Trip identity header', () => {
 
     await act(async () => { await share.props.onPress(); });
 
-    expect(mockCreateTripInvite).toHaveBeenCalledTimes(2);
+    expect(mockGetTripInviteLink).toHaveBeenCalledTimes(1);
     expect(nativeShare).toHaveBeenCalledTimes(1);
-    expect(nativeShare.mock.calls[0][0].message).toContain(url);
-    expect(nativeShare.mock.calls[0][0].message).toContain('Trip code: UCK3RZ');
+    expect(nativeShare).toHaveBeenCalledWith({ message: CODE_FALLBACK_MESSAGE });
+    expect(mockToastShow).toHaveBeenCalledWith(
+      'Could not load the trip link: offline. Sharing the trip code instead.',
+      'error',
+    );
     nativeShare.mockRestore();
   });
 
@@ -312,7 +314,7 @@ describe('Trip identity header', () => {
 
     await act(async () => { await share.props.onPress(); });
 
-    expect(mockCreateTripInvite).not.toHaveBeenCalled();
+    expect(mockGetTripInviteLink).not.toHaveBeenCalled();
     expect(nativeShare).toHaveBeenCalledWith({ message: CODE_FALLBACK_MESSAGE });
     expect(mockToastShow).toHaveBeenCalledWith(
       'Secure invite links are not live yet. Sharing the trip code instead.',
@@ -332,7 +334,7 @@ describe('Trip identity header', () => {
 
     await act(async () => { await share.props.onPress(); });
 
-    expect(mockCreateTripInvite).not.toHaveBeenCalled();
+    expect(mockGetTripInviteLink).not.toHaveBeenCalled();
     expect(nativeShare).toHaveBeenCalledWith({
       message: CODE_FALLBACK_MESSAGE,
     });
@@ -348,7 +350,7 @@ describe('Trip identity header', () => {
     mockRole = 'member';
     mockRefreshRuntimeConfig.mockResolvedValue({ inviteLinksEnabled: true });
     const url = `https://tripsplitter-web.vercel.app/invite/${'c'.repeat(43)}`;
-    mockCreateTripInvite.mockResolvedValue({ id: 'invite-3', url });
+    mockGetTripInviteLink.mockResolvedValue({ url });
     const nativeShare = jest.spyOn(Share, 'share').mockResolvedValue({ action: Share.dismissedAction });
     const renderer = await mountTrip();
     const share = renderer.root.findAll((node: any) => (

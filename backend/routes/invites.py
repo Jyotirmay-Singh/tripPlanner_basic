@@ -1,55 +1,69 @@
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from config import INVITE_LINKS_ENABLED
 from services.invites import (
-    create_invite,
-    list_invites,
+    _invite_error,
+    current_invite_link,
     public_invite_status,
-    revoke_invite,
+    reset_invite_link,
 )
-from utils.deps import _trip_or_404, get_current_user, is_trip_admin
+from utils.deps import _trip_admin_or_403, _trip_or_404, get_current_user
 from services.admin_audit import record_admin_action
 
 
 router = APIRouter()
 
 
+def _require_invite_links() -> None:
+    if not INVITE_LINKS_ENABLED:
+        raise _invite_error("disabled")
+
+
+@router.get("/trips/{trip_id}/invite-link")
+async def get_trip_invite_link(trip_id: str, user=Depends(get_current_user)):
+    trip = await _trip_or_404(trip_id, user)
+    _require_invite_links()
+    return current_invite_link(trip)
+
+
+@router.post("/trips/{trip_id}/invite-link/reset")
+async def reset_trip_invite_link(trip_id: str, user=Depends(get_current_user)):
+    trip = await _trip_admin_or_403(trip_id, user)
+    _require_invite_links()
+    link = await reset_invite_link(trip_id)
+    await record_admin_action(
+        user, "invite.reset", trip=trip, resource_type="trip_invite", resource_id=trip_id,
+        changed_fields=("invite_generation",),
+    )
+    return link
+
+
 @router.post("/trips/{trip_id}/invites")
 async def issue_trip_invite(trip_id: str, user=Depends(get_current_user)):
+    """Compatibility alias for installed clients that still call the plural create route."""
     trip = await _trip_or_404(trip_id, user)
-    if not INVITE_LINKS_ENABLED:
-        from services.invites import _invite_error
-        raise _invite_error("disabled")
-    created = await create_invite(trip, user)
-    await record_admin_action(
-        user, "invite.created", trip=trip, resource_type="invite", resource_id=created["id"],
-    )
-    return created
+    _require_invite_links()
+    return current_invite_link(trip)
 
 
 @router.get("/trips/{trip_id}/invites")
 async def get_trip_invites(trip_id: str, user=Depends(get_current_user)):
-    trip = await _trip_or_404(trip_id, user)
-    return await list_invites(
-        trip_id,
-        created_by=None if is_trip_admin(trip, user) else user["id"],
-    )
+    """Retired history contract: old clients receive no revoked/expired rows."""
+    await _trip_or_404(trip_id, user)
+    _require_invite_links()
+    return []
 
 
 @router.post("/trips/{trip_id}/invites/{invite_id}/revoke")
 async def revoke_trip_invite(trip_id: str, invite_id: str, user=Depends(get_current_user)):
-    trip = await _trip_or_404(trip_id, user)
-    revoked = await revoke_invite(
-        trip_id,
-        invite_id,
-        user["id"],
-        can_revoke_all=is_trip_admin(trip, user),
+    await _trip_or_404(trip_id, user)
+    raise HTTPException(
+        410,
+        detail={
+            "code": "invite_endpoint_retired",
+            "message": "Invite history was replaced by the trip's single resettable link.",
+        },
     )
-    await record_admin_action(
-        user, "invite.revoked", trip=trip, resource_type="invite", resource_id=invite_id,
-        changed_fields=("status", "revoked_at", "revoked_by"),
-    )
-    return revoked
 
 
 @router.get("/invites/{token}")

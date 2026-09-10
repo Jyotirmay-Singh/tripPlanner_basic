@@ -74,10 +74,10 @@ Settled trips remain tappable and can still be opened normally.
 3. Tap **Create trip**. You're taken to the trip page; a unique **6-character trip code** is generated (e.g. `AX27R9`).
 
 ### 3.2 Share & let others join
-- Any linked trip member can tap the trip-code chip to rotate their private link, which expires after
-  **7 days**, then share it through WhatsApp, email, or another share target. The message includes the
-  secure link, permanent six-character code, and Android-only APK download URL. Each member can review
-  or revoke their own links under **Members → Invite links**; owners/admins can manage all links.
+- Every trip has one private invitation link. Any linked trip member can copy it under
+  **Members → Trip invite link** or share it through WhatsApp, email, or another share target. The
+  message includes the link, permanent six-character code, and Android-only APK download URL.
+  Owners/admins can reset the link when needed; the previous link then stops working immediately.
 - On Android, the link opens the Join wizard directly when Trip Splitter is installed. Without the
   app, it stays on a branded page with **Open Trip Splitter**, **Download Android APK**, and
   **Continue on web**. The APK downloads only after a manual tap. After installing it, return to the

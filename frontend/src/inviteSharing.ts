@@ -12,9 +12,10 @@ export function canShareSecureInvite(
 }
 
 export function tripCodeShareMessage(tripName: string, code: string): string {
-  return `Join my trip "${tripName}" on Trip Splitter.`
+  return `You have been invited to join the trip "${tripName}" on Trip Splitter.`
     + `\n\nTrip code: ${code}`
-    + '\n\nDownload the Trip Splitter APK (Android phones only):'
+    + '\nEnter this code in Trip Splitter to join the trip.'
+    + '\n\nDownload Trip Splitter for Android:'
     + `\n${ANDROID_APK_DOWNLOAD_URL}`;
 }
 
@@ -23,10 +24,11 @@ export function tripInviteShareMessage(
   code: string,
   inviteUrl: string,
 ): string {
-  return `Join my trip "${tripName}" on Trip Splitter.`
-    + `\n\nOpen trip / join:\n${inviteUrl}`
+  return `You have been invited to join the trip "${tripName}" on Trip Splitter.`
+    + `\n\nOpen the invitation link:\n${inviteUrl}`
     + `\n\nTrip code: ${code}`
-    + '\n\nDownload the Trip Splitter APK (Android phones only):'
+    + '\nYou can also enter this code in Trip Splitter to join manually.'
+    + '\n\nDownload Trip Splitter for Android:'
     + `\n${ANDROID_APK_DOWNLOAD_URL}`
-    + '\n\nThis private invite link expires in 7 days.';
+    + '\n\nA trip admin can reset this private invitation link at any time.';
 }

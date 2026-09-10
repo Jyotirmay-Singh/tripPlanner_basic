@@ -125,18 +125,21 @@ it('builds quote requests entirely through the backend API', async () => {
 it('uses authenticated invite management and a public no-auth resolver', async () => {
   process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
   jest.resetModules();
-  const { createTripInvite, getPublicTripInvite } = require('../api');
+  const { getTripInviteLink, resetTripInviteLink, getPublicTripInvite } = require('../api');
   const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue({
     ok: true,
     status: 200,
     text: () => Promise.resolve('{}'),
   } as Response);
 
-  await createTripInvite('trip /1');
+  await getTripInviteLink('trip /1');
+  await resetTripInviteLink('trip /1');
   await getPublicTripInvite('token/value');
 
-  expect(fetchSpy.mock.calls[0][0]).toBe('https://api.example.test/api/trips/trip%20%2F1/invites');
-  expect(fetchSpy.mock.calls[0][1]?.method).toBe('POST');
-  expect(fetchSpy.mock.calls[1][0]).toBe('https://api.example.test/api/invites/token%2Fvalue');
-  expect(fetchSpy.mock.calls[1][1]?.headers).toEqual({ 'Content-Type': 'application/json' });
+  expect(fetchSpy.mock.calls[0][0]).toBe('https://api.example.test/api/trips/trip%20%2F1/invite-link');
+  expect(fetchSpy.mock.calls[0][1]?.method).toBe('GET');
+  expect(fetchSpy.mock.calls[1][0]).toBe('https://api.example.test/api/trips/trip%20%2F1/invite-link/reset');
+  expect(fetchSpy.mock.calls[1][1]?.method).toBe('POST');
+  expect(fetchSpy.mock.calls[2][0]).toBe('https://api.example.test/api/invites/token%2Fvalue');
+  expect(fetchSpy.mock.calls[2][1]?.headers).toEqual({ 'Content-Type': 'application/json' });
 });

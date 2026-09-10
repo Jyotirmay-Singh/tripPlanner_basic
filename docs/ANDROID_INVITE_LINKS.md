@@ -6,15 +6,16 @@ Trip Splitter invitations use one HTTPS URL on web and Android:
 https://tripsplitter-web.vercel.app/invite/<opaque-token>
 ```
 
-The backend stores only the token's SHA-256 hash. Links are reusable for seven days and retain
-secret-free audit metadata for 90 days. Every linked trip member can create and revoke their own
-link; owners/admins can review and revoke every member's links. Each creator has exactly one active
-link per trip, so sharing again automatically revokes and replaces their prior link. Manual
-six-character codes remain backward compatible.
+The backend derives one URL-safe, HMAC-signed token from the trip id and its invite generation, so
+the raw bearer token is never stored. Every linked member receives the same link. Owners/admins can
+reset it by advancing the generation, which invalidates the previous link immediately. Manual
+six-character codes remain backward compatible, and retired invite records remain internal until
+their existing 90-day audit window ends.
 
 ## User flow
 
-1. A trip member taps the trip code or **Members → Invite links → Create and share link**.
+1. A trip member taps the trip code to share, or uses **Members → Trip invite link** to copy or share
+   the same link.
 2. Android verifies the host through `/.well-known/assetlinks.json`.
 3. If the app is installed, the link opens `/invite/<token>` in package `com.tripsplitter.app`, then
    routes an authenticated user directly to the existing identity-aware Join wizard.
@@ -26,13 +27,11 @@ six-character codes remain backward compatible.
    user returns to WhatsApp and taps the original invitation again; the HTTPS App Link carries the
    token into the joining page.
 6. The join preview sends an existing member to `/trip/<id>` Summary and shows the existing Join Trip
-   identity flow to a non-member. Invalid, expired, revoked, disabled, and offline states keep their
-   existing dedicated handling.
+   identity flow to a non-member. Invalid, reset, disabled, and offline links retain dedicated
+   handling.
 
-The rich share message includes the private URL, permanent trip code, Android-only download link,
-and seven-day expiry notice. The currently published build 8 receives secure-link capability from
-the server flag, but its native share text remains the older invite-only copy; web sharing has the
-rich message now, and Android receives it with the next normal APK release.
+The share message includes the private URL, permanent trip code, Android-only download link, and a
+note that a trip admin can reset the private link at any time.
 
 ## Rollout order
 
@@ -44,7 +43,7 @@ rich message now, and Android receives it with the next normal APK release.
 4. Confirm `INVITE_BASE_URL=https://tripsplitter-web.vercel.app`, set
    `INVITE_LINKS_ENABLED=true`, and verify `/api/meta/config` plus member/non-member flows.
 
-The flag doubles as a kill switch. Disabling it stops token creation/resolution without affecting
+The flag doubles as a kill switch. Disabling it stops link retrieval/resolution without affecting
 manual codes or already-joined members.
 
 ## Verification
@@ -62,4 +61,4 @@ matches the certificate on the final APK, an absent app reaches the landing page
 
 Add the future company-controlled host to the Android intent filters, publish matching
 `assetlinks.json` on both hosts, and release that APK before changing `INVITE_BASE_URL`. Keep the
-Vercel host working until all seven-day links plus a grace period have elapsed.
+Vercel host working until all active app versions support the new host.

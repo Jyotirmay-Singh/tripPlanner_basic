@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, View, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Share, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { api, createTripInvite, getToken, receiptUrl, spendSummary } from '../../../src/api';
+import { api, getToken, getTripInviteLink, receiptUrl, spendSummary } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, CONTENT_MAX_WIDTH, COMPONENT_SIZE, FONTS } from '../../../src/theme';
@@ -227,7 +227,6 @@ export default function TripDetail() {
   }>(null);
   const [deleteTripName, setDeleteTripName] = useState('');
   const [sharingInvite, setSharingInvite] = useState(false);
-  const [inviteRefreshKey, setInviteRefreshKey] = useState(0);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -263,7 +262,7 @@ export default function TripDetail() {
   const canCreateSecureInvite = !!trip
     && canShareSecureInvite(trip, user?.id, inviteLinksEnabled, isApplicationAdmin);
 
-  const shareCode = async () => {
+  const shareCode = async (knownInviteUrl?: string) => {
     if (!trip) return;
     if (sharingInvite) return;
     setSharingInvite(true);
@@ -289,25 +288,13 @@ export default function TripDetail() {
         return;
       }
 
-      let invite;
-      try {
-        invite = await createTripInvite(trip.id);
-      } catch (error: any) {
-        // A simultaneous share on another device can win the one-active-link race. Retry once;
-        // all other failures move to the explicit legacy fallback.
-        if (error?.detailCode === 'invite_rotation_conflict' && error?.retryable === true) {
-          invite = await createTripInvite(trip.id);
-        } else {
-          throw error;
-        }
-      }
+      const invite = knownInviteUrl ? { url: knownInviteUrl } : await getTripInviteLink(trip.id);
       await Share.share({
         message: tripInviteShareMessage(trip.name, trip.code, invite.url),
       });
-      setInviteRefreshKey((value) => value + 1);
     } catch (error: any) {
       toast.show(
-        `Could not create a secure link${error.message ? `: ${error.message}` : ''}. `
+        `Could not load the trip link${error.message ? `: ${error.message}` : ''}. `
           + 'Sharing the trip code instead.',
         'error',
       );
@@ -815,8 +802,8 @@ export default function TripDetail() {
               {canCreateSecureInvite ? (
                 <InviteLinksPanel
                   tripId={trip.id}
-                  refreshKey={inviteRefreshKey}
-                  onCreateAndShare={shareCode}
+                  canReset={meCanManageMembers}
+                  onShare={shareCode}
                 />
               ) : null}
               {meCanManageMembers ? (

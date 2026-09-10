@@ -10,25 +10,10 @@ const TOKEN_KEY = 'auth_token';
 
 export type ApiErrorCode = 'configuration' | 'network' | 'timeout' | 'aborted' | 'http';
 
-export type TripInviteStatus = 'active' | 'expired' | 'revoked';
-export type TripInvite = {
-  id: string;
-  created_by: string;
-  created_by_name?: string | null;
-  created_at: string;
-  expires_at: string;
-  status: TripInviteStatus;
-  revoked_at?: string | null;
-  revoked_by?: string | null;
-  revocation_reason?: 'manual' | 'rotated' | 'trip_deleted' | 'migration_rotation' | null;
-  use_count: number;
-  last_used_at?: string | null;
-};
-export type CreatedTripInvite = TripInvite & { url: string };
+export type TripInviteLink = { url: string };
 export type PublicTripInvite = {
-  status: TripInviteStatus;
+  status: 'active';
   trip_name: string;
-  expires_at: string;
 };
 
 export type AdminTripSummary = {
@@ -306,17 +291,13 @@ export function requestExistingPerson(body: Record<string, unknown>): Promise<Jo
   return api<JoinRequestView>('/trips/join-requests', { method: 'POST', body });
 }
 
-export function createTripInvite(tripId: string): Promise<CreatedTripInvite> {
-  return api<CreatedTripInvite>(`/trips/${encodeURIComponent(tripId)}/invites`, { method: 'POST' });
+export function getTripInviteLink(tripId: string): Promise<TripInviteLink> {
+  return api<TripInviteLink>(`/trips/${encodeURIComponent(tripId)}/invite-link`);
 }
 
-export function listTripInvites(tripId: string): Promise<TripInvite[]> {
-  return api<TripInvite[]>(`/trips/${encodeURIComponent(tripId)}/invites`);
-}
-
-export function revokeTripInvite(tripId: string, inviteId: string): Promise<TripInvite> {
-  return api<TripInvite>(
-    `/trips/${encodeURIComponent(tripId)}/invites/${encodeURIComponent(inviteId)}/revoke`,
+export function resetTripInviteLink(tripId: string): Promise<TripInviteLink> {
+  return api<TripInviteLink>(
+    `/trips/${encodeURIComponent(tripId)}/invite-link/reset`,
     { method: 'POST' },
   );
 }

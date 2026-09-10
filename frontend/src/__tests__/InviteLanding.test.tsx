@@ -67,7 +67,7 @@ describe('invite landing', () => {
     mockParams = { token };
     mockUser = { id: 'user-1', credentials_set: true };
     mockGetInvite.mockResolvedValue({
-      status: 'active', trip_name: 'Coast trip', expires_at: '2026-09-11T10:00:00Z',
+      status: 'active', trip_name: 'Coast trip',
     });
   });
 
@@ -77,8 +77,9 @@ describe('invite landing', () => {
   });
 
   it('remembers a valid link and sends an authenticated native user to the join wizard', async () => {
+    let renderer: any;
     await act(async () => {
-      TestRenderer.create(<InviteLanding />);
+      renderer = TestRenderer.create(<InviteLanding />);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -87,6 +88,7 @@ describe('invite landing', () => {
     expect(mockReplace).toHaveBeenCalledWith({
       pathname: '/join-trip', params: { inviteToken: token },
     });
+    expect(JSON.stringify(renderer.toJSON())).not.toMatch(/active until|expires/i);
   });
 
   it.each([
@@ -165,11 +167,12 @@ describe('invite landing', () => {
       .toBe('This invite is not valid');
   });
 
-  it('removes a permanently expired invitation from pending authentication state', async () => {
+  it('removes a reset invitation from pending authentication state', async () => {
     mockUser = null;
-    mockGetInvite.mockResolvedValue({
-      status: 'expired', trip_name: 'Coast trip', expires_at: '2026-09-01T10:00:00Z',
-    });
+    const { ApiError } = require('../../src/api');
+    const error = new ApiError('reset');
+    error.detailCode = 'invite_revoked';
+    mockGetInvite.mockRejectedValue(error);
 
     await act(async () => {
       TestRenderer.create(<InviteLanding />);
