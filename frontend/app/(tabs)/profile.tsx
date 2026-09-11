@@ -10,6 +10,7 @@ import T from '../../src/T';
 import TabPageHeader from '../../src/TabPageHeader';
 import { TabScreen, Card, Icon } from '../../src/ui';
 import NotificationSettingsRow from '../../src/NotificationSettingsRow';
+import { upiProfileHref } from '../../src/inviteNavigation';
 
 export default function Profile() {
   const { user } = useAuth();
@@ -54,6 +55,22 @@ export default function Profile() {
         <Icon name="chevron-right" size={18} color={colors.textMuted} />
       </Card>
 
+      <Card
+        onPress={() => router.push(upiProfileHref())}
+        testID="profile-payment-details"
+        accessibilityLabel={`Payment details, ${user?.upi_id || 'UPI ID not set'}`}
+        style={styles.row}
+      >
+        <Icon name="wallet" size={20} color={colors.primary} />
+        <View style={styles.paymentCopy}>
+          <T variant="h4">Payment details</T>
+          <T muted variant="caption" numberOfLines={1} testID="profile-upi-value">
+            {user?.upi_id || 'UPI ID not set'}
+          </T>
+        </View>
+        <Icon name="chevron-right" size={18} color={colors.textMuted} />
+      </Card>
+
       <NotificationSettingsRow />
 
       <Card onPress={confirmAndSignOut} testID="profile-logout" accessibilityLabel="Sign out" style={styles.row}>
@@ -68,4 +85,5 @@ export default function Profile() {
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, borderRadius: RADIUS.lg },
   avatar: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center' },
+  paymentCopy: { flex: 1, minWidth: 0 },
 });

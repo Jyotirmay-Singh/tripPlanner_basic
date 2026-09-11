@@ -28,6 +28,17 @@ export function passwordSetupHref(pendingInvitePath?: string | null): Href {
     : '/set-credentials') as Href;
 }
 
+export function upiSetupHref(pendingInvitePath?: string | null): Href {
+  const returnTo = safeInviteReturnTo(pendingInvitePath);
+  return (returnTo
+    ? { pathname: '/set-upi', params: { returnTo } }
+    : '/set-upi') as Href;
+}
+
+export function upiProfileHref(): Href {
+  return '/set-upi?mode=profile' as Href;
+}
+
 export function joinHref(token: string): Href | null {
   return INVITE_TOKEN_PATTERN.test(token)
     ? ({ pathname: '/join-trip', params: { inviteToken: token } } as Href)

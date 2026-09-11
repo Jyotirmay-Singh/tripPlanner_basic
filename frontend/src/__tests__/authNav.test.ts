@@ -54,6 +54,19 @@ describe('authRedirectTarget with isPublicRoute', () => {
     expect(authRedirectTarget(null, false, false, true)).toBe(AUTH_LOGIN_HREF);
   });
 
+  it('offers UPI setup only for a volatile new-account intent', () => {
+    const invite = `/invite/${'a'.repeat(43)}`;
+    const noUpi = { ...user, upi_id: null };
+
+    expect(authRedirectTarget(noUpi, true)).toBe(DASHBOARD_HREF);
+    expect(authRedirectTarget(noUpi, false)).toBeNull();
+    expect(authRedirectTarget(noUpi, true, false, false, null, true)).toBe('/set-upi');
+    expect(authRedirectTarget(noUpi, false, false, false, invite, true)).toEqual({
+      pathname: '/set-upi', params: { returnTo: invite },
+    });
+    expect(authRedirectTarget(noUpi, false, false, false, invite, true, true)).toBeNull();
+  });
+
   it('still loads-guards on a public route (undefined session)', () => {
     expect(authRedirectTarget(undefined, false, true)).toBeNull();
   });

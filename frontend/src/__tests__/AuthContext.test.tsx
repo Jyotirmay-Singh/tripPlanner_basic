@@ -190,6 +190,7 @@ it('signs in with an email and password payload only', async () => {
     auth: false,
   });
   expect(latest.user).toEqual(user);
+  expect(latest.upiOnboardingPending).toBe(false);
 });
 
 it('registers without a PIN field', async () => {
@@ -209,6 +210,30 @@ it('registers without a PIN field', async () => {
     auth: false,
   });
   expect(latest.user).toEqual(user);
+  expect(latest.upiOnboardingPending).toBe(true);
+  expect((AsyncStorage.setItem as jest.Mock).mock.calls.map(([key]) => key))
+    .not.toContain('upi_onboarding_pending');
+});
+
+it('keeps first-time Google UPI onboarding volatile and clears it explicitly', async () => {
+  const user = {
+    id: 'u3', email: 'google@gmail.com', name: 'Google User', role: 'user',
+    credentials_set: false,
+  };
+  (apiModule.api as jest.Mock).mockImplementation((path: string) => {
+    if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
+    if (path === '/auth/google') return Promise.resolve({ access_token: 'jwt', user });
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+
+  await act(async () => { await latest.signInWithGoogle('google-id-token'); });
+  expect(latest.upiOnboardingPending).toBe(true);
+
+  act(() => latest.completeUpiOnboarding());
+  expect(latest.upiOnboardingPending).toBe(false);
+  expect((AsyncStorage.setItem as jest.Mock).mock.calls.map(([key]) => key))
+    .not.toContain('upi_onboarding_pending');
 });
 
 it('validates, trims, saves, and adopts the server UPI profile response', async () => {

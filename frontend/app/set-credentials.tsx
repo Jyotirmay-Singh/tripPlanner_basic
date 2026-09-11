@@ -9,14 +9,14 @@ import {
   PASSWORD_HINT_MESSAGE,
 } from '../src/validation';
 import { AuthShell, Input, Button, useToast } from '../src/ui';
-import { postAuthHref } from '../src/inviteNavigation';
+import { postAuthHref, upiSetupHref } from '../src/inviteNavigation';
 
 // Google verifies account ownership. This required one-time step adds the local password that
 // enables email/password sign-in before the user can enter protected application screens.
 export default function SetCredentials() {
   const router = useRouter();
   const toast = useToast();
-  const { refresh, signOut, pendingInvitePath } = useAuth();
+  const { refresh, signOut, pendingInvitePath, upiOnboardingPending } = useAuth();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [action, setAction] = useState<'save' | 'switch' | null>(null);
@@ -43,7 +43,9 @@ export default function SetCredentials() {
       await api('/auth/set-credentials', { method: 'POST', body: { password } });
       await refresh();
       toast.show('Password created. Your account is ready.', 'success');
-      router.replace(postAuthHref(pendingInvitePath));
+      router.replace(upiOnboardingPending
+        ? upiSetupHref(pendingInvitePath)
+        : postAuthHref(pendingInvitePath));
     } catch (e: any) {
       toast.show(e.message || 'Could not save your password. Try again.', 'error');
     } finally {

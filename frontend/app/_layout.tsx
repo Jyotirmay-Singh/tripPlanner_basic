@@ -25,9 +25,10 @@ SplashScreen.setOptions({ duration: 240, fade: true });
 
 function Inner() {
   const { colors } = useTheme();
-  const { user, pendingInvitePath } = useAuth();
+  const { user, pendingInvitePath, upiOnboardingPending } = useAuth();
   const router = useRouter();
   const segments = useSegments();
+  const firstSegment = segments[0] as string | undefined;
 
   // Declarative auth guard: redirect on any session change (logout, token expiry) and fully
   // reset the stack so back-navigation can't reach a signed-out screen. No-op while loading
@@ -35,13 +36,15 @@ function Inner() {
   useEffect(() => {
     const target = authRedirectTarget(
       user,
-      segments[0] === '(auth)',
-      isPublicTokenRoute(segments[0]),
-      segments[0] === 'set-credentials',
+      firstSegment === '(auth)',
+      isPublicTokenRoute(firstSegment),
+      firstSegment === 'set-credentials',
       pendingInvitePath,
+      upiOnboardingPending,
+      firstSegment === 'set-upi',
     );
     if (target) navResetTo(router, target);
-  }, [user, segments, router, pendingInvitePath]);
+  }, [user, firstSegment, router, pendingInvitePath, upiOnboardingPending]);
 
   const headerRight = user ? () => <ProfileAvatarButton /> : undefined;
   return (
@@ -80,6 +83,7 @@ function Inner() {
         <Stack.Screen name="verify-email" options={{ headerShown: false }} />
         <Stack.Screen name="reset-password" options={{ headerShown: false }} />
         <Stack.Screen name="set-credentials" options={{ headerShown: false }} />
+        <Stack.Screen name="set-upi" options={{ headerShown: false }} />
       </Stack>
     </LogoutProvider>
   );

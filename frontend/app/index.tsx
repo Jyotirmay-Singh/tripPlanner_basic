@@ -3,18 +3,20 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../src/AuthContext';
 import { useTheme } from '../src/ThemeContext';
+import { upiSetupHref } from '../src/inviteNavigation';
 
 export default function Index() {
-  const { user } = useAuth();
+  const { user, pendingInvitePath, upiOnboardingPending } = useAuth();
   const router = useRouter();
   const { colors } = useTheme();
 
   useEffect(() => {
     if (user === undefined) return;
     if (user?.credentials_set === false) router.replace('/set-credentials');
+    else if (user && upiOnboardingPending) router.replace(upiSetupHref(pendingInvitePath));
     else if (user) router.replace('/(tabs)/dashboard');
     else router.replace('/(auth)/login');
-  }, [user, router]);
+  }, [user, router, pendingInvitePath, upiOnboardingPending]);
 
   return (
     <View style={[styles.c, { backgroundColor: colors.background }]}>

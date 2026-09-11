@@ -35,6 +35,9 @@ type Ctx = {
   emailFeaturesEnabled: boolean;
   inviteLinksEnabled: boolean;
   pendingInvitePath: string | null;
+  // Volatile by design: only an account created in this running app session receives the
+  // optional UPI offer. Restoring a session after an app restart must never recreate it.
+  upiOnboardingPending: boolean;
   multiCurrencyCapability: MultiCurrencyCapability;
   multiCurrencyExpensesEnabled: boolean;
   chatCapability: ChatCapability;
@@ -44,6 +47,7 @@ type Ctx = {
   register: (email: string, name: string, password: string) => Promise<void>;
   signInWithGoogle: (idToken: string) => Promise<User>;
   updateUpiId: (upiId: string | null) => Promise<User>;
+  completeUpiOnboarding: () => void;
   signOut: (clearSavedEmail?: boolean) => Promise<void>;
   forgetSavedEmail: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -64,6 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [emailFeaturesEnabled, setEmailFeaturesEnabled] = useState(true);
   const [inviteLinksEnabled, setInviteLinksEnabled] = useState(false);
   const [pendingInvitePath, setPendingInvitePath] = useState<string | null>(null);
+  const [upiOnboardingPending, setUpiOnboardingPending] = useState(false);
   const [multiCurrencyCapability, setMultiCurrencyCapability] =
     useState<MultiCurrencyCapability>('loading');
   const [chatCapability, setChatCapability] = useState<ChatCapability>('loading');
@@ -114,6 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const handleAuthenticationRequired = useCallback(async () => {
     await setToken(null);
+    setUpiOnboardingPending(false);
     setUser(null);
   }, []);
 
@@ -125,12 +131,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // A freshly opened deep link can be remembered while this startup read is still in flight.
     // Never let an older null read overwrite that newer in-memory invitation.
     setPendingInvitePath((current) => pending ?? current);
-    if (!t) { setUser(null); return; }
+    if (!t) {
+      setUpiOnboardingPending(false);
+      setUser(null);
+      return;
+    }
     try {
       const u = await api<User>('/auth/me');
       setUser(u);
     } catch {
       await setToken(null);
+      setUpiOnboardingPending(false);
       setUser(null);
     }
   }, []);
@@ -154,6 +165,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await setToken(res.access_token);
     await AsyncStorage.setItem(SAVED_EMAIL_KEY, res.user.email);
     setSavedEmail(res.user.email);
+    setUpiOnboardingPending(false);
     setUser(res.user);
   };
 
@@ -164,6 +176,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await setToken(res.access_token);
     await AsyncStorage.setItem(SAVED_EMAIL_KEY, res.user.email);
     setSavedEmail(res.user.email);
+    setUpiOnboardingPending(true);
     setUser(res.user);
   };
 
@@ -174,6 +187,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await setToken(res.access_token);
     await AsyncStorage.setItem(SAVED_EMAIL_KEY, res.user.email);
     setSavedEmail(res.user.email);
+    setUpiOnboardingPending(res.user.credentials_set === false);
     setUser(res.user);
     // Returned so the caller can route a first-time OAuth user (credentials_set === false)
     // through mandatory local-password setup instead of straight to the dashboard.
@@ -193,11 +207,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return updated;
   };
 
+  const completeUpiOnboarding = useCallback(() => {
+    setUpiOnboardingPending(false);
+  }, []);
+
   const signOut = async (clearSavedEmail = false) => {
     // Best effort while the bearer token still exists. A failure never blocks logout; the next
     // authenticated foreground sync safely reassigns this installation and Expo token.
     await unregisterCurrentPushInstallation();
     await setToken(null);
+    setUpiOnboardingPending(false);
     if (clearSavedEmail) {
       await AsyncStorage.removeItem(SAVED_EMAIL_KEY);
       setSavedEmail(null);
@@ -217,6 +236,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       emailFeaturesEnabled,
       inviteLinksEnabled,
       pendingInvitePath,
+      upiOnboardingPending,
       multiCurrencyCapability,
       multiCurrencyExpensesEnabled,
       chatCapability,
@@ -226,6 +246,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       register,
       signInWithGoogle,
       updateUpiId,
+      completeUpiOnboarding,
       signOut,
       forgetSavedEmail,
       refresh,

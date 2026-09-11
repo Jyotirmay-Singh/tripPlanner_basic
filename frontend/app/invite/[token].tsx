@@ -22,6 +22,7 @@ import {
   joinHref,
   passwordSetupHref,
   postAuthHref,
+  upiSetupHref,
 } from '../../src/inviteNavigation';
 import { CONTENT_MAX_WIDTH, FONTS, RADIUS, SPACING } from '../../src/theme';
 
@@ -60,7 +61,7 @@ export default function InviteLanding() {
   const router = useRouter();
   const { colors } = useTheme();
   const {
-    user, rememberInvite, clearPendingInvite,
+    user, rememberInvite, clearPendingInvite, upiOnboardingPending,
   } = useAuth();
   const [invite, setInvite] = useState<PublicTripInvite | null>(null);
   const [failure, setFailure] = useState<LandingFailure | null>(path ? null : 'invalid');
@@ -107,9 +108,13 @@ export default function InviteLanding() {
       router.replace(passwordSetupHref(path));
       return;
     }
+    if (upiOnboardingPending) {
+      router.replace(upiSetupHref(path));
+      return;
+    }
     const href = joinHref(token);
     if (href) router.replace(href);
-  }, [androidWebBrowser, invite, path, router, token, user]);
+  }, [androidWebBrowser, invite, path, router, token, upiOnboardingPending, user]);
 
   const signIn = () => {
     if (!path) return;
@@ -130,6 +135,8 @@ export default function InviteLanding() {
     if (!user) signIn();
     else if (user.credentials_set === false) {
       router.replace(passwordSetupHref(path));
+    } else if (upiOnboardingPending) {
+      router.replace(upiSetupHref(path));
     } else {
       const href = joinHref(token);
       if (href) router.replace(href);

@@ -1,6 +1,6 @@
 # Friend-to-Friend UPI Payments: Android Implementation Plan
 
-Goal: Let users provide their UPI ID during sign-in onboarding, view and change it in Profile, and settle expenses through an external UPI app. No QR-code uploads are required. Reuse the application's existing authentication, profile, expense ledger and notification systems.
+Goal: Let users optionally provide their UPI ID while creating an account, view and change it in Profile, and settle expenses through an external UPI app. No QR-code uploads are required. Reuse the application's existing authentication, profile, expense ledger and notification systems.
 
 ## 1. ✅ Inspect the existing app and add UPI profile storage
 
@@ -8,18 +8,20 @@ Goal: Let users provide their UPI ID during sign-in onboarding, view and change 
 - [x] Add `upi_id` and `upi_updated_at` to the existing user profile storage. Allow missing values for existing accounts during migration.
 - [x] Validate input on both client and server: trim surrounding whitespace and reject malformed values, internal whitespace and control characters. Format validation is not proof of account existence or ownership; do not show a verified badge.
 
-## 2. Collect the UPI ID during sign-in onboarding
+## 2. ✅ Offer optional UPI setup to new accounts and add a Profile entry
 
-- After successful authentication, show a “Set up your UPI ID” screen if the profile has no saved ID. This includes first-time Google sign-in and existing users signing in without a UPI ID.
-- Explain: “Enter your UPI ID so friends can pay you directly. You can change it anytime in Profile.”
-- Save the ID against the authenticated user before completing this onboarding step. On later sign-ins, reuse the saved value without asking again.
-- Show inline validation errors and a retry option if saving fails. Do not treat a failed save as completed onboarding.
-- Collect only the UPI ID; never request a UPI PIN, bank password or QR upload.
+- [x] Offer “Set up your UPI ID” after password registration, or after a first-time Google user creates their required local password. Existing sign-ins and restored sessions are not prompted.
+- [x] Explain: “Enter your UPI ID so friends can pay you directly. You can change it anytime in Profile.”
+- [x] Let users save or explicitly skip, including after a failed save. The optional prompt is kept only in memory and is not recreated after an app restart.
+- [x] Preserve validated invite returns through Save or Skip; otherwise continue to Home.
+- [x] Show inline validation/server errors, preserve the typed value, and expose a retry action without presenting a failed request as successful.
+- [x] Add a Profile “Payment details” entry where every user can add, edit, cancel, or confirm removal of their UPI ID.
+- [x] Collect only the UPI ID; never request a UPI PIN, bank password, or QR upload. Syntax validation is not proof of ownership.
 
-## 3. Add editable UPI details to the Profile tab
+## 3. Complete payment-facing Profile integration
 
-- Add a “Payment details” section displaying the saved UPI ID with Copy and Edit actions.
-- Editing opens a prefilled field with Save and Cancel. Apply the same validation as onboarding, and show success only after the server accepts the change.
+- Add a Copy action to the implemented “Payment details” entry.
+- Keep the implemented prefilled Save, Cancel, and confirmed Remove behavior; show success only after the server accepts a change.
 - Refresh the profile and future payment screens after a successful update. Keep the previous ID if saving fails.
 - Fetch the latest recipient ID before starting a payment. If it changed while the payment screen was open, show the new ID and require the payer to review it again.
 - Preserve the recipient UPI ID used for each existing payment attempt; a profile edit must not rewrite historical payment records.
@@ -52,10 +54,10 @@ Goal: Let users provide their UPI ID during sign-in onboarding, view and change 
 
 ## 6. Validate the complete flow and release the supported path
 
-- Test new-user sign-in, existing users without an ID, returning users with an ID, malformed input, failed saves, Profile editing and persistence across app restarts.
+- Test optional new-account setup, Skip, existing/restored users without an ID, returning users with an ID, malformed input, failed saves, Profile editing, and the non-persistence of unfinished onboarding across app restarts.
 - Verify that users cannot edit another profile, access unrelated users' payment details or confirm a payment meant for someone else.
 - Test missing payment apps, launch failure, cancellation, app/process restart, stale recipient IDs and real personal-recipient payments on the Android versions supported by the app. Use consenting test users for real transfers.
 - Verify that opening a payment app never changes balances; recipient confirmation posts exactly once; non-receipt preserves the debt; pending requests survive notification failure; and existing manual settlement behavior does not create duplicate entries.
 - Release the copy-and-open flow with recipient confirmation as the baseline. Keep unconfirmed prefilled handoff disabled and any generated QR option subject to compatibility checks.
 
-Completion criteria: Users enter their UPI ID during sign-in onboarding, see and edit it in Profile, use the latest saved ID for new payments, and settle balances only after recipient confirmation. No QR upload or payment gateway is required. Normal backend and notification costs remain.
+Completion criteria: New users may enter or skip a UPI ID during account creation, all users can manage it in Profile, new payments use the latest saved ID, and balances settle only after recipient confirmation. No QR upload or payment gateway is required. Normal backend and notification costs remain.

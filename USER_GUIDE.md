@@ -14,6 +14,8 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
    - **Password** (at least 9 characters), entered twice for confirmation
 3. Tap **Create account**. You are signed in immediately.
 4. Alternatively, choose **Continue with Google**. A new Google user creates a local password once before entering the app.
+5. New accounts are then offered optional **UPI ID** setup. Enter an ID such as `name@bank`, or tap
+   **Skip for now**. If you opened an invite, either choice returns you to that invitation.
 
 ### 1.2 Sign in (next time)
 - Sign in with **Google**, or use your remembered Gmail address and **password**.
@@ -23,6 +25,14 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
 ### 1.3 Dark mode & sign out
 - Bottom-tab **Profile** → toggle **Dark mode**.
 - **Sign out** button (door icon) is on the top-right of every screen.
+
+### 1.4 Payment details (UPI)
+- Open **Profile** from the account avatar, then choose **Payment details** to add or change your
+  UPI ID. A saved ID can also be removed after confirmation.
+- Returning sign-ins and restored sessions are not prompted automatically, even when no UPI ID is
+  saved. Use Profile whenever you want to configure one later.
+- Trip Splitter validates the address format but does not verify that you own it. Trip Splitter
+  never requests your UPI PIN, bank password, or a QR upload.
 
 ---
 
@@ -34,7 +44,7 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
 | 💼 **Trips** | All trips you've created or joined; create or join from here |
 | ➕ **Add** | Pick a trip and instantly add a transaction |
 | 📊 **Reports** | One-tap XLSX or PDF download per trip |
-| 👤 **Profile** | Your info, dark mode toggle, sign out |
+| 👤 **Profile** | Your info, payment details, dark mode toggle, sign out |
 
 ---
 
