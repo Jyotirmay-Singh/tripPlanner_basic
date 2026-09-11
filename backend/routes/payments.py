@@ -1,11 +1,28 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from database import db
-from models.payment import PaymentCreate, PaymentPatch, PaymentRecipientDetails
+from models.payment import (
+    PaymentCreate,
+    PaymentHandoffPreview,
+    PaymentHandoffPreviewRequest,
+    PaymentPatch,
+    PaymentRecipientDetails,
+)
+from services.exchange_rates import (
+    ExchangeRateError,
+    create_quote,
+    decimal_value,
+)
 from utils.common import gen_id, now_utc
 from utils.deps import get_current_user, _trip_or_404, _payment_or_403, is_trip_admin
 from utils.members import padded_family_member_ids
-from utils.permissions import can_record_payment, is_linked_to_member
+from utils.permissions import (
+    can_initiate_upi_payment,
+    can_record_payment,
+    is_linked_to_member,
+)
 from utils.balances import _compute_balances
 from utils.settlement_gate import (
     decimal_amount,
@@ -13,10 +30,48 @@ from utils.settlement_gate import (
     validate_new_amount,
 )
 from services.push_notifications import enqueue_notification_event
-from utils.currency_rules import currency_minor_units
+from utils.currency_rules import currency_minor_units, quantize_currency
 from services.admin_audit import record_admin_action
 
 router = APIRouter()
+
+
+def _handoff_error(status_code: int, code: str, message: str, *, retryable: bool = False,
+                   **context) -> HTTPException:
+    return HTTPException(status_code, {
+        "code": code,
+        "message": message,
+        "retryable": retryable,
+        **context,
+    })
+
+
+def _money_string(value: object, currency: str) -> str:
+    return format(quantize_currency(value, currency), "f")
+
+
+def _aware_datetime(value: object):
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return None
+
+
+def _handoff_quote_projection(document: dict) -> dict:
+    expires_at = _aware_datetime(document.get("expires_at"))
+    return {
+        "quote_id": document["id"],
+        "rate": str(decimal_value(document["rate"])),
+        "effective_rate_date": document.get("effective_rate_date"),
+        "provider": document["provider"],
+        "stale": bool(document.get("stale")),
+        "expires_at": expires_at.isoformat() if expires_at else str(document.get("expires_at")),
+    }
 
 def _suggested_amount(transfers: list, from_id: str, to_id: str):
     """Current backend-recommended payable for one direction (zero when it was rerouted)."""
@@ -113,6 +168,180 @@ async def payment_recipient_details(
         "trip_id": trip_id,
         "from_member_id": from_member_id,
         "to_member_id": to_member_id,
+        "recipients": await _recipient_candidates(recipient),
+    }
+
+
+@router.post(
+    "/trips/{trip_id}/payment-handoff/preview",
+    response_model=PaymentHandoffPreview,
+)
+async def preview_payment_handoff(
+    trip_id: str,
+    body: PaymentHandoffPreviewRequest,
+    user=Depends(get_current_user),
+):
+    """Create or revalidate a review-only quote for an external UPI app handoff.
+
+    This endpoint deliberately performs no payment, settlement, trip-version, notification, audit,
+    or ledger write. The only per-attempt document is the existing 30-minute exchange-rate quote.
+    """
+
+    trip = await _trip_or_404(trip_id, user)
+    members_by_id = {member["id"]: member for member in trip.get("members", [])}
+    payer = members_by_id.get(body.from_member_id)
+    recipient = members_by_id.get(body.to_member_id)
+    if payer is None or recipient is None:
+        raise _handoff_error(404, "member_not_found", "Payer or recipient is no longer in this trip")
+    if not can_initiate_upi_payment(trip, body.from_member_id, user):
+        raise _handoff_error(
+            403,
+            "wrong_payer",
+            "Only an account linked to the recommended payer can initiate this payment",
+        )
+
+    try:
+        amount, _unused_audit_fields = validate_new_amount(trip, body.amount)
+    except HTTPException as exc:
+        if isinstance(exc.detail, dict):
+            raise
+        message = str(exc.detail)
+        code = "whole_unit_required" if "whole" in message.lower() else "invalid_amount"
+        raise _handoff_error(exc.status_code, code, message) from exc
+    except ValueError as exc:
+        raise _handoff_error(422, "invalid_amount", str(exc)) from exc
+
+    balances = await _compute_balances(trip_id, diagnostic=False)
+    payable = _suggested_amount(
+        balances.get("transfers", []), body.from_member_id, body.to_member_id
+    )
+    currency = str(trip.get("currency") or "INR").upper()
+    current_payable = _money_string(payable, currency)
+    if payable <= 0:
+        raise _handoff_error(
+            409,
+            "payment_pair_inactive",
+            "This payment recommendation is no longer active or has been rerouted",
+        )
+    if amount > payable + payable_tolerance(trip):
+        raise _handoff_error(
+            409,
+            "payable_changed",
+            "The payable changed; review the latest amount before continuing",
+            current_payable=current_payable,
+            source_currency=currency,
+        )
+
+    handoff_context = {
+        "trip_id": trip_id,
+        "from_member_id": body.from_member_id,
+        "to_member_id": body.to_member_id,
+        "current_payable": current_payable,
+    }
+
+    if body.quote_id:
+        quote_document = await db.exchange_rate_quotes.find_one(
+            {"id": body.quote_id}, {"_id": 0}
+        )
+        if quote_document is None:
+            raise _handoff_error(
+                428,
+                "quote_expired",
+                "The reviewed conversion expired; review a new quote",
+            )
+        if quote_document.get("user_id") != user.get("id"):
+            raise _handoff_error(
+                403,
+                "quote_not_owned",
+                "This conversion quote belongs to another account",
+            )
+        expires_at = _aware_datetime(quote_document.get("expires_at"))
+        if expires_at is None or expires_at <= now_utc():
+            raise _handoff_error(
+                428,
+                "quote_expired",
+                "The reviewed conversion expired; review a new quote",
+            )
+
+        stored_context = quote_document.get("payment_handoff")
+        if not isinstance(stored_context, dict) or any(
+            stored_context.get(key) != value
+            for key, value in handoff_context.items()
+            if key != "current_payable"
+        ):
+            raise _handoff_error(
+                409,
+                "quote_mismatch",
+                "The reviewed quote does not belong to this payment direction",
+            )
+        if stored_context.get("current_payable") != current_payable:
+            raise _handoff_error(
+                409,
+                "payable_changed",
+                "The payable changed after review; approve the latest details",
+                current_payable=current_payable,
+                source_currency=currency,
+            )
+        try:
+            quote_amount = decimal_value(quote_document.get("source_amount"))
+        except Exception as exc:
+            raise _handoff_error(409, "quote_mismatch", "The reviewed quote is invalid") from exc
+        if (
+            quote_document.get("mode") != "automatic"
+            or quote_document.get("source_currency") != currency
+            or quote_document.get("target_currency") != "INR"
+            or quote_amount != amount
+        ):
+            raise _handoff_error(
+                409,
+                "quote_mismatch",
+                "The reviewed amount or currency no longer matches this payment",
+            )
+        quote = _handoff_quote_projection(quote_document)
+        inr_amount = _money_string(decimal_value(quote_document["target_amount"]), "INR")
+    else:
+        try:
+            created_quote = await create_quote(
+                user_id=user["id"],
+                source_currency=currency,
+                target_currency="INR",
+                source_amount=format(amount, "f"),
+                requested_date=None,
+                mode="automatic",
+                payment_handoff=handoff_context,
+            )
+        except ExchangeRateError as exc:
+            raise _handoff_error(
+                exc.status_code,
+                "conversion_unavailable",
+                str(exc),
+                retryable=exc.retryable,
+                conversion_code=exc.code,
+            ) from exc
+        except ValueError as exc:
+            raise _handoff_error(422, "conversion_unavailable", str(exc)) from exc
+        quote = {
+            "quote_id": created_quote["quote_id"],
+            "rate": created_quote["rate"],
+            "effective_rate_date": created_quote.get("effective_rate_date"),
+            "provider": created_quote["provider"],
+            "stale": bool(created_quote.get("stale")),
+            "expires_at": created_quote["expires_at"],
+        }
+        inr_amount = _money_string(created_quote["target_amount"], "INR")
+
+    return {
+        "trip_id": trip_id,
+        "trip_name": trip.get("name") or "",
+        "from_member_id": body.from_member_id,
+        "from_name": payer.get("name") or "",
+        "to_member_id": body.to_member_id,
+        "to_name": recipient.get("name") or "",
+        "source_amount": format(amount, "f"),
+        "source_currency": currency,
+        "current_payable": current_payable,
+        "inr_amount": inr_amount,
+        "quote": quote,
         "recipients": await _recipient_candidates(recipient),
     }
 

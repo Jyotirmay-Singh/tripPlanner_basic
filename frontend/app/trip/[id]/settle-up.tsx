@@ -18,8 +18,9 @@ import { SPACING, RADIUS } from '../../../src/theme';
 import T from '../../../src/T';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { memberDisplayNames } from '../../../src/displayNames';
-import { canRecordPayment } from '../../../src/permissions';
+import { canInitiateUpiPayment, canRecordPayment } from '../../../src/permissions';
 import type { RoleTrip } from '../../../src/permissions';
+import UpiPaymentSheet from '../../../src/UpiPaymentSheet';
 import type { Transfer } from '../../../src/settlements';
 import { validatePaymentAmount } from '../../../src/payments';
 import type { Payment } from '../../../src/payments';
@@ -49,7 +50,7 @@ type Member = {
   family_member_user_ids?: (string | null)[];
 };
 type Balances = BalanceResponse<Member>;
-type Trip = RoleTrip & { members: Member[] };
+type Trip = RoleTrip & { id: string; name: string; currency: string; members: Member[] };
 
 const roundCurrency = (n: number, currency: string) => {
   return fromCurrencyUnits(toCurrencyUnits(n, currency), currency);
@@ -69,6 +70,16 @@ export default function SettleUp() {
   const [busy, setBusy] = useState(false);
   const [showRounding, setShowRounding] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [handoff, setHandoff] = useState<
+    | null
+    | {
+        fromId: string;
+        fromName: string;
+        toId: string;
+        toName: string;
+        amount: number;
+      }
+  >(null);
 
   // The amount editor (record OR edit); when set, its Modal is mounted fresh.
   const [editor, setEditor] = useState<
@@ -116,6 +127,9 @@ export default function SettleUp() {
 
   const allow = (toId: string) => !!trip && canRecordPayment(
     trip, toId, user?.id, members, user?.is_super_admin === true,
+  );
+  const canPayViaUpi = (fromId: string) => !!trip && canInitiateUpiPayment(
+    trip, fromId, user?.id, members, user?.is_super_admin === true,
   );
 
   // ---- Async mutations (only reached AFTER the ConfirmModal guard-rail) ----
@@ -169,6 +183,14 @@ export default function SettleUp() {
       fromName: nameOf(transfer.from_member_id), toName: nameOf(transfer.to_member_id),
       initial: transfer.amount, max: transfer.amount,
     });
+
+  const openUpiHandoff = (transfer: Transfer) => setHandoff({
+    fromId: transfer.from_member_id,
+    fromName: nameOf(transfer.from_member_id),
+    toId: transfer.to_member_id,
+    toName: nameOf(transfer.to_member_id),
+    amount: transfer.amount,
+  });
 
   const openEdit = (payment: Payment) =>
     setEditor({
@@ -303,15 +325,27 @@ export default function SettleUp() {
                   variant="money"
                   testID={`payable-${index}`}
                 />
-                {allow(transfer.to_member_id) ? (
-                  <Button
-                    label="Settle up"
-                    size="sm"
-                    loading={busy}
-                    onPress={() => openRecord(transfer)}
-                    testID={`settle-${index}`}
-                  />
-                ) : null}
+                <View style={styles.recommendationActions}>
+                  {canPayViaUpi(transfer.from_member_id) ? (
+                    <Button
+                      label="Pay via UPI"
+                      size="sm"
+                      icon="wallet"
+                      onPress={() => openUpiHandoff(transfer)}
+                      testID={`upi-pay-${index}`}
+                    />
+                  ) : null}
+                  {allow(transfer.to_member_id) ? (
+                    <Button
+                      label="Record payment"
+                      variant={canPayViaUpi(transfer.from_member_id) ? 'secondary' : 'primary'}
+                      size="sm"
+                      loading={busy}
+                      onPress={() => openRecord(transfer)}
+                      testID={`record-payment-${index}`}
+                    />
+                  ) : null}
+                </View>
               </View>
             </View>
           </Card>
@@ -411,6 +445,22 @@ export default function SettleUp() {
           submitLabel={editor.mode === 'edit' ? 'Continue' : 'Continue'}
           onCancel={() => setEditor(null)}
           onSubmit={onEditorSubmit}
+        />
+      ) : null}
+
+      {handoff && trip ? (
+        <UpiPaymentSheet
+          visible
+          tripId={id}
+          tripName={trip.name}
+          fromMemberId={handoff.fromId}
+          fromName={handoff.fromName}
+          toMemberId={handoff.toId}
+          toName={handoff.toName}
+          initialAmount={handoff.amount}
+          currency={currency}
+          wholeUnit={wholeUnit}
+          onClose={() => setHandoff(null)}
         />
       ) : null}
 
@@ -591,6 +641,7 @@ const styles = StyleSheet.create({
   log: { marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: StyleSheet.hairlineWidth, gap: SPACING.xs },
   logRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   logActions: { flexDirection: 'row', alignItems: 'center' },
+  recommendationActions: { alignItems: 'flex-end', gap: SPACING.sm },
   detailsCard: { gap: SPACING.sm, marginTop: SPACING.lg },
   detailRow: {
     borderTopWidth: StyleSheet.hairlineWidth,

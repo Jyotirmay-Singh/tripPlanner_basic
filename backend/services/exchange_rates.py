@@ -409,7 +409,8 @@ async def get_reference_rate(source: str, target: str, requested_date: Optional[
 async def create_quote(*, user_id: str, source_currency: str, target_currency: str,
                        source_amount: Any, requested_date: Optional[str], mode: str,
                        manual_input_type: Optional[str] = None, manual_rate: Any = None,
-                       manual_target_amount: Any = None, refresh: bool = False) -> dict:
+                       manual_target_amount: Any = None, refresh: bool = False,
+                       payment_handoff: Optional[dict] = None) -> dict:
     if mode == "automatic":
         if manual_input_type is not None or manual_rate is not None \
                 or manual_target_amount is not None:
@@ -497,6 +498,11 @@ async def create_quote(*, user_id: str, source_currency: str, target_currency: s
         "created_at": created_at,
         "expires_at": expires_at,
     }
+    if payment_handoff is not None:
+        # The quote collection is already short-lived. Binding this review context here lets the
+        # handoff endpoint reject a changed/rerouted payable without creating any payment-domain
+        # record or widening the durable ledger/audit surface.
+        document["payment_handoff"] = dict(payment_handoff)
     await db.exchange_rate_quotes.insert_one(document)
     return quote_public(document)
 

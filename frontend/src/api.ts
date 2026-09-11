@@ -1,7 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import type { SpendSummary } from './spend';
-import type { Payment, PaymentRecipientDetails } from './payments';
+import type {
+  Payment,
+  PaymentHandoffPreview,
+  PaymentHandoffPreviewRequest,
+  PaymentRecipientDetails,
+} from './payments';
 import type { ChatMessage, ChatPage, ChatUnread } from './chat';
 import type { JoinCredential, JoinRequestView } from './joinIdentity';
 
@@ -356,6 +361,15 @@ export function getPaymentRecipientDetails(
     + `&to_member_id=${encodeURIComponent(toMemberId)}`;
   return api<PaymentRecipientDetails>(
     `/trips/${encodeURIComponent(tripId)}/payment-recipient-details?${query}`,
+  );
+}
+export function previewPaymentHandoff(
+  tripId: string,
+  body: PaymentHandoffPreviewRequest,
+): Promise<PaymentHandoffPreview> {
+  return api<PaymentHandoffPreview>(
+    `/trips/${encodeURIComponent(tripId)}/payment-handoff/preview`,
+    { method: 'POST', body, timeoutMs: 12_000 },
   );
 }
 export function recordPayment(

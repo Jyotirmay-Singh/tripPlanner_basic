@@ -60,6 +60,7 @@
     },
     "plugins": [
       "expo-router",
+      "./plugins/withUpiAppQueries",
       [
         "expo-splash-screen",
         {
