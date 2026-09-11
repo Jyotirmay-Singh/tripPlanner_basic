@@ -9,6 +9,7 @@ from database import db
 from models.auth import (
     RegisterIn, LoginIn, GoogleAuthIn,
     VerifyEmailIn, RequestPasswordResetIn, ResetPasswordIn, SetCredentialsIn, ChangePasswordIn,
+    UpiProfileUpdate,
 )
 from utils.common import gen_id, now_utc
 from utils.email_rules import assert_gmail, normalize_email
@@ -45,7 +46,18 @@ def _user_payload(user: dict) -> dict:
         "is_super_admin": is_super_admin(user),
         "email_verified": user.get("email_verified", True),
         "credentials_set": user.get("credentials_set", True),
+        "upi_id": user.get("upi_id"),
+        "upi_updated_at": user.get("upi_updated_at"),
     }
+
+
+def _self_profile_payload(user: dict) -> dict:
+    """Preserve the existing /auth/me shape while stabilizing nullable UPI fields."""
+    payload = dict(user)
+    payload["is_super_admin"] = is_super_admin(user)
+    payload["upi_id"] = user.get("upi_id")
+    payload["upi_updated_at"] = user.get("upi_updated_at")
+    return payload
 
 
 async def _send_verification(user: dict) -> None:
@@ -101,7 +113,33 @@ async def login(body: LoginIn):
 
 @router.get("/auth/me")
 async def me(user=Depends(get_current_user)):
-    return user
+    return _self_profile_payload(user)
+
+
+@router.patch("/auth/me")
+async def update_me(body: UpiProfileUpdate, user=Depends(get_current_user)):
+    """Replace or remove only the authenticated account's UPI payment address."""
+    current_upi_id = user.get("upi_id")
+    if body.upi_id == current_upi_id:
+        return _self_profile_payload(user)
+
+    if body.upi_id is None:
+        update = {"$unset": {"upi_id": "", "upi_updated_at": ""}}
+    else:
+        update = {"$set": {
+            "upi_id": body.upi_id,
+            "upi_updated_at": now_utc().isoformat(),
+        }}
+
+    await db.users.update_one({"id": user["id"]}, update)
+    updated = await db.users.find_one(
+        {"id": user["id"]}, {"_id": 0, "password_hash": 0, "pin_hash": 0}
+    )
+    if not updated:
+        # The dependency authenticated a real user, but the row may have been
+        # removed concurrently before the write/re-fetch completed.
+        raise HTTPException(401, "User not found")
+    return _self_profile_payload(updated)
 
 
 @router.post("/auth/google")

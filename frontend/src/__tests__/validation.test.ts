@@ -5,6 +5,9 @@ import {
   PASSWORD_MISMATCH_MESSAGE,
   isGmail,
   isEmailTaken,
+  isValidUpiId,
+  normalizeUpiId,
+  UPI_ID_INVALID_MESSAGE,
 } from '../validation';
 
 describe('isValidPassword', () => {
@@ -57,5 +60,38 @@ describe('isEmailTaken', () => {
   it('tolerates null/undefined entries in the taken list', () => {
     expect(isEmailTaken('alice@gmail.com', [null, undefined, 'alice@gmail.com'])).toBe(true);
     expect(isEmailTaken('alice@gmail.com', [null, undefined])).toBe(false);
+  });
+});
+
+describe('UPI ID validation', () => {
+  it('accepts the common VPA shape, trims edges, and preserves casing', () => {
+    expect(isValidUpiId('ab@upi')).toBe(true);
+    expect(isValidUpiId('  Owner.Pay_2-X@OkSbi  ')).toBe(true);
+    expect(normalizeUpiId('  Owner.Pay_2-X@OkSbi  ')).toBe('Owner.Pay_2-X@OkSbi');
+    expect(isValidUpiId(`${'a'.repeat(256)}@${'B'.repeat(64)}`)).toBe(true);
+  });
+
+  it.each([
+    '',
+    '   ',
+    'a@upi',
+    'ab@u',
+    'abupi',
+    'ab@@upi',
+    'a b@upi',
+    'ab@up i',
+    'ab+tag@upi',
+    'नमस्ते@upi',
+    'ab@upi\n',
+    '\tab@upi',
+    `${'a'.repeat(257)}@upi`,
+    `ab@${'b'.repeat(65)}`,
+  ])('rejects malformed value %p', (value) => {
+    expect(isValidUpiId(value)).toBe(false);
+  });
+
+  it('uses a message that does not imply verification', () => {
+    expect(UPI_ID_INVALID_MESSAGE).toMatch(/valid UPI ID/i);
+    expect(UPI_ID_INVALID_MESSAGE).not.toMatch(/verified|confirmed|owned/i);
   });
 });

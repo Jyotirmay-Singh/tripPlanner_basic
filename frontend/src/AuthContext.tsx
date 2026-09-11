@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, getToken, setToken } from './api';
 import type { ChatCapability } from './chat';
 import { unregisterCurrentPushInstallation } from './pushNotifications';
+import { isValidUpiId, normalizeUpiId, UPI_ID_INVALID_MESSAGE } from './validation';
 
 export type MultiCurrencyCapability = 'loading' | 'enabled' | 'disabled' | 'unknown';
 
@@ -17,6 +18,9 @@ export type User = {
   // Google-created account has configured its required local password.
   email_verified?: boolean;
   credentials_set?: boolean;
+  // Optional for compatibility while the additive backend fields roll out.
+  upi_id?: string | null;
+  upi_updated_at?: string | null;
 };
 
 const SAVED_EMAIL_KEY = 'last_login_email';
@@ -39,6 +43,7 @@ type Ctx = {
   signIn: (email: string, password: string) => Promise<void>;
   register: (email: string, name: string, password: string) => Promise<void>;
   signInWithGoogle: (idToken: string) => Promise<User>;
+  updateUpiId: (upiId: string | null) => Promise<User>;
   signOut: (clearSavedEmail?: boolean) => Promise<void>;
   forgetSavedEmail: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -175,6 +180,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return res.user;
   };
 
+  const updateUpiId = async (upiId: string | null): Promise<User> => {
+    if (upiId !== null && !isValidUpiId(upiId)) {
+      throw new Error(UPI_ID_INVALID_MESSAGE);
+    }
+    const normalized = upiId === null ? null : normalizeUpiId(upiId);
+    const updated = await api<User>('/auth/me', {
+      method: 'PATCH', body: { upi_id: normalized },
+    });
+    // Trust the server response for both the normalized value and its timestamp.
+    setUser(updated);
+    return updated;
+  };
+
   const signOut = async (clearSavedEmail = false) => {
     // Best effort while the bearer token still exists. A failure never blocks logout; the next
     // authenticated foreground sync safely reassigns this installation and Expo token.
@@ -207,6 +225,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signIn,
       register,
       signInWithGoogle,
+      updateUpiId,
       signOut,
       forgetSavedEmail,
       refresh,
