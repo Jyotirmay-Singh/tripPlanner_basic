@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import type { SpendSummary } from './spend';
-import type { Payment } from './payments';
+import type { Payment, PaymentRecipientDetails } from './payments';
 import type { ChatMessage, ChatPage, ChatUnread } from './chat';
 import type { JoinCredential, JoinRequestView } from './joinIdentity';
 
@@ -346,6 +346,17 @@ export function spendSummary(tripId: string): Promise<SpendSummary> {
 // Phase 20 — partial payments along suggested settle-up pairs (db.payments).
 export function listPayments(tripId: string): Promise<Payment[]> {
   return api<Payment[]>(`/trips/${tripId}/payments`);
+}
+export function getPaymentRecipientDetails(
+  tripId: string,
+  fromMemberId: string,
+  toMemberId: string,
+): Promise<PaymentRecipientDetails> {
+  const query = `from_member_id=${encodeURIComponent(fromMemberId)}`
+    + `&to_member_id=${encodeURIComponent(toMemberId)}`;
+  return api<PaymentRecipientDetails>(
+    `/trips/${encodeURIComponent(tripId)}/payment-recipient-details?${query}`,
+  );
 }
 export function recordPayment(
   tripId: string,

@@ -5,7 +5,11 @@ import {
   originalPayable,
   buildPairBlocks,
   validatePaymentAmount,
+  snapshotPaymentRecipient,
+  paymentRecipientRequiresReview,
   Payment,
+  PaymentRecipientCandidate,
+  PaymentRecipientDetails,
 } from '../payments';
 
 const pay = (over: Partial<Payment>): Payment => ({
@@ -17,6 +21,81 @@ const pay = (over: Partial<Payment>): Payment => ({
   created_at: over.created_at ?? '2026-07-01T00:00:00+00:00',
   recorded_by: over.recorded_by ?? 'u',
   note: over.note ?? null,
+});
+
+const recipient = (
+  over: Partial<PaymentRecipientCandidate> = {},
+): PaymentRecipientCandidate => ({
+  person_id: over.person_id ?? 'recipient-person',
+  name: over.name ?? 'Recipient Person',
+  family_id: over.family_id ?? null,
+  family_name: over.family_name ?? null,
+  account_linked: over.account_linked ?? true,
+  upi_id: over.upi_id === undefined ? 'recipient@upi' : over.upi_id,
+  upi_updated_at: over.upi_updated_at === undefined
+    ? '2026-09-11T10:00:00+00:00'
+    : over.upi_updated_at,
+});
+
+const recipientDetails = (
+  recipients: PaymentRecipientCandidate[],
+): PaymentRecipientDetails => ({
+  trip_id: 'trip-1',
+  from_member_id: 'payer',
+  to_member_id: 'recipient',
+  recipients,
+});
+
+describe('payment recipient snapshots', () => {
+  it('copies and freezes the reviewed person, UPI ID, and revision', () => {
+    const candidate = recipient({
+      family_id: 'family-1', family_name: 'Recipient Family',
+    });
+    const snapshot = snapshotPaymentRecipient(candidate);
+
+    candidate.name = 'Edited roster name';
+    candidate.upi_id = 'changed@upi';
+
+    expect(snapshot).toEqual({
+      person_id: 'recipient-person',
+      name: 'Recipient Person',
+      family_id: 'family-1',
+      family_name: 'Recipient Family',
+      upi_id: 'recipient@upi',
+      upi_updated_at: '2026-09-11T10:00:00+00:00',
+    });
+    expect(snapshot).not.toBe(candidate);
+    expect(Object.isFrozen(snapshot)).toBe(true);
+  });
+
+  it('accepts an unchanged, available selected recipient', () => {
+    const candidate = recipient();
+    const snapshot = snapshotPaymentRecipient(candidate);
+
+    expect(paymentRecipientRequiresReview(
+      snapshot,
+      recipientDetails([recipient({ person_id: 'someone-else' }), candidate]),
+    )).toBe(false);
+  });
+
+  it.each([
+    ['edited UPI ID', recipient({ upi_id: 'new@upi' })],
+    ['removed UPI ID', recipient({ upi_id: null })],
+    ['changed revision', recipient({ upi_updated_at: '2026-09-11T11:00:00+00:00' })],
+    ['unavailable account', recipient({ account_linked: false, upi_id: null })],
+  ])('requires review for an %s', (_reason, current) => {
+    const snapshot = snapshotPaymentRecipient(recipient());
+
+    expect(paymentRecipientRequiresReview(snapshot, recipientDetails([current]))).toBe(true);
+  });
+
+  it('requires review when the selected person or fresh details are missing', () => {
+    const snapshot = snapshotPaymentRecipient(recipient());
+
+    expect(paymentRecipientRequiresReview(snapshot, recipientDetails([]))).toBe(true);
+    expect(paymentRecipientRequiresReview(snapshot, null)).toBe(true);
+    expect(paymentRecipientRequiresReview(null, recipientDetails([recipient()]))).toBe(true);
+  });
 });
 
 describe('paymentStatus', () => {

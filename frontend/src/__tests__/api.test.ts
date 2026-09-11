@@ -143,3 +143,21 @@ it('uses authenticated invite management and a public no-auth resolver', async (
   expect(fetchSpy.mock.calls[2][0]).toBe('https://api.example.test/api/invites/token%2Fvalue');
   expect(fetchSpy.mock.calls[2][1]?.headers).toEqual({ 'Content-Type': 'application/json' });
 });
+
+it('URL-encodes every payment recipient-details identifier', async () => {
+  process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+  jest.resetModules();
+  const { getPaymentRecipientDetails } = require('../api');
+  const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    text: () => Promise.resolve(JSON.stringify({ recipients: [] })),
+  } as Response);
+
+  await getPaymentRecipientDetails('trip /1', 'payer &/1', 'family ?#2');
+
+  expect(fetchSpy.mock.calls[0][0]).toBe(
+    'https://api.example.test/api/trips/trip%20%2F1/payment-recipient-details'
+      + '?from_member_id=payer%20%26%2F1&to_member_id=family%20%3F%232',
+  );
+});

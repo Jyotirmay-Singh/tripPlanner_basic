@@ -27,6 +27,60 @@ export type Payment = {
   settlement_increment?: string;
 };
 
+export type PaymentRecipientCandidate = {
+  person_id: string;
+  name: string;
+  family_id: string | null;
+  family_name: string | null;
+  account_linked: boolean;
+  upi_id: string | null;
+  upi_updated_at: string | null;
+};
+
+export type PaymentRecipientDetails = {
+  trip_id: string;
+  from_member_id: string;
+  to_member_id: string;
+  recipients: PaymentRecipientCandidate[];
+};
+
+export type PaymentRecipientSnapshot = Readonly<{
+  person_id: string;
+  name: string;
+  family_id: string | null;
+  family_name: string | null;
+  upi_id: string | null;
+  upi_updated_at: string | null;
+}>;
+
+/** Copy the exact person and UPI revision that the payer reviewed. */
+export function snapshotPaymentRecipient(
+  candidate: PaymentRecipientCandidate,
+): PaymentRecipientSnapshot {
+  return Object.freeze({
+    person_id: candidate.person_id,
+    name: candidate.name,
+    family_id: candidate.family_id,
+    family_name: candidate.family_name,
+    upi_id: candidate.upi_id,
+    upi_updated_at: candidate.upi_updated_at,
+  });
+}
+
+/** Whether freshly fetched details invalidate a previously reviewed recipient snapshot. */
+export function paymentRecipientRequiresReview(
+  snapshot: PaymentRecipientSnapshot | null | undefined,
+  current: PaymentRecipientDetails | null | undefined,
+): boolean {
+  if (!snapshot || !current) return true;
+  const candidate = current.recipients.find(
+    (recipient) => recipient.person_id === snapshot.person_id,
+  );
+  if (!candidate?.account_linked || !candidate.upi_id) return true;
+  return candidate.upi_id !== snapshot.upi_id
+    || candidate.upi_updated_at !== snapshot.upi_updated_at;
+}
+
 export type PaymentStatus = 'open' | 'partial' | 'paid';
 
 /** One debtor->creditor block for the settle-up UI: headline + paid + derived status + log. */

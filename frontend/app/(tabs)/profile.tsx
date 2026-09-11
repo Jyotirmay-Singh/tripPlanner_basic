@@ -1,6 +1,7 @@
-import React from 'react';
-import { View, StyleSheet, Switch } from 'react-native';
-import { useRouter } from 'expo-router';
+import React, { useCallback } from 'react';
+import { Platform, Pressable, View, StyleSheet, Switch } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '../../src/AuthContext';
 import { useTheme } from '../../src/ThemeContext';
 import { useLogout } from '../../src/useLogout';
@@ -8,15 +9,34 @@ import { initials } from '../../src/initials';
 import { SPACING, RADIUS } from '../../src/theme';
 import T from '../../src/T';
 import TabPageHeader from '../../src/TabPageHeader';
-import { TabScreen, Card, Icon } from '../../src/ui';
+import { TabScreen, Card, Icon, IconButton, useToast } from '../../src/ui';
 import NotificationSettingsRow from '../../src/NotificationSettingsRow';
 import { upiProfileHref } from '../../src/inviteNavigation';
 
 export default function Profile() {
-  const { user } = useAuth();
+  const { user, refreshUserProfile } = useAuth();
   const { colors, mode, toggle } = useTheme();
   const { confirmAndSignOut } = useLogout();
+  const { show: showToast } = useToast();
   const router = useRouter();
+
+  useFocusEffect(useCallback(() => {
+    void refreshUserProfile().catch(() => {});
+  }, [refreshUserProfile]));
+
+  const copyUpiId = useCallback(async () => {
+    if (!user?.upi_id) return;
+    try {
+      const copied = await Clipboard.setStringAsync(user.upi_id);
+      if (!copied) {
+        showToast('Could not copy UPI ID. Try again.', 'error');
+        return;
+      }
+      showToast('UPI ID copied', 'success');
+    } catch {
+      showToast('Could not copy UPI ID. Try again.', 'error');
+    }
+  }, [showToast, user?.upi_id]);
 
   return (
     <TabScreen>
@@ -55,20 +75,43 @@ export default function Profile() {
         <Icon name="chevron-right" size={18} color={colors.textMuted} />
       </Card>
 
-      <Card
-        onPress={() => router.push(upiProfileHref())}
-        testID="profile-payment-details"
-        accessibilityLabel={`Payment details, ${user?.upi_id || 'UPI ID not set'}`}
-        style={styles.row}
-      >
-        <Icon name="wallet" size={20} color={colors.primary} />
-        <View style={styles.paymentCopy}>
-          <T variant="h4">Payment details</T>
-          <T muted variant="caption" numberOfLines={1} testID="profile-upi-value">
-            {user?.upi_id || 'UPI ID not set'}
-          </T>
-        </View>
-        <Icon name="chevron-right" size={18} color={colors.textMuted} />
+      <Card padding="none" style={styles.paymentRow}>
+        <Pressable
+          onPress={() => router.push(upiProfileHref())}
+          testID="profile-payment-details"
+          accessibilityRole="button"
+          accessibilityLabel={`Payment details, ${user?.upi_id || 'UPI ID not set'}`}
+          style={({ pressed, focused }: any) => [
+            styles.paymentLink,
+            pressed && styles.pressed,
+            focused && Platform.OS === 'web' && {
+              outlineWidth: 2,
+              outlineColor: colors.primary,
+              outlineStyle: 'solid',
+              outlineOffset: 2,
+            } as any,
+          ]}
+        >
+          <Icon name="wallet" size={20} color={colors.primary} />
+          <View style={styles.paymentCopy}>
+            <T variant="h4">Payment details</T>
+            <T muted variant="caption" numberOfLines={1} testID="profile-upi-value">
+              {user?.upi_id || 'UPI ID not set'}
+            </T>
+          </View>
+          <Icon name="chevron-right" size={18} color={colors.textMuted} />
+        </Pressable>
+        {user?.upi_id ? (
+          <IconButton
+            name="copy"
+            onPress={copyUpiId}
+            accessibilityLabel="Copy UPI ID"
+            testID="profile-copy-upi"
+            touchSize={44}
+            color={colors.primary}
+            style={styles.copyButton}
+          />
+        ) : null}
       </Card>
 
       <NotificationSettingsRow />
@@ -86,4 +129,15 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, borderRadius: RADIUS.lg },
   avatar: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center' },
   paymentCopy: { flex: 1, minWidth: 0 },
+  paymentRow: { flexDirection: 'row', alignItems: 'center', borderRadius: RADIUS.lg },
+  paymentLink: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    padding: SPACING.md,
+  },
+  pressed: { opacity: 0.85 },
+  copyButton: { marginRight: SPACING.xs },
 });

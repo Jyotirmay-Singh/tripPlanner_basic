@@ -8,6 +8,9 @@ const mockPush = jest.fn();
 const mockToggle = jest.fn();
 const mockConfirmAndSignOut = jest.fn();
 const mockSelectionAsync = jest.fn().mockResolvedValue(undefined);
+const mockRefreshUserProfile = jest.fn().mockResolvedValue(undefined);
+const mockSetStringAsync = jest.fn().mockResolvedValue(true);
+const mockToastShow = jest.fn();
 const originalPlatformOS = Platform.OS;
 let mockUser: any = {
   id: 'u1', name: 'Ada Traveller', email: 'ada@example.com', upi_id: 'ada@okbank',
@@ -21,8 +24,11 @@ jest.mock('expo-router', () => ({
   },
 }));
 jest.mock('expo-haptics', () => ({ __esModule: true, selectionAsync: mockSelectionAsync }));
+jest.mock('expo-clipboard', () => ({
+  setStringAsync: (value: string) => mockSetStringAsync(value),
+}));
 jest.mock('../AuthContext', () => ({
-  useAuth: () => ({ user: mockUser }),
+  useAuth: () => ({ user: mockUser, refreshUserProfile: mockRefreshUserProfile }),
 }));
 jest.mock('../ThemeContext', () => ({
   useTheme: () => ({
@@ -45,7 +51,14 @@ jest.mock('../TabPageHeader', () => {
 jest.mock('../ui', () => {
   const R = require('react');
   const stub = (name: string) => (props: any) => R.createElement(name, props, props.children);
-  return { Screen: stub('Screen'), TabScreen: stub('Screen'), Card: stub('Card'), Icon: stub('Icon') };
+  return {
+    Screen: stub('Screen'),
+    TabScreen: stub('Screen'),
+    Card: stub('Card'),
+    Icon: stub('Icon'),
+    IconButton: stub('IconButton'),
+    useToast: () => ({ show: mockToastShow }),
+  };
 });
 
 import Profile from '../../app/(tabs)/profile';
@@ -58,6 +71,11 @@ function render(element: React.ReactElement) {
 }
 
 describe('Profile access after removing its visible tab', () => {
+  beforeEach(() => {
+    mockRefreshUserProfile.mockResolvedValue(undefined);
+    mockSetStringAsync.mockResolvedValue(true);
+  });
+
   afterEach(() => {
     jest.clearAllMocks();
     mockUser = {
@@ -107,6 +125,51 @@ describe('Profile access after removing its visible tab', () => {
       .toBe('UPI ID not set');
     expect(root.findByProps({ testID: 'profile-payment-details' }).props.accessibilityLabel)
       .toBe('Payment details, UPI ID not set');
+    expect(root.findAllByProps({ testID: 'profile-copy-upi' })).toHaveLength(0);
     expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('refreshes the authenticated profile when Profile gains focus', () => {
+    render(<Profile />);
+
+    expect(mockRefreshUserProfile).toHaveBeenCalledTimes(1);
+  });
+
+  it('copies the UPI ID without navigating and confirms only after clipboard success', async () => {
+    const root = render(<Profile />);
+    const copy = root.findByProps({ testID: 'profile-copy-upi' });
+
+    expect(copy.props.accessibilityLabel).toBe('Copy UPI ID');
+    expect(copy.props.touchSize).toBe(44);
+    await act(async () => { await copy.props.onPress(); });
+
+    expect(mockSetStringAsync).toHaveBeenCalledWith('ada@okbank');
+    expect(mockToastShow).toHaveBeenCalledWith('UPI ID copied', 'success');
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('shows a retryable error without a false success when clipboard copying fails', async () => {
+    mockSetStringAsync.mockRejectedValueOnce(new Error('clipboard unavailable'));
+    const root = render(<Profile />);
+
+    await act(async () => {
+      await root.findByProps({ testID: 'profile-copy-upi' }).props.onPress();
+    });
+
+    expect(mockToastShow).toHaveBeenCalledWith('Could not copy UPI ID. Try again.', 'error');
+    expect(mockToastShow).not.toHaveBeenCalledWith('UPI ID copied', 'success');
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('treats a resolved false clipboard result as a retryable failure', async () => {
+    mockSetStringAsync.mockResolvedValueOnce(false);
+    const root = render(<Profile />);
+
+    await act(async () => {
+      await root.findByProps({ testID: 'profile-copy-upi' }).props.onPress();
+    });
+
+    expect(mockToastShow).toHaveBeenCalledWith('Could not copy UPI ID. Try again.', 'error');
+    expect(mockToastShow).not.toHaveBeenCalledWith('UPI ID copied', 'success');
   });
 });
