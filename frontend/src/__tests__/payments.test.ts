@@ -7,7 +7,9 @@ import {
   validatePaymentAmount,
   snapshotPaymentRecipient,
   paymentRecipientRequiresReview,
+  paymentHandoffRequiresReview,
   Payment,
+  PaymentHandoffPreview,
   PaymentRecipientCandidate,
   PaymentRecipientDetails,
 } from '../payments';
@@ -79,6 +81,7 @@ describe('payment recipient snapshots', () => {
   });
 
   it.each([
+    ['changed recipient name', recipient({ name: 'Renamed Recipient' })],
     ['edited UPI ID', recipient({ upi_id: 'new@upi' })],
     ['removed UPI ID', recipient({ upi_id: null })],
     ['changed revision', recipient({ upi_updated_at: '2026-09-11T11:00:00+00:00' })],
@@ -95,6 +98,56 @@ describe('payment recipient snapshots', () => {
     expect(paymentRecipientRequiresReview(snapshot, recipientDetails([]))).toBe(true);
     expect(paymentRecipientRequiresReview(snapshot, null)).toBe(true);
     expect(paymentRecipientRequiresReview(null, recipientDetails([recipient()]))).toBe(true);
+  });
+});
+
+describe('payment handoff action-time review', () => {
+  const handoff = (over: Partial<PaymentHandoffPreview> = {}): PaymentHandoffPreview => ({
+    trip_id: 'trip-1',
+    trip_name: 'Goa Weekend',
+    from_member_id: 'payer',
+    from_name: 'Payer Person',
+    to_member_id: 'recipient',
+    to_name: 'Recipient Person',
+    source_amount: '25.00',
+    source_currency: 'USD',
+    current_payable: '50.00',
+    inr_amount: '2086.42',
+    quote: {
+      quote_id: 'quote-1',
+      rate: '83.4567',
+      effective_rate_date: '2026-09-10',
+      provider: 'frankfurter_v2_blended',
+      stale: false,
+      expires_at: '2026-09-11T10:30:00+00:00',
+    },
+    recipients: [recipient()],
+    ...over,
+  });
+
+  it('keeps approval valid only for an identical quote, amount, payable, and recipient revision', () => {
+    const reviewed = handoff();
+    expect(paymentHandoffRequiresReview(
+      reviewed, handoff(), snapshotPaymentRecipient(recipient()),
+    )).toBe(false);
+  });
+
+  it.each([
+    ['payable', handoff({ current_payable: '49.00' })],
+    ['source amount', handoff({ source_amount: '24.00' })],
+    ['currency', handoff({ source_currency: 'EUR' })],
+    ['INR result', handoff({ inr_amount: '2000.00' })],
+    ['quote', handoff({ quote: { ...handoff().quote, quote_id: 'quote-2' } })],
+    ['rate', handoff({ quote: { ...handoff().quote, rate: '84.0000' } })],
+    ['stale state', handoff({ quote: { ...handoff().quote, stale: true } })],
+    ['UPI ID', handoff({ recipients: [recipient({ upi_id: 'changed@upi' })] })],
+    ['UPI revision', handoff({
+      recipients: [recipient({ upi_updated_at: '2026-09-11T11:00:00+00:00' })],
+    })],
+  ])('requires a fresh approval after a %s change', (_label, current) => {
+    expect(paymentHandoffRequiresReview(
+      handoff(), current, snapshotPaymentRecipient(recipient()),
+    )).toBe(true);
   });
 });
 

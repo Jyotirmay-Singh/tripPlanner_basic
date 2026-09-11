@@ -14,6 +14,8 @@ type Props = {
   title?: string;
   children: React.ReactNode;
   testID?: string;
+  closeTestID?: string;
+  scrimTestID?: string;
 };
 
 /**
@@ -21,7 +23,9 @@ type Props = {
  * center-screen dialogs"). Built on RN Modal + Animated so it works on web too. On wide
  * viewports it caps width and centers. The grab handle + scrim tap + hardware back all close.
  */
-export default function Sheet({ visible, onClose, title, children, testID }: Props) {
+export default function Sheet({
+  visible, onClose, title, children, testID, closeTestID, scrimTestID,
+}: Props) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
@@ -50,7 +54,13 @@ export default function Sheet({ visible, onClose, title, children, testID }: Pro
       navigationBarTranslucent
     >
       <Animated.View style={[styles.scrim, { backgroundColor: colors.scrim, opacity: fade }]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" accessibilityRole="button" />
+        <Pressable
+          testID={scrimTestID}
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityLabel="Close payment sheet"
+          accessibilityRole="button"
+        />
         <Animated.View
           testID={testID}
           style={[
@@ -70,7 +80,14 @@ export default function Sheet({ visible, onClose, title, children, testID }: Pro
           {title ? (
             <View style={styles.titleRow}>
               <T variant="h3" style={{ flex: 1 }}>{title}</T>
-              <IconButton name="close" onPress={onClose} accessibilityLabel="Close" variant="surface" size={18} />
+              <IconButton
+                name="close"
+                onPress={onClose}
+                accessibilityLabel="Close payment sheet"
+                variant="surface"
+                size={18}
+                testID={closeTestID}
+              />
             </View>
           ) : null}
           {children}

@@ -44,6 +44,37 @@ export type PaymentRecipientDetails = {
   recipients: PaymentRecipientCandidate[];
 };
 
+export type PaymentHandoffPreviewRequest = {
+  from_member_id: string;
+  to_member_id: string;
+  amount: string;
+  quote_id?: string;
+};
+
+export type PaymentHandoffQuote = {
+  quote_id: string;
+  rate: string;
+  effective_rate_date: string | null;
+  provider: string;
+  stale: boolean;
+  expires_at: string;
+};
+
+export type PaymentHandoffPreview = {
+  trip_id: string;
+  trip_name: string;
+  from_member_id: string;
+  from_name: string;
+  to_member_id: string;
+  to_name: string;
+  source_amount: string;
+  source_currency: string;
+  current_payable: string;
+  inr_amount: string;
+  quote: PaymentHandoffQuote;
+  recipients: PaymentRecipientCandidate[];
+};
+
 export type PaymentRecipientSnapshot = Readonly<{
   person_id: string;
   name: string;
@@ -77,8 +108,43 @@ export function paymentRecipientRequiresReview(
     (recipient) => recipient.person_id === snapshot.person_id,
   );
   if (!candidate?.account_linked || !candidate.upi_id) return true;
-  return candidate.upi_id !== snapshot.upi_id
+  return candidate.name !== snapshot.name
+    || candidate.family_id !== snapshot.family_id
+    || candidate.family_name !== snapshot.family_name
+    || candidate.upi_id !== snapshot.upi_id
     || candidate.upi_updated_at !== snapshot.upi_updated_at;
+}
+
+/** Whether authoritative action-time data differs from anything the payer approved. */
+export function paymentHandoffRequiresReview(
+  reviewed: PaymentHandoffPreview | null | undefined,
+  current: PaymentHandoffPreview | null | undefined,
+  recipientSnapshot: PaymentRecipientSnapshot | null | undefined,
+): boolean {
+  if (!reviewed || !current || reviewed.trip_id !== current.trip_id) return true;
+  const reviewedQuote = reviewed.quote;
+  const currentQuote = current.quote;
+  if (
+    reviewed.from_member_id !== current.from_member_id
+    || reviewed.to_member_id !== current.to_member_id
+    || reviewed.source_amount !== current.source_amount
+    || reviewed.source_currency !== current.source_currency
+    || reviewed.current_payable !== current.current_payable
+    || reviewed.inr_amount !== current.inr_amount
+    || reviewedQuote.quote_id !== currentQuote.quote_id
+    || reviewedQuote.rate !== currentQuote.rate
+    || reviewedQuote.effective_rate_date !== currentQuote.effective_rate_date
+    || reviewedQuote.provider !== currentQuote.provider
+    || reviewedQuote.stale !== currentQuote.stale
+    || reviewedQuote.expires_at !== currentQuote.expires_at
+  ) return true;
+
+  return paymentRecipientRequiresReview(recipientSnapshot, {
+    trip_id: current.trip_id,
+    from_member_id: current.from_member_id,
+    to_member_id: current.to_member_id,
+    recipients: current.recipients,
+  });
 }
 
 export type PaymentStatus = 'open' | 'partial' | 'paid';

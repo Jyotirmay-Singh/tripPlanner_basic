@@ -126,6 +126,32 @@ export function canRecordPayment(
   return !!(receiver.user_id && receiver.user_id === userId);
 }
 
+/**
+ * UX mirror of backend can_initiate_upi_payment: only the account linked to the CURRENT payer may
+ * start an external UPI handoff. Owner/admin/application-admin status grants no exception. Any
+ * linked person in a payer family represents that family account for this permission.
+ */
+export function canInitiateUpiPayment(
+  _trip: RoleTrip,
+  fromMemberId: string,
+  userId: string | undefined,
+  members: {
+    id: string;
+    kind?: string;
+    user_id?: string | null;
+    family_member_user_ids?: (string | null)[];
+  }[],
+  _isSuperAdmin = false,
+): boolean {
+  if (!userId) return false;
+  const payer = members.find((member) => member.id === fromMemberId);
+  if (!payer) return false;
+  if (payer.kind === 'family') {
+    return (payer.family_member_user_ids ?? []).includes(userId);
+  }
+  return !!payer.user_id && payer.user_id === userId;
+}
+
 // Owner only
 export function canManageAdmins(
   trip: RoleTrip, userId: string | undefined, isSuperAdmin = false,

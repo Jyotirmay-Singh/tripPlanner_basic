@@ -161,3 +161,32 @@ it('URL-encodes every payment recipient-details identifier', async () => {
       + '?from_member_id=payer%20%26%2F1&to_member_id=family%20%3F%232',
   );
 });
+
+it('posts exact decimal strings and an optional reviewed quote to the handoff preview', async () => {
+  process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+  jest.resetModules();
+  const { previewPaymentHandoff } = require('../api');
+  const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    text: () => Promise.resolve('{}'),
+  } as Response);
+
+  await previewPaymentHandoff('trip /1', {
+    from_member_id: 'payer',
+    to_member_id: 'recipient',
+    amount: '12.340',
+    quote_id: 'quote-reviewed',
+  });
+
+  expect(fetchSpy.mock.calls[0][0]).toBe(
+    'https://api.example.test/api/trips/trip%20%2F1/payment-handoff/preview',
+  );
+  expect(fetchSpy.mock.calls[0][1]?.method).toBe('POST');
+  expect(fetchSpy.mock.calls[0][1]?.body).toBe(JSON.stringify({
+    from_member_id: 'payer',
+    to_member_id: 'recipient',
+    amount: '12.340',
+    quote_id: 'quote-reviewed',
+  }));
+});

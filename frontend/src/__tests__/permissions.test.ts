@@ -9,6 +9,7 @@ import {
   canRemoveMemberRow,
   canMarkSettlementPaid,
   canRecordPayment,
+  canInitiateUpiPayment,
 } from '../permissions';
 
 describe('canModifyExpense', () => {
@@ -164,6 +165,31 @@ describe('application super-admin capabilities', () => {
     )).toBe(true);
     expect(canRemoveMemberRow(TRIP, { user_id: 'member' }, undefined, true)).toBe(true);
     expect(canRemoveMemberRow(TRIP, { user_id: 'owner' }, undefined, true)).toBe(false);
+  });
+});
+
+describe('canInitiateUpiPayment', () => {
+  const members = [
+    { id: 'payer', kind: 'individual', user_id: 'payer-user' },
+    {
+      id: 'payer-family',
+      kind: 'family',
+      family_member_user_ids: ['family-user-1', null, 'family-user-2'],
+    },
+  ];
+
+  it('allows only the account linked to an individual or family payer', () => {
+    expect(canInitiateUpiPayment(TRIP, 'payer', 'payer-user', members)).toBe(true);
+    expect(canInitiateUpiPayment(TRIP, 'payer-family', 'family-user-1', members)).toBe(true);
+    expect(canInitiateUpiPayment(TRIP, 'payer-family', 'family-user-2', members)).toBe(true);
+  });
+
+  it('does not grant unrelated owners, admins, members, or super-admins an override', () => {
+    expect(canInitiateUpiPayment(TRIP, 'payer', 'owner', members)).toBe(false);
+    expect(canInitiateUpiPayment(TRIP, 'payer', 'admin', members)).toBe(false);
+    expect(canInitiateUpiPayment(TRIP, 'payer', 'member', members)).toBe(false);
+    expect(canInitiateUpiPayment(TRIP, 'payer', undefined, members, true)).toBe(false);
+    expect(canInitiateUpiPayment(TRIP, 'missing', 'payer-user', members)).toBe(false);
   });
 });
 
