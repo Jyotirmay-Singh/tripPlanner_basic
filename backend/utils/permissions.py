@@ -88,6 +88,18 @@ def can_delete_trip(trip: dict, viewer: Viewer) -> bool:
     return role_of(trip, viewer) in ("super_admin", "owner")
 
 
+def is_linked_to_member(member: Optional[dict], viewer: Viewer) -> bool:
+    """Whether the viewer's app account is linked to this person or family entity."""
+    if not member:
+        return False
+    user_id = viewer_id(viewer)
+    if not user_id:
+        return False
+    if member.get("kind") == "family":
+        return user_id in (member.get("family_member_user_ids") or [])
+    return member.get("user_id") == user_id
+
+
 def can_record_payment(trip: dict, to_member_id: Optional[str], viewer: Viewer) -> bool:
     # Phase 20: a payment along a suggested debtor->creditor pair may be recorded/edited/deleted only
     # by a trip admin (owner is always seeded into admin_ids) or by the RECEIVER — the app user linked
@@ -96,10 +108,5 @@ def can_record_payment(trip: dict, to_member_id: Optional[str], viewer: Viewer) 
     # POST path (member id from the body) and the PATCH/DELETE path (id from the stored doc) share it.
     if role_of(trip, viewer) in ("super_admin", "owner", "admin"):
         return True
-    user_id = viewer_id(viewer)
     receiver = next((m for m in trip.get("members", []) if m["id"] == to_member_id), None)
-    if not receiver:
-        return False
-    if receiver.get("kind") == "family":
-        return user_id in (receiver.get("family_member_user_ids") or [])
-    return receiver.get("user_id") == user_id
+    return is_linked_to_member(receiver, viewer)

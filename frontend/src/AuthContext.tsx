@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api, getToken, setToken } from './api';
+import { ApiError, api, getToken, setToken } from './api';
 import type { ChatCapability } from './chat';
 import { unregisterCurrentPushInstallation } from './pushNotifications';
 import { isValidUpiId, normalizeUpiId, UPI_ID_INVALID_MESSAGE } from './validation';
@@ -42,6 +42,7 @@ type Ctx = {
   multiCurrencyExpensesEnabled: boolean;
   chatCapability: ChatCapability;
   refreshRuntimeConfig: () => Promise<RuntimeConfigSnapshot>;
+  refreshUserProfile: () => Promise<void>;
   handleAuthenticationRequired: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   register: (email: string, name: string, password: string) => Promise<void>;
@@ -122,6 +123,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUpiOnboardingPending(false);
     setUser(null);
   }, []);
+
+  const refreshUserProfile = useCallback(async () => {
+    try {
+      const updated = await api<User>('/auth/me');
+      setUser(updated);
+    } catch (error) {
+      // A transient outage must not erase a usable cached profile. Only the API client's
+      // authenticated HTTP 401 classification confirms that this session is no longer valid.
+      if (error instanceof ApiError && error.code === 'http' && error.status === 401) {
+        await handleAuthenticationRequired();
+      }
+      throw error;
+    }
+  }, [handleAuthenticationRequired]);
 
   const refresh = useCallback(async () => {
     const [t, e, pending] = await Promise.all([
@@ -241,6 +256,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       multiCurrencyExpensesEnabled,
       chatCapability,
       refreshRuntimeConfig,
+      refreshUserProfile,
       handleAuthenticationRequired,
       signIn,
       register,

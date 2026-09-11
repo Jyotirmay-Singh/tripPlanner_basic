@@ -2,11 +2,15 @@
 import React from 'react';
 import TestRenderer, { act, type ReactTestRenderer } from 'react-test-renderer';
 
-jest.mock('../api', () => ({
-  api: jest.fn(),
-  getToken: jest.fn(),
-  setToken: jest.fn(),
-}));
+jest.mock('../api', () => {
+  const actual = jest.requireActual('../api');
+  return {
+    ...actual,
+    api: jest.fn(),
+    getToken: jest.fn(),
+    setToken: jest.fn(),
+  };
+});
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,
@@ -173,6 +177,69 @@ it('clears invalid authentication while retaining the saved login email', async 
   expect(AsyncStorage.removeItem).not.toHaveBeenCalled();
 });
 
+it('refreshes the cached profile with the latest successful server response', async () => {
+  const current = { id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user' };
+  const updated = {
+    ...current,
+    upi_id: 'fresh@upi',
+    upi_updated_at: '2026-09-11T10:00:00+00:00',
+  };
+  (apiModule.getToken as jest.Mock).mockResolvedValue('jwt');
+  (apiModule.api as jest.Mock).mockImplementation((path: string) => {
+    if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
+    if (path === '/auth/me') return Promise.resolve(current);
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+  (apiModule.api as jest.Mock).mockResolvedValueOnce(updated);
+
+  await act(async () => { await latest.refreshUserProfile(); });
+
+  expect(apiModule.api).toHaveBeenLastCalledWith('/auth/me');
+  expect(latest.user).toEqual(updated);
+});
+
+it('retains the cached profile when a focused profile refresh has a network failure', async () => {
+  const current = {
+    id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user', upi_id: 'cached@upi',
+  };
+  (apiModule.getToken as jest.Mock).mockResolvedValue('jwt');
+  (apiModule.api as jest.Mock).mockImplementation((path: string) => {
+    if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
+    if (path === '/auth/me') return Promise.resolve(current);
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+  (apiModule.api as jest.Mock).mockRejectedValueOnce(
+    new apiModule.ApiError('offline', { code: 'network' }),
+  );
+
+  await act(async () => { await latest.refreshUserProfile().catch(() => {}); });
+
+  expect(latest.user).toEqual(current);
+  expect(apiModule.setToken).not.toHaveBeenCalledWith(null);
+});
+
+it('clears authentication only when profile refresh receives a confirmed HTTP 401', async () => {
+  const current = { id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user' };
+  (apiModule.getToken as jest.Mock).mockResolvedValue('jwt');
+  (apiModule.api as jest.Mock).mockImplementation((path: string) => {
+    if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
+    if (path === '/auth/me') return Promise.resolve(current);
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+  (apiModule.api as jest.Mock).mockRejectedValueOnce(
+    new apiModule.ApiError('expired', { code: 'http', status: 401 }),
+  );
+
+  await act(async () => { await latest.refreshUserProfile().catch(() => {}); });
+
+  expect(apiModule.setToken).toHaveBeenCalledWith(null);
+  expect(latest.user).toBeNull();
+  expect(latest.savedEmail).toBe('saved@gmail.com');
+});
+
 it('signs in with an email and password payload only', async () => {
   const user = { id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user' };
   (apiModule.api as jest.Mock).mockImplementation((path: string) => {
@@ -317,6 +384,27 @@ it('keeps the previous UPI profile when the server save fails', async () => {
 
   await act(async () => {
     await latest.updateUpiId('new@upi').catch(() => {});
+  });
+
+  expect(latest.user).toEqual(current);
+});
+
+it('keeps the previous UPI profile when the server removal fails', async () => {
+  const current = {
+    id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user',
+    upi_id: 'keep@upi', upi_updated_at: '2026-09-10T10:00:00+00:00',
+  };
+  (apiModule.getToken as jest.Mock).mockResolvedValue('jwt');
+  (apiModule.api as jest.Mock).mockImplementation((path: string, opts?: { method?: string }) => {
+    if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
+    if (path === '/auth/me' && opts?.method === 'PATCH') return Promise.reject(new Error('offline'));
+    if (path === '/auth/me') return Promise.resolve(current);
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+
+  await act(async () => {
+    await latest.updateUpiId(null).catch(() => {});
   });
 
   expect(latest.user).toEqual(current);

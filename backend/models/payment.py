@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -19,3 +19,24 @@ class PaymentPatch(BaseModel):
     # the direction (from/to members) is fixed. Both fields optional so either can be sent alone.
     amount: Optional[Decimal] = Field(default=None, gt=0, allow_inf_nan=False)
     note: Optional[str] = None
+
+
+class PaymentRecipientCandidate(BaseModel):
+    """One person who can receive a future app-to-app payment handoff."""
+
+    person_id: str
+    name: str
+    family_id: Optional[str] = None
+    family_name: Optional[str] = None
+    account_linked: bool
+    upi_id: Optional[str] = None
+    upi_updated_at: Optional[str] = None
+
+
+class PaymentRecipientDetails(BaseModel):
+    """Fresh, pair-scoped recipient details; deliberately excludes account identities."""
+
+    trip_id: str
+    from_member_id: str
+    to_member_id: str
+    recipients: List[PaymentRecipientCandidate]

@@ -1,10 +1,11 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from database import db
-from models.payment import PaymentCreate, PaymentPatch
+from models.payment import PaymentCreate, PaymentPatch, PaymentRecipientDetails
 from utils.common import gen_id, now_utc
 from utils.deps import get_current_user, _trip_or_404, _payment_or_403, is_trip_admin
-from utils.permissions import can_record_payment
+from utils.members import padded_family_member_ids
+from utils.permissions import can_record_payment, is_linked_to_member
 from utils.balances import _compute_balances
 from utils.settlement_gate import (
     decimal_amount,
@@ -23,6 +24,97 @@ def _suggested_amount(transfers: list, from_id: str, to_id: str):
         if t["from_member_id"] == from_id and t["to_member_id"] == to_id:
             return decimal_amount(t["amount"])
     return decimal_amount(0)
+
+
+async def _recipient_candidates(recipient: dict) -> list[dict]:
+    """Resolve roster people to the minimum payment-profile projection needed by the client."""
+    if recipient.get("kind") == "family":
+        names = recipient.get("family_members") or []
+        person_ids = padded_family_member_ids(recipient)
+        linked_user_ids = recipient.get("family_member_user_ids") or []
+        roster = [
+            {
+                "person_id": person_ids[index],
+                "name": name,
+                "family_id": recipient["id"],
+                "family_name": recipient.get("name"),
+                "linked_user_id": linked_user_ids[index]
+                if index < len(linked_user_ids) else None,
+            }
+            for index, name in enumerate(names)
+        ]
+    else:
+        roster = [{
+            "person_id": recipient["id"],
+            "name": recipient.get("name") or "",
+            "family_id": None,
+            "family_name": None,
+            "linked_user_id": recipient.get("user_id"),
+        }]
+
+    user_ids = list(dict.fromkeys(
+        person["linked_user_id"] for person in roster if person["linked_user_id"]
+    ))
+    profiles_by_id: dict[str, dict] = {}
+    if user_ids:
+        profiles = await db.users.find(
+            {"id": {"$in": user_ids}},
+            {"_id": 0, "id": 1, "upi_id": 1, "upi_updated_at": 1},
+        ).to_list(None)
+        profiles_by_id = {profile["id"]: profile for profile in profiles}
+
+    return [
+        {
+            "person_id": person["person_id"],
+            "name": person["name"],
+            "family_id": person["family_id"],
+            "family_name": person["family_name"],
+            "account_linked": person["linked_user_id"] in profiles_by_id,
+            "upi_id": profiles_by_id.get(person["linked_user_id"], {}).get("upi_id"),
+            "upi_updated_at": profiles_by_id.get(
+                person["linked_user_id"], {}
+            ).get("upi_updated_at"),
+        }
+        for person in roster
+    ]
+
+
+@router.get(
+    "/trips/{trip_id}/payment-recipient-details",
+    response_model=PaymentRecipientDetails,
+)
+async def payment_recipient_details(
+    trip_id: str,
+    from_member_id: str,
+    to_member_id: str,
+    user=Depends(get_current_user),
+):
+    """Return fresh UPI details only for an active recommended payer/recipient pair."""
+    trip = await _trip_or_404(trip_id, user)
+    members_by_id = {member["id"]: member for member in trip.get("members", [])}
+    payer = members_by_id.get(from_member_id)
+    recipient = members_by_id.get(to_member_id)
+    if payer is None or recipient is None:
+        raise HTTPException(404, "Member not found")
+
+    if not is_trip_admin(trip, user) and not is_linked_to_member(payer, user):
+        raise HTTPException(403, "Only the payer or a trip admin can view payment details")
+
+    balances = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
+    active = any(
+        transfer.get("from_member_id") == from_member_id
+        and transfer.get("to_member_id") == to_member_id
+        for transfer in balances.get("transfers", [])
+    )
+    if not active:
+        raise HTTPException(409, "This settlement recommendation is no longer active")
+
+    return {
+        "trip_id": trip_id,
+        "from_member_id": from_member_id,
+        "to_member_id": to_member_id,
+        "recipients": await _recipient_candidates(recipient),
+    }
 
 
 # ---------- Partial Payments (Phase 20) ----------
