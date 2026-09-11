@@ -12,6 +12,7 @@ const mockClearPendingInvite = jest.fn().mockResolvedValue(undefined);
 const token = 'a'.repeat(43);
 let mockParams: { token?: string } = { token };
 let mockUser: any = { id: 'user-1', credentials_set: true };
+let mockUpiOnboardingPending = false;
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({ replace: mockReplace, push: mockPush }),
@@ -30,6 +31,7 @@ jest.mock('../../src/AuthContext', () => ({
     user: mockUser,
     rememberInvite: mockRememberInvite,
     clearPendingInvite: mockClearPendingInvite,
+    upiOnboardingPending: mockUpiOnboardingPending,
   }),
 }));
 
@@ -66,6 +68,7 @@ describe('invite landing', () => {
     jest.clearAllMocks();
     mockParams = { token };
     mockUser = { id: 'user-1', credentials_set: true };
+    mockUpiOnboardingPending = false;
     mockGetInvite.mockResolvedValue({
       status: 'active', trip_name: 'Coast trip',
     });
@@ -89,6 +92,23 @@ describe('invite landing', () => {
       pathname: '/join-trip', params: { inviteToken: token },
     });
     expect(JSON.stringify(renderer.toJSON())).not.toMatch(/active until|expires/i);
+  });
+
+  it('keeps a newly created account in UPI setup before opening its invite', async () => {
+    mockUpiOnboardingPending = true;
+
+    await act(async () => {
+      TestRenderer.create(<InviteLanding />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockReplace).toHaveBeenCalledWith({
+      pathname: '/set-upi', params: { returnTo: `/invite/${token}` },
+    });
+    expect(mockReplace).not.toHaveBeenCalledWith({
+      pathname: '/join-trip', params: { inviteToken: token },
+    });
   });
 
   it.each([

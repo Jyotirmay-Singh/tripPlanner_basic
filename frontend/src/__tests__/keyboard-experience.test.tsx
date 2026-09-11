@@ -114,6 +114,7 @@ it('focuses and announces a submit-time inline validation error', () => {
         testID="invalid-field"
         label="Email"
         error="Enter your email"
+        errorTestID="invalid-field-error"
       />,
     );
   });
@@ -121,6 +122,9 @@ it('focuses and announces a submit-time inline validation error', () => {
   const input = renderer.root.findByType(TextInput);
   expect(input.props.accessibilityState.invalid).toBe(true);
   expect(input.props.cursorColor).toBe('#173f39');
+  const inlineError = renderer.root.findByProps({ testID: 'invalid-field-error' });
+  expect(inlineError.props.accessibilityRole).toBe('alert');
+  expect(inlineError.props.accessibilityLiveRegion).toBe('polite');
   focusAndAnnounceInputError({ focus }, 'Email', 'Enter your email');
   expect(focus).toHaveBeenCalledTimes(1);
   expect(announce).toHaveBeenCalledWith('Email: Enter your email');

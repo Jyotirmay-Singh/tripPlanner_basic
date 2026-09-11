@@ -19,6 +19,8 @@ const mockAuthState: any = {
   refresh: mockRefresh,
   signOut: mockSignOut,
   forgetSavedEmail: mockForgetSavedEmail,
+  pendingInvitePath: null,
+  upiOnboardingPending: false,
 };
 
 jest.mock('expo-router', () => ({
@@ -75,6 +77,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockAuthState.savedEmail = null;
   mockAuthState.emailFeaturesEnabled = true;
+  mockAuthState.pendingInvitePath = null;
+  mockAuthState.upiOnboardingPending = false;
   mockSignIn.mockResolvedValue(undefined);
   mockRegister.mockResolvedValue(undefined);
   mockRefresh.mockResolvedValue(undefined);
@@ -113,9 +117,11 @@ describe('password-only authentication screens', () => {
     await act(async () => findByTestId(renderer, 'reg-submit').props.onPress());
 
     expect(mockRegister).toHaveBeenCalledWith('new@gmail.com', 'New User', 'password123');
+    expect(mockReplace).toHaveBeenCalledWith('/set-upi');
   });
 
   it('requires Google users to create a password and offers account switching instead of skip', async () => {
+    mockAuthState.upiOnboardingPending = true;
     const renderer = mount(<SetCredentials />);
     expect(hasTestId(renderer, 'setcred-pin')).toBe(false);
     expect(hasTestId(renderer, 'setcred-skip')).toBe(false);
@@ -128,6 +134,18 @@ describe('password-only authentication screens', () => {
     expect(mockApi).toHaveBeenCalledWith('/auth/set-credentials', {
       method: 'POST', body: { password: 'password123' },
     });
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
+    expect(mockReplace).toHaveBeenCalledWith('/set-upi');
+  });
+
+  it('does not recreate the optional UPI offer for a restored password-setup session', async () => {
+    mockAuthState.upiOnboardingPending = false;
+    const renderer = mount(<SetCredentials />);
+
+    act(() => findByTestId(renderer, 'setcred-password').props.onChangeText('password123'));
+    act(() => findByTestId(renderer, 'setcred-confirm').props.onChangeText('password123'));
+    await act(async () => findByTestId(renderer, 'setcred-submit').props.onPress());
+
     expect(mockRefresh).toHaveBeenCalledTimes(1);
     expect(mockReplace).toHaveBeenCalledWith('/(tabs)/dashboard');
   });

@@ -9,6 +9,9 @@ const mockToggle = jest.fn();
 const mockConfirmAndSignOut = jest.fn();
 const mockSelectionAsync = jest.fn().mockResolvedValue(undefined);
 const originalPlatformOS = Platform.OS;
+let mockUser: any = {
+  id: 'u1', name: 'Ada Traveller', email: 'ada@example.com', upi_id: 'ada@okbank',
+};
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({ navigate: mockNavigate, push: mockPush }),
@@ -19,7 +22,7 @@ jest.mock('expo-router', () => ({
 }));
 jest.mock('expo-haptics', () => ({ __esModule: true, selectionAsync: mockSelectionAsync }));
 jest.mock('../AuthContext', () => ({
-  useAuth: () => ({ user: { id: 'u1', name: 'Ada Traveller', email: 'ada@example.com' } }),
+  useAuth: () => ({ user: mockUser }),
 }));
 jest.mock('../ThemeContext', () => ({
   useTheme: () => ({
@@ -57,6 +60,9 @@ function render(element: React.ReactElement) {
 describe('Profile access after removing its visible tab', () => {
   afterEach(() => {
     jest.clearAllMocks();
+    mockUser = {
+      id: 'u1', name: 'Ada Traveller', email: 'ada@example.com', upi_id: 'ada@okbank',
+    };
     Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatformOS });
   });
 
@@ -83,10 +89,24 @@ describe('Profile access after removing its visible tab', () => {
 
     act(() => { root.findByProps({ testID: 'toggle-dark-mode' }).props.onValueChange(true); });
     act(() => { root.findByProps({ testID: 'profile-change-password' }).props.onPress(); });
+    act(() => { root.findByProps({ testID: 'profile-payment-details' }).props.onPress(); });
     act(() => { root.findByProps({ testID: 'profile-logout' }).props.onPress(); });
 
     expect(mockToggle).toHaveBeenCalledTimes(1);
     expect(mockPush).toHaveBeenCalledWith('/change-password');
+    expect(mockPush).toHaveBeenCalledWith('/set-upi?mode=profile');
+    expect(root.findByProps({ testID: 'profile-upi-value' }).props.children).toBe('ada@okbank');
     expect(mockConfirmAndSignOut).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the payment-details empty state without prompting automatically', () => {
+    mockUser = { ...mockUser, upi_id: null };
+    const root = render(<Profile />);
+
+    expect(root.findByProps({ testID: 'profile-upi-value' }).props.children)
+      .toBe('UPI ID not set');
+    expect(root.findByProps({ testID: 'profile-payment-details' }).props.accessibilityLabel)
+      .toBe('Payment details, UPI ID not set');
+    expect(mockPush).not.toHaveBeenCalled();
   });
 });
