@@ -210,3 +210,89 @@ it('registers without a PIN field', async () => {
   });
   expect(latest.user).toEqual(user);
 });
+
+it('validates, trims, saves, and adopts the server UPI profile response', async () => {
+  const current = { id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user' };
+  const updated = {
+    ...current,
+    upi_id: 'Ravi.Pay@OkSbi',
+    upi_updated_at: '2026-09-11T10:00:00+00:00',
+  };
+  (apiModule.getToken as jest.Mock).mockResolvedValue('jwt');
+  (apiModule.api as jest.Mock).mockImplementation((path: string, opts?: { method?: string }) => {
+    if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
+    if (path === '/auth/me' && opts?.method === 'PATCH') return Promise.resolve(updated);
+    if (path === '/auth/me') return Promise.resolve(current);
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+
+  let result: Awaited<ReturnType<typeof latest.updateUpiId>> | undefined;
+  await act(async () => { result = await latest.updateUpiId('  Ravi.Pay@OkSbi  '); });
+
+  expect(apiModule.api).toHaveBeenCalledWith('/auth/me', {
+    method: 'PATCH', body: { upi_id: 'Ravi.Pay@OkSbi' },
+  });
+  expect(result).toEqual(updated);
+  expect(latest.user).toEqual(updated);
+});
+
+it('supports explicit UPI removal and adopts the null server fields', async () => {
+  const current = {
+    id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user',
+    upi_id: 'ravi@upi', upi_updated_at: '2026-09-10T10:00:00+00:00',
+  };
+  const cleared = { ...current, upi_id: null, upi_updated_at: null };
+  (apiModule.getToken as jest.Mock).mockResolvedValue('jwt');
+  (apiModule.api as jest.Mock).mockImplementation((path: string, opts?: { method?: string }) => {
+    if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
+    if (path === '/auth/me' && opts?.method === 'PATCH') return Promise.resolve(cleared);
+    if (path === '/auth/me') return Promise.resolve(current);
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+
+  await act(async () => { await latest.updateUpiId(null); });
+
+  expect(apiModule.api).toHaveBeenCalledWith('/auth/me', {
+    method: 'PATCH', body: { upi_id: null },
+  });
+  expect(latest.user).toEqual(cleared);
+});
+
+it('rejects an invalid UPI ID locally without changing user state', async () => {
+  const current = { id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user' };
+  (apiModule.getToken as jest.Mock).mockResolvedValue('jwt');
+  (apiModule.api as jest.Mock).mockImplementation((path: string) => {
+    if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
+    if (path === '/auth/me') return Promise.resolve(current);
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+
+  await expect(latest.updateUpiId('bad value@upi')).rejects.toThrow(/valid UPI ID/i);
+
+  expect(apiModule.api).not.toHaveBeenCalledWith('/auth/me', expect.objectContaining({ method: 'PATCH' }));
+  expect(latest.user).toEqual(current);
+});
+
+it('keeps the previous UPI profile when the server save fails', async () => {
+  const current = {
+    id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user',
+    upi_id: 'old@upi', upi_updated_at: '2026-09-10T10:00:00+00:00',
+  };
+  (apiModule.getToken as jest.Mock).mockResolvedValue('jwt');
+  (apiModule.api as jest.Mock).mockImplementation((path: string, opts?: { method?: string }) => {
+    if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
+    if (path === '/auth/me' && opts?.method === 'PATCH') return Promise.reject(new Error('offline'));
+    if (path === '/auth/me') return Promise.resolve(current);
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+
+  await act(async () => {
+    await latest.updateUpiId('new@upi').catch(() => {});
+  });
+
+  expect(latest.user).toEqual(current);
+});

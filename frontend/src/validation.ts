@@ -22,6 +22,23 @@ export function isValidPassword(password: string): boolean {
   return password.length >= MIN_PASSWORD_LENGTH;
 }
 
+// UPI/VPA format validation — keep in sync with backend/utils/upi_rules.py.
+// This checks syntax only and must never be presented as account verification.
+export const UPI_ID_INVALID_MESSAGE = 'Enter a valid UPI ID, for example name@bank';
+
+const UPI_ID_RE = /^[A-Za-z0-9._-]{2,256}@[A-Za-z0-9]{2,64}$/;
+const CONTROL_CHARACTER_RE = /[\u0000-\u001F\u007F-\u009F]/;
+
+export function normalizeUpiId(value: string): string {
+  return value.trim();
+}
+
+export function isValidUpiId(value: string): boolean {
+  // Inspect the raw value first so trim cannot hide tabs/newlines at an edge.
+  if (CONTROL_CHARACTER_RE.test(value)) return false;
+  return UPI_ID_RE.test(normalizeUpiId(value));
+}
+
 // Per-trip email uniqueness mirror — keep in sync with backend
 // utils/members.py::assert_unique_email_in_trip (one gmail == at most one person per trip). The
 // server is authoritative; this only gives inline UX feedback on the member create/edit forms.
