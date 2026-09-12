@@ -8,7 +8,10 @@ import {
   snapshotPaymentRecipient,
   paymentRecipientRequiresReview,
   paymentHandoffRequiresReview,
+  activePaymentAttemptForDirection,
+  validateTransactionReference,
   Payment,
+  PaymentAttempt,
   PaymentHandoffPreview,
   PaymentRecipientCandidate,
   PaymentRecipientDetails,
@@ -23,6 +26,34 @@ const pay = (over: Partial<Payment>): Payment => ({
   created_at: over.created_at ?? '2026-07-01T00:00:00+00:00',
   recorded_by: over.recorded_by ?? 'u',
   note: over.note ?? null,
+});
+
+describe('recipient-confirmed UPI attempts', () => {
+  const attempt = (status: PaymentAttempt['status']): PaymentAttempt => ({
+    id: `attempt-${status}`,
+    from_member_id: 'a',
+    to_member_id: 'b',
+    status,
+  } as PaymentAttempt);
+
+  it('blocks only unresolved directions', () => {
+    expect(activePaymentAttemptForDirection([attempt('awaiting_confirmation')], 'a', 'b')?.id)
+      .toBe('attempt-awaiting_confirmation');
+    expect(activePaymentAttemptForDirection([attempt('settled_recipient_confirmed')], 'a', 'b'))
+      .toBeNull();
+    expect(activePaymentAttemptForDirection([attempt('needs_review')], 'b', 'a')).toBeNull();
+  });
+
+  it('normalizes optional references without calling them verified', () => {
+    expect(validateTransactionReference('   ')).toEqual({ ok: true, value: null, error: null });
+    expect(validateTransactionReference('  UTR-123  ')).toEqual({
+      ok: true, value: 'UTR-123', error: null,
+    });
+    expect(validateTransactionReference('bad\nreference').ok).toBe(false);
+    expect(validateTransactionReference('x'.repeat(101)).ok).toBe(false);
+    expect(validateTransactionReference('😀'.repeat(100)).ok).toBe(true);
+    expect(validateTransactionReference('😀'.repeat(101)).ok).toBe(false);
+  });
 });
 
 const recipient = (

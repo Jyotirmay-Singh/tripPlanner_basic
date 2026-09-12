@@ -24,19 +24,29 @@ def _weight_of_member(member: dict) -> int:
     return 1
 
 
-async def _compute_balances(trip_id: str, *, diagnostic: bool = False) -> dict:
-    trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
+async def _compute_balances(
+    trip_id: str,
+    *,
+    diagnostic: bool = False,
+    session=None,
+) -> dict:
+    session_options = {"session": session} if session is not None else {}
+    trip = await db.trips.find_one({"id": trip_id}, {"_id": 0}, **session_options)
     if not trip:
         raise HTTPException(404, "Trip not found")
     members = trip["members"]
 
     # Canonical expense amounts were fixed when saved. Settlement never calls the FX service and
     # never mutates historical conversion metadata. There is deliberately no accounting row cap.
-    expenses = await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(None)
-    settlements = await db.settlements.find(
-        {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}
+    expenses = await db.expenses.find(
+        {"trip_id": trip_id}, {"_id": 0}, **session_options
     ).to_list(None)
-    payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}).to_list(None)
+    settlements = await db.settlements.find(
+        {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}, **session_options
+    ).to_list(None)
+    payments = await db.payments.find(
+        {"trip_id": trip_id}, {"_id": 0}, **session_options
+    ).to_list(None)
 
     try:
         precise_net = build_precise_net(members, expenses, settlements, payments)

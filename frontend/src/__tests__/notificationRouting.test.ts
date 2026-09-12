@@ -6,10 +6,13 @@ const SOURCE_ID = '87654321-4321-4765-8123-210987654321';
 
 function payload(
   eventType: 'expense.created' | 'payment.recorded' | 'settlement.paid' | 'chat.message.created'
-    | 'join.request.created' | 'join.request.approved' | 'join.request.rejected',
+    | 'join.request.created' | 'join.request.approved' | 'join.request.rejected'
+    | 'payment_attempt.confirmation_requested' | 'payment_attempt.confirmed'
+    | 'payment_attempt.not_received' | 'payment_attempt.review_closed',
   target: 'trip_expenses' | 'settle_up' | 'trip_chat' | 'trip_members'
     | 'trip_summary' | 'join_request',
-  idKey: 'expenseId' | 'paymentId' | 'settlementId' | 'messageId' | 'requestId',
+  idKey: 'expenseId' | 'paymentId' | 'settlementId' | 'paymentAttemptId'
+    | 'messageId' | 'requestId',
 ) {
   return {
     payloadVersion: 1,
@@ -30,6 +33,15 @@ describe('notification routing', () => {
       .toBe(`/trip/${TRIP_ID}/settle-up?paymentId=${SOURCE_ID}`);
     expect(notificationHref(payload('settlement.paid', 'settle_up', 'settlementId')))
       .toBe(`/trip/${TRIP_ID}/settle-up?settlementId=${SOURCE_ID}`);
+    for (const eventType of [
+      'payment_attempt.confirmation_requested',
+      'payment_attempt.confirmed',
+      'payment_attempt.not_received',
+      'payment_attempt.review_closed',
+    ] as const) {
+      expect(notificationHref(payload(eventType, 'settle_up', 'paymentAttemptId')))
+        .toBe(`/trip/${TRIP_ID}/settle-up?paymentAttemptId=${SOURCE_ID}`);
+    }
     expect(notificationHref(payload('chat.message.created', 'trip_chat', 'messageId')))
       .toBe(`/trip/${TRIP_ID}?tab=chat&messageId=${SOURCE_ID}`);
     expect(notificationHref(payload('join.request.created', 'trip_members', 'requestId')))

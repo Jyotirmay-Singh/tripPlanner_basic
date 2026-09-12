@@ -4,6 +4,7 @@ from fastapi import HTTPException
 
 from utils.common import gen_id
 from utils.email_rules import normalize_email
+from services.payment_attempts import MEMBER_BLOCKING_PAYMENT_ATTEMPT_STATUSES
 
 
 def normalize_name(name: Optional[str]) -> str:
@@ -261,6 +262,7 @@ def member_has_financial_history_in(
     expenses: list,
     settlements: list,
     payments: Optional[list] = None,
+    payment_attempts: Optional[list] = None,
 ) -> bool:
     """True iff ``member_id`` is referenced by any of the given expense/settlement docs.
 
@@ -287,6 +289,15 @@ def member_has_financial_history_in(
     for p in (payments or []):
         if p.get("from_member_id") == member_id or p.get("to_member_id") == member_id:
             return True
+    blocking_attempt_statuses = set(MEMBER_BLOCKING_PAYMENT_ATTEMPT_STATUSES)
+    for attempt in (payment_attempts or []):
+        if attempt.get("status") not in blocking_attempt_statuses:
+            continue
+        if (
+            attempt.get("from_member_id") == member_id
+            or attempt.get("to_member_id") == member_id
+        ):
+            return True
     return False
 
 
@@ -296,6 +307,7 @@ def family_member_has_financial_history_in(
     expenses: list,
     settlements: list,
     payments: Optional[list] = None,
+    payment_attempts: Optional[list] = None,
 ) -> bool:
     """Whether one family person has ever been attributed trip financial activity.
 
@@ -339,6 +351,16 @@ def family_member_has_financial_history_in(
 
     for row in [*settlements, *(payments or [])]:
         if row.get("from_member_id") == family_id or row.get("to_member_id") == family_id:
+            return True
+    blocking_attempt_statuses = set(MEMBER_BLOCKING_PAYMENT_ATTEMPT_STATUSES)
+    for attempt in (payment_attempts or []):
+        if attempt.get("status") not in blocking_attempt_statuses:
+            continue
+        if (
+            attempt.get("from_member_id") == family_id
+            or attempt.get("to_member_id") == family_id
+            or attempt.get("selected_recipient_person_id") == family_member_id
+        ):
             return True
     return False
 
@@ -389,9 +411,24 @@ async def member_has_financial_history(trip_id: str, member_id: str) -> bool:
             limit=1,
         ):
         return True
-    return bool(await db.payments.count_documents(
+    if await db.payments.count_documents(
         {
             "trip_id": trip_id,
+            "$or": [
+                {"from_member_id": member_id},
+                {"to_member_id": member_id},
+            ],
+        },
+        limit=1,
+    ):
+        return True
+    payment_attempts = getattr(db, "payment_attempts", None)
+    if payment_attempts is None:
+        return False
+    return bool(await payment_attempts.count_documents(
+        {
+            "trip_id": trip_id,
+            "status": {"$in": list(MEMBER_BLOCKING_PAYMENT_ATTEMPT_STATUSES)},
             "$or": [
                 {"from_member_id": member_id},
                 {"to_member_id": member_id},
@@ -431,8 +468,20 @@ async def family_member_has_financial_history(
             {"to_member_id": family_id},
         ],
     }, {"_id": 0}).to_list(length=10000)
+    attempts_collection = getattr(db, "payment_attempts", None)
+    payment_attempts = []
+    if attempts_collection is not None:
+        payment_attempts = await attempts_collection.find({
+            "trip_id": trip_id,
+            "status": {"$in": list(MEMBER_BLOCKING_PAYMENT_ATTEMPT_STATUSES)},
+            "$or": [
+                {"from_member_id": family_id},
+                {"to_member_id": family_id},
+                {"selected_recipient_person_id": family_member_id},
+            ],
+        }, {"_id": 0}).to_list(length=10000)
     return family_member_has_financial_history_in(
-        family, family_member_id, expenses, settlements, payments,
+        family, family_member_id, expenses, settlements, payments, payment_attempts,
     )
 
 

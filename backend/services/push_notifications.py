@@ -48,6 +48,26 @@ _EVENT_DEFINITIONS = {
         "target": "settle_up",
         "id_key": "settlementId",
     },
+    "payment_attempt.confirmation_requested": {
+        "title": "Confirm a UPI payment",
+        "target": "settle_up",
+        "id_key": "paymentAttemptId",
+    },
+    "payment_attempt.confirmed": {
+        "title": "UPI payment confirmed",
+        "target": "settle_up",
+        "id_key": "paymentAttemptId",
+    },
+    "payment_attempt.not_received": {
+        "title": "UPI payment needs review",
+        "target": "settle_up",
+        "id_key": "paymentAttemptId",
+    },
+    "payment_attempt.review_closed": {
+        "title": "UPI payment review closed",
+        "target": "settle_up",
+        "id_key": "paymentAttemptId",
+    },
     "chat.message.created": {
         "title": "New group message",
         "target": "trip_chat",

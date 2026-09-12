@@ -302,7 +302,7 @@ The screen labels the route **Minimum payment plan** when bounded exact optimiza
 **Simplified payment plan** when the efficient fallback was used.
 
 **Recording a payment**
-- Tap **Settle up** on a pair to open the amount box. It's **pre-filled with the full amount owed**
+- Tap **Record payment** on a pair to open the amount box. It's **pre-filled with the full amount owed**
   and shows a **Max** hint. You can record the full amount or a positive partial amount up to that
   maximum (**no overpayment**). When whole-unit LKR/NPR settlement is enabled, new and amount-edited
   payments must be whole rupees; other trips use their official currency's legal precision. Tap **Continue**, then confirm
@@ -313,15 +313,52 @@ The screen labels the route **Minimum payment plan** when bounded exact optimiza
 - On confirm, every balance is recomputed from the ledger. The remaining amount may shrink, disappear,
   or be routed to a different receiver; a recorded payment itself never changes or disappears.
 
+**Paying through an external UPI app**
+- The account linked to the suggested payer can tap **Pay via UPI**. Choose a linked recipient who
+  has saved a UPI ID, enter a full or partial trip-currency amount, and review the server's INR
+  conversion. Approving this screen does not move money or change the trip balance.
+- Before copying anything or opening an app, Trip Splitter saves a payment attempt with the reviewed
+  recipient, UPI ID revision, original trip amount, exact INR amount, quote, and handoff method. If
+  that save fails, the UPI ID is not copied and no payment app opens. Only one unresolved attempt can
+  exist for the same payer → receiver direction, including when several accounts belong to a payer
+  family; use the existing **UPI pending** activity instead of starting another.
+- In the external payment app, complete all four steps yourself: **paste the copied UPI ID**, **verify
+  the recipient shown by the app**, **enter the displayed INR amount**, and **review and authorize the
+  payment inside that app**. Trip Splitter does not submit a payment, receive an intent result, or ask
+  for your UPI PIN.
+- After a copy-only handoff, **I've paid** and **Not paid** appear immediately. After Trip Splitter
+  opens a supported UPI app, those choices appear when you return to Trip Splitter. A failed copy or
+  launch remains saved so the initiating payer can resume or cancel it from **UPI payment activity**.
+- If you choose **I've paid**, you may add a transaction reference of up to 100 characters. It is a
+  payer-entered note for the involved users—**not bank verification**. The claim then waits for a
+  recipient or trip admin/owner to choose **Confirm received** or **Not received**. The payer cannot
+  erase a reported-payment claim.
+- A recipient can retry a disputed confirmation or close the review without posting. Unresolved
+  attempts expire after 24 hours (the window restarts when a payment is reported or enters review),
+  remain in the audit list, and never affect balances by themselves.
+- Confirmation recomputes the latest payable for that same direction. It posts exactly one normal
+  ledger payment for the smaller of the originally approved trip amount and the current payable. If
+  the payable is now zero, the attempt moves to **Needs review** and posts nothing. The activity card
+  keeps both the actual INR amount reported outside Trip Splitter and the capped trip-currency ledger
+  amount visible.
+- Only the selected UPI owner is notified when confirmation is requested; only the initiating payer
+  is notified of confirmation, non-receipt, or review closure. Tapping one of these notifications
+  opens the matching activity in **Settle Up**. Other authorized recipient-family accounts and trip
+  reviewers can use the persisted in-app list.
+
 **Rounding details & payment history**
 - **How rounding was applied** expands an auditable per-member list of exact balance, rounded payable
   or receivable, and adjustment.
 - Payment history is chronological and separate from the live route, so recomputation never makes an
   old payment look as though it belonged to a new pair. Each entry shows payer, receiver, amount,
-  date/time (in **IST**, UTC+05:30), optional remark, and a **Paid** badge.
+  date/time (in **IST**, UTC+05:30), optional remark, and a **Paid** badge. A UPI row is labeled
+  **UPI — recipient confirmed**.
 - The receiver or an admin can **edit** (pencil) or **delete** (trash) a payment. Deleting re-opens its
   ledger effect. Legacy decimal LKR/NPR payments remain valid; a note-only edit preserves the original
-  amount exactly, while changing the amount must follow the current whole-unit policy.
+  amount exactly, while changing the amount must follow the current whole-unit policy. Editing a
+  recipient-confirmed row changes only its ledger amount or remark; its UPI amount, quote, reference,
+  and confirmation audit stay unchanged. Deleting that row marks the audit **Payment removed** instead
+  of deleting it.
 - After all suggested whole-rupee payments are recorded, **Settled within rounding** means no whole
   rupee remains to transfer. The disclosed precise residual is retained and carries into later expenses.
 
@@ -390,8 +427,10 @@ presence, or per-message seen receipts.
      Amount and Total Payable columns — so **Sum(Amount) = Sum(Total Payable)** and every person's
      pivot total reconciles to the trip total.
   5. **Payments** — a flat log of every settle-up payment recorded on the trip: **Payer**, **Receiver**,
-     **Amount** (trip currency), and **Date & Time** (shown in **IST**, UTC+05:30), one row per payment
-     (three partial payments = three rows), with a bold **Total** row. For whole-unit LKR/NPR trips,
+     **Amount** (trip currency), **Date & Time** (shown in **IST**, UTC+05:30), optional **Remark**,
+     and a privacy-safe **Source** label. Recipient-confirmed rows say **UPI — recipient confirmed**;
+     reports never include the UPI ID or payer-entered transaction reference. There is one row per
+     payment (three partial payments = three rows), with a bold **Total** row. For whole-unit LKR/NPR trips,
      this tab also includes the exact-versus-rounded balance audit, policy/routing metadata, and the
      current whole-rupee recommendations.
 

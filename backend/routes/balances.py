@@ -14,8 +14,18 @@ from utils.balances import _compute_balances
 from utils.settlement_gate import validate_new_amount
 from services.push_notifications import enqueue_notification_event
 from services.admin_audit import record_admin_action
+from services.ledger_transactions import run_optional_transaction
 
 router = APIRouter()
+
+
+def _write_changed(result) -> bool:
+    count = getattr(result, "modified_count", None)
+    return count != 0 if isinstance(count, int) else True
+
+
+def _balances_changed() -> HTTPException:
+    return HTTPException(409, "Balances changed, please refresh and retry")
 
 
 # ---------- Balances / Settle Up ----------
@@ -54,7 +64,21 @@ async def settle(trip_id: str, body: SettleIn, background_tasks: BackgroundTasks
            "paid_at": ts,
            "recorded_by": user["id"],
            **audit_fields}
-    await db.settlements.insert_one(doc)
+    async def transactional_write(session):
+        guard = await db.trips.update_one(
+            {"id": trip_id, "version": trip.get("version", 0)},
+            {"$inc": {"version": 1}},
+            session=session,
+        )
+        if not _write_changed(guard):
+            raise _balances_changed()
+        await db.settlements.insert_one(doc, session=session)
+
+    async def standalone_write():
+        # Preserve the historical standalone behavior; confirmation itself is disabled there.
+        await db.settlements.insert_one(doc)
+
+    await run_optional_transaction(transactional_write, standalone_write)
     doc.pop("_id", None)
     await record_admin_action(
         user, "settlement.recorded_paid", trip=trip, resource_type="settlement",
@@ -122,10 +146,28 @@ async def mark_settlement_paid(trip_id: str, settlement_id: str, body: Settlemen
     if settlement.get("status") == "paid":
         return settlement
     paid_at = now_utc().isoformat()
-    await db.settlements.update_one(
-        {"id": settlement_id, "trip_id": trip_id},
-        {"$set": {"status": "paid", "paid_at": paid_at, "marked_paid_by": user["id"]}},
-    )
+    updates = {"status": "paid", "paid_at": paid_at, "marked_paid_by": user["id"]}
+
+    async def transactional_write(session):
+        guard = await db.trips.update_one(
+            {"id": trip_id, "version": trip.get("version", 0)},
+            {"$inc": {"version": 1}},
+            session=session,
+        )
+        if not _write_changed(guard):
+            raise _balances_changed()
+        await db.settlements.update_one(
+            {"id": settlement_id, "trip_id": trip_id, "status": {"$ne": "paid"}},
+            {"$set": updates},
+            session=session,
+        )
+
+    async def standalone_write():
+        await db.settlements.update_one(
+            {"id": settlement_id, "trip_id": trip_id}, {"$set": updates}
+        )
+
+    await run_optional_transaction(transactional_write, standalone_write)
     settlement.update({"status": "paid", "paid_at": paid_at, "marked_paid_by": user["id"]})
     await record_admin_action(
         user, "settlement.marked_paid", trip=trip, resource_type="settlement",

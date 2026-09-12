@@ -18,8 +18,31 @@ from services.member_breakdown import family_member_ids
 from services.reallocation import run_member_update_with_reallocation, freeze_and_remove_member
 from services.chat_realtime import chat_connections
 from services.admin_audit import record_admin_action
+from services.payment_attempts import MEMBER_BLOCKING_PAYMENT_ATTEMPT_STATUSES
 
 router = APIRouter()
+
+
+async def _payment_attempt_blocks_removal(
+    trip_id: str,
+    member_id: str,
+    *,
+    family_member_id: str | None = None,
+) -> bool:
+    attempts = getattr(db, "payment_attempts", None)
+    if attempts is None:
+        return False
+    references = [{"from_member_id": member_id}, {"to_member_id": member_id}]
+    if family_member_id is not None:
+        references.append({"selected_recipient_person_id": family_member_id})
+    return bool(await attempts.count_documents(
+        {
+            "trip_id": trip_id,
+            "status": {"$in": list(MEMBER_BLOCKING_PAYMENT_ATTEMPT_STATUSES)},
+            "$or": references,
+        },
+        limit=1,
+    ))
 
 
 async def _validate_family_member_emails(trip, fam_emails, exclude_id):
@@ -215,6 +238,8 @@ async def _settlement_block_reason(trip_id: str, target: dict):
     bal = await _compute_balances(trip_id)
     member_id = target["id"]
     name = target.get("name") or "This member"
+    if await _payment_attempt_blocks_removal(trip_id, member_id):
+        return f"Cannot remove {name}: a UPI payment attempt still references this member."
     if target.get("kind") == "family":
         unsettled = unsettled_family_members(bal, member_id)
         if unsettled or not is_precisely_settled(bal, member_id):
@@ -307,6 +332,11 @@ async def delete_family_member(trip_id: str, family_id: str, fm_id: str,
     if n is None or not is_settled(n, bal.get("currency", trip.get("currency", "INR"))):
         who = names[idx] if idx < len(names) else "This member"
         raise HTTPException(409, f"{who} has an outstanding balance. Settle up before removing.")
+    if await _payment_attempt_blocks_removal(
+        trip_id, family_id, family_member_id=fm_id,
+    ):
+        who = names[idx] if idx < len(names) else "This member"
+        raise HTTPException(409, f"Cannot remove {who}: a UPI payment attempt still references them.")
 
     new_names = [nm for i, nm in enumerate(names) if i != idx]
     surviving_ids = [iid for i, iid in enumerate(ids) if i != idx]

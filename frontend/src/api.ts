@@ -3,6 +3,10 @@ import { Platform } from 'react-native';
 import type { SpendSummary } from './spend';
 import type {
   Payment,
+  PaymentAttempt,
+  PaymentAttemptCreate,
+  PaymentAttemptRecipientAction,
+  PaymentAttemptSenderAction,
   PaymentHandoffPreview,
   PaymentHandoffPreviewRequest,
   PaymentRecipientDetails,
@@ -370,6 +374,44 @@ export function previewPaymentHandoff(
   return api<PaymentHandoffPreview>(
     `/trips/${encodeURIComponent(tripId)}/payment-handoff/preview`,
     { method: 'POST', body, timeoutMs: 12_000 },
+  );
+}
+export function createPaymentAttempt(
+  tripId: string,
+  body: PaymentAttemptCreate,
+): Promise<PaymentAttempt> {
+  return api<PaymentAttempt>(`/trips/${encodeURIComponent(tripId)}/payment-attempts`, {
+    method: 'POST', body,
+  });
+}
+export function listPaymentAttempts(tripId: string): Promise<PaymentAttempt[]> {
+  return api<PaymentAttempt[]>(`/trips/${encodeURIComponent(tripId)}/payment-attempts`);
+}
+export function updatePaymentAttemptSender(
+  tripId: string,
+  attemptId: string,
+  action: PaymentAttemptSenderAction,
+  transactionReference?: string | null,
+): Promise<PaymentAttempt> {
+  return api<PaymentAttempt>(
+    `/trips/${encodeURIComponent(tripId)}/payment-attempts/${encodeURIComponent(attemptId)}/sender`,
+    {
+      method: 'PATCH',
+      body: {
+        action,
+        ...(action === 'report_paid' ? { transaction_reference: transactionReference ?? null } : {}),
+      },
+    },
+  );
+}
+export function updatePaymentAttemptRecipient(
+  tripId: string,
+  attemptId: string,
+  action: PaymentAttemptRecipientAction,
+): Promise<PaymentAttempt> {
+  return api<PaymentAttempt>(
+    `/trips/${encodeURIComponent(tripId)}/payment-attempts/${encodeURIComponent(attemptId)}/recipient`,
+    { method: 'PATCH', body: { action } },
   );
 }
 export function recordPayment(

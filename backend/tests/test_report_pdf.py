@@ -124,6 +124,39 @@ def test_transactions_render_original_amount_and_locked_fx_audit_metadata():
     assert "automatic" in transaction_text
 
 
+def test_confirmed_upi_payment_report_uses_sanitized_source_only():
+    members = [_member("payer", "Payer"), _member("receiver", "Receiver")]
+    payment = {
+        "id": "payment-1",
+        "from_member_id": "payer",
+        "to_member_id": "receiver",
+        "amount": 25,
+        "created_at": "2026-09-12T10:00:00+00:00",
+        "source": "upi_recipient_confirmed",
+        "payment_attempt_id": "attempt-private",
+        "upi_id_snapshot": "private@upi",
+        "transaction_reference": "PRIVATE-UTR-123",
+    }
+    reconciliation = build_spend_reconciliation(members, [])
+
+    payload = build_report_pdf(
+        _trip("UPI report"),
+        members,
+        [],
+        "INR",
+        reconciliation=reconciliation,
+        payments=[payment],
+    )
+    text = "\n".join(
+        page.extract_text() or "" for page in PdfReader(io.BytesIO(payload)).pages
+    )
+
+    assert "UPI — recipient confirmed" in text
+    assert "private@upi" not in text
+    assert "PRIVATE-UTR-123" not in text
+    assert "attempt-private" not in text
+
+
 def test_long_reconciliation_repeats_headers_and_keeps_totals_with_net_across_pages():
     members = [
         _member(

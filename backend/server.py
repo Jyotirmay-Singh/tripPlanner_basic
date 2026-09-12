@@ -13,10 +13,11 @@ from utils.members import demote_family_entity_email
 from utils.email_rules import is_allowed_email
 from utils.security import hash_secret
 from utils.emailer import sender_mode_summary
-from routes import auth, trips, join_requests, invites, members, expenses, balances, reports, meta, receipts, spend, payments, chat, push, exchange_rates, admin
+from routes import auth, trips, join_requests, invites, members, expenses, balances, reports, meta, receipts, spend, payments, payment_attempts, chat, push, exchange_rates, admin
 from services.push_notifications import start_push_dispatcher, stop_push_dispatcher
 from services.exchange_rates import start_exchange_rate_client, stop_exchange_rate_client
 from services.invites import retire_legacy_invites
+from services.payment_attempts import start_payment_attempt_sweeper, stop_payment_attempt_sweeper
 
 
 # ---------- Startup / Shutdown ----------
@@ -94,6 +95,22 @@ async def lifespan(app: FastAPI):
     await db.settlements.create_index([("trip_id", 1), ("created_at", -1)])
     # Phase 20: recorded (partial) payments list (newest-first) per trip.
     await db.payments.create_index([("trip_id", 1), ("created_at", -1)])
+    await db.payments.create_index(
+        "payment_attempt_id",
+        unique=True,
+        partialFilterExpression={"payment_attempt_id": {"$type": "string"}},
+    )
+    # Step 5 UPI handoff audit. Terminal attempts retain their snapshots; only unresolved rows carry
+    # active_key, which makes the debtor-to-creditor direction unique without deleting history.
+    await db.payment_attempts.create_index("id", unique=True)
+    await db.payment_attempts.create_index("quote_id", unique=True)
+    await db.payment_attempts.create_index(
+        "active_key",
+        unique=True,
+        partialFilterExpression={"active_key": {"$type": "string"}},
+    )
+    await db.payment_attempts.create_index([("trip_id", 1), ("initiated_at", -1)])
+    await db.payment_attempts.create_index([("status", 1), ("expires_at", 1)])
     # Android push registrations and durable outbox. A token may exist in old inactive rows, but
     # exactly one active installation can own it at a time.
     await db.push_devices.create_index("installation_id", unique=True)
@@ -218,9 +235,11 @@ async def lifespan(app: FastAPI):
 
     await start_exchange_rate_client()
     await start_push_dispatcher()
+    await start_payment_attempt_sweeper()
     try:
         yield
     finally:
+        await stop_payment_attempt_sweeper()
         await stop_push_dispatcher()
         await stop_exchange_rate_client()
         client.close()
@@ -229,7 +248,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Trip Splitter", lifespan=lifespan)
 api = APIRouter(prefix="/api")
 
-for module in (auth, trips, join_requests, invites, members, expenses, balances, reports, meta, receipts, spend, payments, chat, push, exchange_rates, admin):
+for module in (auth, trips, join_requests, invites, members, expenses, balances, reports, meta, receipts, spend, payments, payment_attempts, chat, push, exchange_rates, admin):
     api.include_router(module.router)
 
 

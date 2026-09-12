@@ -428,7 +428,7 @@ def _payments_section(base, payments, members, currency):
     money = partial(_fmt_money, currency=currency)
     names = member_display_names(members)
     data = [[_hp("Payer"), _hp("Receiver"), _hp(f"Amount ({currency})"), _hp("Date & Time"),
-             _hp("Remark")]]
+             _hp("Remark"), _hp("Source")]]
     total = Decimal(0)
     for p in payments:
         data.append([
@@ -437,10 +437,12 @@ def _payments_section(base, payments, members, currency):
             money(p["amount"]),
             format_ist(p.get("created_at")),  # stored UTC -> IST display (Phase 24)
             _p((p.get("note") or "").strip() or "—"),
+            _p("UPI — recipient confirmed" if p.get("source") == "upi_recipient_confirmed"
+               else "Recorded payment"),
         ])
         total += quantize_currency(p["amount"], currency)
-    data.append([_p("Total", bold=True), "", money(total), "", ""])
-    flow.append(_styled_table(data, [130, 140, 100, 120, 150], right_cols=(2,),
+    data.append([_p("Total", bold=True), "", money(total), "", "", ""])
+    flow.append(_styled_table(data, [105, 110, 80, 100, 115, 130], right_cols=(2,),
                               total_row=len(data) - 1))
     return flow
 
