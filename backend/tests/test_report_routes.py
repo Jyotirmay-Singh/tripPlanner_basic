@@ -176,3 +176,73 @@ def test_xlsx_summary_renders_time_gross_reimbursement_and_net_separately(monkey
     assert ("Time", "0.000000000000", 0, "0.000000000000") in payment_rows
     time_row = next(row for row in workbook["Payments"].iter_rows() if row[0].value == "Time")
     assert time_row[2].number_format == "#,##0;[Red](#,##0)"
+
+
+def test_xlsx_payment_source_is_labeled_without_private_attempt_data(monkeypatch):
+    members = [
+        {"id": "payer", "name": "Payer", "kind": "individual"},
+        {"id": "receiver", "name": "Receiver", "kind": "individual"},
+    ]
+    trip = {
+        "id": "trip-1",
+        "name": "UPI report",
+        "start_date": "2026-09-12",
+        "end_date": "2026-09-13",
+        "currency": "INR",
+        "code": "UPI123",
+        "members": members,
+    }
+    upi_payment = {
+        "id": "payment-1",
+        "trip_id": "trip-1",
+        "from_member_id": "payer",
+        "to_member_id": "receiver",
+        "amount": 12.34,
+        "created_at": "2026-09-12T10:00:00+00:00",
+        "note": None,
+        "source": "upi_recipient_confirmed",
+        "payment_attempt_id": "private-attempt-id",
+        "upi_id_snapshot": "private@upi",
+        "transaction_reference": "PRIVATE-UTR",
+    }
+    per_person = [
+        {
+            "member_id": member["id"],
+            "member_name": member["name"],
+            "kind": "individual",
+            "net_total": 0.0,
+            "members": [],
+        }
+        for member in members
+    ]
+
+    monkeypatch.setattr(reports, "decode_token", lambda _token: {"sub": "user-1"})
+    monkeypatch.setattr(reports, "_trip_or_404", AsyncMock(return_value=trip))
+    monkeypatch.setattr(reports, "_load_report_expenses", AsyncMock(return_value=[]))
+    monkeypatch.setattr(reports, "_compute_balances", AsyncMock(return_value={
+        "per_person": per_person,
+        "transfers": [],
+        "settlement_projection": {"enabled": False},
+    }))
+    monkeypatch.setattr(reports, "db", SimpleNamespace(
+        users=SimpleNamespace(find_one=AsyncMock(return_value={"id": "user-1"})),
+        settlements=SimpleNamespace(find=lambda *_args, **_kwargs: _Cursor([])),
+        payments=SimpleNamespace(find=lambda *_args, **_kwargs: _Cursor([upi_payment])),
+    ))
+
+    async def render():
+        response = await reports.report_xlsx("trip-1", "token")
+        return b"".join([chunk async for chunk in response.body_iterator])
+
+    workbook = load_workbook(io.BytesIO(asyncio.run(render())), data_only=True)
+    rows = list(workbook["Payments"].iter_rows(values_only=True))
+
+    assert rows[0] == (
+        "Payer", "Receiver", "Amount (INR)", "Date & Time", "Remark", "Source",
+    )
+    assert rows[1][0:3] == ("Payer", "Receiver", 12.34)
+    assert rows[1][4:] == ("—", "UPI — recipient confirmed")
+    all_text = " ".join(str(value) for row in rows for value in row if value is not None)
+    assert "private@upi" not in all_text
+    assert "PRIVATE-UTR" not in all_text
+    assert "private-attempt-id" not in all_text

@@ -32,8 +32,22 @@ from utils.settlement_gate import (
 from services.push_notifications import enqueue_notification_event
 from utils.currency_rules import currency_minor_units, quantize_currency
 from services.admin_audit import record_admin_action
+from services.ledger_transactions import (
+    TransactionUnavailableError,
+    run_optional_transaction,
+    run_required_transaction,
+)
 
 router = APIRouter()
+
+
+def _write_changed(result) -> bool:
+    count = getattr(result, "modified_count", None)
+    return count != 0 if isinstance(count, int) else True
+
+
+def _balances_changed() -> HTTPException:
+    return HTTPException(409, "Balances changed, please refresh and retry")
 
 
 def _handoff_error(status_code: int, code: str, message: str, *, retryable: bool = False,
@@ -393,11 +407,25 @@ async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: Ba
     # Optimistic-concurrency guard (BUG-2): serialize payment writes for this trip so two concurrent
     # recorders can't both read the same payable and over-settle. Bump the trip version under the
     # value we validated against; if it moved, the balance changed under us -> 409 (client refreshes).
-    guard = await db.trips.update_one(
-        {"id": trip_id, "version": current_version}, {"$inc": {"version": 1}})
-    if guard.modified_count == 0:
-        raise HTTPException(409, "Balances changed, please refresh and retry")
-    await db.payments.insert_one(doc)
+    async def transactional_write(session):
+        guard = await db.trips.update_one(
+            {"id": trip_id, "version": current_version},
+            {"$inc": {"version": 1}},
+            session=session,
+        )
+        if not _write_changed(guard):
+            raise _balances_changed()
+        await db.payments.insert_one(doc, session=session)
+
+    async def standalone_write():
+        guard = await db.trips.update_one(
+            {"id": trip_id, "version": current_version}, {"$inc": {"version": 1}}
+        )
+        if not _write_changed(guard):
+            raise _balances_changed()
+        await db.payments.insert_one(doc)
+
+    await run_optional_transaction(transactional_write, standalone_write)
     doc.pop("_id", None)
     await record_admin_action(
         user, "payment.created", trip=trip, resource_type="payment", resource_id=doc["id"],
@@ -443,12 +471,26 @@ async def edit_payment(trip_id: str, payment_id: str, body: PaymentPatch,
     if updates:
         # An amount change has the same over-settle risk as recording, so guard it against concurrent
         # writes; a note-only edit doesn't touch balances and needs no guard.
-        if body.amount is not None:
-            guard = await db.trips.update_one(
-                {"id": trip_id, "version": current_version}, {"$inc": {"version": 1}})
-            if guard.modified_count == 0:
-                raise HTTPException(409, "Balances changed, please refresh and retry")
-        await db.payments.update_one({"id": payment_id, "trip_id": trip_id}, {"$set": updates})
+        amount_changed = "amount" in updates
+
+        async def update_payment(session=None):
+            options = {"session": session} if session is not None else {}
+            if amount_changed:
+                guard = await db.trips.update_one(
+                    {"id": trip_id, "version": current_version},
+                    {"$inc": {"version": 1}},
+                    **options,
+                )
+                if not _write_changed(guard):
+                    raise _balances_changed()
+            await db.payments.update_one(
+                {"id": payment_id, "trip_id": trip_id}, {"$set": updates}, **options
+            )
+
+        if amount_changed:
+            await run_optional_transaction(update_payment, update_payment)
+        else:
+            await update_payment()
         payment.update(updates)
         await record_admin_action(
             user, "payment.updated", trip=trip, resource_type="payment",
@@ -460,13 +502,82 @@ async def edit_payment(trip_id: str, payment_id: str, body: PaymentPatch,
 @router.delete("/trips/{trip_id}/payments/{payment_id}")
 async def delete_payment(trip_id: str, payment_id: str, user=Depends(get_current_user)):
     # Delete a recorded payment (balances self-heal on the next recompute). Receiver-or-admin only.
-    trip, _payment = await _payment_or_403(trip_id, payment_id, user)
-    guard = await db.trips.update_one(
-        {"id": trip_id, "version": trip.get("version", 0)}, {"$inc": {"version": 1}}
-    )
-    if guard.modified_count == 0:
-        raise HTTPException(409, "Balances changed, please refresh and retry")
-    await db.payments.delete_one({"id": payment_id, "trip_id": trip_id})
+    trip, payment = await _payment_or_403(trip_id, payment_id, user)
+
+    if payment.get("payment_attempt_id"):
+        attempt_id = payment["payment_attempt_id"]
+
+        async def void_confirmed_payment(session):
+            current_trip = await db.trips.find_one(
+                {"id": trip_id}, {"_id": 0}, session=session
+            )
+            current_payment = await db.payments.find_one(
+                {"id": payment_id, "trip_id": trip_id}, {"_id": 0}, session=session
+            )
+            if not current_trip or not current_payment:
+                raise HTTPException(404, "Payment not found")
+            guard = await db.trips.update_one(
+                {"id": trip_id, "version": current_trip.get("version", 0)},
+                {"$inc": {"version": 1}},
+                session=session,
+            )
+            if not _write_changed(guard):
+                raise _balances_changed()
+            await db.payments.delete_one(
+                {"id": payment_id, "trip_id": trip_id}, session=session
+            )
+            timestamp = now_utc().isoformat()
+            changed = await db.payment_attempts.update_one(
+                {
+                    "id": attempt_id,
+                    "trip_id": trip_id,
+                    "linked_payment_id": payment_id,
+                    "status": "settled_recipient_confirmed",
+                },
+                {"$set": {
+                    "status": "voided",
+                    "reason": "linked_payment_deleted",
+                    "voided_by": user["id"],
+                    "voided_at": timestamp,
+                    "updated_at": timestamp,
+                }, "$unset": {"active_key": ""}},
+                session=session,
+            )
+            if not _write_changed(changed):
+                raise HTTPException(409, "The linked UPI confirmation changed; refresh and retry")
+
+        try:
+            await run_required_transaction(void_confirmed_payment)
+        except TransactionUnavailableError as exc:
+            raise _handoff_error(
+                503,
+                "payment_void_unavailable",
+                "This confirmed UPI payment cannot be removed safely right now. Try again.",
+                retryable=True,
+            ) from exc
+    else:
+        async def transactional_delete(session):
+            guard = await db.trips.update_one(
+                {"id": trip_id, "version": trip.get("version", 0)},
+                {"$inc": {"version": 1}},
+                session=session,
+            )
+            if not _write_changed(guard):
+                raise _balances_changed()
+            await db.payments.delete_one(
+                {"id": payment_id, "trip_id": trip_id}, session=session
+            )
+
+        async def standalone_delete():
+            guard = await db.trips.update_one(
+                {"id": trip_id, "version": trip.get("version", 0)},
+                {"$inc": {"version": 1}},
+            )
+            if not _write_changed(guard):
+                raise _balances_changed()
+            await db.payments.delete_one({"id": payment_id, "trip_id": trip_id})
+
+        await run_optional_transaction(transactional_delete, standalone_delete)
     await record_admin_action(
         user, "payment.deleted", trip=trip, resource_type="payment", resource_id=payment_id,
     )

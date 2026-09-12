@@ -1,9 +1,12 @@
 /* eslint-disable import/first, @typescript-eslint/no-require-imports */
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
+import { AppState } from 'react-native';
 
 const mockGetDetails = jest.fn();
 const mockPreview = jest.fn();
+const mockCreateAttempt = jest.fn();
+const mockUpdateSender = jest.fn();
 const mockDiscover = jest.fn();
 const mockCopy = jest.fn();
 const mockCopyAndLaunch = jest.fn();
@@ -30,6 +33,8 @@ jest.mock('../api', () => ({
   ApiError: MockApiError,
   getPaymentRecipientDetails: (...args: unknown[]) => mockGetDetails(...args),
   previewPaymentHandoff: (...args: unknown[]) => mockPreview(...args),
+  createPaymentAttempt: (...args: unknown[]) => mockCreateAttempt(...args),
+  updatePaymentAttemptSender: (...args: unknown[]) => mockUpdateSender(...args),
 }));
 
 jest.mock('../upiLauncher', () => ({
@@ -62,7 +67,11 @@ jest.mock('../ui', () => {
 });
 
 import UpiPaymentSheet from '../UpiPaymentSheet';
-import type { PaymentHandoffPreview, PaymentRecipientCandidate } from '../payments';
+import type {
+  PaymentAttempt,
+  PaymentHandoffPreview,
+  PaymentRecipientCandidate,
+} from '../payments';
 
 const candidate = (
   personId: string,
@@ -112,6 +121,46 @@ const preview = (
   ...overrides,
 });
 
+const paymentAttempt = (overrides: Partial<PaymentAttempt> = {}): PaymentAttempt => ({
+  id: 'attempt-1',
+  quote_id: 'quote-1',
+  trip_id: 'trip-1',
+  from_member_id: 'payer',
+  to_member_id: 'recipient',
+  initiating_payer_user_id: 'payer-user',
+  selected_recipient_person_id: 'person',
+  selected_recipient_user_id: 'recipient-user',
+  trip_name_snapshot: 'Goa Weekend',
+  from_name_snapshot: 'Payer Person',
+  to_name_snapshot: 'Recipient Family',
+  initiating_payer_name_snapshot: 'Payer Person',
+  selected_recipient_name_snapshot: 'Recipient Person',
+  selected_recipient_family_name_snapshot: null,
+  upi_id_snapshot: 'person@upi',
+  upi_updated_at_snapshot: '2026-09-11T10:00:00+00:00',
+  source_amount: '50.00',
+  source_currency: 'USD',
+  amount_paise: 417284,
+  inr_amount: '4172.84',
+  currency: 'INR',
+  quote_rate_snapshot: '83.4567',
+  quote_effective_rate_date_snapshot: '2026-09-10',
+  quote_provider_snapshot: 'frankfurter_v2_blended',
+  quote_stale_snapshot: false,
+  quote_expires_at_snapshot: '2026-09-11T10:30:00+00:00',
+  handoff_method: 'copy',
+  transaction_reference: null,
+  linked_payment_id: null,
+  posted_amount: null,
+  posted_currency: 'USD',
+  status: 'initiated',
+  reason: null,
+  initiated_at: '2026-09-11T10:00:00+00:00',
+  updated_at: '2026-09-11T10:00:00+00:00',
+  expires_at: '2026-09-12T10:00:00+00:00',
+  ...overrides,
+});
+
 const props = {
   visible: true,
   tripId: 'trip-1',
@@ -157,6 +206,7 @@ async function mount() {
 }
 
 beforeEach(() => {
+  jest.restoreAllMocks();
   jest.clearAllMocks();
   mockDiscover.mockResolvedValue({
     status: 'available', platform: 'android', apps: [googlePay, phonePe],
@@ -165,6 +215,13 @@ beforeEach(() => {
   mockCopyAndLaunch.mockResolvedValue({
     ok: true, status: 'launched', copied: true, app: googlePay,
   });
+  mockCreateAttempt.mockResolvedValue(paymentAttempt());
+  mockUpdateSender.mockImplementation((_tripId, _attemptId, action) => Promise.resolve(
+    paymentAttempt({
+      status: action === 'cancel' ? 'canceled' : 'awaiting_confirmation',
+      reason: action === 'cancel' ? 'payer_reported_not_paid' : 'payer_reported_paid',
+    }),
+  ));
 });
 
 it('lists only UPI-enabled family people and requires an explicit multi-person choice', async () => {
@@ -288,9 +345,18 @@ it('uses reviewed copy-only behavior when discovery is unsupported', async () =>
   await act(async () => { interactive(renderer, 'upi-copy-id').props.onPress(); });
   await flush();
   expect(mockCopy).toHaveBeenCalledWith('person@upi');
+  expect(mockCreateAttempt.mock.invocationCallOrder[0]).toBeLessThan(
+    mockCopy.mock.invocationCallOrder[0],
+  );
+  expect(nodes(renderer, 'upi-sender-decision')).toHaveLength(1);
 });
 
-it('keeps the sheet open after app return and never records a payment', async () => {
+it('waits for app background and foreground before showing sender decisions', async () => {
+  let stateListener: ((state: string) => void) | null = null;
+  jest.spyOn(AppState, 'addEventListener').mockImplementation(((_event, listener) => {
+    stateListener = listener as (state: string) => void;
+    return { remove: jest.fn() };
+  }) as typeof AppState.addEventListener);
   const recipient = candidate('person', 'Recipient Person');
   mockGetDetails.mockResolvedValue(details([recipient]));
   mockPreview
@@ -306,7 +372,90 @@ it('keeps the sheet open after app return and never records a payment', async ()
 
   expect(mockCopyAndLaunch).toHaveBeenCalledWith('person@upi', googlePay);
   expect(nodes(renderer, 'upi-payment-sheet')).toHaveLength(1);
-  expect(nodes(renderer, 'upi-done')).toHaveLength(1);
+  expect(nodes(renderer, 'upi-awaiting-app-return')).toHaveLength(1);
+  expect(nodes(renderer, 'upi-sender-decision')).toHaveLength(0);
+  act(() => { stateListener?.('background'); });
+  act(() => { stateListener?.('active'); });
+  expect(nodes(renderer, 'upi-sender-decision')).toHaveLength(1);
   expect(node(renderer, 'upi-action-notice').props.children).toBeTruthy();
   expect(mockPreview).toHaveBeenCalledTimes(2);
+});
+
+it('does not copy or launch when attempt persistence fails', async () => {
+  const recipient = candidate('person', 'Recipient Person');
+  mockGetDetails.mockResolvedValue(details([recipient]));
+  mockPreview
+    .mockResolvedValueOnce(preview([recipient]))
+    .mockResolvedValueOnce(preview([recipient]));
+  mockCreateAttempt.mockRejectedValueOnce(new Error('Could not save payment attempt'));
+  const renderer = await mount();
+
+  await act(async () => { interactive(renderer, 'upi-review-payment').props.onPress(); });
+  await flush();
+  act(() => { interactive(renderer, 'upi-approve-details').props.onPress(); });
+  await act(async () => { interactive(renderer, 'upi-open-google-pay').props.onPress(); });
+  await flush();
+
+  expect(mockCreateAttempt).toHaveBeenCalledTimes(1);
+  expect(mockCopyAndLaunch).not.toHaveBeenCalled();
+  expect(nodes(renderer, 'upi-action-error')).toHaveLength(1);
+});
+
+it('keeps a copy-failed attempt resumable and lets the payer cancel it', async () => {
+  const recipient = candidate('person', 'Recipient Person');
+  mockGetDetails.mockResolvedValue(details([recipient]));
+  mockPreview
+    .mockResolvedValueOnce(preview([recipient]))
+    .mockResolvedValueOnce(preview([recipient]));
+  mockCopy.mockResolvedValueOnce({
+    ok: false, status: 'clipboard_failed', message: 'Could not copy the UPI ID. Try again.',
+  });
+  const renderer = await mount();
+
+  await act(async () => { interactive(renderer, 'upi-review-payment').props.onPress(); });
+  await flush();
+  act(() => { interactive(renderer, 'upi-approve-details').props.onPress(); });
+  await act(async () => { interactive(renderer, 'upi-copy-id').props.onPress(); });
+  await flush();
+
+  expect(mockCreateAttempt).toHaveBeenCalledTimes(1);
+  expect(mockCreateAttempt.mock.invocationCallOrder[0]).toBeLessThan(
+    mockCopy.mock.invocationCallOrder[0],
+  );
+  expect(nodes(renderer, 'upi-attempt-attempt-1')).toHaveLength(1);
+  expect(nodes(renderer, 'upi-copy-id')).toHaveLength(1);
+  expect(nodes(renderer, 'upi-action-error')).toHaveLength(1);
+  expect(nodes(renderer, 'upi-report-paid')).toHaveLength(0);
+  expect(nodes(renderer, 'upi-not-paid')).toHaveLength(1);
+
+  await act(async () => { interactive(renderer, 'upi-not-paid').props.onPress(); });
+  await flush();
+  expect(mockUpdateSender).toHaveBeenCalledWith(
+    'trip-1', 'attempt-1', 'cancel',
+  );
+});
+
+it('trims a payer reference and describes it as not bank verified', async () => {
+  const recipient = candidate('person', 'Recipient Person');
+  mockGetDetails.mockResolvedValue(details([recipient]));
+  mockPreview
+    .mockResolvedValueOnce(preview([recipient]))
+    .mockResolvedValueOnce(preview([recipient]));
+  const renderer = await mount();
+
+  await act(async () => { interactive(renderer, 'upi-review-payment').props.onPress(); });
+  await flush();
+  act(() => { interactive(renderer, 'upi-approve-details').props.onPress(); });
+  await act(async () => { interactive(renderer, 'upi-copy-id').props.onPress(); });
+  await flush();
+  const reference = node(renderer, 'upi-transaction-reference');
+  expect(reference.props.helper).toContain('does not verify it with a bank');
+  act(() => { reference.props.onChangeText('  UTR-123  '); });
+  await act(async () => { interactive(renderer, 'upi-report-paid').props.onPress(); });
+  await flush();
+
+  expect(mockUpdateSender).toHaveBeenCalledWith(
+    'trip-1', 'attempt-1', 'report_paid', 'UTR-123',
+  );
+  expect(nodes(renderer, 'upi-attempt-status')).toHaveLength(1);
 });

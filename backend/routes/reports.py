@@ -422,7 +422,7 @@ async def report_xlsx(trip_id: str, token: str,
     # disambiguated labels as the rest of the report; Amount uses the trip currency; a bold Total row
     # sums the column. Display-only — these payments already offset the ledger via _compute_balances.
     s5 = wb.create_sheet("Payments")
-    pay_headers = ["Payer", "Receiver", f"Amount ({cur})", "Date & Time", "Remark"]
+    pay_headers = ["Payer", "Receiver", f"Amount ({cur})", "Date & Time", "Remark", "Source"]
     s5.append(pay_headers)
     _style_header_row(s5, 1, len(pay_headers))
     pay_total = 0.0
@@ -430,10 +430,12 @@ async def report_xlsx(trip_id: str, token: str,
         dt_label = format_ist(p.get("created_at"))  # stored UTC -> IST display (Phase 24)
         s5.append([display.get(p["from_member_id"], "?"), display.get(p["to_member_id"], "?"),
                    _money_value(p["amount"], cur), dt_label,
-                   (p.get("note") or "").strip() or "—"])
+                   (p.get("note") or "").strip() or "—",
+                   ("UPI — recipient confirmed"
+                    if p.get("source") == "upi_recipient_confirmed" else "Recorded payment")])
         _money(s5.cell(row=s5.max_row, column=3), cur)
         pay_total += _money_value(p["amount"], cur)
-    s5.append(["Total", "", _money_value(pay_total, cur), "", ""])
+    s5.append(["Total", "", _money_value(pay_total, cur), "", "", ""])
     tr = s5.max_row
     for col in range(1, len(pay_headers) + 1):
         s5.cell(row=tr, column=col).font = _BOLD
@@ -485,7 +487,7 @@ async def report_xlsx(trip_id: str, token: str,
             s5.cell(row=row, column=3, value=transfer["amount"])
             _whole_money(s5.cell(row=row, column=3))
     s5.freeze_panes = "A2"
-    _set_widths(s5, [32, 32, 22, 24, 30])
+    _set_widths(s5, [32, 32, 22, 24, 30, 28])
 
     buf = io.BytesIO()
     wb.save(buf)

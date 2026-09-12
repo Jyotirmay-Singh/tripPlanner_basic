@@ -11,7 +11,15 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { api, listPayments, recordPayment, editPayment, deletePayment } from '../../../src/api';
+import {
+  api,
+  deletePayment,
+  editPayment,
+  listPaymentAttempts,
+  listPayments,
+  recordPayment,
+  updatePaymentAttemptRecipient,
+} from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS } from '../../../src/theme';
@@ -22,8 +30,11 @@ import { canInitiateUpiPayment, canRecordPayment } from '../../../src/permission
 import type { RoleTrip } from '../../../src/permissions';
 import UpiPaymentSheet from '../../../src/UpiPaymentSheet';
 import type { Transfer } from '../../../src/settlements';
-import { validatePaymentAmount } from '../../../src/payments';
-import type { Payment } from '../../../src/payments';
+import {
+  activePaymentAttemptForDirection,
+  validatePaymentAmount,
+} from '../../../src/payments';
+import type { Payment, PaymentAttempt, PaymentAttemptRecipientAction } from '../../../src/payments';
 import {
   currentSuggestedAmount,
   formatPreciseMoney,
@@ -56,16 +67,55 @@ const roundCurrency = (n: number, currency: string) => {
   return fromCurrencyUnits(toCurrencyUnits(n, currency), currency);
 };
 
+const attemptStatusLabel = (status: PaymentAttempt['status']) => ({
+  initiated: 'Waiting for payer',
+  awaiting_confirmation: 'Confirmation requested',
+  needs_review: 'Needs review',
+  settled_recipient_confirmed: 'Recipient confirmed',
+  canceled: 'Not paid',
+  closed: 'Review closed',
+  expired: 'Expired',
+  voided: 'Payment removed',
+}[status]);
+
+function attemptExplanation(attempt: PaymentAttempt): string {
+  switch (attempt.status) {
+    case 'initiated':
+      return 'The handoff was saved, but the payer has not reported a completed payment.';
+    case 'awaiting_confirmation':
+      return `The payer reported payment. ${attempt.selected_recipient_name_snapshot} must confirm receipt before the balance changes.`;
+    case 'needs_review':
+      return attempt.reason === 'no_current_payable'
+        ? 'No current payable remained, so nothing was posted. A recipient or admin can retry or close this review.'
+        : 'The payment was reported as not received. A recipient or admin can retry confirmation or close the review.';
+    case 'settled_recipient_confirmed':
+      return 'Receipt was confirmed and one linked payment was added to the ledger.';
+    case 'canceled':
+      return 'The payer canceled before reporting payment. No balance changed.';
+    case 'closed':
+      return 'The review was closed without posting to the ledger.';
+    case 'expired':
+      return 'The unresolved attempt expired after 24 hours. No balance changed.';
+    case 'voided':
+      return 'The linked ledger payment was removed; the confirmation audit remains.';
+  }
+}
+
 export default function SettleUp() {
   const params = useLocalSearchParams<{
-    id: string; paymentId?: string; settlementId?: string;
+    id: string; paymentId?: string; settlementId?: string; paymentAttemptId?: string;
   }>();
-  const { id, paymentId: notificationPaymentId } = params;
+  const {
+    id,
+    paymentId: notificationPaymentId,
+    paymentAttemptId: notificationPaymentAttemptId,
+  } = params;
   const { user } = useAuth();
   const { colors } = useTheme();
   const toast = useToast();
   const [bal, setBal] = useState<Balances | null>(null);
   const [payments, setPayments] = useState<Payment[] | null>(null);
+  const [attempts, setAttempts] = useState<PaymentAttempt[] | null>(null);
   const [trip, setTrip] = useState<Trip | null>(null);
   const [busy, setBusy] = useState(false);
   const [showRounding, setShowRounding] = useState(false);
@@ -78,6 +128,7 @@ export default function SettleUp() {
         toId: string;
         toName: string;
         amount: number;
+        attempt?: PaymentAttempt;
       }
   >(null);
 
@@ -97,13 +148,15 @@ export default function SettleUp() {
   const load = useCallback(async () => {
     try {
       setLoadError(null);
-      const [b, p, t] = await Promise.all([
+      const [b, p, a, t] = await Promise.all([
         api<Balances>(`/trips/${id}/balances`),
         listPayments(id),
+        listPaymentAttempts(id),
         api<Trip>(`/trips/${id}`),
       ]);
       setBal(b);
       setPayments(p);
+      setAttempts(a);
       setTrip(t);
     } catch (error: any) {
       setLoadError(error?.message || 'Settlement is temporarily unavailable.');
@@ -116,11 +169,14 @@ export default function SettleUp() {
   const displayNames = memberDisplayNames(members);
   const nameOf = (mid: string) => displayNames[mid] || '?';
   const currency = bal?.currency ?? '';
-  const loading = !bal || !payments || !trip;
+  const loading = !bal || !payments || !attempts || !trip;
 
   const recommendations = bal?.transfers ?? [];
   const history = [...(payments ?? [])].sort((a, b) =>
     (a.created_at || '') < (b.created_at || '') ? 1 : -1,
+  );
+  const attemptHistory = [...(attempts ?? [])].sort((a, b) =>
+    (a.initiated_at || '') < (b.initiated_at || '') ? 1 : -1,
   );
   const projection = bal?.settlement_projection;
   const wholeUnit = usesWholeUnits(projection);
@@ -176,6 +232,29 @@ export default function SettleUp() {
     }
   };
 
+  const reviewAttempt = async (
+    attempt: PaymentAttempt,
+    action: PaymentAttemptRecipientAction,
+  ) => {
+    setBusy(true);
+    try {
+      const updated = await updatePaymentAttemptRecipient(id, attempt.id, action);
+      const messages: Record<PaymentAttemptRecipientAction, string> = {
+        confirm_received: updated.status === 'settled_recipient_confirmed'
+          ? 'UPI payment confirmed and recorded'
+          : 'Payment moved to review',
+        report_not_received: 'Payment marked for review',
+        close_review: 'Payment review closed',
+      };
+      toast.show(messages[action], 'success');
+    } catch (error: any) {
+      toast.show(error?.message || 'Could not update the UPI payment', 'error');
+    } finally {
+      await load();
+      setBusy(false);
+    }
+  };
+
   // ---- Flows: editor -> guard-rail -> mutation ----
   const openRecord = (transfer: Transfer) =>
     setEditor({
@@ -190,6 +269,15 @@ export default function SettleUp() {
     toId: transfer.to_member_id,
     toName: nameOf(transfer.to_member_id),
     amount: transfer.amount,
+  });
+
+  const resumeUpiAttempt = (attempt: PaymentAttempt) => setHandoff({
+    fromId: attempt.from_member_id,
+    fromName: attempt.from_name_snapshot || nameOf(attempt.from_member_id),
+    toId: attempt.to_member_id,
+    toName: attempt.to_name_snapshot || nameOf(attempt.to_member_id),
+    amount: Number(attempt.source_amount),
+    attempt,
   });
 
   const openEdit = (payment: Payment) =>
@@ -313,7 +401,11 @@ export default function SettleUp() {
           testID="settle-empty"
         />
       ) : (
-        recommendations.map((transfer, index) => (
+        recommendations.map((transfer, index) => {
+          const activeAttempt = activePaymentAttemptForDirection(
+            attempts, transfer.from_member_id, transfer.to_member_id,
+          );
+          return (
           <Card key={`${transfer.from_member_id}-${transfer.to_member_id}-${index}`} style={styles.card}>
             <View style={styles.cardTop}>
               <Parties from={transfer.from_member_id} to={transfer.to_member_id} />
@@ -328,10 +420,14 @@ export default function SettleUp() {
                 <View style={styles.recommendationActions}>
                   {canPayViaUpi(transfer.from_member_id) ? (
                     <Button
-                      label="Pay via UPI"
+                      label={activeAttempt ? 'UPI pending' : 'Pay via UPI'}
                       size="sm"
                       icon="wallet"
                       onPress={() => openUpiHandoff(transfer)}
+                      disabled={!!activeAttempt}
+                      accessibilityLabel={activeAttempt
+                        ? 'UPI payment already pending for this payer and recipient'
+                        : 'Pay via UPI'}
                       testID={`upi-pay-${index}`}
                     />
                   ) : null}
@@ -349,8 +445,137 @@ export default function SettleUp() {
               </View>
             </View>
           </Card>
-        ))
+          );
+        })
       )}
+
+      {attemptHistory.length > 0 ? (
+        <View style={styles.attemptSection} testID="upi-attempts-section">
+          <T variant="h3">UPI payment activity</T>
+          <T muted>
+            A payer report does not change balances until the recipient confirms receipt.
+          </T>
+          {attemptHistory.map((attempt) => {
+            const sender = attempt.initiating_payer_user_id === user?.id;
+            const reviewer = allow(attempt.to_member_id);
+            const settled = attempt.status === 'settled_recipient_confirmed';
+            const statusColor = settled
+              ? colors.success
+              : attempt.status === 'needs_review'
+                ? colors.warning
+                : attempt.status === 'canceled' || attempt.status === 'closed'
+                  || attempt.status === 'expired' || attempt.status === 'voided'
+                  ? colors.textMuted
+                  : colors.primary;
+            return (
+              <Card
+                key={attempt.id}
+                testID={`payment-attempt-${attempt.id}`}
+                style={[
+                  styles.card,
+                  attempt.id === notificationPaymentAttemptId
+                    ? { borderColor: colors.primary, borderWidth: 2 }
+                    : undefined,
+                ]}
+              >
+                <View style={styles.attemptHeader}>
+                  <View style={styles.flex}>
+                    <T variant="h4">
+                      {attempt.from_name_snapshot || nameOf(attempt.from_member_id)} pays{' '}
+                      {attempt.to_name_snapshot || nameOf(attempt.to_member_id)}
+                    </T>
+                    <T variant="caption" muted>{formatIST(attempt.updated_at)}</T>
+                  </View>
+                  <Badge
+                    label={attemptStatusLabel(attempt.status)}
+                    color={statusColor}
+                    icon={settled ? 'check-circle' : 'clock'}
+                  />
+                </View>
+                <View style={styles.attemptAmounts}>
+                  <View style={styles.flex}>
+                    <T variant="caption" muted>Reported outside Trip Splitter</T>
+                    <T variant="h4">INR {attempt.inr_amount}</T>
+                  </View>
+                  {attempt.posted_amount != null ? (
+                    <View style={styles.flex}>
+                      <T variant="caption" muted>Posted at confirmation</T>
+                      <T variant="h4">
+                        {formatMoney(attempt.posted_amount, {
+                          currency: attempt.posted_currency || currency,
+                        })}
+                      </T>
+                    </View>
+                  ) : null}
+                </View>
+                <T muted>{attemptExplanation(attempt)}</T>
+                {attempt.transaction_reference ? (
+                  <T variant="caption" muted testID={`payment-attempt-reference-${attempt.id}`}>
+                    Payer-entered reference: {attempt.transaction_reference} (not bank verified)
+                  </T>
+                ) : null}
+                {attempt.posted_amount != null
+                  && Number(attempt.source_amount) !== attempt.posted_amount ? (
+                    <T variant="caption" color={colors.warning} testID={`payment-attempt-capped-${attempt.id}`}>
+                      The ledger amount was capped to the remaining payable; the original INR amount
+                      and confirmation audit are unchanged.
+                    </T>
+                  ) : null}
+                {attempt.status === 'initiated' && sender ? (
+                  <Button
+                    label="Resume payment"
+                    variant="secondary"
+                    size="sm"
+                    onPress={() => resumeUpiAttempt(attempt)}
+                    accessibilityLabel="Resume UPI payment and report paid or not paid"
+                    testID={`payment-attempt-resume-${attempt.id}`}
+                  />
+                ) : null}
+                {attempt.status === 'awaiting_confirmation' && reviewer ? (
+                  <View style={styles.attemptActions}>
+                    <Button
+                      label="Confirm received"
+                      size="sm"
+                      loading={busy}
+                      disabled={busy}
+                      onPress={() => { void reviewAttempt(attempt, 'confirm_received'); }}
+                      testID={`payment-attempt-confirm-${attempt.id}`}
+                    />
+                    <Button
+                      label="Not received"
+                      variant="secondary"
+                      size="sm"
+                      disabled={busy}
+                      onPress={() => { void reviewAttempt(attempt, 'report_not_received'); }}
+                      testID={`payment-attempt-not-received-${attempt.id}`}
+                    />
+                  </View>
+                ) : null}
+                {attempt.status === 'needs_review' && reviewer ? (
+                  <View style={styles.attemptActions}>
+                    <Button
+                      label="Retry confirmation"
+                      size="sm"
+                      loading={busy}
+                      disabled={busy}
+                      onPress={() => { void reviewAttempt(attempt, 'confirm_received'); }}
+                      testID={`payment-attempt-retry-${attempt.id}`}
+                    />
+                    <Button
+                      label="Close review"
+                      variant="secondary"
+                      size="sm"
+                      disabled={busy}
+                      onPress={() => { void reviewAttempt(attempt, 'close_review'); }}
+                      testID={`payment-attempt-close-${attempt.id}`}
+                    />
+                  </View>
+                ) : null}
+              </Card>
+            );
+          })}
+        </View>
+      ) : null}
 
       {projection?.enabled ? (
         <Card style={styles.detailsCard}>
@@ -402,7 +627,13 @@ export default function SettleUp() {
                 <Parties from={payment.from_member_id} to={payment.to_member_id} />
                 <View style={{ alignItems: 'flex-end', gap: SPACING.sm }}>
                   <T variant="caption" muted>{formatMoney(payment.amount, { currency })}</T>
-                  <Badge label="Paid" color={colors.success} icon="check-circle" />
+                  <Badge
+                    label={payment.source === 'upi_recipient_confirmed'
+                      ? 'UPI — recipient confirmed'
+                      : 'Paid'}
+                    color={colors.success}
+                    icon="check-circle"
+                  />
                 </View>
               </View>
               <View style={[styles.log, { borderTopColor: colors.border }]}>
@@ -460,7 +691,12 @@ export default function SettleUp() {
           initialAmount={handoff.amount}
           currency={currency}
           wholeUnit={wholeUnit}
-          onClose={() => setHandoff(null)}
+          initialAttempt={handoff.attempt ?? null}
+          onAttemptChanged={async () => { await load(); }}
+          onClose={() => {
+            setHandoff(null);
+            void load();
+          }}
         />
       ) : null}
 
@@ -629,6 +865,7 @@ export function AmountModal({
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1, minWidth: 0 },
   card: { gap: SPACING.sm },
   cardTop: { flexDirection: 'row', gap: SPACING.md, alignItems: 'center' },
   partyRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
@@ -642,6 +879,16 @@ const styles = StyleSheet.create({
   logRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   logActions: { flexDirection: 'row', alignItems: 'center' },
   recommendationActions: { alignItems: 'flex-end', gap: SPACING.sm },
+  attemptSection: { marginTop: SPACING.lg, gap: SPACING.sm },
+  attemptHeader: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.sm,
+  },
+  attemptAmounts: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.md,
+  },
+  attemptActions: {
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACING.sm,
+  },
   detailsCard: { gap: SPACING.sm, marginTop: SPACING.lg },
   detailRow: {
     borderTopWidth: StyleSheet.hairlineWidth,

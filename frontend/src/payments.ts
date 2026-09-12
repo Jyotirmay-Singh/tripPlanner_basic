@@ -25,7 +25,117 @@ export type Payment = {
   note?: string | null;
   settlement_policy_version?: string;
   settlement_increment?: string;
+  source?: 'upi_recipient_confirmed' | string;
+  payment_attempt_id?: string;
 };
+
+export type PaymentAttemptStatus =
+  | 'initiated'
+  | 'awaiting_confirmation'
+  | 'needs_review'
+  | 'settled_recipient_confirmed'
+  | 'canceled'
+  | 'closed'
+  | 'expired'
+  | 'voided';
+
+export type PaymentAttempt = {
+  id: string;
+  quote_id: string;
+  trip_id: string;
+  from_member_id: string;
+  to_member_id: string;
+  initiating_payer_user_id: string;
+  selected_recipient_person_id: string;
+  selected_recipient_user_id: string;
+  trip_name_snapshot: string;
+  from_name_snapshot: string;
+  to_name_snapshot: string;
+  initiating_payer_name_snapshot: string;
+  selected_recipient_name_snapshot: string;
+  selected_recipient_family_name_snapshot?: string | null;
+  upi_id_snapshot: string;
+  upi_updated_at_snapshot?: string | null;
+  source_amount: string;
+  source_currency: string;
+  amount_paise: number;
+  inr_amount: string;
+  currency: 'INR';
+  quote_rate_snapshot: string;
+  quote_effective_rate_date_snapshot?: string | null;
+  quote_provider_snapshot?: string | null;
+  quote_stale_snapshot?: boolean;
+  quote_expires_at_snapshot?: string;
+  handoff_method: 'copy' | 'google-pay' | 'phonepe' | 'paytm' | 'bhim';
+  transaction_reference?: string | null;
+  linked_payment_id?: string | null;
+  posted_amount?: number | null;
+  posted_currency?: string | null;
+  status: PaymentAttemptStatus;
+  reason?: string | null;
+  initiated_at: string;
+  awaiting_confirmation_at?: string | null;
+  not_received_at?: string | null;
+  confirmed_at?: string | null;
+  canceled_at?: string | null;
+  closed_at?: string | null;
+  expired_at?: string | null;
+  voided_at?: string | null;
+  updated_at: string;
+  expires_at: string;
+};
+
+export type PaymentAttemptCreate = {
+  quote_id: string;
+  recipient_person_id: string;
+  handoff_method: PaymentAttempt['handoff_method'];
+};
+
+export type PaymentAttemptSenderAction = 'report_paid' | 'cancel';
+export type PaymentAttemptRecipientAction =
+  | 'confirm_received'
+  | 'report_not_received'
+  | 'close_review';
+
+export const ACTIVE_PAYMENT_ATTEMPT_STATUSES: readonly PaymentAttemptStatus[] = [
+  'initiated', 'awaiting_confirmation', 'needs_review',
+];
+
+export function isActivePaymentAttempt(attempt: PaymentAttempt): boolean {
+  return ACTIVE_PAYMENT_ATTEMPT_STATUSES.includes(attempt.status);
+}
+
+export function activePaymentAttemptForDirection(
+  attempts: PaymentAttempt[] | null | undefined,
+  fromMemberId: string,
+  toMemberId: string,
+): PaymentAttempt | null {
+  return (attempts ?? []).find((attempt) => (
+    attempt.from_member_id === fromMemberId
+    && attempt.to_member_id === toMemberId
+    && isActivePaymentAttempt(attempt)
+  )) ?? null;
+}
+
+export type TransactionReferenceValidation =
+  | { ok: true; value: string | null; error: null }
+  | { ok: false; value: null; error: string };
+
+const TRANSACTION_REFERENCE_CONTROL_RE = /[\x00-\x1f\x7f-\x9f]/;
+
+export function validateTransactionReference(value: string): TransactionReferenceValidation {
+  const normalized = value.trim();
+  if (!normalized) return { ok: true, value: null, error: null };
+  // Match Python's character-counting semantics instead of UTF-16 code units so non-BMP text
+  // receives the same 100-character limit on both sides of the API boundary.
+  if ([...normalized].length > 100) {
+    return { ok: false, value: null, error: 'Reference must be 100 characters or fewer' };
+  }
+  if (TRANSACTION_REFERENCE_CONTROL_RE.test(normalized)) {
+    return { ok: false, value: null, error: 'Reference cannot contain control characters' };
+  }
+  return { ok: true, value: normalized, error: null };
+}
 
 export type PaymentRecipientCandidate = {
   person_id: string;

@@ -195,6 +195,7 @@ async def delete_trip(trip_id: str, user=Depends(get_current_user)):
     await db.expenses.delete_many({"trip_id": trip_id})
     await db.settlements.delete_many({"trip_id": trip_id})
     await db.payments.delete_many({"trip_id": trip_id})
+    await db.payment_attempts.delete_many({"trip_id": trip_id})
     await db.join_requests.delete_many({"trip_id": trip_id})
     await db.notification_outbox.delete_many({"trip_id": trip_id})
     await db.chat_messages.delete_many({"trip_id": trip_id})

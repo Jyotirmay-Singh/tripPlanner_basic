@@ -190,6 +190,22 @@ def test_recipient_resolution_excludes_actor_and_duplicates():
             "Settlement marked paid",
         ),
         (
+            "payment_attempt.confirmation_requested", "settle_up", "paymentAttemptId",
+            "Confirm a UPI payment",
+        ),
+        (
+            "payment_attempt.confirmed", "settle_up", "paymentAttemptId",
+            "UPI payment confirmed",
+        ),
+        (
+            "payment_attempt.not_received", "settle_up", "paymentAttemptId",
+            "UPI payment needs review",
+        ),
+        (
+            "payment_attempt.review_closed", "settle_up", "paymentAttemptId",
+            "UPI payment review closed",
+        ),
+        (
             "chat.message.created", "trip_chat", "messageId",
             "New group message",
         ),

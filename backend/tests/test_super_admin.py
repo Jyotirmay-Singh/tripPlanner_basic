@@ -229,6 +229,7 @@ def test_trip_deletion_cleans_all_related_live_collections(monkeypatch):
         "expenses",
         "settlements",
         "payments",
+        "payment_attempts",
         "join_requests",
         "notification_outbox",
         "chat_messages",

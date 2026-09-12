@@ -361,9 +361,9 @@ class TestReports:
         assert total_row is not None
         assert abs(total_row[2]) < 0.011 and abs(total_row[3]) < 0.011
 
-        # Payments tab header renamed Payee -> Receiver (Phase 23); Remark column added (settle-up note).
+        # Payments tab keeps Receiver/Remark and adds only a sanitized source label.
         assert [c.value for c in wb["Payments"][1]] == ["Payer", "Receiver", "Amount (INR)",
-                                                        "Date & Time", "Remark"]
+                                                        "Date & Time", "Remark", "Source"]
 
         # Date & Time cell shows the stored UTC timestamp converted to IST (Phase 24) — not raw UTC.
         pay_created = r_pay.json()["created_at"]
@@ -372,6 +372,9 @@ class TestReports:
         assert dt_cells, "expected the 15.0 payment row in the Payments tab"
         assert dt_cells[0] == format_ist(pay_created)
         assert dt_cells[0].endswith(" IST")
+        source_cells = [row[5] for row in wb["Payments"].iter_rows(min_row=2, values_only=True)
+                        if isinstance(row[2], (int, float)) and abs(row[2] - 15.0) < 0.01]
+        assert source_cells == ["Recorded payment"]
 
         # ----- PDF: full report renders (same builders -> same values) -----
         pdf = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/report.pdf?token={token}")

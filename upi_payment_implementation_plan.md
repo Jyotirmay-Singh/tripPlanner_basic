@@ -18,22 +18,23 @@ Goal: Let users optionally provide their UPI ID while creating an account, view 
 - [x] Add a Profile “Payment details” entry where every user can add, edit, cancel, or confirm removal of their UPI ID.
 - [x] Collect only the UPI ID; never request a UPI PIN, bank password, or QR upload. Syntax validation is not proof of ownership.
 
-## 3. Complete payment-facing Profile integration
+## 3. ✅ Complete payment-facing Profile integration
 
-- Add a Copy action to the implemented “Payment details” entry.
-- Keep the implemented prefilled Save, Cancel, and confirmed Remove behavior; show success only after the server accepts a change.
-- Refresh the profile and future payment screens after a successful update. Keep the previous ID if saving fails.
-- Fetch the latest recipient ID before starting a payment. If it changed while the payment screen was open, show the new ID and require the payer to review it again.
-- Preserve the recipient UPI ID used for each existing payment attempt; a profile edit must not rewrite historical payment records.
+- [x] Add a Copy action to the implemented “Payment details” entry.
+- [x] Keep the implemented prefilled Save, Cancel, and confirmed Remove behavior; show success only after the server accepts a change.
+- [x] Refresh the profile and future payment screens after a successful update. Keep the previous ID if saving fails.
+- [x] Fetch the latest recipient ID before starting a payment. If it changed while the payment screen was open, show the new ID and require the payer to review it again.
+- [x] Preserve the reviewed recipient UPI ID in the in-memory handoff attempt and ensure a profile edit never rewrites payment records. Persistent historical attempt snapshots remain part of Step 5.
 
 ## 4. Build the external payment handoff
 
-- Add a “Pay via UPI” action to the existing settlement screen. Show recipient name, current UPI ID, amount in INR and the trip/expense context.
-- Primary flow: “Copy UPI ID and open Google Pay” copies the ID and launches the installed app. Explain that the payer must paste the ID, review the recipient, enter the displayed amount and authorize payment there. Offer other supported installed UPI apps and a Copy-only fallback if launching fails.
-- Google Pay supports personal payments by entering a UPI ID. [Official personal-payment instructions](https://support.google.com/pay/india/answer/16920555?hl=en)
-- Optional convenience: generate a UPI QR locally from the saved recipient details using a standards-compatible URI builder and QR library. No upload is needed. Offer it as an alternative for scanning from another device; verify compatibility before release.
-- Treat direct prefilled `upi://pay` handoff as an optional feature behind a feature flag, disabled until provider support for personal recipients is established and real-device testing passes. Google documents merchant prerequisites, so do not assume its merchant integration guarantees friend-to-friend support or fabricate merchant fields. [Google integration prerequisites](https://developers.google.com/pay/india/api/android/overview)
-- Payment authorization stays inside the external app. Launching, returning or canceling must not change the expense balance.
+- [x] Add a “Pay via UPI” action to the existing settlement screen. Show recipient name, current UPI ID, amount in INR and the trip context.
+- [x] Implement the primary “Copy UPI ID and open Google Pay” flow, other supported installed UPI apps, and a Copy-only fallback when discovery or launching fails.
+- [ ] Add explicit in-sheet guidance that the payer must paste the copied ID, verify the recipient, enter the displayed INR amount and authorize the payment in the external app.
+- [x] Support Google Pay personal payments by handing off only a copied UPI ID. [Official personal-payment instructions](https://support.google.com/pay/india/answer/16920555?hl=en)
+- [x] Exclude optional local UPI QR generation from Step 4. It may be reconsidered later only after compatibility review; no upload is required.
+- [x] Exclude direct prefilled `upi://pay` handoff and payment-field intents from Step 4. Do not fabricate merchant fields or infer friend-to-friend support from merchant integration documentation. [Google integration prerequisites](https://developers.google.com/pay/india/api/android/overview)
+- [x] Keep payment authorization inside the external app. Copying, launching, returning or canceling must not create a payment record or change the expense balance.
 
 ## 5. Add recipient-confirmed settlement tracking
 
