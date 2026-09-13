@@ -35,7 +35,7 @@ See [`USER_GUIDE.md`](USER_GUIDE.md) for full feature documentation and
 
 - Python 3.11+
 - Node.js + Yarn (Classic)
-- A MongoDB instance (local `mongodb://localhost:27017` or hosted)
+- A transaction-capable MongoDB replica set (the included Compose stack initializes one locally)
 
 ## Backend
 
@@ -47,6 +47,19 @@ pip install -r requirements.txt
 
 uvicorn server:app --reload     # serves the API on http://localhost:8000
 ```
+
+For an all-container local backend, run `docker compose up -d --build` from the repository root.
+The MongoDB service starts as an idempotently initialized single-node replica set and the Compose
+backend uses `mongodb://mongo:27017/?replicaSet=rs0`. To run FastAPI on the host against that same
+Compose MongoDB, set:
+
+```text
+MONGO_URL=mongodb://localhost:27017/?replicaSet=rs0&directConnection=true
+```
+
+`directConnection=true` keeps the host client on the published port even though the replica member
+advertises its Compose hostname. Recipient-confirmed UPI posting and linked-payment deletion require
+MongoDB transactions and deliberately return a retryable `503` on a standalone/incapable deployment.
 
 ### Tests
 

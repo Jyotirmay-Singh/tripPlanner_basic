@@ -26,7 +26,11 @@ import { SPACING, RADIUS } from '../../../src/theme';
 import T from '../../../src/T';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { memberDisplayNames } from '../../../src/displayNames';
-import { canInitiateUpiPayment, canRecordPayment } from '../../../src/permissions';
+import {
+  canInitiateUpiPayment,
+  canRecordPayment,
+  canReviewUpiAttempt,
+} from '../../../src/permissions';
 import type { RoleTrip } from '../../../src/permissions';
 import UpiPaymentSheet from '../../../src/UpiPaymentSheet';
 import type { Transfer } from '../../../src/settlements';
@@ -136,7 +140,8 @@ export default function SettleUp() {
   const [editor, setEditor] = useState<
     | null
     | { mode: 'record' | 'edit'; fromId: string; toId: string; fromName: string; toName: string;
-        initial: number; max: number; paymentId?: string; note?: string; originalAmount?: number }
+        initial: number; max: number; paymentId?: string; note?: string; originalAmount?: number;
+        amountLocked?: boolean }
   >(null);
   // The shared themed guard-rail (native Alert renders no buttons on web).
   const [confirm, setConfirm] = useState<
@@ -186,6 +191,9 @@ export default function SettleUp() {
   );
   const canPayViaUpi = (fromId: string) => !!trip && canInitiateUpiPayment(
     trip, fromId, user?.id, members, user?.is_super_admin === true,
+  );
+  const canReviewUpi = (toId: string) => !!trip && canReviewUpiAttempt(
+    trip, toId, user?.id, members, user?.is_super_admin === true,
   );
 
   // ---- Async mutations (only reached AFTER the ConfirmModal guard-rail) ----
@@ -296,6 +304,7 @@ export default function SettleUp() {
       paymentId: payment.id,
       note: payment.note ?? '',
       originalAmount: payment.amount,
+      amountLocked: payment.source === 'upi_recipient_confirmed',
     });
 
   const onEditorSubmit = (amount: number, note: string) => {
@@ -304,10 +313,14 @@ export default function SettleUp() {
     const remark = note.trim();
     setEditor(null);
     setConfirm({
-      title: e.mode === 'edit' ? 'Update payment?' : 'Confirm payment',
-      message: `Confirm ${e.fromName} paid ${wholeUnit && Number.isInteger(amount)
-        ? formatWholeMoney(amount, { currency })
-        : formatMoney(amount, { currency })} to ${e.toName}?`,
+      title: e.mode === 'edit'
+        ? (e.amountLocked ? 'Update payment remark?' : 'Update payment?')
+        : 'Confirm payment',
+      message: e.amountLocked
+        ? `Update the remark for ${e.fromName}’s recipient-confirmed UPI payment to ${e.toName}? The amount stays ${formatMoney(e.initial, { currency })}.`
+        : `Confirm ${e.fromName} paid ${wholeUnit && Number.isInteger(amount)
+          ? formatWholeMoney(amount, { currency })
+          : formatMoney(amount, { currency })} to ${e.toName}?`,
       yesLabel: e.mode === 'edit' ? 'Update' : 'Confirm',
       yesVariant: 'primary',
       yesId: 'payment-confirm',
@@ -457,7 +470,7 @@ export default function SettleUp() {
           </T>
           {attemptHistory.map((attempt) => {
             const sender = attempt.initiating_payer_user_id === user?.id;
-            const reviewer = allow(attempt.to_member_id);
+            const reviewer = canReviewUpi(attempt.to_member_id);
             const settled = attempt.status === 'settled_recipient_confirmed';
             const statusColor = settled
               ? colors.success
@@ -665,13 +678,16 @@ export default function SettleUp() {
 
       {editor ? (
         <AmountModal
-          title={editor.mode === 'edit' ? 'Edit payment' : 'Record payment'}
+          title={editor.mode === 'edit'
+            ? (editor.amountLocked ? 'Edit payment remark' : 'Edit payment')
+            : 'Record payment'}
           subtitle={`${editor.fromName} pays ${editor.toName}`}
           initial={editor.initial}
           max={editor.max}
           currency={currency}
           wholeUnit={wholeUnit}
           allowLegacyDecimal={editor.mode === 'edit' && !Number.isInteger(editor.initial)}
+          amountLocked={editor.amountLocked}
           initialNote={editor.note ?? ''}
           submitLabel={editor.mode === 'edit' ? 'Continue' : 'Continue'}
           onCancel={() => setEditor(null)}
@@ -726,10 +742,11 @@ export default function SettleUp() {
 // the file's default export, so this does not register a route.
 export function AmountModal({
   title, subtitle, initial, max, currency, initialNote, submitLabel, wholeUnit = false,
-  allowLegacyDecimal = false, onCancel, onSubmit,
+  allowLegacyDecimal = false, amountLocked = false, onCancel, onSubmit,
 }: {
   title: string; subtitle: string; initial: number; max: number; currency: string;
   initialNote: string; submitLabel: string; wholeUnit?: boolean; allowLegacyDecimal?: boolean;
+  amountLocked?: boolean;
   onCancel: () => void;
   onSubmit: (amount: number, note: string) => void;
 }) {
@@ -743,6 +760,10 @@ export function AmountModal({
   const amountRef = useRef<TextInput>(null);
 
   const submit = () => {
+    if (amountLocked) {
+      onSubmit(initial, noteStr);
+      return;
+    }
     const parsed = Number(amountStr);
     const unchangedLegacy = allowLegacyDecimal && parsed === initial;
     const amt = parsed;
@@ -818,31 +839,42 @@ export function AmountModal({
               contentContainerStyle={{ paddingBottom: SPACING.xs }}
             >
               <T muted>{subtitle}</T>
-              <Input
-                ref={amountRef}
-                label={`Amount (${currency})`}
-                value={amountStr}
-                onChangeText={(t) => { setAmountStr(t); if (error) setError(null); }}
-                keyboardType={wholeUnit ? 'number-pad' : 'decimal-pad'}
-                inputMode={wholeUnit ? 'numeric' : 'decimal'}
-                placeholder={currencyAmountPlaceholder(currency)}
-                helper={wholeUnit
-                  ? (allowLegacyDecimal && !Number.isInteger(initial)
-                    ? `Keep the current decimal for a note-only edit, or enter a whole ${currency} amount up to ${formatWholeMoney(Math.floor(max), { currency })}`
-                    : `Whole ${currency} amounts only · Max ${formatWholeMoney(Math.floor(max), { currency })}`)
-                  : `Max ${formatMoney(max, { currency })}`}
-                error={error}
-                autoFocus
-                returnKeyType="next"
-                containerStyle={{ marginTop: SPACING.md }}
-                testID="payment-amount-input"
-              />
+              {amountLocked ? (
+                <Card variant="muted" style={styles.lockedAmount} testID="payment-locked-amount">
+                  <T variant="label" muted>Recipient-confirmed amount</T>
+                  <AmountText value={initial} currency={currency} variant="money" />
+                  <T variant="caption" muted>
+                    This confirmed amount is part of the UPI audit and cannot be changed.
+                  </T>
+                </Card>
+              ) : (
+                <Input
+                  ref={amountRef}
+                  label={`Amount (${currency})`}
+                  value={amountStr}
+                  onChangeText={(t) => { setAmountStr(t); if (error) setError(null); }}
+                  keyboardType={wholeUnit ? 'number-pad' : 'decimal-pad'}
+                  inputMode={wholeUnit ? 'numeric' : 'decimal'}
+                  placeholder={currencyAmountPlaceholder(currency)}
+                  helper={wholeUnit
+                    ? (allowLegacyDecimal && !Number.isInteger(initial)
+                      ? `Keep the current decimal for a note-only edit, or enter a whole ${currency} amount up to ${formatWholeMoney(Math.floor(max), { currency })}`
+                      : `Whole ${currency} amounts only · Max ${formatWholeMoney(Math.floor(max), { currency })}`)
+                    : `Max ${formatMoney(max, { currency })}`}
+                  error={error}
+                  autoFocus
+                  returnKeyType="next"
+                  containerStyle={{ marginTop: SPACING.md }}
+                  testID="payment-amount-input"
+                />
+              )}
               <Input
                 label="Remark (optional)"
                 value={noteStr}
                 onChangeText={setNoteStr}
                 placeholder="Made the payment on Gpay app."
                 multiline
+                autoFocus={amountLocked}
                 submitBehavior="newline"
                 containerStyle={{ marginTop: SPACING.md }}
                 testID="payment-remark-input"
@@ -854,7 +886,12 @@ export function AmountModal({
                 <Button label="Cancel" variant="secondary" onPress={onCancel} fullWidth />
               </View>
               <View style={styles.modalAction}>
-                <Button label={submitLabel} onPress={submit} fullWidth testID="payment-amount-continue" />
+                <Button
+                  label={submitLabel}
+                  onPress={submit}
+                  fullWidth
+                  testID={amountLocked ? 'payment-remark-continue' : 'payment-amount-continue'}
+                />
               </View>
             </View>
           </Pressable>
@@ -909,6 +946,7 @@ const styles = StyleSheet.create({
   // flexShrink lets the scroll area absorb overflow (keyboard open / small screen) while the
   // header and footer keep their natural height.
   modalBody: { flexGrow: 0, flexShrink: 1 },
+  lockedAmount: { gap: SPACING.xs, marginTop: SPACING.md },
   // Negative margins overlap the card padding so the 44px ✕ hit target aligns to the top-right
   // edge without growing the header (mirrors src/ui/Toast.tsx `close`).
   modalClose: { marginVertical: -SPACING.sm, marginRight: -SPACING.sm },

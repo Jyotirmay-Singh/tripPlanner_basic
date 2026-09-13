@@ -127,7 +127,36 @@ export function canRecordPayment(
 }
 
 /**
- * UX mirror of backend can_initiate_upi_payment: only the account linked to the CURRENT payer may
+ * UX mirror of the dedicated backend UPI-attempt review policy. This intentionally does not call
+ * canRecordPayment: future manual-ledger permission changes must not widen access to private UPI
+ * snapshots or payer-entered references. Receiving-family accounts and administrators may review.
+ */
+export function canReviewUpiAttempt(
+  trip: RoleTrip,
+  toMemberId: string,
+  userId: string | undefined,
+  members: {
+    id: string;
+    kind?: string;
+    user_id?: string | null;
+    family_member_user_ids?: (string | null)[];
+  }[],
+  isSuperAdmin = false,
+): boolean {
+  if (isSuperAdmin) return true;
+  if (!userId) return false;
+  const role = roleOf(trip, userId);
+  if (role === 'owner' || role === 'admin') return true;
+  const receiver = members.find((member) => member.id === toMemberId);
+  if (!receiver) return false;
+  if (receiver.kind === 'family') {
+    return (receiver.family_member_user_ids ?? []).includes(userId);
+  }
+  return !!receiver.user_id && receiver.user_id === userId;
+}
+
+/**
+ * UX mirror of backend can_initiate_upi_attempt: only the account linked to the CURRENT payer may
  * start an external UPI handoff. Owner/admin/application-admin status grants no exception. Any
  * linked person in a payer family represents that family account for this permission.
  */

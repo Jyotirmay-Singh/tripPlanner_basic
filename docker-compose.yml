@@ -9,6 +9,7 @@ services:
     image: mongo:7
     container_name: tripsplitter-mongo
     restart: unless-stopped
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     ports:
       - "27017:27017"
     volumes:
@@ -21,6 +22,31 @@ services:
       retries: 5
       start_period: 20s
 
+  mongo-init-replica:
+    image: mongo:7
+    container_name: tripsplitter-mongo-init
+    restart: "no"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mongosh --host mongo:27017 --quiet --eval '
+          try {
+            rs.status();
+          } catch (error) {
+            if (error.code === 94 || error.codeName === "NotYetInitialized") {
+              rs.initiate({_id: "rs0", members: [{_id: 0, host: "mongo:27017"}]});
+            } else {
+              throw error;
+            }
+          }
+        ' &&
+        until mongosh --host mongo:27017 --quiet --eval '
+          if (!db.hello().isWritablePrimary) { quit(1); }
+        '; do sleep 1; done
+
   backend:
     build: ./backend
     container_name: tripsplitter-backend
@@ -31,10 +57,10 @@ services:
       - ./backend/.env
     # Override MONGO_URL to reach Mongo over the compose network (takes precedence over env_file).
     environment:
-      MONGO_URL: mongodb://mongo:27017
+      MONGO_URL: mongodb://mongo:27017/?replicaSet=rs0
     depends_on:
-      mongo:
-        condition: service_healthy
+      mongo-init-replica:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
 

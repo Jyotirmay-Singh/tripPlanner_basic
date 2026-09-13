@@ -10,6 +10,7 @@ import {
   canMarkSettlementPaid,
   canRecordPayment,
   canInitiateUpiPayment,
+  canReviewUpiAttempt,
 } from '../permissions';
 
 describe('canModifyExpense', () => {
@@ -190,6 +191,42 @@ describe('canInitiateUpiPayment', () => {
     expect(canInitiateUpiPayment(TRIP, 'payer', 'member', members)).toBe(false);
     expect(canInitiateUpiPayment(TRIP, 'payer', undefined, members, true)).toBe(false);
     expect(canInitiateUpiPayment(TRIP, 'missing', 'payer-user', members)).toBe(false);
+  });
+});
+
+describe('canReviewUpiAttempt', () => {
+  const reviewTrip = {
+    owner_id: 'owner',
+    admin_ids: ['owner', 'admin'],
+    user_ids: [
+      'owner', 'admin', 'payer-1', 'payer-2', 'recipient-1', 'recipient-2', 'member',
+    ],
+  };
+  const members = [
+    {
+      id: 'payer', kind: 'family',
+      family_member_user_ids: ['payer-1', 'payer-2'],
+    },
+    {
+      id: 'recipient', kind: 'family',
+      family_member_user_ids: ['recipient-1', 'recipient-2'],
+    },
+  ];
+
+  it('allows every receiving-family account plus owner, admin, and super-admin', () => {
+    expect(canReviewUpiAttempt(reviewTrip, 'recipient', 'recipient-1', members)).toBe(true);
+    expect(canReviewUpiAttempt(reviewTrip, 'recipient', 'recipient-2', members)).toBe(true);
+    expect(canReviewUpiAttempt(reviewTrip, 'recipient', 'owner', members)).toBe(true);
+    expect(canReviewUpiAttempt(reviewTrip, 'recipient', 'admin', members)).toBe(true);
+    expect(canReviewUpiAttempt(reviewTrip, 'recipient', undefined, members, true)).toBe(true);
+  });
+
+  it('denies both payer-family accounts, unrelated members, outsiders, and missing users', () => {
+    expect(canReviewUpiAttempt(reviewTrip, 'recipient', 'payer-1', members)).toBe(false);
+    expect(canReviewUpiAttempt(reviewTrip, 'recipient', 'payer-2', members)).toBe(false);
+    expect(canReviewUpiAttempt(reviewTrip, 'recipient', 'member', members)).toBe(false);
+    expect(canReviewUpiAttempt(reviewTrip, 'recipient', 'outsider', members)).toBe(false);
+    expect(canReviewUpiAttempt(reviewTrip, 'recipient', undefined, members)).toBe(false);
   });
 });
 

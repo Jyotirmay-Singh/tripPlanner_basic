@@ -391,7 +391,7 @@ def test_creation_revalidates_quote_pair_payable_recipient_and_upi(monkeypatch):
     assert recipient_error.value.detail["code"] == "recipient_changed"
 
 
-def test_one_active_attempt_blocks_the_direction_across_linked_family_payers(monkeypatch):
+def test_one_active_attempt_returns_privacy_safe_conflict_to_another_family_payer(monkeypatch):
     active = attempt(
         "awaiting_confirmation",
         transaction_reference="PRIVATE-REF",
@@ -403,15 +403,44 @@ def test_one_active_attempt_blocks_the_direction_across_linked_family_payers(mon
         quotes=[quote("quote-2", user_id="payer-user-2")],
     )
 
+    with pytest.raises(HTTPException) as caught:
+        run(attempt_routes.create_payment_attempt(
+            "trip-1", create_body("quote-2"), user={"id": "payer-user-2"},
+        ))
+
+    assert caught.value.status_code == 409
+    assert caught.value.detail == {
+        "code": "active_attempt_owned_by_another_payer",
+        "message": "A UPI payment is already pending for this payer and recipient",
+        "retryable": False,
+    }
+    serialized = repr(caught.value.detail)
+    assert "attempt-1" not in serialized
+    assert "recipient@upi" not in serialized
+    assert "PRIVATE-REF" not in serialized
+    assert fake_db.payment_attempts.rows[0]["transaction_reference"] == "PRIVATE-REF"
+    assert fake_db.payment_attempts.insert_calls == 0
+    attempt_routes._compute_balances.assert_not_awaited()
+
+
+def test_same_initiating_account_gets_existing_active_attempt_idempotently(monkeypatch):
+    active = attempt("awaiting_confirmation", transaction_reference="MY-REF")
+    fake_db = install_attempt_route(
+        monkeypatch,
+        attempts=[active],
+        quotes=[quote("quote-2")],
+    )
+
     result = run(attempt_routes.create_payment_attempt(
-        "trip-1", create_body("quote-2"), user={"id": "payer-user-2"},
+        "trip-1", create_body("quote-2"), user={"id": "payer-user"},
     ))
 
     assert result["id"] == "attempt-1"
     assert result["quote_id"] == "quote-1"
-    assert result["transaction_reference"] is None
-    assert fake_db.payment_attempts.rows[0]["transaction_reference"] == "PRIVATE-REF"
+    assert result["upi_id_snapshot"] == "recipient@upi"
+    assert result["transaction_reference"] == "MY-REF"
     assert fake_db.payment_attempts.insert_calls == 0
+    attempt_routes._compute_balances.assert_not_awaited()
 
 
 def test_sender_reporting_cancel_and_claim_erasure_rules(monkeypatch):
@@ -463,6 +492,29 @@ def test_sender_reporting_cancel_and_claim_erasure_rules(monkeypatch):
 
 
 @pytest.mark.parametrize("user", [
+    {"id": "payer-user-2"},
+    {"id": "recipient-user"},
+    {"id": "recipient-user-2"},
+    {"id": "owner-user"},
+    {"id": "admin-user"},
+    {"id": "root-user", "email": SUPER_ADMIN_EMAIL, "role": "super_admin"},
+    {"id": "other-user"},
+    {"id": "outsider-user"},
+])
+def test_only_exact_initiating_account_may_use_sender_endpoint(user, monkeypatch):
+    install_attempt_route(monkeypatch, attempts=[attempt()])
+
+    with pytest.raises(HTTPException) as forbidden:
+        run(attempt_routes.update_payment_attempt_sender(
+            "trip-1", "attempt-1", PaymentAttemptSenderPatch(action="cancel"),
+            BackgroundTasks(), user=user,
+        ))
+
+    assert forbidden.value.status_code == 403
+
+
+@pytest.mark.parametrize("user", [
+    {"id": "recipient-user"},
     {"id": "recipient-user-2"},
     {"id": "owner-user"},
     {"id": "admin-user"},
@@ -479,6 +531,24 @@ def test_linked_family_recipients_and_reviewers_are_authorized(user, monkeypatch
     ))
     assert result["status"] == "needs_review"
     assert fake_db.payment_attempts.rows[0]["recipient_not_received_by"] == user["id"]
+
+
+@pytest.mark.parametrize("user", [
+    {"id": "payer-user"},
+    {"id": "payer-user-2"},
+    {"id": "other-user"},
+    {"id": "outsider-user"},
+])
+def test_payers_unrelated_members_and_outsiders_cannot_review(user, monkeypatch):
+    install_attempt_route(monkeypatch, attempts=[attempt("awaiting_confirmation")])
+
+    with pytest.raises(HTTPException) as forbidden:
+        run(attempt_routes.update_payment_attempt_recipient(
+            "trip-1", "attempt-1", PaymentAttemptRecipientPatch(action="report_not_received"),
+            BackgroundTasks(), user=user,
+        ))
+
+    assert forbidden.value.status_code == 403
 
 
 def test_unrelated_user_cannot_review_and_list_visibility_is_scoped(monkeypatch):
@@ -506,6 +576,19 @@ def test_unrelated_user_cannot_review_and_list_visibility_is_scoped(monkeypatch)
         "trip-1", user={"id": "owner-user"},
     ))
     assert {row["id"] for row in admin_rows} == {"mine", "creditor"}
+
+    sibling_payer_rows = run(attempt_routes.list_payment_attempts(
+        "trip-1", user={"id": "payer-user-2"},
+    ))
+    unrelated_rows = run(attempt_routes.list_payment_attempts(
+        "trip-1", user={"id": "other-user"},
+    ))
+    outsider_rows = run(attempt_routes.list_payment_attempts(
+        "trip-1", user={"id": "outsider-user"},
+    ))
+    assert sibling_payer_rows == []
+    assert unrelated_rows == []
+    assert outsider_rows == []
 
 
 @pytest.mark.parametrize("payable, expected_status, expected_posted", [
@@ -716,7 +799,7 @@ def test_unresolved_attempt_documents_never_change_balances(monkeypatch):
     }]
 
 
-def test_confirmed_payment_edit_preserves_attempt_audit(monkeypatch):
+def test_confirmed_payment_rejects_amount_change_with_structured_conflict(monkeypatch):
     original_attempt = attempt(
         "settled_recipient_confirmed",
         linked_payment_id="payment-1",
@@ -751,14 +834,63 @@ def test_confirmed_payment_edit_preserves_attempt_audit(monkeypatch):
         return await callback(None)
 
     monkeypatch.setattr(payment_routes, "run_optional_transaction", optional)
+    with pytest.raises(HTTPException) as caught:
+        run(payment_routes.edit_payment(
+            "trip-1", "payment-1", PaymentPatch(amount="20", note="adjusted"),
+            user={"id": "recipient-user"},
+        ))
+
+    assert caught.value.status_code == 409
+    assert caught.value.detail == {
+        "code": "upi_confirmed_amount_immutable",
+        "message": "A recipient-confirmed UPI payment amount cannot be changed",
+        "retryable": False,
+    }
+    assert fake_db.payments.rows[0] == payment
+    assert fake_db.payment_attempts.rows[0] == original_attempt
+
+
+@pytest.mark.parametrize("amount", [None, "25.00"])
+def test_confirmed_payment_allows_remark_only_edits(amount, monkeypatch):
+    original_attempt = attempt(
+        "settled_recipient_confirmed",
+        linked_payment_id="payment-1",
+        posted_amount=25.0,
+        transaction_reference="UTR-1",
+    )
+    payment = {
+        "id": "payment-1",
+        "trip_id": "trip-1",
+        "from_member_id": "payer",
+        "to_member_id": "recipient",
+        "amount": 25.0,
+        "note": None,
+        "source": "upi_recipient_confirmed",
+        "payment_attempt_id": "attempt-1",
+    }
+    fake_db = SimpleNamespace(
+        trips=MemoryCollection([TRIP]),
+        payments=MemoryCollection([payment]),
+        payment_attempts=MemoryCollection([original_attempt]),
+    )
+    monkeypatch.setattr(payment_routes, "db", fake_db)
+    monkeypatch.setattr(
+        payment_routes, "_payment_or_403", AsyncMock(return_value=(deepcopy(TRIP), deepcopy(payment))),
+    )
+    monkeypatch.setattr(payment_routes, "_compute_balances", AsyncMock())
+    monkeypatch.setattr(payment_routes, "record_admin_action", AsyncMock())
+
     result = run(payment_routes.edit_payment(
-        "trip-1", "payment-1", PaymentPatch(amount="20", note="adjusted"),
+        "trip-1", "payment-1", PaymentPatch(amount=amount, note="remark only"),
         user={"id": "recipient-user"},
     ))
 
-    assert result["amount"] == 20.0
-    assert fake_db.payments.rows[0]["note"] == "adjusted"
+    assert result["amount"] == 25.0
+    assert result["note"] == "remark only"
+    assert fake_db.payments.rows[0]["amount"] == 25.0
+    assert fake_db.payments.rows[0]["note"] == "remark only"
     assert fake_db.payment_attempts.rows[0] == original_attempt
+    payment_routes._compute_balances.assert_not_awaited()
 
 
 def test_deleting_linked_payment_soft_voids_attempt_once(monkeypatch):
@@ -798,3 +930,44 @@ def test_deleting_linked_payment_soft_voids_attempt_once(monkeypatch):
     assert fake_db.payment_attempts.rows[0]["status"] == "voided"
     assert fake_db.payment_attempts.rows[0]["linked_payment_id"] == "payment-1"
     assert fake_db.payment_attempts.rows[0]["posted_amount"] == 25.0
+
+
+def test_deleting_linked_payment_fails_closed_without_partial_changes(monkeypatch):
+    stored_attempt = attempt(
+        "settled_recipient_confirmed", linked_payment_id="payment-1", posted_amount=25.0,
+    )
+    payment = {
+        "id": "payment-1",
+        "trip_id": "trip-1",
+        "from_member_id": "payer",
+        "to_member_id": "recipient",
+        "amount": 25.0,
+        "source": "upi_recipient_confirmed",
+        "payment_attempt_id": "attempt-1",
+    }
+    fake_db = SimpleNamespace(
+        trips=MemoryCollection([TRIP]),
+        payments=MemoryCollection([payment]),
+        payment_attempts=MemoryCollection([stored_attempt]),
+    )
+    monkeypatch.setattr(payment_routes, "db", fake_db)
+    monkeypatch.setattr(
+        payment_routes, "_payment_or_403", AsyncMock(return_value=(deepcopy(TRIP), deepcopy(payment))),
+    )
+    monkeypatch.setattr(payment_routes, "record_admin_action", AsyncMock())
+
+    async def unavailable(_callback):
+        raise TransactionUnavailableError("standalone")
+
+    monkeypatch.setattr(payment_routes, "run_required_transaction", unavailable)
+
+    with pytest.raises(HTTPException) as caught:
+        run(payment_routes.delete_payment(
+            "trip-1", "payment-1", user={"id": "recipient-user"},
+        ))
+
+    assert caught.value.status_code == 503
+    assert caught.value.detail["code"] == "payment_void_unavailable"
+    assert fake_db.trips.rows[0]["version"] == 4
+    assert fake_db.payments.rows == [payment]
+    assert fake_db.payment_attempts.rows == [stored_attempt]

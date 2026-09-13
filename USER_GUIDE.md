@@ -321,19 +321,26 @@ The screen labels the route **Minimum payment plan** when bounded exact optimiza
   recipient, UPI ID revision, original trip amount, exact INR amount, quote, and handoff method. If
   that save fails, the UPI ID is not copied and no payment app opens. Only one unresolved attempt can
   exist for the same payer → receiver direction, including when several accounts belong to a payer
-  family; use the existing **UPI pending** activity instead of starting another.
+  family. Only the exact account that started it can resume it; another payer-family account receives
+  a generic pending message and is not shown the attempt snapshot or payer-entered reference.
 - In the external payment app, complete all four steps yourself: **paste the copied UPI ID**, **verify
   the recipient shown by the app**, **enter the displayed INR amount**, and **review and authorize the
   payment inside that app**. Trip Splitter does not submit a payment, receive an intent result, or ask
   for your UPI PIN.
 - After a copy-only handoff, **I've paid** and **Not paid** appear immediately. After Trip Splitter
   opens a supported UPI app, those choices appear when you return to Trip Splitter. A failed copy or
-  launch remains saved so the initiating payer can resume or cancel it from **UPI payment activity**.
+  launch falls back to copy-only and remains saved so the initiating payer can resume or cancel it
+  from **UPI payment activity**. If an app launch reports success but never leaves Trip Splitter, tap
+  **App didn't open / continue manually** to reach the same paid/not-paid decision without getting
+  stuck.
 - If you choose **I've paid**, you may add a transaction reference of up to 100 characters. It is a
   payer-entered note for the involved users—**not bank verification**. The claim then waits for a
   recipient or trip admin/owner to choose **Confirm received** or **Not received**. The payer cannot
   erase a reported-payment claim.
-- A recipient can retry a disputed confirmation or close the review without posting. Unresolved
+- Any account linked to the receiving family, the trip owner/admin, or the application super-admin
+  can see the full incoming attempt and confirm receipt, report non-receipt, retry, or close review.
+  Unrelated members and outsiders cannot see attempt details or review it. A recipient/reviewer can
+  retry a disputed confirmation or close the review without posting. Unresolved
   attempts expire after 24 hours (the window restarts when a payment is reported or enters review),
   remain in the audit list, and never affect balances by themselves.
 - Confirmation recomputes the latest payable for that same direction. It posts exactly one normal
@@ -344,7 +351,8 @@ The screen labels the route **Minimum payment plan** when bounded exact optimiza
 - Only the selected UPI owner is notified when confirmation is requested; only the initiating payer
   is notified of confirmation, non-receipt, or review closure. Tapping one of these notifications
   opens the matching activity in **Settle Up**. Other authorized recipient-family accounts and trip
-  reviewers can use the persisted in-app list.
+  reviewers can use the persisted in-app list. Administrators may inspect a recipient's current UPI
+  details for an active recommendation, but only a linked payer account can start the handoff.
 
 **Rounding details & payment history**
 - **How rounding was applied** expands an auditable per-member list of exact balance, rounded payable
@@ -356,9 +364,9 @@ The screen labels the route **Minimum payment plan** when bounded exact optimiza
 - The receiver or an admin can **edit** (pencil) or **delete** (trash) a payment. Deleting re-opens its
   ledger effect. Legacy decimal LKR/NPR payments remain valid; a note-only edit preserves the original
   amount exactly, while changing the amount must follow the current whole-unit policy. Editing a
-  recipient-confirmed row changes only its ledger amount or remark; its UPI amount, quote, reference,
-  and confirmation audit stay unchanged. Deleting that row marks the audit **Payment removed** instead
-  of deleting it.
+  recipient-confirmed row opens a remark-only editor: its confirmed ledger amount, UPI amount, quote,
+  reference, and confirmation audit are immutable. Deleting that row atomically removes the ledger
+  payment and marks the audit **Payment removed** instead of deleting it.
 - After all suggested whole-rupee payments are recorded, **Settled within rounding** means no whole
   rupee remains to transfer. The disclosed precise residual is retained and carries into later expenses.
 
