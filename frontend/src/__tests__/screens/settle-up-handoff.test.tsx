@@ -16,6 +16,10 @@ jest.mock('expo-router', () => ({
   },
 }));
 
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 24, right: 0, bottom: 30, left: 0 }),
+}));
+
 jest.mock('../../api', () => ({
   api: (...args: unknown[]) => mockApi(...args),
   listPayments: (...args: unknown[]) => mockListPayments(...args),
@@ -240,7 +244,7 @@ it('keeps the original capped posting visible as the amount at confirmation', as
   expect(hosts(renderer, 'payment-attempt-capped-attempt-1')).toHaveLength(1);
 });
 
-it('labels confirmed ledger rows without removing edit and delete controls', async () => {
+it('labels confirmed ledger rows and opens a remark-only editor while retaining delete', async () => {
   const renderer = await mountAs(
     { id: 'recipient-user', is_super_admin: false },
     {
@@ -255,4 +259,8 @@ it('labels confirmed ledger rows without removing edit and delete controls', asy
   expect(labels).toContain('UPI — recipient confirmed');
   expect(hosts(renderer, 'payment-edit-payment-1')).toHaveLength(1);
   expect(hosts(renderer, 'payment-delete-btn-payment-1')).toHaveLength(1);
+  act(() => { interactive(renderer, 'payment-edit-payment-1').props.onPress(); });
+  expect(hosts(renderer, 'payment-locked-amount')).toHaveLength(1);
+  expect(hosts(renderer, 'payment-amount-input')).toHaveLength(0);
+  expect(hosts(renderer, 'payment-remark-continue')).toHaveLength(1);
 });

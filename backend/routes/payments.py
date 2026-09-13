@@ -18,10 +18,10 @@ from services.exchange_rates import (
 from utils.common import gen_id, now_utc
 from utils.deps import get_current_user, _trip_or_404, _payment_or_403, is_trip_admin
 from utils.members import padded_family_member_ids
-from utils.permissions import (
-    can_initiate_upi_payment,
-    can_record_payment,
-    is_linked_to_member,
+from utils.permissions import can_record_payment
+from utils.upi_attempt_permissions import (
+    can_initiate_upi_attempt,
+    can_inspect_upi_recipient_details,
 )
 from utils.balances import _compute_balances
 from utils.settlement_gate import (
@@ -166,7 +166,7 @@ async def payment_recipient_details(
     if payer is None or recipient is None:
         raise HTTPException(404, "Member not found")
 
-    if not is_trip_admin(trip, user) and not is_linked_to_member(payer, user):
+    if not can_inspect_upi_recipient_details(trip, from_member_id, user):
         raise HTTPException(403, "Only the payer or a trip admin can view payment details")
 
     balances = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
@@ -207,7 +207,7 @@ async def preview_payment_handoff(
     recipient = members_by_id.get(body.to_member_id)
     if payer is None or recipient is None:
         raise _handoff_error(404, "member_not_found", "Payer or recipient is no longer in this trip")
-    if not can_initiate_upi_payment(trip, body.from_member_id, user):
+    if not can_initiate_upi_attempt(trip, body.from_member_id, user):
         raise _handoff_error(
             403,
             "wrong_payer",
@@ -456,6 +456,12 @@ async def edit_payment(trip_id: str, payment_id: str, body: PaymentPatch,
         # Older clients resend the current amount on every note edit. Treat an exactly unchanged
         # value as no amount edit so legacy decimal records remain note-editable after rollout.
         if requested != existing:
+            if payment.get("source") == "upi_recipient_confirmed":
+                raise _handoff_error(
+                    409,
+                    "upi_confirmed_amount_immutable",
+                    "A recipient-confirmed UPI payment amount cannot be changed",
+                )
             amount, audit_fields = validate_new_amount(trip, requested)
             bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
             residual = _suggested_amount(bal["transfers"],

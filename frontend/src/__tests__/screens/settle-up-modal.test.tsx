@@ -128,4 +128,24 @@ describe('settle-up AmountModal (✕ close + reachable footer)', () => {
 
     expect(onSubmit).toHaveBeenCalledWith(legacyAmount, '');
   });
+
+  it('renders a remark-only editor for a recipient-confirmed UPI payment', () => {
+    const onSubmit = jest.fn();
+    const r = mount(jest.fn(), onSubmit, {
+      title: 'Edit payment remark',
+      initial: 50,
+      max: 50,
+      initialNote: 'old remark',
+      amountLocked: true,
+    });
+
+    expect(hasHost(r, 'payment-amount-input')).toBe(false);
+    expect(hasHost(r, 'payment-locked-amount')).toBe(true);
+    expect(hasHost(r, 'payment-remark-continue')).toBe(true);
+    expect(host(r, 'payment-remark-input').props.autoFocus).toBe(true);
+    act(() => { host(r, 'payment-remark-input').props.onChangeText('new remark'); });
+    act(() => { host(r, 'payment-remark-continue').props.onPress(); });
+
+    expect(onSubmit).toHaveBeenCalledWith(50, 'new remark');
+  });
 });

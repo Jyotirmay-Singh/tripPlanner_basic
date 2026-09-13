@@ -116,8 +116,8 @@ function expiryLabel(value: string): string {
 }
 
 function handoffErrorMessage(error: unknown): string {
-  const code = typeof ApiError === 'function' && error instanceof ApiError
-    ? error.detailCode
+  const code = error && typeof error === 'object'
+    ? (error as { detailCode?: string }).detailCode
     : undefined;
   switch (code) {
     case 'quote_expired':
@@ -132,6 +132,8 @@ function handoffErrorMessage(error: unknown): string {
       return 'Only the account linked to the current payer can continue.';
     case 'conversion_unavailable':
       return 'INR conversion is unavailable right now. Try reviewing again.';
+    case 'active_attempt_owned_by_another_payer':
+      return 'A UPI payment is already pending. The initiating payer must resume it.';
     default:
       return error instanceof Error ? error.message : 'Could not verify payment details.';
   }
@@ -457,7 +459,13 @@ export default function UpiPaymentSheet({
       }
       return created;
     } catch (error) {
-      setActionError(handoffErrorMessage(error));
+      if (error && typeof error === 'object'
+        && (error as { detailCode?: string }).detailCode
+          === 'active_attempt_owned_by_another_payer') {
+        clearReview(handoffErrorMessage(error));
+      } else {
+        setActionError(handoffErrorMessage(error));
+      }
       return null;
     }
   };
@@ -540,6 +548,13 @@ export default function UpiPaymentSheet({
     } finally {
       setWorkingAction(null);
     }
+  };
+
+  const continueManuallyAfterLaunch = () => {
+    setWaitingForAppReturn(false);
+    setWorkingAction(null);
+    setDecisionReady(true);
+    setNotice('Continue manually, then report whether you paid. No balance has changed.');
   };
 
   const noRecipientMessage = details?.recipients.length === 1
@@ -647,6 +662,13 @@ export default function UpiPaymentSheet({
                   <Card variant="muted" style={styles.messageCard} testID="upi-awaiting-app-return">
                     <T>Finish or cancel in the payment app, then return here.</T>
                     <T variant="caption" muted>No balance changes until the recipient confirms.</T>
+                    <Button
+                      label="App didn’t open / continue manually"
+                      variant="secondary"
+                      size="sm"
+                      onPress={continueManuallyAfterLaunch}
+                      testID="upi-app-did-not-open"
+                    />
                   </Card>
                 ) : null}
 

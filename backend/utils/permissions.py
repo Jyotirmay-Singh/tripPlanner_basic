@@ -100,24 +100,6 @@ def is_linked_to_member(member: Optional[dict], viewer: Viewer) -> bool:
     return member.get("user_id") == user_id
 
 
-def can_initiate_upi_payment(
-    trip: dict,
-    from_member_id: Optional[str],
-    viewer: Viewer,
-) -> bool:
-    """Only the account linked to the recommended payer may start a UPI handoff.
-
-    Trip and application admin status deliberately grant no exception. A family payer is linked
-    when the viewer owns any current person slot in that family.
-    """
-
-    payer = next(
-        (member for member in trip.get("members", []) if member.get("id") == from_member_id),
-        None,
-    )
-    return is_linked_to_member(payer, viewer)
-
-
 def can_record_payment(trip: dict, to_member_id: Optional[str], viewer: Viewer) -> bool:
     # Phase 20: a payment along a suggested debtor->creditor pair may be recorded/edited/deleted only
     # by a trip admin (owner is always seeded into admin_ids) or by the RECEIVER — the app user linked

@@ -20,13 +20,11 @@ const googlePay = {
   id: 'google-pay' as const,
   label: 'Google Pay',
   packageName: 'com.google.android.apps.nbu.paisa.user',
-  launchUri: 'intent://#Intent;package=com.google.android.apps.nbu.paisa.user;end',
 };
 const phonePe = {
   id: 'phonepe' as const,
   label: 'PhonePe',
   packageName: 'com.phonepe.app',
-  launchUri: 'intent://#Intent;package=com.phonepe.app;end',
 };
 
 jest.mock('../api', () => ({
@@ -379,6 +377,91 @@ it('waits for app background and foreground before showing sender decisions', as
   expect(nodes(renderer, 'upi-sender-decision')).toHaveLength(1);
   expect(node(renderer, 'upi-action-notice').props.children).toBeTruthy();
   expect(mockPreview).toHaveBeenCalledTimes(2);
+});
+
+it('offers a no-background escape when a successful launch never backgrounds the app', async () => {
+  const recipient = candidate('person', 'Recipient Person');
+  mockGetDetails.mockResolvedValue(details([recipient]));
+  mockPreview
+    .mockResolvedValueOnce(preview([recipient]))
+    .mockResolvedValueOnce(preview([recipient]));
+  const renderer = await mount();
+
+  await act(async () => { interactive(renderer, 'upi-review-payment').props.onPress(); });
+  await flush();
+  act(() => { interactive(renderer, 'upi-approve-details').props.onPress(); });
+  await act(async () => { interactive(renderer, 'upi-open-google-pay').props.onPress(); });
+  await flush();
+
+  expect(nodes(renderer, 'upi-awaiting-app-return')).toHaveLength(1);
+  expect(nodes(renderer, 'upi-sender-decision')).toHaveLength(0);
+  act(() => { interactive(renderer, 'upi-app-did-not-open').props.onPress(); });
+  expect(nodes(renderer, 'upi-awaiting-app-return')).toHaveLength(0);
+  expect(nodes(renderer, 'upi-sender-decision')).toHaveLength(1);
+  expect(node(renderer, 'upi-report-paid').props.disabled).toBe(false);
+  expect(renderer.root.findAllByType('T').map((item: any) => item.props.children)).toContain(
+    'Continue manually, then report whether you paid. No balance has changed.',
+  );
+});
+
+it('falls back to manual continuation when native launch fails after copying', async () => {
+  const recipient = candidate('person', 'Recipient Person');
+  mockGetDetails.mockResolvedValue(details([recipient]));
+  mockPreview
+    .mockResolvedValueOnce(preview([recipient]))
+    .mockResolvedValueOnce(preview([recipient]));
+  mockCopyAndLaunch.mockResolvedValueOnce({
+    ok: false,
+    status: 'launch_failed',
+    copied: true,
+    app: googlePay,
+    message: 'Could not open Google Pay. The UPI ID was copied.',
+  });
+  const renderer = await mount();
+
+  await act(async () => { interactive(renderer, 'upi-review-payment').props.onPress(); });
+  await flush();
+  act(() => { interactive(renderer, 'upi-approve-details').props.onPress(); });
+  await act(async () => { interactive(renderer, 'upi-open-google-pay').props.onPress(); });
+  await flush();
+
+  expect(nodes(renderer, 'upi-awaiting-app-return')).toHaveLength(0);
+  expect(nodes(renderer, 'upi-sender-decision')).toHaveLength(1);
+  expect(node(renderer, 'upi-action-error').props.children).toContain('Could not open');
+});
+
+it('shows only a generic pending message for another payer-family account and never copies', async () => {
+  const recipient = candidate('person', 'Recipient Person');
+  mockGetDetails.mockResolvedValue(details([recipient]));
+  mockPreview
+    .mockResolvedValueOnce(preview([recipient]))
+    .mockResolvedValueOnce(preview([recipient]));
+  const conflict = new MockApiError('PRIVATE-REF must never reach the UI');
+  conflict.detailCode = 'active_attempt_owned_by_another_payer';
+  conflict.data = {
+    detail: {
+      code: 'active_attempt_owned_by_another_payer',
+      message: 'A UPI payment is already pending for this payer and recipient',
+      retryable: false,
+    },
+  };
+  mockCreateAttempt.mockRejectedValueOnce(conflict);
+  const renderer = await mount();
+
+  await act(async () => { interactive(renderer, 'upi-review-payment').props.onPress(); });
+  await flush();
+  act(() => { interactive(renderer, 'upi-approve-details').props.onPress(); });
+  await act(async () => { interactive(renderer, 'upi-open-google-pay').props.onPress(); });
+  await flush();
+
+  expect(mockCreateAttempt).toHaveBeenCalledTimes(1);
+  expect(mockCopyAndLaunch).not.toHaveBeenCalled();
+  expect(mockCopy).not.toHaveBeenCalled();
+  expect(nodes(renderer, 'upi-attempt-attempt-1')).toHaveLength(0);
+  expect(nodes(renderer, 'upi-action-error')).toHaveLength(0);
+  expect(renderer.root.findAllByType('T').map((item: any) => item.props.children)).toContain(
+    'A UPI payment is already pending. The initiating payer must resume it.',
+  );
 });
 
 it('does not copy or launch when attempt persistence fails', async () => {

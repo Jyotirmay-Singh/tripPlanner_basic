@@ -27,7 +27,13 @@ from utils.common import gen_id, now_utc
 from utils.currency_rules import quantize_currency
 from utils.deps import _trip_or_404, get_current_user, is_trip_admin
 from utils.members import padded_family_member_ids
-from utils.permissions import can_initiate_upi_payment, can_record_payment
+from utils.upi_attempt_permissions import (
+    can_initiate_upi_attempt,
+    can_review_upi_attempt,
+    can_update_upi_attempt_as_sender,
+    has_full_upi_attempt_admin_access,
+    reviewable_upi_recipient_ids,
+)
 from utils.settlement_gate import decimal_amount, payable_tolerance, validate_new_amount
 from utils.upi_rules import normalize_upi_id
 
@@ -94,23 +100,30 @@ def _changed(result: object) -> bool:
     return count != 0 if isinstance(count, int) else True
 
 
-def _response(document: dict, *, redact_sender_private: bool = False) -> dict:
+def _response(document: dict) -> dict:
     result = {
         key: value
         for key, value in document.items()
         if key not in {"_id", "active_key"}
     }
-    if redact_sender_private:
-        # A different account linked to the same family payer may discover the direction lock by
-        # trying to create an attempt, but it is not the initiating payer and must not receive that
-        # payer's optional private reference. Recipient/admin list access remains unchanged.
-        result["transaction_reference"] = None
     expires_at = _aware_datetime(result.get("expires_at"))
     if expires_at is not None:
         result["expires_at"] = expires_at.isoformat()
     paise = int(result.get("amount_paise") or 0)
     result["inr_amount"] = f"{paise // 100}.{paise % 100:02d}"
     return result
+
+
+def _existing_active_attempt(active: dict, user: dict) -> dict:
+    """Return an exact sender's attempt, but reveal no snapshot for a sibling payer account."""
+
+    if can_update_upi_attempt_as_sender(active, user):
+        return _response(active)
+    raise _error(
+        409,
+        "active_attempt_owned_by_another_payer",
+        "A UPI payment is already pending for this payer and recipient",
+    )
 
 
 def _creditor_people(member: dict) -> list[dict]:
@@ -242,12 +255,17 @@ async def create_payment_attempt(
     creditor = members.get(to_member_id)
     if not payer or not creditor:
         raise _error(409, "member_changed", "The payer or recipient is no longer in this trip")
-    if not can_initiate_upi_payment(trip, from_member_id, user):
+    if not can_initiate_upi_attempt(trip, from_member_id, user):
         raise _error(
             403,
             "wrong_payer",
             "Only an account linked to the recommended payer can initiate this payment",
         )
+
+    key = _active_key(trip_id, from_member_id, to_member_id)
+    active = await db.payment_attempts.find_one({"active_key": key}, {"_id": 0})
+    if active:
+        return _existing_active_attempt(active, user)
 
     currency = str(trip.get("currency") or "INR").upper()
     try:
@@ -295,16 +313,6 @@ async def create_payment_attempt(
         )
 
     recipient = await _selected_recipient(creditor, body.recipient_person_id)
-    key = _active_key(trip_id, from_member_id, to_member_id)
-    active = await db.payment_attempts.find_one({"active_key": key}, {"_id": 0})
-    if active:
-        return _response(
-            active,
-            redact_sender_private=(
-                active.get("initiating_payer_user_id") != user.get("id")
-            ),
-        )
-
     timestamp = now_utc()
     source_amount_text = _money_string(source_amount, currency)
     document = {
@@ -360,12 +368,7 @@ async def create_payment_attempt(
                     return _response(duplicate)
                 raise _error(409, "quote_already_used", "This payment quote was already used")
             if duplicate.get("trip_id") == trip_id and duplicate.get("active_key") == key:
-                return _response(
-                    duplicate,
-                    redact_sender_private=(
-                        duplicate.get("initiating_payer_user_id") != user.get("id")
-                    ),
-                )
+                return _existing_active_attempt(duplicate, user)
         raise
     return _response(document)
 
@@ -374,14 +377,10 @@ async def create_payment_attempt(
 async def list_payment_attempts(trip_id: str, user=Depends(get_current_user)):
     trip = await _trip_or_404(trip_id, user)
     await expire_payment_attempts(trip_id)
-    if is_trip_admin(trip, user):
+    if has_full_upi_attempt_admin_access(trip, user):
         query: dict = {"trip_id": trip_id}
     else:
-        creditor_ids = [
-            member.get("id")
-            for member in trip.get("members", [])
-            if can_record_payment(trip, member.get("id"), user)
-        ]
+        creditor_ids = reviewable_upi_recipient_ids(trip, user)
         query = {
             "trip_id": trip_id,
             "$or": [
@@ -406,7 +405,7 @@ async def update_payment_attempt_sender(
     await _trip_or_404(trip_id, user)
     await expire_payment_attempts(trip_id)
     attempt = await _attempt_or_404(trip_id, attempt_id)
-    if attempt.get("initiating_payer_user_id") != user.get("id"):
+    if not can_update_upi_attempt_as_sender(attempt, user):
         raise HTTPException(403, "Only the initiating payer can update this payment attempt")
 
     status = attempt.get("status")
@@ -493,7 +492,7 @@ async def _confirm_received_transaction(
         trip = await db.trips.find_one({"id": trip_id}, {"_id": 0}, session=session)
         if not trip:
             raise HTTPException(404, "Trip not found")
-        if not can_record_payment(trip, attempt.get("to_member_id"), user):
+        if not can_review_upi_attempt(trip, attempt.get("to_member_id"), user):
             raise HTTPException(403, "Only the recipient or a trip admin can confirm this payment")
 
         balances = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user), session=session)
@@ -616,7 +615,7 @@ async def update_payment_attempt_recipient(
     trip = await _trip_or_404(trip_id, user)
     await expire_payment_attempts(trip_id)
     attempt = await _attempt_or_404(trip_id, attempt_id)
-    if not can_record_payment(trip, attempt.get("to_member_id"), user):
+    if not can_review_upi_attempt(trip, attempt.get("to_member_id"), user):
         raise HTTPException(403, "Only the recipient or a trip admin can review this payment")
 
     if body.action == "confirm_received":

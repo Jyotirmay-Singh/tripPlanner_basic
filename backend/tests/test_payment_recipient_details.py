@@ -214,6 +214,31 @@ def test_family_recipient_returns_every_person_in_roster_order_including_unavail
     assert queried_ids == ["family-user-1", "family-user-3"]
 
 
+@pytest.mark.parametrize("payer_user_id", ["payer-user", "payer-user-2"])
+def test_each_account_linked_to_payer_family_may_inspect_current_recipient_details(
+    payer_user_id, monkeypatch,
+):
+    trip = deepcopy(INDIVIDUAL_TRIP)
+    trip["user_ids"].append("payer-user-2")
+    trip["members"][0] = {
+        "id": "payer",
+        "name": "Payer Family",
+        "kind": "family",
+        "family_members": ["First payer", "Second payer"],
+        "family_member_ids": ["payer-person-1", "payer-person-2"],
+        "family_member_user_ids": ["payer-user", "payer-user-2"],
+    }
+    _install_route_state(
+        monkeypatch,
+        trip=trip,
+        profiles=[{"id": "recipient-user", "upi_id": "recipient@bank"}],
+    )
+
+    result = _lookup({"id": payer_user_id})
+
+    assert result["recipients"][0]["upi_id"] == "recipient@bank"
+
+
 def test_unlinked_individual_is_returned_as_unavailable_without_a_user_query(monkeypatch):
     trip = deepcopy(INDIVIDUAL_TRIP)
     trip["members"][1]["user_id"] = None
@@ -246,11 +271,14 @@ def test_owner_admin_and_super_admin_may_inspect_an_active_pair(user, monkeypatc
     assert result["to_member_id"] == "recipient"
 
 
-def test_unrelated_trip_member_is_denied_before_balance_or_profile_lookup(monkeypatch):
+@pytest.mark.parametrize("user_id", ["recipient-user", "bystander-user"])
+def test_recipient_and_unrelated_trip_member_are_denied_before_private_lookup(
+    user_id, monkeypatch,
+):
     fake_db, _guard, balances = _install_route_state(monkeypatch)
 
     with pytest.raises(HTTPException) as error:
-        _lookup({"id": "bystander-user"})
+        _lookup({"id": user_id})
 
     assert error.value.status_code == 403
     balances.assert_not_awaited()

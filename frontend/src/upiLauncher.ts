@@ -1,46 +1,40 @@
 import * as Clipboard from 'expo-clipboard';
-import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
+import {
+  getUpiAppLauncherModule,
+  type UpiAppId,
+  type UpiAppLauncherModule,
+} from './upiAppLauncherModule';
 
-export type UpiAppId = 'google-pay' | 'phonepe' | 'paytm' | 'bhim';
+export type { UpiAppId } from './upiAppLauncherModule';
 
 export type UpiApp = Readonly<{
   id: UpiAppId;
   label: string;
   packageName: string;
-  launchUri: string;
 }>;
 
-const packageLaunchUri = (packageName: string) => (
-  `intent://#Intent;action=android.intent.action.MAIN;`
-  + `category=android.intent.category.LAUNCHER;package=${packageName};end`
-);
-
-/** Fixed product catalog and priority order. These intents carry no payment data. */
+/** Fixed product catalog and priority order. Only each allowlisted id crosses the native bridge. */
 export const UPI_APP_CATALOG: readonly UpiApp[] = Object.freeze([
   {
     id: 'google-pay',
     label: 'Google Pay',
     packageName: 'com.google.android.apps.nbu.paisa.user',
-    launchUri: packageLaunchUri('com.google.android.apps.nbu.paisa.user'),
   },
   {
     id: 'phonepe',
     label: 'PhonePe',
     packageName: 'com.phonepe.app',
-    launchUri: packageLaunchUri('com.phonepe.app'),
   },
   {
     id: 'paytm',
     label: 'Paytm',
     packageName: 'net.one97.paytm',
-    launchUri: packageLaunchUri('net.one97.paytm'),
   },
   {
     id: 'bhim',
     label: 'BHIM',
     packageName: 'in.org.npci.upiapp',
-    launchUri: packageLaunchUri('in.org.npci.upiapp'),
   },
 ]);
 
@@ -58,28 +52,33 @@ export type UpiLaunchResult =
   | { ok: true; status: 'launched'; app: UpiApp; copied: true }
   | {
       ok: false;
-      status: 'clipboard_failed' | 'unavailable_app' | 'launch_failed' | 'unsupported_platform';
+      status:
+        | 'clipboard_failed'
+        | 'unavailable_app'
+        | 'launch_failed'
+        | 'module_unavailable'
+        | 'unsupported_platform';
       message: string;
       copied: boolean;
       app?: UpiApp;
     };
 
-type CanOpenUrl = (url: string) => Promise<boolean>;
-type OpenUrl = (url: string) => Promise<unknown>;
 type SetClipboard = (value: string) => Promise<boolean>;
 
 export async function discoverUpiApps(
   platform = Platform.OS,
-  canOpenURL: CanOpenUrl = Linking.canOpenURL,
+  module?: UpiAppLauncherModule | null,
 ): Promise<UpiAvailability> {
   if (platform !== 'android') {
     return { status: 'unsupported', platform, apps: [] };
   }
+  const nativeModule = module === undefined ? getUpiAppLauncherModule() : module;
+  if (!nativeModule) {
+    return { status: 'discovery_failed', platform, apps: [] };
+  }
   try {
-    const detected = await Promise.all(
-      UPI_APP_CATALOG.map(async (app) => ({ app, installed: await canOpenURL(app.launchUri) })),
-    );
-    const apps = detected.filter(({ installed }) => installed).map(({ app }) => app);
+    const availableIds = new Set(await nativeModule.getAvailableUpiApps());
+    const apps = UPI_APP_CATALOG.filter((app) => availableIds.has(app.id));
     return { status: apps.length ? 'available' : 'none', platform, apps };
   } catch {
     // Android package visibility or Linking failures must degrade to copy-only, never guess.
@@ -113,8 +112,7 @@ export async function copyUpiId(
 async function launchUpiApp(
   app: UpiApp,
   platform: string,
-  canOpenURL: CanOpenUrl,
-  openURL: OpenUrl,
+  module?: UpiAppLauncherModule | null,
 ): Promise<UpiLaunchResult> {
   if (platform !== 'android') {
     return {
@@ -125,24 +123,38 @@ async function launchUpiApp(
       app,
     };
   }
-  let available = false;
-  try {
-    available = await canOpenURL(app.launchUri);
-  } catch {
-    available = false;
-  }
-  if (!available) {
+  const nativeModule = module === undefined ? getUpiAppLauncherModule() : module;
+  if (!nativeModule) {
     return {
       ok: false,
-      status: 'unavailable_app',
-      message: `${app.label} is no longer available. The UPI ID was copied.`,
+      status: 'module_unavailable',
+      message: 'UPI app launching is unavailable in this build. The UPI ID was copied.',
       copied: true,
       app,
     };
   }
   try {
-    const opened = await openURL(app.launchUri);
-    if (opened === false) throw new Error('Linking resolved false');
+    const availableIds = await nativeModule.getAvailableUpiApps();
+    if (!availableIds.includes(app.id)) {
+      return {
+        ok: false,
+        status: 'unavailable_app',
+        message: `${app.label} is no longer available. The UPI ID was copied.`,
+        copied: true,
+        app,
+      };
+    }
+  } catch {
+    return {
+      ok: false,
+      status: 'launch_failed',
+      message: `Could not check ${app.label}. The UPI ID was copied.`,
+      copied: true,
+      app,
+    };
+  }
+  try {
+    await nativeModule.launchUpiApp(app.id);
     return { ok: true, status: 'launched', app, copied: true };
   } catch {
     return {
@@ -162,8 +174,7 @@ export async function copyAndLaunchUpiApp(
   dependencies: {
     platform?: string;
     setStringAsync?: SetClipboard;
-    canOpenURL?: CanOpenUrl;
-    openURL?: OpenUrl;
+    module?: UpiAppLauncherModule | null;
   } = {},
 ): Promise<UpiLaunchResult> {
   const copied = await copyUpiId(upiId, dependencies.setStringAsync ?? Clipboard.setStringAsync);
@@ -171,7 +182,6 @@ export async function copyAndLaunchUpiApp(
   return launchUpiApp(
     app,
     dependencies.platform ?? Platform.OS,
-    dependencies.canOpenURL ?? Linking.canOpenURL,
-    dependencies.openURL ?? Linking.openURL,
+    dependencies.module,
   );
 }
