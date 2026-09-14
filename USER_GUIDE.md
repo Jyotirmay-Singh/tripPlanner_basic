@@ -58,7 +58,7 @@ between **You come out ahead**, **You owe overall**, **All settled up**, and a m
 On the **Trips** tab, every trip card shows your own position for that trip:
 - **YOU'RE OWED** with a green exact amount when other members collectively owe you;
 - **YOU OWE** with a coral exact amount when you owe other members;
-- **Settled** when your rounded balance is zero.
+- **Settled** when your whole-unit balance is zero.
 
 The amount always uses that trip's currency. On narrow Android phones or with larger accessibility
 text, the balance moves below the trip details so the exact value and navigation chevron stay visible.
@@ -74,9 +74,9 @@ Settled trips remain tappable and can still be opened normally.
      settlement, and report on this trip. It is locked after creation. Normally create separate
      trips for different reporting currencies (for example, an LKR Sri Lanka trip and an NPR Nepal
      trip).
-     The picker contains 26 travel currencies. JPY and KRW use whole units; KWD, BHD, and OMR use
-     three decimal places; every other supported currency uses two. Budgets and payment amounts must
-     follow the official currency's precision.
+     The picker contains 26 travel currencies. Every budget, expense, allocation, balance, and
+     payment uses whole major-currency units regardless of currency; exchange-rate ratios are the
+     only decimal values in normal entry. For example, enter `400`, not `400.00`.
    - **Who are you on this trip?** — choose **I'm an individual** (default) or **I'm in a family**.
      If you pick *family*, enter the **family name**, add a row per member (your name is pre-filled on
      the first row), and tap **"This is me"** on your own row. Your login email + account attach to
@@ -222,10 +222,9 @@ across standalone individuals, family entries, and joined app users.
      in the trip currency (as a positive magnitude; the original minus sign is preserved).
    - Check the original amount, converted amount, rate, effective date, provider/cache status, then
      tap **Use this conversion**. A foreign transaction cannot be saved without this confirmation.
-   - Amounts must use the selected currency's legal precision: JPY/KRW accept no decimal places;
-     KWD/BHD/OMR accept up to three; the other supported currencies accept up to two. Extra entered
-     digits are rejected rather than silently rounded. Calculated conversions round half-up to the
-     trip currency's precision.
+   - Money fields accept signed whole numbers only, so a pasted decimal is rejected. A manual
+     exchange-rate ratio may still contain decimals, while a manual final amount must be whole.
+     Calculated conversions round half-up to a whole unit in the trip currency.
    - A same-currency transaction uses rate 1 and never contacts the rate service. Foreign-currency
      entry still requires an online connection to the backend, including when you supply a manual
      rate or final amount.
@@ -248,8 +247,8 @@ across standalone individuals, family entries, and joined app users.
       total is negative. A **reconciliation bar** shows *Assigned* vs *Remaining* and turns green
       when the amounts add up to the original total's magnitude. **Split remaining equally** fills
       the ticked-but-blank rows for you. **Save stays disabled until the amounts exactly equal the
-      total**. The server converts the allocations with the locked rate and distributes any indivisible
-      minor units deterministically, so their trip-currency sum exactly matches the converted total.
+      total**. The server converts the allocations with the locked rate and distributes any remainder
+      whole units deterministically, so their trip-currency sum exactly matches the converted total.
 11. **Receipt (optional)** — *Attach image* picks a photo; it's stored as base64 with the transaction.
 11. Tap **Save transaction**.
 12. If the running total now exceeds the trip budget, a warning dialog asks you to **Cancel** or **Save anyway**.
@@ -275,7 +274,7 @@ Open any trip and look at the **Summary** tab (default tab):
 - **Budget bar** — green if under, red if over. Shows used / total.
 - **Mini-stats** — number of transactions, total refunds (money back to the group).
 - **Donut chart** — spend by category, with % in the legend. **Tap any slice or legend row** to open that category's breakdown. The category screen reconciles its net total against gross money paid and refunds, ranks who paid/fronted the positive transactions (family payers stay grouped as one entity), and shows each payer's amount, percentage, and transaction count. The source transactions follow with the largest spends first and refunds afterward.
-- **Top spenders bar chart** — ranks each entity (a standalone individual or a whole family) by how much money they actually **paid/fronted** on this trip, biggest first. A small 👤/👥 marker shows individual vs family, and the bar deepens in shade toward the top spender. The header reads e.g. *"INR 1,200.00 spent across 4 entities."*
+- **Top spenders bar chart** — ranks each entity (a standalone individual or a whole family) by how much money they actually **paid/fronted** on this trip, biggest first. A small 👤/👥 marker shows individual vs family, and the bar deepens in shade toward the top spender. The header reads e.g. *"₹1,200 spent across 4 entities."*
   - This is **gross spend** — *who paid*, nothing else. It does **not** subtract anyone's share or any settlements, and it ignores the per-person/per-family split mode. Refunds (negative "money back" rows) are **not** subtracted here, so this total can differ from the trip's net *Spent* figure at the top of the screen when refunds exist. Members who paid nothing are still listed (at the bottom) so the roster stays complete.
   - **Tap any entity's name or bar** to open its spending history: the expenses that individual or family fronted, each showing the date, category, split mode, the amount fronted, and *their share* of that expense. The running total at the top equals that entity's bar exactly (gross fronted; refunds excluded, so it can differ from the trip's net *Spent*). Tapping a row opens that expense to edit it.
 
@@ -286,26 +285,25 @@ Open any trip and look at the **Summary** tab (default tab):
 ### 7.1 Balances tab
 Inside a trip, the **Balances** tab shows:
 - Each member's **net balance** (positive = others owe them; negative = they owe).
-- For each family: the per-person share is shown right under the family total, and the names are listed individually (e.g. *Arjun -100.00, Priya -100.00, Rohan -100.00*). When members took part unevenly, each name reflects **only the expenses that member actually took part in** — a member left out of an expense (unchecked under "Who took part?") owes nothing for it, and the credit from a bill the family paid lands only on the members who shared it. **Settled money drops off**: once a settlement is marked paid, the balances it cleared no longer show — so after settling up, only newer, still-unsettled expenses remain on each member's line. These rows always add up exactly to the family total.
+- For each family: the per-person share is shown right under the family total, and the names are listed individually (e.g. *Arjun -₹100, Priya -₹100, Rohan -₹100*). When members took part unevenly, each name reflects **only the expenses that member actually took part in** — a member left out of an expense (unchecked under "Who took part?") owes nothing for it, and the credit from a bill the family paid lands only on the members who shared it. **Settled money drops off**: once a settlement is marked paid, the balances it cleared no longer show — so after settling up, only newer, still-unsettled expenses remain on each member's line. These rows always add up exactly to the family total.
 - **Suggested settlements** — a deterministic plan computed by the backend. Typical groups receive a
   true minimum-payment plan; unusually large or search-heavy groups receive a deterministic simplified
   plan that still conserves every settlement unit.
-- When whole-unit settlement is enabled for an LKR or NPR trip, each card also shows its **exact
-  balance**, **rounded whole-rupee balance**, and **rounding adjustment**. Exact balances stay in the
-  ledger; only the payment projection is rounded, and all rounded balances still add to zero.
+- Every visible balance is a complete, grouped whole-unit value with the trip currency's symbol.
+  Currency selectors, field labels, accessibility text, APIs, and reports continue to use ISO codes.
 
 ### 7.2 Settle Up screen
 Open via the trip's **Settle Up** button. It shows the current backend-authoritative *Pays → Receives*
-recommendations. For LKR and NPR, the optional whole-unit policy produces amounts such as **LKR
-1,250**, never LKR 1,249.67. The group is rounded together, so total paid always equals total received.
+recommendations. Every supported currency uses whole major units, such as **LKR 1,250**, never
+LKR 1,249.67. The group is reconciled together, so total paid always equals total received.
 The screen labels the route **Minimum payment plan** when bounded exact optimization succeeded and
 **Simplified payment plan** when the efficient fallback was used.
 
 **Recording a payment**
 - Tap **Record payment** on a pair to open the amount box. It's **pre-filled with the full amount owed**
   and shows a **Max** hint. You can record the full amount or a positive partial amount up to that
-  maximum (**no overpayment**). When whole-unit LKR/NPR settlement is enabled, new and amount-edited
-  payments must be whole rupees; other trips use their official currency's legal precision. Tap **Continue**, then confirm
+  maximum (**no overpayment**). New and amount-edited payments must be whole major-currency units for
+  every supported currency. Tap **Continue**, then confirm
   on the *"Confirm _X_ paid _amount_ to _Y_?"* guard.
 - Only the **receiver** (the person getting the money) or a **trip admin/owner** can record a payment —
   the payer can't mark their own debt paid. If a family wallet is receiving, any account linked to a
@@ -354,21 +352,18 @@ The screen labels the route **Minimum payment plan** when bounded exact optimiza
   reviewers can use the persisted in-app list. Administrators may inspect a recipient's current UPI
   details for an active recommendation, but only a linked payer account can start the handoff.
 
-**Rounding details & payment history**
-- **How rounding was applied** expands an auditable per-member list of exact balance, rounded payable
-  or receivable, and adjustment.
+**Payment history**
 - Payment history is chronological and separate from the live route, so recomputation never makes an
   old payment look as though it belonged to a new pair. Each entry shows payer, receiver, amount,
   date/time (in **IST**, UTC+05:30), optional remark, and a **Paid** badge. A UPI row is labeled
   **UPI — recipient confirmed**.
 - The receiver or an admin can **edit** (pencil) or **delete** (trash) a payment. Deleting re-opens its
-  ledger effect. Legacy decimal LKR/NPR payments remain valid; a note-only edit preserves the original
-  amount exactly, while changing the amount must follow the current whole-unit policy. Editing a
+  ledger effect. A note-only edit preserves any legacy decimal amount exactly; changing the amount
+  normalizes it to the current whole-unit policy and records an audit entry. Editing a
   recipient-confirmed row opens a remark-only editor: its confirmed ledger amount, UPI amount, quote,
   reference, and confirmation audit are immutable. Deleting that row atomically removes the ledger
   payment and marks the audit **Payment removed** instead of deleting it.
-- After all suggested whole-rupee payments are recorded, **Settled within rounding** means no whole
-  rupee remains to transfer. The disclosed precise residual is retained and carries into later expenses.
+- After all suggested payments are recorded, no whole unit remains to transfer and the trip is settled.
 
 Payments are durable: adding new expenses later never voids them — a recorded payment keeps offsetting
 the recomputed balance (and can even flip who owes whom if someone has now overpaid). Settlement never
@@ -412,7 +407,8 @@ presence, or per-message seen receipts.
 - Bottom-tab **Reports** lists all your trips.
 - Tap **XLSX** to download a professionally-formatted Excel workbook (bold frozen headers, currency
   number format, right-aligned figures), or **PDF** for a print-ready version of the **full report**.
-  The XLSX has **five sheets**:
+  The XLSX has **five main sheets**, plus a dedicated **Migration Adjustments** sheet when a migrated
+  trip has a private reconciliation vector:
   1. **Summary** — trip header (name, dates, share code, currency, member composition, budget,
      **Total Spent**), a **Spend by entity** block ranking who paid the most (**Gross Spent**,
      descending), and the **By category** totals.
@@ -423,9 +419,9 @@ presence, or per-message seen receipts.
      (see §7.2), so it always matches the balances the app shows. (Family-member rows show only their
      share of the family's **Net Balance**, which sums to the family total.)
   3. **Split Math** — the full split breakdown, one block per expense: every participant row shows
-     **Units** (people counted; an entity counts as 1 in Per-Family), **Per-Unit Cost**, and
-     **Allocated** amount, with a per-expense **Subtotal**. Per-Person divides by the total involved
-     people; Per-Family divides by the number of entities.
+     **Units** (people counted; an entity counts as 1 in Per-Family), the participant's actual integer
+     **Allocation**, and whether that participant received a remainder unit, with a per-expense
+     **Subtotal**. Per-Person divides by the total involved people; Per-Family divides by entities.
   4. **Transactions** — an itemised breakdown that expands **every expense into one row per person**,
      showing each member's **Total Payable** (their share of that expense). The canonical amount is
      accompanied by the original amount/currency, locked rate, effective date, provider, mode, and
@@ -438,14 +434,16 @@ presence, or per-message seen receipts.
      **Amount** (trip currency), **Date & Time** (shown in **IST**, UTC+05:30), optional **Remark**,
      and a privacy-safe **Source** label. Recipient-confirmed rows say **UPI — recipient confirmed**;
      reports never include the UPI ID or payer-entered transaction reference. There is one row per
-     payment (three partial payments = three rows), with a bold **Total** row. For whole-unit LKR/NPR trips,
-     this tab also includes the exact-versus-rounded balance audit, policy/routing metadata, and the
-     current whole-rupee recommendations.
+     payment (three partial payments = three rows), with a bold **Total** row. It also includes the
+     whole-unit policy/routing metadata and current recommendations when a settlement plan is open.
+  6. **Migration Adjustments** *(when present)* — the private per-entity whole-unit adjustment vector,
+     policy version, creation time, and a zero-sum total. It never appears in Transactions or Payments.
 
 The **PDF** is the **full report** in a landscape, print-ready layout: a title block (trip name,
 composition, dates, currency) followed by the **Summary**, **Members & Families**, exploded
-**Transactions** (with per-person pivot), and **Payments** sections — plus the whole-unit settlement
-audit when enabled — built from the same figures as the spreadsheet, so both reconcile to identical totals. Tables carry styled headers,
+**Split Allocations**, **Transactions** (with per-person pivot), and **Payments** sections — plus a
+dedicated migration-adjustment section when present — built from the same figures as the spreadsheet,
+so both reconcile to identical totals. Tables carry styled headers,
 zebra striping, red/parenthesised negatives, bold totals, and a *Page X of Y* footer.
 
 "Gross Spent" (a.k.a. Total Spent) is the amount an entity actually fronted — not net of their own
@@ -484,18 +482,16 @@ The download opens in your phone's browser; share or save it from there.
   providers silently and never saves an unconverted foreign amount. Manual conversion still needs an
   online backend connection so the approved quote can be validated and locked.
 - **Precision:** canonical expense conversions are locked at write time and are never re-fetched during
-  settlement. Balance shares are calculated with deterministic 12-decimal scaled integers, then shown
-  and settled in the trip currency's ISO increment: whole units for JPY/KRW, three decimals for
-  KWD/BHD/OMR, and two decimals for the other supported currencies. Reports apportion indivisible
-  units deterministically so their rows and totals reconcile. When separately enabled, LKR/NPR
-  settlement is an opt-in, zero-sum whole-rupee projection; exact balances remain authoritative.
+  settlement. Exchange-rate ratios retain decimal precision; active monetary values are rounded
+  half-up to whole major-currency units. Automatic splits distribute remainder units payer-first and
+  then in visible roster order, so app previews, saved allocations, balances, and reports reconcile.
 - **Rollout note for operators:** `MULTI_CURRENCY_EXPENSES_ENABLED` is deliberately **off by default**.
-  Before turning it on, run the read-only currency-precision audit and resolve every unsupported trip
-  currency or invalid stored amount it reports; there is no automatic data migration. Enable the flag
-  only after the compatible backend and Android client are live. `WHOLE_UNIT_SETTLEMENTS_ENABLED`
-  remains a separate opt-in switch for LKR/NPR. From the backend directory, run
-  `python -m scripts.audit_currency_precision --dry-run`; the command only reads records and exits
-  non-zero when it finds a violation.
+  Before turning it on, run the read-only whole-unit audit and resolve every unsupported trip
+  currency or invalid stored amount it reports. Enable the flag only after the compatible backend and
+  Android client are live. Whole-unit money is application policy rather than a rollout flag. From the
+  backend directory, run `python -m scripts.audit_currency_precision --dry-run` for a read-only audit,
+  then use `python -m scripts.migrate_whole_unit_money --dry-run` before any separately authorized
+  apply or revert operation.
 - **Receipts** are stored in MongoDB GridFS and load on demand; legacy inline receipts remain readable.
 
 ---

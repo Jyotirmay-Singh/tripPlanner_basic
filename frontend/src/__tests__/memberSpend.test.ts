@@ -73,20 +73,20 @@ describe('memberSpendHistory', () => {
     expect(memberSpendHistory(expenses, 'A').rows[0].share).toBe(null);
   });
 
-  it('sums cleanly to 2dp (no float drift)', () => {
+  it('sums whole-unit amounts exactly', () => {
     const expenses = [
-      mk({ id: 'e1', amount: 0.1, paid_by_member_id: 'A' }),
-      mk({ id: 'e2', amount: 0.2, paid_by_member_id: 'A' }),
+      mk({ id: 'e1', amount: 101, paid_by_member_id: 'A' }),
+      mk({ id: 'e2', amount: 202, paid_by_member_id: 'A' }),
     ];
-    expect(memberSpendHistory(expenses, 'A').total).toBe(0.3);
+    expect(memberSpendHistory(expenses, 'A').total).toBe(303);
   });
 
-  it('sums cleanly in a three-decimal trip currency', () => {
+  it('uses whole units for a formerly three-decimal trip currency', () => {
     const expenses = [
-      mk({ id: 'e1', amount: 0.001, paid_by_member_id: 'A' }),
-      mk({ id: 'e2', amount: 0.002, paid_by_member_id: 'A' }),
+      mk({ id: 'e1', amount: 1, paid_by_member_id: 'A' }),
+      mk({ id: 'e2', amount: 2, paid_by_member_id: 'A' }),
     ];
-    expect(memberSpendHistory(expenses, 'A', 'KWD').total).toBe(0.003);
+    expect(memberSpendHistory(expenses, 'A', 'KWD').total).toBe(3);
   });
 
   it('empty / no-match yields { rows: [], total: 0 }', () => {

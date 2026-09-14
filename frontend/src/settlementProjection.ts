@@ -1,5 +1,4 @@
 import type { Transfer } from './settlements';
-import { currencyMinorUnits } from './currencies';
 
 export type SettlementStatus = 'open' | 'settled_exactly' | 'settled_within_rounding';
 
@@ -34,22 +33,6 @@ export type BalanceResponse<Member = unknown> = {
 
 export function usesWholeUnits(projection: SettlementProjection | null | undefined): boolean {
   return projection?.enabled === true && projection.increment === '1';
-}
-
-/** Format an API fixed-decimal string without first making it a JS floating-point number. */
-export function formatPreciseMoney(value: string | undefined, currency: string): string {
-  if (value === undefined) return `${currency} —`;
-  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(value);
-  if (!match) return `${currency} ${value}`;
-  const sign = match[1];
-  const grouped = match[2].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const rawFraction = match[3] ?? '';
-  const fraction = rawFraction.replace(/0+$/, '');
-  const minimumDigits = currencyMinorUnits(currency);
-  const shownFraction = fraction.padEnd(minimumDigits, '0');
-  return shownFraction
-    ? `${currency} ${sign}${grouped}.${shownFraction}`
-    : `${currency} ${sign}${grouped}`;
 }
 
 export function currentSuggestedAmount(

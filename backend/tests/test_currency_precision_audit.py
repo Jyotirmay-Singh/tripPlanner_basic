@@ -38,25 +38,25 @@ def test_audit_cli_accepts_explicit_dry_run_mode():
     assert build_parser().parse_args(["--dry-run"]).dry_run is True
 
 
-def test_clean_zero_two_and_three_decimal_documents_pass():
+def test_clean_whole_unit_documents_pass_for_every_currency():
     violations = audit_currency_precision(
         trips=[
             {"id": "jpy", "currency": "JPY", "budget": 1000},
-            {"id": "usd", "currency": "USD", "budget": 10.25},
-            {"id": "kwd", "currency": "KWD", "budget": Decimal128("1.234")},
+            {"id": "usd", "currency": "USD", "budget": 10},
+            {"id": "kwd", "currency": "KWD", "budget": Decimal128("1")},
         ],
         expenses=[
             {
-                "id": "e1", "trip_id": "kwd", "currency": "KWD", "amount": 1.234,
+                "id": "e1", "trip_id": "kwd", "currency": "KWD", "amount": 2,
                 "original_currency": "JPY", "original_amount": Decimal128("150"),
-                "custom_amounts": {"a": 0.617, "b": 0.617},
+                "custom_amounts": {"a": 1, "b": 1},
                 "original_custom_amounts": {
                     "a": Decimal128("75"), "b": Decimal128("75")
                 },
             },
         ],
         settlements=[{"id": "s1", "trip_id": "jpy", "amount": 10}],
-        payments=[{"id": "p1", "trip_id": "usd", "amount": 2.50}],
+        payments=[{"id": "p1", "trip_id": "usd", "amount": 2}],
     )
     assert violations == []
 
@@ -85,8 +85,8 @@ def test_every_persisted_money_location_is_reported_without_mutation():
         ("settlement", "amount"),
         ("payment", "amount"),
     }
-    assert all(row["reason"] == "excess_precision" for row in violations)
-    assert all(row["allowed_digits"] in (0, 2) for row in violations)
+    assert all(row["reason"] == "non_whole_unit" for row in violations)
+    assert all(row["allowed_digits"] == 0 for row in violations)
     assert database.trips.reads == database.expenses.reads == 1
     assert database.settlements.reads == database.payments.reads == 1
 

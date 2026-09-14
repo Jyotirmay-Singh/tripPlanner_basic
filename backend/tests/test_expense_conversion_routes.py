@@ -42,6 +42,27 @@ def run(awaitable):
     return asyncio.run(awaitable)
 
 
+def test_budget_warning_details_expose_whole_overage_and_iso_currency():
+    result = expenses._budget_warning_details(
+        {"budget": 1_000, "currency": "GBP"},
+        current=400,
+        candidate=1_100,
+    )
+
+    assert result == {
+        "warning": "This expense puts you 500 GBP over the trip budget.",
+        "budget_overage": 500,
+        "currency": "GBP",
+    }
+
+
+def test_budget_warning_details_are_absent_at_or_below_budget():
+    trip = {"budget": 1_000, "currency": "INR"}
+
+    assert expenses._budget_warning_details(trip, current=400, candidate=600) is None
+    assert expenses._budget_warning_details(trip, current=400, candidate=-100) is None
+
+
 class MemoryExpenses:
     def __init__(self, document):
         self.document = dict(document)

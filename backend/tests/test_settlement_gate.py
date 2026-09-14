@@ -44,8 +44,8 @@ class TestIsSettled:
 
     def test_at_or_above_epsilon_is_not_settled(self):
         assert not is_settled(SETTLED_EPS)
-        assert not is_settled(0.01)
-        assert not is_settled(-0.01)
+        assert not is_settled(1)
+        assert not is_settled(-1)
 
 
 class TestEntityNet:

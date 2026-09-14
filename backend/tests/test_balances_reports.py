@@ -275,7 +275,7 @@ class TestReports:
         assert mf_header[0] == "Name" and mf_header[1] == "Type" and mf_header[2] == "Family"
         assert "Gross Spent" in mf_header[3] and "Share of Expenses" in mf_header[4]
         assert "Settlements" in mf_header[5] and "Net Balance" in mf_header[6]
-        # Every numeric entity/total row reconciles: Net = Paid - Share + Settlements (to the cent).
+    # Every numeric entity/total row reconciles: Net = Paid - Share + Settlements (to the unit).
         recon_rows = 0
         for name, typ, fam, paid, share, settle, net in mf.iter_rows(min_row=2, values_only=True):
             if all(isinstance(x, (int, float)) for x in (paid, share, settle, net)):

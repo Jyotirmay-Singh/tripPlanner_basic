@@ -7,7 +7,7 @@
 //
 // RECONCILIATION (critical): "gross spend" for the bar (backend services/spend_summary.aggregate_spend)
 // is what the entity PAID/FRONTED — Σ amount over expenses where amount > 0 AND
-// paid_by_member_id == entity.id, rounded to the trip currency's ISO precision. It is
+// paid_by_member_id == entity.id, rounded to whole major-currency units. It is
 // split-mode-INDEPENDENT and EXCLUDES refunds.
 // So `total` here sums the SAME positive fronted amounts and rounds the same way, and therefore equals
 // the entity's bar value exactly. The per-expense `share` (this entity's own split share) is carried
@@ -61,7 +61,7 @@ export function memberSpendHistory(
   currency = 'INR',
 ): { rows: MemberSpendRow[]; total: number } {
   const rows: MemberSpendRow[] = [];
-  let cents = 0;
+  let units = 0;
   for (const e of expenses ?? []) {
     if (!(e.amount > 0) || e.paid_by_member_id !== memberId) continue; // gross fronted only ⇒ matches the bar
     const self = e.shares?.entities?.find((x) => x.id === memberId);
@@ -78,7 +78,7 @@ export function memberSpendHistory(
       split_mode: e.split_mode ?? 'PER_CAPITA',
       share: self ? self.share : null,
     });
-    cents += toCurrencyUnits(e.amount, currency);
+    units += toCurrencyUnits(e.amount, currency);
   }
-  return { rows, total: fromCurrencyUnits(cents, currency) };
+  return { rows, total: fromCurrencyUnits(units, currency) };
 }

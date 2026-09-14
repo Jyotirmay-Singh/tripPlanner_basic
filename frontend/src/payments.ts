@@ -270,10 +270,10 @@ export type PairBlock = {
   payments: Payment[];
 };
 
-const minorUnit = (currency: string) => Number(currencyIncrement(currency));
+const moneyIncrement = (currency: string) => Number(currencyIncrement(currency));
 
-/** Ignore only sub-minor-unit transport noise, never a legal non-zero payment. */
-const zeroTolerance = (currency: string) => minorUnit(currency) / 2;
+/** Ignore only sub-unit transport noise, never a legal non-zero whole payment. */
+const zeroTolerance = (currency: string) => moneyIncrement(currency) / 2;
 
 const roundMoney = (value: number, currency: string) =>
   fromCurrencyUnits(toCurrencyUnits(value, currency), currency);
@@ -290,7 +290,7 @@ export function paymentsForPair(
     .sort((a, b) => ((a.created_at || '') < (b.created_at || '') ? 1 : -1));
 }
 
-/** Total paid along a direction, summed in integer minor units. */
+/** Total paid along a direction, summed in integer whole units. */
 export function pairPaid(
   payments: Payment[] | null | undefined,
   fromId: string,
@@ -312,8 +312,8 @@ export function paymentStatus(
   currency = 'INR',
 ): PaymentStatus {
   const tolerance = zeroTolerance(currency);
-  if (paid <= tolerance) return 'open';
-  return currentPayable <= tolerance ? 'paid' : 'partial';
+  if (paid < tolerance) return 'open';
+  return currentPayable < tolerance ? 'paid' : 'partial';
 }
 
 /** The pair's original debt = current residual + what's already been paid along it. */

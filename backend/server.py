@@ -140,6 +140,11 @@ async def lifespan(app: FastAPI):
     await db.admin_audit_logs.create_index("id", unique=True)
     await db.admin_audit_logs.create_index([("created_at", -1), ("id", -1)])
     await db.admin_audit_logs.create_index([("trip_id", 1), ("created_at", -1)])
+    await db.money_normalization_audits.create_index("id", unique=True)
+    await db.money_normalization_audits.create_index([("trip_id", 1), ("created_at", -1)])
+    await db.money_migration_audits.create_index("id", unique=True)
+    await db.money_migration_audits.create_index("migration_key", unique=True)
+    await db.money_migration_adjustments.create_index("trip_id", unique=True)
     # Phase 9: grandfather every pre-existing user (incl. the seeded admin) as already
     # verified and credential-complete so the new email-verification / set-credentials flows
     # never lock anyone out. Idempotent: only touches docs missing the field.

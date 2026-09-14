@@ -9,7 +9,7 @@ Pure (plain dicts/lists, no DB/IO), mirroring ``frontend/src/payments.ts`` and t
 helpers (``services/spend_summary.py`` etc.). Reused by reconciliation tests.
 """
 
-from utils.currency_rules import currency_minor_units, quantize_currency
+from utils.money_policy import whole_money
 
 
 def _dir(row: dict) -> tuple:
@@ -17,26 +17,26 @@ def _dir(row: dict) -> tuple:
 
 
 def _increment(currency: str) -> float:
-    return 10 ** -currency_minor_units(currency)
+    return 1.0
 
 
 def _zero_tolerance(currency: str) -> float:
-    """Stay tolerant of float transport noise without hiding one legal minor unit."""
+    """Stay tolerant of float transport noise without hiding one legal whole unit."""
 
     return _increment(currency) / 2
 
 
 def _round_money(value: float, currency: str) -> float:
-    return float(quantize_currency(value, currency))
+    return whole_money(value, label="Payment amount", reject_nonzero_to_zero=False)
 
 
 def payment_status(current_payable: float, paid: float, currency: str = "INR") -> str:
     """Derived state for a pair: 'paid' (fully settled with payments), 'partial' (some paid, some
     left), or 'open' (nothing recorded). Mirrors ``paymentStatus`` in ``frontend/src/payments.ts``."""
     epsilon = _zero_tolerance(currency)
-    if paid <= epsilon:
+    if paid < epsilon:
         return "open"
-    return "paid" if current_payable <= epsilon else "partial"
+    return "paid" if current_payable < epsilon else "partial"
 
 
 def pair_blocks(transfers: list, payments: list, currency: str = "INR") -> list:

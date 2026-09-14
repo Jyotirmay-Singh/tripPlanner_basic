@@ -1,12 +1,12 @@
 // Pure helpers for the EXACT split editor (Phase 22). Person-level rows roll UP to entity shares,
 // exactly mirroring the backend (backend/services/custom_split.py). All arithmetic is done in integer
-// currency minor units to avoid float drift. The shared vectors in shared/exact-split-vectors.json are asserted by
+// whole major-currency units to avoid float drift. The shared vectors in shared/exact-split-vectors.json are asserted by
 // BOTH this module's jest tests and the backend, so the rollup / save-gate logic can never diverge.
 // DISPLAY/INPUT only — nothing here computes a balance; the backend is the source of truth and
 // re-validates every EXACT expense (the frontend save-gate simply mirrors that rule).
 
 import { familyMemberIds, FPMember } from './familyParticipation';
-import { fromCurrencyUnits, toCurrencyUnits } from './currencies';
+import { allocateWholeWeighted, fromCurrencyUnits, roundWholeMoney, toCurrencyUnits } from './currencies';
 
 export type ExactRow = {
   /** person-level id: a family roster member id, or a standalone individual's own id. */
@@ -40,7 +40,11 @@ export function buildExactRows(members: FPMember[], custom?: Record<string, numb
 /** Person-level rows -> the `custom_amounts` payload the backend persists (included rows with a value). */
 export function rowsToCustomAmounts(rows: ExactRow[]): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const r of rows) if (r.included && r.amount != null && Number.isFinite(r.amount)) out[r.memberId] = r.amount;
+  for (const r of rows) {
+    if (r.included && r.amount != null && Number.isFinite(r.amount)) {
+      out[r.memberId] = roundWholeMoney(r.amount);
+    }
+  }
   return out;
 }
 
@@ -48,7 +52,7 @@ const has = (r: ExactRow): boolean => r.included && r.amount != null && Number.i
 
 /**
  * Sum of the included amounts vs the total. `isValid` means the sum matches the total in the
- * currency's minor units and total is positive—the same rule enforced by the backend save gate.
+ * whole units and total is positive—the same rule enforced by the backend save gate.
  */
 export function reconcile(
   rows: ExactRow[],
@@ -68,7 +72,7 @@ export function reconcile(
 }
 
 /**
- * Roll person-level rows up to `{ entityId: amount }` using currency minor units, dropping zero
+ * Roll person-level rows up to `{ entityId: amount }` using whole units, dropping zero
  * entities. This matches the backend values consumed by the ledger.
  */
 export function resolveEntityShares(rows: ExactRow[], currency = 'INR'): Record<string, number> {
@@ -94,6 +98,7 @@ export function splitRemainingEqually(
   rows: ExactRow[],
   total: number,
   currency = 'INR',
+  payerId?: string | null,
 ): ExactRow[] {
   const out = rows.map((r) => ({ ...r }));
   const blanks = out.filter((r) => r.included && (r.amount == null || !Number.isFinite(r.amount)));
@@ -107,12 +112,15 @@ export function splitRemainingEqually(
     0,
     toCurrencyUnits(Math.abs(total), currency) - assignedUnits,
   );
-  const base = Math.floor(remainingUnits / blanks.length);
-
-  blanks.forEach((r, i) => {
-    const isLast = i === blanks.length - 1;
-    const units = isLast ? remainingUnits - base * (blanks.length - 1) : base;
-    r.amount = fromCurrencyUnits(units, currency);
+  const blankIds = blanks.map((row) => row.memberId);
+  const allocations = allocateWholeWeighted(
+    remainingUnits,
+    Object.fromEntries(blankIds.map((id) => [id, 1])),
+    blankIds,
+    payerId,
+  );
+  blanks.forEach((row) => {
+    row.amount = fromCurrencyUnits(allocations[row.memberId], currency);
   });
   return out;
 }

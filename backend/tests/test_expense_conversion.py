@@ -8,7 +8,6 @@ from bson.decimal128 import Decimal128
 from models.exchange_rate import ConversionRequest
 from services import expense_conversion as conversion
 from services.exchange_rates import ExchangeRateError
-from utils.currency_rules import CurrencyPrecisionError
 
 
 MEMBERS = [
@@ -58,9 +57,9 @@ def test_inr_expense_converts_to_locked_lkr_canonical_amount(monkeypatch):
         conversion=approved(), version=1, reason="created",
     ))
 
-    assert result["amount"] == 3520.40
+    assert result["amount"] == 3520
     assert result["currency"] == "LKR"
-    assert result["metadata"]["original_amount"].to_decimal() == Decimal("1000.00")
+    assert result["metadata"]["original_amount"] == 1000
     assert result["metadata"]["exchange_rate"].to_decimal() == Decimal("3.5204")
     assert result["metadata"]["exchange_rate_date"] == "2026-08-28"
     assert result["metadata"]["conversion_version"] == 1
@@ -80,7 +79,7 @@ def test_inr_expense_converts_to_npr_and_negative_refund_keeps_sign(monkeypatch)
     ))
 
     assert result["amount"] == -1600.0
-    assert result["metadata"]["original_amount"].to_decimal() == Decimal("-1000.00")
+    assert result["metadata"]["original_amount"] == -1000
 
 
 def test_npr_expense_converts_to_lkr_trip_currency(monkeypatch):
@@ -97,7 +96,7 @@ def test_npr_expense_converts_to_lkr_trip_currency(monkeypatch):
         conversion=approved(), version=1, reason="created",
     ))
 
-    assert result["amount"] == 2062.50
+    assert result["amount"] == 2063
     assert result["currency"] == "LKR"
     assert result["metadata"]["original_currency"] == "NPR"
     assert result["metadata"]["exchange_rate"].to_decimal() == Decimal("1.375")
@@ -114,7 +113,7 @@ def test_same_currency_uses_rate_one_without_loading_quote(monkeypatch):
         conversion=None, version=1, reason="created",
     ))
 
-    assert result["amount"] == 125.5
+    assert result["amount"] == 126
     assert result["metadata"]["exchange_rate"].to_decimal() == Decimal("1")
     assert result["metadata"]["exchange_rate_provider"] == "identity"
     loader.assert_not_awaited()
@@ -132,9 +131,9 @@ def test_exact_conversion_uses_deterministic_largest_remainder(monkeypatch):
         conversion=approved(), version=1, reason="created",
     ))
 
-    assert result["custom_amounts"] == {"a": 50.0, "b": 49.99, "c": 50.01}
+    assert result["custom_amounts"] == {"a": 52, "b": 49, "c": 49}
     assert sum(result["custom_amounts"].values()) == result["amount"]
-    assert result["history"]["original_custom_amounts"]["a"].to_decimal() == Decimal("33.33")
+    assert result["history"]["original_custom_amounts"]["a"] == 34
 
 
 def test_exact_refund_allocations_are_positive_inputs_and_negative_canonical_shares(monkeypatch):
@@ -184,7 +183,7 @@ def test_locked_exact_reallocation_preserves_rate_and_canonical_total():
         members=MEMBERS, user_id="u1", version=2,
     )
 
-    assert result["custom_amounts"] == {"a": 37.5, "b": 112.5}
+    assert result["custom_amounts"] == {"a": 38, "b": 112}
     assert result["metadata"]["conversion_version"] == 2
     assert result["history"]["rate"].to_decimal() == Decimal("1.5")
     assert result["history"]["reason"] == "exact_reallocated"
@@ -197,7 +196,7 @@ def test_bson_serialization_keeps_metadata_decimals_as_strings():
     }) == {"original_amount": "1000.00", "rate": "3.5204"}
 
 
-def test_jpy_refund_converts_to_kwd_with_three_decimal_canonical_amount(monkeypatch):
+def test_jpy_refund_converts_to_kwd_with_whole_canonical_amount(monkeypatch):
     refund_quote = quote(
         target="-1.235", rate="0.2469", target_currency="KWD",
         source="-5", source_currency="JPY",
@@ -211,8 +210,8 @@ def test_jpy_refund_converts_to_kwd_with_three_decimal_canonical_amount(monkeypa
         conversion=approved(), version=1, reason="created",
     ))
 
-    assert result["amount"] == -1.235
-    assert result["metadata"]["original_amount"].to_decimal() == Decimal("-5")
+    assert result["amount"] == -1
+    assert result["metadata"]["original_amount"] == -5
     assert result["metadata"]["original_currency"] == "JPY"
 
 
@@ -220,17 +219,22 @@ def test_jpy_refund_converts_to_kwd_with_three_decimal_canonical_amount(monkeypa
     "source_currency,source_amount",
     [("JPY", "1.1"), ("INR", "1.001"), ("KWD", "1.0001")],
 )
-def test_expense_conversion_rejects_excessive_source_precision(
+def test_expense_conversion_normalizes_legacy_source_decimals(
     monkeypatch, source_currency, source_amount
 ):
-    loader = AsyncMock()
+    loader = AsyncMock(return_value=quote(
+        target="1", rate="1", target_currency="LKR",
+        source="1", source_currency=source_currency,
+    ))
     monkeypatch.setattr(conversion, "load_quote", loader)
-    with pytest.raises(CurrencyPrecisionError):
-        run(conversion.convert_expense(
-            user_id="u1", trip_currency="LKR", date="28-08-26",
-            split_mode="PER_CAPITA", members=MEMBERS,
-            original_amount=source_amount, original_currency=source_currency,
-            original_custom_amounts=None, conversion=approved(), version=1,
-            reason="created",
-        ))
-    loader.assert_not_awaited()
+    result = run(conversion.convert_expense(
+        user_id="u1", trip_currency="LKR", date="28-08-26",
+        split_mode="PER_CAPITA", members=MEMBERS,
+        original_amount=source_amount, original_currency=source_currency,
+        original_custom_amounts=None, conversion=approved(), version=1,
+        reason="created",
+    ))
+    assert result["amount"] == 1
+    assert result["metadata"]["original_amount"] == 1
+    assert result["normalizations"][0]["field"] == "original_amount"
+    loader.assert_awaited_once()

@@ -109,7 +109,10 @@ jest.mock('../../permissions', () => ({
 }));
 jest.mock('../../composition', () => ({ compositionLabel: () => '' }));
 jest.mock('../../displayNames', () => ({ memberDisplayNames: () => ({}), familyMemberDisplayNames: () => [] }));
-jest.mock('../../format', () => ({ formatMoney: () => '0', formatCompactMoney: () => '0' }));
+jest.mock('../../format', () => ({
+  formatMoney: () => '0',
+  formatAccessibleMoney: () => 'INR 0',
+}));
 jest.mock('../../date', () => ({ formatTripDates: () => '' }));
 jest.mock('../../time', () => ({ formatTime12h: () => '' }));
 jest.mock('../../bill', () => ({ billLabel: () => 'Bill not attached' }));

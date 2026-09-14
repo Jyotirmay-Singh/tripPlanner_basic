@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database import db, client  # noqa: E402
 from services.income_migration import simulate_trip, to_negative_expense  # noqa: E402
-from utils.currency_rules import currency_minor_units  # noqa: E402
+from utils.money_policy import whole_money  # noqa: E402
 
 
 async def _affected_trip_ids() -> list:
@@ -40,7 +40,8 @@ async def _load_trip_context(trip_id: str):
 
 
 def _fmt_money(value, currency: str) -> str:
-    return f"{value:,.{currency_minor_units(currency)}f}"
+    del currency
+    return f"{whole_money(value, reject_nonzero_to_zero=False):,}"
 
 
 async def dry_run() -> int:

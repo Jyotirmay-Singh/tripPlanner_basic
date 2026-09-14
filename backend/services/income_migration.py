@@ -16,7 +16,7 @@ from services.settlement_engine import (
     scaled_number,
     settlement_increment,
 )
-from utils.currency_rules import quantize_currency
+from utils.money_policy import whole_money
 from utils.settlement_gate import is_settled
 
 
@@ -25,7 +25,7 @@ def compute_net(
 ) -> dict:
     """member_id -> rounded net. Faithful replica of ``utils.balances._compute_balances`` net loop:
     signed amounts, PER_CAPITA via resolve_weights+split_per_capita / PER_FAMILY via split_per_family,
-    then settlements, then one joint round to the currency's ISO minor unit. Every row passed in is
+    then settlements, then one joint round to the active whole-unit increment. Every row passed in is
     treated as a signed expense (no ``kind`` filtering happens here — the caller chooses the rows).
 
     PER_CAPITA honors ``family_participants`` exactly like the ledger: a family restricted to a subset
@@ -73,8 +73,9 @@ def simulate_trip(
     deltas = {
         mid: {"before": before.get(mid, 0.0), "after": after.get(mid, 0.0)}
         for mid in before
-        if quantize_currency(
-            after.get(mid, 0.0) - before.get(mid, 0.0), currency
+        if whole_money(
+            after.get(mid, 0.0) - before.get(mid, 0.0),
+            reject_nonzero_to_zero=False,
         ) != 0
     }
     before_settled = all(is_settled(v, currency) for v in before.values())

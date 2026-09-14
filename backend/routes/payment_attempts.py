@@ -22,9 +22,9 @@ from services.payment_attempts import (
     expire_payment_attempts,
 )
 from services.push_notifications import enqueue_notification_event
+from services.money_audit import record_money_normalizations
 from utils.balances import _compute_balances
 from utils.common import gen_id, now_utc
-from utils.currency_rules import quantize_currency
 from utils.deps import _trip_or_404, get_current_user, is_trip_admin
 from utils.members import padded_family_member_ids
 from utils.upi_attempt_permissions import (
@@ -36,6 +36,7 @@ from utils.upi_attempt_permissions import (
 )
 from utils.settlement_gate import decimal_amount, payable_tolerance, validate_new_amount
 from utils.upi_rules import normalize_upi_id
+from utils.money_policy import normalization_change, whole_money
 
 
 router = APIRouter()
@@ -88,7 +89,7 @@ def _suggested_amount(transfers: list, from_id: str, to_id: str) -> Decimal:
 
 
 def _money_string(value: object, currency: str) -> str:
-    return format(quantize_currency(value, currency), "f")
+    return str(whole_money(value, label="Amount", reject_nonzero_to_zero=False))
 
 
 def _ledger_number(value: Decimal, audit_fields: dict) -> int | float:
@@ -110,7 +111,11 @@ def _response(document: dict) -> dict:
     if expires_at is not None:
         result["expires_at"] = expires_at.isoformat()
     paise = int(result.get("amount_paise") or 0)
-    result["inr_amount"] = f"{paise // 100}.{paise % 100:02d}"
+    result["inr_amount"] = str(whole_money(
+        Decimal(paise) / Decimal(100),
+        label="INR amount",
+        reject_nonzero_to_zero=False,
+    ))
     return result
 
 
@@ -284,9 +289,7 @@ async def create_payment_attempt(
         or rate <= 0
     ):
         raise _error(409, "quote_mismatch", "The reviewed quote contains different payment details")
-    inr_amount = quantize_currency(target_amount, "INR")
-    if target_amount != inr_amount:
-        raise _error(409, "quote_mismatch", "The reviewed INR amount is not exact to paise")
+    inr_amount = whole_money(target_amount, label="INR amount")
 
     balances = await _compute_balances(trip_id, diagnostic=False)
     payable = _suggested_amount(balances.get("transfers", []), from_member_id, to_member_id)
@@ -334,7 +337,7 @@ async def create_payment_attempt(
         "upi_updated_at_snapshot": recipient.get("upi_updated_at"),
         "source_amount": source_amount_text,
         "source_currency": currency,
-        "amount_paise": int(inr_amount * 100),
+        "amount_paise": inr_amount * 100,
         "currency": "INR",
         "quote_rate_snapshot": str(rate),
         "quote_effective_rate_date_snapshot": quote.get("effective_rate_date"),
@@ -528,6 +531,7 @@ async def _confirm_received_transaction(
             attempt.update(updates)
             return attempt, "payment_attempt.not_received"
 
+        submitted_posted = posted
         posted, audit_fields = validate_new_amount(trip, posted)
         version = trip.get("version", 0)
         guard = await db.trips.update_one(
@@ -552,6 +556,15 @@ async def _confirm_received_transaction(
             **audit_fields,
         }
         await db.payments.insert_one(payment, session=session)
+        await record_money_normalizations(
+            [normalization_change("amount", submitted_posted, posted)],
+            actor_user_id=user["id"],
+            trip_id=trip_id,
+            resource_type="payment",
+            resource_id=payment_id,
+            source="upi_recipient_confirmation",
+            session=session,
+        )
         updates = {
             "status": "settled_recipient_confirmed",
             "reason": "recipient_confirmed",

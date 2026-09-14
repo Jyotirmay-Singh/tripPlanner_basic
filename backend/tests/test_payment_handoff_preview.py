@@ -73,7 +73,7 @@ def _created_quote(**overrides):
         "provider": "identity",
         "stale": False,
         "expires_at": (now_utc() + timedelta(minutes=30)).isoformat(),
-        "target_amount": "25.00",
+        "target_amount": "25",
         **overrides,
     }
 
@@ -83,9 +83,9 @@ def _stored_quote(**overrides):
         "id": "quote-existing",
         "user_id": "payer-user",
         "mode": "automatic",
-        "source_amount": Decimal128("25.00"),
+        "source_amount": Decimal128("25"),
         "source_currency": "INR",
-        "target_amount": Decimal128("25.00"),
+        "target_amount": Decimal128("25"),
         "target_currency": "INR",
         "rate": Decimal128("1"),
         "effective_rate_date": None,
@@ -96,7 +96,7 @@ def _stored_quote(**overrides):
             "trip_id": "trip-1",
             "from_member_id": "payer",
             "to_member_id": "recipient",
-            "current_payable": "50.00",
+            "current_payable": "50",
         },
         **overrides,
     }
@@ -186,10 +186,10 @@ def test_individual_payer_gets_identity_preview_with_fresh_recipient(monkeypatch
         "from_name": "Payer Person",
         "to_member_id": "recipient",
         "to_name": "Recipient Person",
-        "source_amount": "25.00",
+        "source_amount": "25",
         "source_currency": "INR",
-        "current_payable": "50.00",
-        "inr_amount": "25.00",
+        "current_payable": "50",
+        "inr_amount": "25",
         "quote": {
             "quote_id": "quote-new",
             "rate": "1",
@@ -214,7 +214,7 @@ def test_individual_payer_gets_identity_preview_with_fresh_recipient(monkeypatch
     assert kwargs["source_currency"] == "INR"
     assert kwargs["target_currency"] == "INR"
     assert kwargs["mode"] == "automatic"
-    assert kwargs["payment_handoff"]["current_payable"] == "50.00"
+    assert kwargs["payment_handoff"]["current_payable"] == "50"
 
 
 def test_linked_person_in_payer_family_is_authorized(monkeypatch):
@@ -272,12 +272,12 @@ def test_inactive_or_rerouted_pair_is_structured(transfers, monkeypatch):
 def test_partial_amount_cap_and_changed_payable(monkeypatch):
     _install(monkeypatch, amount=10)
     with pytest.raises(HTTPException) as caught:
-        _preview(amount="10.01")
+        _preview(amount="10.50")
     assert caught.value.detail == {
         "code": "payable_changed",
         "message": "The payable changed; review the latest amount before continuing",
         "retryable": False,
-        "current_payable": "10.00",
+        "current_payable": "10",
         "source_currency": "INR",
     }
 
@@ -290,22 +290,23 @@ def test_non_positive_or_non_finite_amount_is_structured(amount, monkeypatch):
     assert caught.value.detail["code"] == "invalid_amount"
 
 
-def test_currency_precision_and_whole_unit_policy_are_enforced(monkeypatch):
-    jpy = deepcopy(TRIP)
-    jpy["currency"] = "JPY"
-    _install(monkeypatch, trip=jpy)
-    with pytest.raises(HTTPException) as precision:
-        _preview(amount="1.1")
-    assert precision.value.status_code == 422
-    assert precision.value.detail["code"] == "invalid_currency_precision"
+@pytest.mark.parametrize("currency,submitted", [("JPY", "1.1"), ("LKR", "1.25")])
+def test_legacy_decimal_amounts_are_normalized_for_every_currency(
+    monkeypatch, currency, submitted
+):
+    trip = deepcopy(TRIP)
+    trip["currency"] = currency
+    _install(monkeypatch, trip=trip)
+    result = _preview(amount=submitted)
+    assert result["source_amount"] == "1"
 
-    lkr = deepcopy(TRIP)
-    lkr["currency"] = "LKR"
-    _install(monkeypatch, trip=lkr)
-    monkeypatch.setattr("utils.settlement_gate.WHOLE_UNIT_SETTLEMENTS_ENABLED", True)
-    with pytest.raises(HTTPException) as whole:
-        _preview(amount="1.25")
-    assert whole.value.detail["code"] == "whole_unit_required"
+
+def test_nonzero_amount_that_rounds_to_zero_is_structured(monkeypatch):
+    _install(monkeypatch)
+    with pytest.raises(HTTPException) as caught:
+        _preview(amount="0.49")
+    assert caught.value.status_code == 422
+    assert caught.value.detail["code"] == "amount_rounds_to_zero"
 
 
 def test_non_inr_conversion_result_and_stale_marker_are_preserved(monkeypatch):
@@ -325,7 +326,7 @@ def test_non_inr_conversion_result_and_stale_marker_are_preserved(monkeypatch):
 
     result = _preview()
 
-    assert result["inr_amount"] == "2086.42"
+    assert result["inr_amount"] == "2086"
     assert result["quote"]["stale"] is True
     assert creator.await_args.kwargs["source_currency"] == "USD"
     assert creator.await_args.kwargs["target_currency"] == "INR"
@@ -337,7 +338,7 @@ def test_existing_fresh_quote_is_revalidated_without_replacement(monkeypatch):
     result = _preview(quote_id="quote-existing")
 
     assert result["quote"]["quote_id"] == "quote-existing"
-    assert result["inr_amount"] == "25.00"
+    assert result["inr_amount"] == "25"
     creator.assert_not_awaited()
     fake_db.exchange_rate_quotes.find_one.assert_awaited_once_with(
         {"id": "quote-existing"}, {"_id": 0}
@@ -353,10 +354,10 @@ def test_expired_foreign_amount_mismatched_and_changed_payable_quotes(monkeypatc
     cases = [
         (_stored_quote(expires_at=now_utc() - timedelta(seconds=1)), "quote_expired", 428),
         (_stored_quote(user_id="someone-else"), "quote_not_owned", 403),
-        (_stored_quote(source_amount=Decimal128("24.00")), "quote_mismatch", 409),
+        (_stored_quote(source_amount=Decimal128("24")), "quote_mismatch", 409),
         (_stored_quote(payment_handoff={
             "trip_id": "trip-1", "from_member_id": "payer",
-            "to_member_id": "recipient", "current_payable": "49.00",
+            "to_member_id": "recipient", "current_payable": "49",
         }), "payable_changed", 409),
     ]
     for quote, code, status in cases:

@@ -8,7 +8,7 @@ mirroring ``services/report_builder.py``).
 
 Two paths, chosen per family:
   * **No participation restriction on any expense** -> the family net is divided uniformly, with
-    any indivisible minor units assigned deterministically so member rows still foot to the family.
+    any indivisible whole units assigned deterministically so member rows still foot to the family.
   * **>=1 expense restricts participation** -> CHRONOLOGICAL replay via ``distribute_chronological``:
     the family's expenses AND non-pending settlements are replayed in time order. Each expense's net
     ((amount if the family paid else 0) minus its consumption share) is split EVENLY among only the
@@ -34,7 +34,7 @@ from services.calculator import (
     split_per_family,
 )
 from utils.display_names import family_member_display_names
-from utils.currency_rules import apportion_currency_amounts
+from utils.money_policy import apportion_whole_amounts
 
 
 def family_member_ids(family: dict) -> list:
@@ -50,11 +50,11 @@ def family_member_ids(family: dict) -> list:
 
 
 def _apportion(raw: dict, order: list, target: float, currency: str = "INR") -> dict:
-    """Largest-remainder apportionment so results sum in the currency's minor units.
+    """Whole-unit apportionment so results sum exactly to the family total.
 
     Works for negative values (floor toward -inf). Deterministic: ties broken by ``order``.
     """
-    return apportion_currency_amounts(raw, order, target, currency)
+    return apportion_whole_amounts(raw, order, target)
 
 
 def _weight_map(members: list) -> dict:
@@ -147,9 +147,15 @@ def family_member_breakdown(
             elif mode == "PER_CAPITA":
                 weights = resolve_weights(split_ids, weight_map, e.get("weight_snapshots"),
                                           e.get("family_participants"), rosters)
-                fam_share = split_per_capita(e["amount"], weights).get(fid, 0.0)
+                fam_share = split_per_capita(
+                    e["amount"], weights,
+                    payer_id=e.get("paid_by_member_id"), roster_order=all_ids,
+                ).get(fid, 0.0)
             else:  # PER_FAMILY: flat per-entity, redistributed within the family by participation
-                fam_share = split_per_family(e["amount"], split_ids).get(fid, 0.0)
+                fam_share = split_per_family(
+                    e["amount"], split_ids,
+                    payer_id=e.get("paid_by_member_id"), roster_order=all_ids,
+                ).get(fid, 0.0)
             # The family's net for THIS expense: credited the full amount when it paid, debited its
             # consumption share. Split evenly among the members who took part (full roster when the
             # family only paid / nobody is restricted).

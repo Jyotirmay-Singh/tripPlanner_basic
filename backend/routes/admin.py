@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from database import db
+from services.money_audit import serialize_money_audit_value
 from utils.deps import require_super_admin
 
 
@@ -158,6 +159,81 @@ async def list_admin_activity(
     ]).limit(limit + 1).to_list(limit + 1)
     has_more = len(rows) > limit
     items = rows[:limit]
+    return {
+        "items": items,
+        "total": total,
+        "next_cursor": _encode_cursor(items[-1]) if has_more and items else None,
+    }
+
+
+@router.get("/money-audit")
+async def list_money_audit(
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: Optional[str] = Query(default=None, max_length=512),
+    trip_id: Optional[str] = None,
+    record_type: Optional[str] = Query(default=None, max_length=32),
+    _admin=Depends(require_super_admin),
+):
+    """Immutable normalization/migration history plus private adjustment vectors."""
+
+    allowed = {"normalization", "migration", "adjustment"}
+    if record_type and record_type not in allowed:
+        raise HTTPException(400, "Invalid money-audit record type")
+    selected = {record_type} if record_type else allowed
+    base_match = {"trip_id": trip_id} if trip_id else {}
+    decoded = _decode_cursor(cursor)
+    cursor_match = _after_cursor(decoded) if decoded else None
+    match = {"$and": [base_match, cursor_match]} if base_match and cursor_match \
+        else (cursor_match or base_match)
+
+    rows: list[dict] = []
+    total = 0
+    sources = (
+        ("normalization", db.money_normalization_audits),
+        ("migration", db.money_migration_audits),
+    )
+    for kind, collection in sources:
+        if kind not in selected:
+            continue
+        total += await collection.count_documents(base_match)
+        found = await collection.find(match, {"_id": 0}).sort([
+            ("created_at", -1), ("id", -1),
+        ]).limit(limit + 1).to_list(limit + 1)
+        rows.extend({**row, "record_type": kind} for row in found)
+
+    if "adjustment" in selected:
+        adjustment_rows = await db.money_migration_adjustments.find(
+            base_match, {"_id": 0}
+        ).to_list(None)
+        normalized_adjustments = []
+        for row in adjustment_rows:
+            normalized = {
+                **row,
+                "id": f"adjustment:{row.get('trip_id', '')}",
+                "record_type": "adjustment",
+            }
+            if decoded and (
+                normalized.get("created_at") or "",
+                normalized["id"],
+            ) >= decoded:
+                continue
+            normalized_adjustments.append(normalized)
+        total += len(adjustment_rows)
+        rows.extend(normalized_adjustments)
+
+    rows.sort(key=lambda row: (row.get("created_at") or "", row.get("id") or ""), reverse=True)
+    has_more = len(rows) > limit
+    items = rows[:limit]
+    trip_ids = sorted({row.get("trip_id") for row in items if row.get("trip_id")})
+    trip_rows = await db.trips.find(
+        {"id": {"$in": trip_ids}}, {"_id": 0, "id": 1, "name": 1, "currency": 1}
+    ).to_list(None) if trip_ids else []
+    trip_meta = {row["id"]: row for row in trip_rows}
+    for item in items:
+        meta = trip_meta.get(item.get("trip_id")) or {}
+        item["trip_name"] = meta.get("name")
+        item["currency"] = meta.get("currency")
+    items = [serialize_money_audit_value(item) for item in items]
     return {
         "items": items,
         "total": total,

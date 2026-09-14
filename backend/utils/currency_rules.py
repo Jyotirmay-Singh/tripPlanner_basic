@@ -6,8 +6,10 @@ DEFAULT_CURRENCY = "INR"
 
 # Keep this list aligned with frontend/src/currencies.ts. ISO codes are the persisted/API values;
 # names and symbols remain presentation metadata on the client.
-# ISO 4217 minor-unit exponents for the curated travel catalog. Rates are deliberately excluded:
-# they retain provider precision and are never quantized as monetary amounts.
+# Historical ISO 4217 precision metadata. Active ledger amounts follow ``whole_unit_v1`` and use
+# ``utils.money_policy``; the precision helpers below remain only for immutable FX evidence and
+# backwards-compatible utility contracts. Rates retain provider precision and are never quantized
+# as monetary amounts.
 CURRENCY_MINOR_UNITS = {
     "INR": 2, "USD": 2, "EUR": 2, "GBP": 2, "AED": 2, "JPY": 0,
     "SGD": 2, "AUD": 2, "CAD": 2, "CHF": 2, "CNY": 2, "HKD": 2,

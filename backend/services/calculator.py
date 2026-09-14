@@ -77,7 +77,7 @@ def distribute_chronological(events: list, roster: list) -> dict:
     roster: the family's member ids (result keys + the even-split fallback divisor).
 
     Returns RAW (unrounded) positions over ``roster`` summing to the family's post-settlement net
-    within float epsilon; the caller apportions to an exact ISO-minor-unit sum. Never ÷0. Empty
+    within float epsilon; the caller apportions to an exact whole-unit sum. Never ÷0. Empty
     ``roster`` -> {}.
     """
     pos = {mid: 0.0 for mid in roster}
@@ -117,7 +117,13 @@ def distribute_chronological(events: list, roster: list) -> dict:
     return pos
 
 
-def split_per_capita(amount: float, weights: dict) -> dict:
+def split_per_capita(
+    amount: float,
+    weights: dict,
+    *,
+    payer_id: str | None = None,
+    roster_order: list | None = None,
+) -> dict:
     """PER_CAPITA (Section 5A): divide `amount` across total humans.
 
     H = sum(weights); per_human = amount / H; each member owes per_human * weight.
@@ -128,11 +134,27 @@ def split_per_capita(amount: float, weights: dict) -> dict:
     total = sum(weights.values())
     if total <= 0:
         return {}
+    if float(amount).is_integer():
+        from utils.money_policy import allocate_whole_weighted
+
+        order = roster_order or list(weights)
+        return allocate_whole_weighted(
+            amount,
+            weights,
+            order,
+            preferred_id=payer_id if payer_id in weights else None,
+        )
     per_human = amount / total
     return {mid: per_human * w for mid, w in weights.items()}
 
 
-def split_per_family(amount: float, member_ids: list) -> dict:
+def split_per_family(
+    amount: float,
+    member_ids: list,
+    *,
+    payer_id: str | None = None,
+    roster_order: list | None = None,
+) -> dict:
     """PER_FAMILY (Section 5B): divide `amount` equally across entities.
 
     member_ids: selected entities (each family OR individual id is ONE entity).
@@ -146,6 +168,16 @@ def split_per_family(amount: float, member_ids: list) -> dict:
     entity_count = len(ids)
     if entity_count <= 0:
         return {}
+    if float(amount).is_integer():
+        from utils.money_policy import allocate_whole_weighted
+
+        order = [member_id for member_id in (roster_order or ids) if member_id in ids]
+        return allocate_whole_weighted(
+            amount,
+            {member_id: 1 for member_id in ids},
+            order,
+            preferred_id=payer_id if payer_id in ids else None,
+        )
     per_entity = amount / entity_count
     return {mid: per_entity for mid in ids}
 
@@ -176,20 +208,29 @@ def allocate_within_family(family_share: float, participant_ids: list, all_membe
     # ``resolve_weights`` (the count that sizes a family's PER_CAPITA share == the count that divides
     # it among members).
     chosen = _chosen_participants(participant_ids, roster)
+    if float(family_share).is_integer():
+        from utils.money_policy import allocate_whole_weighted
+
+        allocated = allocate_whole_weighted(
+            family_share,
+            {member_id: 1 for member_id in chosen},
+            chosen,
+        )
+        return {member_id: allocated.get(member_id, 0) for member_id in roster}
     per = family_share / len(chosen)
     chosen_set = set(chosen)
     return {mid: (per if mid in chosen_set else 0.0) for mid in roster}
 
 
 def minimize_transfers(net: dict) -> list:
-    """Compatibility entry point for deterministic, conserving cent settlement.
+    """Compatibility entry point for deterministic, conserving whole-unit settlement.
 
     net: member_id -> net balance (positive = creditor, negative = debtor).
-    Returns transfers: [{"from_member_id", "to_member_id", "amount"}], in cent increments.
+    Returns transfers: [{"from_member_id", "to_member_id", "amount"}], in whole-unit increments.
 
     The input must sum to zero at canonical scale. The shared engine rounds the signed vector
     jointly, finds a true minimum transfer count for bounded small groups, and uses a deterministic
-    heap-greedy fallback for larger/search-limited groups. Exact one-cent balances are retained.
+    heap-greedy fallback for larger/search-limited groups.
     """
     from services.settlement_engine import build_settlement_projection, to_scaled
 

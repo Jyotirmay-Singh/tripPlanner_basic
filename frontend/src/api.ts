@@ -54,6 +54,29 @@ export type AdminAuditEvent = {
   created_at: string;
 };
 
+export type MoneyAuditRecord = {
+  id: string;
+  record_type: 'normalization' | 'migration' | 'adjustment';
+  trip_id?: string | null;
+  trip_name?: string | null;
+  currency?: string | null;
+  policy_version: string;
+  created_at: string;
+  mode?: 'apply' | 'revert';
+  resource_type?: string;
+  resource_id?: string | null;
+  source?: string;
+  changes?: {
+    collection?: string;
+    document_id?: string;
+    field: string;
+    before: unknown;
+    after: unknown;
+  }[];
+  vector?: Record<string, number | string>;
+  adjustment_vector?: Record<string, number | string>;
+};
+
 export type AdminPage<T> = {
   items: T[];
   total: number;
@@ -268,6 +291,19 @@ export function listAdminActivity(options: {
   if (options.tripId) query.set('trip_id', options.tripId);
   if (options.action) query.set('action', options.action);
   return api<AdminPage<AdminAuditEvent>>(`/admin/audit?${query.toString()}`);
+}
+
+export function listAdminMoneyAudit(options: {
+  cursor?: string | null;
+  limit?: number;
+  tripId?: string;
+  recordType?: MoneyAuditRecord['record_type'];
+} = {}): Promise<AdminPage<MoneyAuditRecord>> {
+  const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
+  if (options.cursor) query.set('cursor', options.cursor);
+  if (options.tripId) query.set('trip_id', options.tripId);
+  if (options.recordType) query.set('record_type', options.recordType);
+  return api<AdminPage<MoneyAuditRecord>>(`/admin/money-audit?${query.toString()}`);
 }
 
 export function reconvertExpense<T = any>(

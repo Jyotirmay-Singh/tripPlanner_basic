@@ -1,9 +1,9 @@
-"""Deterministic, conserving settlement projection over a precise ledger.
+"""Deterministic, conserving whole-unit settlement projection.
 
-The expense ledger remains authoritative at ``BALANCE_SCALE`` decimal places. Settlement
-recommendations are a projection: member balances are rounded together so the rounded vector
-still sums to zero, then routed using integer arithmetic only. This module is pure and never reads
-the database or fetches an exchange rate; callers pass stored canonical trip-currency amounts.
+Active ledger money is stored in whole major units. The scaled representation remains for backward
+compatibility with legacy decimal rows and exact audit strings; under ``whole_unit_v1`` the active
+member vector and projected vector agree. This module is pure and never reads the database or
+fetches an exchange rate; callers pass stored canonical trip-currency amounts.
 """
 
 from __future__ import annotations
@@ -14,17 +14,13 @@ import heapq
 from typing import Iterable, Mapping
 
 from services.member_breakdown import family_member_ids
-from utils.currency_rules import currency_increment, currency_minor_units
+from utils.money_policy import allocate_whole_weighted
 
 
 BALANCE_SCALE = 12
 SCALE = 10 ** BALANCE_SCALE
 QUANTUM = Decimal(1).scaleb(-BALANCE_SCALE)
-CENT_INCREMENT_SCALED = SCALE // 100
-WHOLE_UNIT_CURRENCIES = frozenset({"LKR", "NPR"})
 POLICY_VERSION = "whole_unit_v1"
-COMPATIBILITY_POLICY_VERSION = "cent_projection_v1"
-MINOR_UNIT_POLICY_VERSION = "iso_minor_unit_v1"
 ROUNDING_ALGORITHM = "joint_largest_remainder_v1"
 ROUNDING_TIE_BREAK = "toward_zero_then_member_id"
 EXACT_ENTITY_LIMIT = 12
@@ -248,7 +244,9 @@ def expense_entity_shares_scaled(expense: dict, members: Iterable[dict]) -> tupl
             code="unknown_member",
         )
     raw_split_ids = expense.get("split_member_ids") or list(members_by_id)
-    split_ids = sorted({str(member_id) for member_id in raw_split_ids})
+    selected_ids = {str(member_id) for member_id in raw_split_ids}
+    split_ids = [str(member["id"]) for member in member_list if str(member["id"]) in selected_ids]
+    split_ids.extend(sorted(selected_ids - set(split_ids)))
     # Settled member removal deliberately keeps historical expense rows. Preserve the old engine's
     # ability to replay those rows by using an entity-sized placeholder; snapshots still supply a
     # removed family's historical PER_CAPITA weight. An unresolved historical position is rejected
@@ -263,9 +261,31 @@ def expense_entity_shares_scaled(expense: dict, members: Iterable[dict]) -> tupl
         shares = _exact_entity_shares(expense, member_list, amount)
     elif mode == "PER_CAPITA":
         weights = _expense_weights(expense, split_ids, members_by_id)
-        shares = allocate_weighted(amount, weights) if sum(weights.values()) > 0 else {}
+        if sum(weights.values()) <= 0:
+            shares = {}
+        elif amount % SCALE == 0:
+            whole = allocate_whole_weighted(
+                amount // SCALE,
+                weights,
+                split_ids,
+                preferred_id=payer_id if payer_id in split_ids else None,
+            )
+            shares = {member_id: value * SCALE for member_id, value in whole.items()}
+        else:
+            # Read compatibility for a trip that has not yet run the whole-unit migration.
+            shares = allocate_weighted(amount, weights)
     elif mode == "PER_FAMILY":
-        shares = allocate_weighted(amount, {member_id: 1 for member_id in split_ids})
+        weights = {member_id: 1 for member_id in split_ids}
+        if amount % SCALE == 0:
+            whole = allocate_whole_weighted(
+                amount // SCALE,
+                weights,
+                split_ids,
+                preferred_id=payer_id if payer_id in split_ids else None,
+            )
+            shares = {member_id: value * SCALE for member_id, value in whole.items()}
+        else:
+            shares = allocate_weighted(amount, weights)
     else:
         raise SettlementLedgerError(
             f"Expense '{expense_id}' has unsupported split mode '{mode}'",
@@ -338,6 +358,40 @@ def build_precise_net(
             code="ledger_imbalance",
         )
     return net
+
+
+def apply_migration_adjustments(
+    net: Mapping[str, int],
+    adjustment_vector: Mapping[str, object] | None,
+) -> dict[str, int]:
+    """Apply the private zero-sum migration vector without exposing it in balance responses."""
+
+    result = {str(member_id): int(value) for member_id, value in net.items()}
+    vector = adjustment_vector or {}
+    unknown = sorted(str(member_id) for member_id in vector if str(member_id) not in result)
+    if unknown:
+        raise SettlementLedgerError(
+            f"Migration adjustment references unknown member(s): {', '.join(unknown)}",
+            code="invalid_migration_adjustment",
+        )
+    scaled_adjustments = {
+        str(member_id): to_scaled(value, field=f"migration adjustment for '{member_id}'")
+        for member_id, value in vector.items()
+    }
+    imbalance = sum(scaled_adjustments.values())
+    if imbalance:
+        raise SettlementLedgerError(
+            f"Migration adjustment is out of balance by {scaled_string(imbalance)}",
+            code="invalid_migration_adjustment",
+        )
+    for member_id, value in scaled_adjustments.items():
+        result[member_id] += value
+    if sum(result.values()):
+        raise SettlementLedgerError(
+            "Adjusted net vector is out of balance",
+            code="ledger_imbalance",
+        )
+    return result
 
 
 def joint_round(net: Mapping[str, int], increment: int) -> dict[str, int]:
@@ -495,10 +549,9 @@ def route_integer_balances(
 
 
 def settlement_increment(currency: str, whole_unit_enabled: bool) -> tuple[int, bool]:
-    enabled = bool(whole_unit_enabled and str(currency).upper() in WHOLE_UNIT_CURRENCIES)
-    if enabled:
-        return SCALE, True
-    return 10 ** (BALANCE_SCALE - currency_minor_units(currency)), False
+    # ``whole_unit_enabled`` remains in the signature for older callers, but whole_unit_v1 is now
+    # unconditional for every supported trip currency.
+    return SCALE, True
 
 
 def build_settlement_projection(
@@ -536,9 +589,9 @@ def build_settlement_projection(
     projection = {
         "enabled": enabled,
         "currency": str(currency).upper(),
-        "increment": "1" if enabled else currency_increment(currency),
+        "increment": "1",
         "balance_scale": BALANCE_SCALE,
-        "policy_version": POLICY_VERSION if enabled else MINOR_UNIT_POLICY_VERSION,
+        "policy_version": POLICY_VERSION,
         "status": status,
         "precise_net": {member_id: scaled_string(int(precise_net[member_id])) for member_id in ordered_ids},
         "rounded_net": {member_id: projected_number(rounded_scaled[member_id]) for member_id in ordered_ids},

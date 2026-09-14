@@ -10,6 +10,7 @@ from services.receipts import delete_receipts_for_expense
 from services.expense_shares import expense_share_breakdown
 from services.push_notifications import enqueue_notification_event
 from services.admin_audit import record_admin_action
+from services.money_audit import record_money_normalizations
 from services.exchange_rates import ExchangeRateError, decimal_value, error_detail
 from services.expense_conversion import (
     convert_create_body,
@@ -20,11 +21,10 @@ from services.expense_conversion import (
     stored_original_currency,
     stored_original_custom_amounts,
 )
-from utils.currency_rules import (
-    CurrencyPrecisionError,
-    currency_minor_units,
-    precision_error_detail,
-    quantize_currency,
+from utils.money_policy import (
+    AmountRoundsToZeroError,
+    amount_rounds_to_zero_detail,
+    whole_money,
 )
 
 router = APIRouter()
@@ -33,8 +33,8 @@ router = APIRouter()
 def _conversion_http_error(exc: Exception):
     if isinstance(exc, ExchangeRateError):
         raise HTTPException(exc.status_code, error_detail(exc))
-    if isinstance(exc, CurrencyPrecisionError):
-        raise HTTPException(422, precision_error_detail(exc))
+    if isinstance(exc, AmountRoundsToZeroError):
+        raise HTTPException(422, amount_rounds_to_zero_detail(exc))
     raise HTTPException(422, {
         "code": "invalid_conversion", "message": str(exc), "retryable": False,
     })
@@ -109,14 +109,27 @@ async def _trip_spend(trip_id: str, *, excluding_expense_id: str | None = None) 
     return float(rows[0]["sum"]) if rows else 0.0
 
 
-def _budget_warning(trip: dict, current: float, candidate: float) -> str | None:
+def _budget_warning_details(
+    trip: dict,
+    current: float,
+    candidate: float,
+) -> dict[str, str | int] | None:
     budget = trip.get("budget")
     if budget is None or current + candidate <= budget:
         return None
     currency = trip.get("currency", "INR")
-    over = quantize_currency((current + candidate) - budget, currency)
-    digits = currency_minor_units(currency)
-    return f"This expense puts you {over:.{digits}f} {currency} over the trip budget."
+    over = whole_money(
+        (current + candidate) - budget,
+        label="Budget overage",
+        reject_nonzero_to_zero=False,
+    )
+    if over <= 0:
+        return None
+    return {
+        "warning": f"This expense puts you {over:,} {currency} over the trip budget.",
+        "budget_overage": over,
+        "currency": currency,
+    }
 
 
 def _clean_family_participants(raw, split_mode, split_ids, members):
@@ -174,7 +187,7 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
                                                      split_ids, trip["members"])
 
     # Phase 22 — EXACT: the per-person amounts MUST sum to the total (422 otherwise). Persist the
-    # normalized minor-unit amounts so the ledger/breakdown/report always foot exactly.
+    # normalized whole-unit amounts so the ledger, breakdown, and report always foot exactly.
     try:
         converted = await convert_create_body(body, trip, user["id"])
     except (ExchangeRateError, ValueError) as exc:
@@ -184,9 +197,10 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
     # budget over-check (net spend vs budget). Sums ALL rows; a negative amount (money back) nets the
     # running total down and never trips the warning.
     current = await _trip_spend(trip_id) if trip.get("budget") is not None else 0.0
-    warning = _budget_warning(trip, current, converted["amount"])
-    if warning and not force:
-        return {"requires_confirmation": True, "warning": warning}
+    budget_warning = _budget_warning_details(trip, current, converted["amount"])
+    warning = budget_warning["warning"] if budget_warning else None
+    if budget_warning and not force:
+        return {"requires_confirmation": True, **budget_warning}
 
     eid = gen_id()
     doc = {
@@ -209,6 +223,13 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
     doc["conversion_history"] = [converted["history"]]
     await db.expenses.insert_one(doc)
     doc.pop("_id", None)
+    await record_money_normalizations(
+        converted.get("normalizations", []),
+        actor_user_id=user["id"],
+        trip_id=trip_id,
+        resource_type="expense",
+        resource_id=eid,
+    )
     await record_admin_action(
         user, "expense.created", trip=trip, resource_type="expense", resource_id=eid,
         changed_fields=(
@@ -427,6 +448,7 @@ async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
         updates["weight_snapshots"] = new_snaps or None
 
     history = None
+    normalizations: list[dict] = []
     next_version = current_version + 1
     try:
         if conversion_inputs_changed:
@@ -437,12 +459,14 @@ async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
                 original_currency=effective_source_currency,
                 original_custom_amounts=effective_original_custom,
                 conversion=body.conversion, version=next_version, reason="inputs_changed",
+                paid_by_member_id=payer_id,
             )
             updates.update({
                 "amount": converted["amount"], "currency": trip_currency,
                 "custom_amounts": converted["custom_amounts"], **converted["metadata"],
             })
             history = converted["history"]
+            normalizations = converted.get("normalizations", [])
         elif allocation_write:
             if has_conversion:
                 reallocated = locked_exact_reallocation_update(
@@ -455,6 +479,7 @@ async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
                     **reallocated["metadata"],
                 })
                 history = reallocated["history"]
+                normalizations = reallocated.get("normalizations", [])
             else:
                 # Lazily upgrade a legacy same-currency EXACT expense to precise metadata.
                 converted = await convert_expense(
@@ -464,12 +489,14 @@ async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
                     original_currency=effective_source_currency,
                     original_custom_amounts=effective_original_custom,
                     conversion=None, version=1, reason="legacy_exact_upgraded",
+                    paid_by_member_id=payer_id,
                 )
                 updates.update({
                     "amount": converted["amount"], "currency": trip_currency,
                     "custom_amounts": converted["custom_amounts"], **converted["metadata"],
                 })
                 history = converted["history"]
+                normalizations = converted.get("normalizations", [])
         elif "split_mode" in updates and effective_mode != "EXACT":
             updates["custom_amounts"] = None
             updates["original_custom_amounts"] = None
@@ -480,9 +507,10 @@ async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
     if conversion_write and trip.get("budget") is not None:
         canonical_candidate = float(updates.get("amount", expense.get("amount")))
         current = await _trip_spend(trip_id, excluding_expense_id=expense_id)
-        warning = _budget_warning(trip, current, canonical_candidate)
-        if warning and not force:
-            return {"requires_confirmation": True, "warning": warning}
+        budget_warning = _budget_warning_details(trip, current, canonical_candidate)
+        warning = budget_warning["warning"] if budget_warning else None
+        if budget_warning and not force:
+            return {"requires_confirmation": True, **budget_warning}
 
     if not updates and history is None:
         return serialize_bson(expense)
@@ -497,6 +525,13 @@ async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
         _conversion_conflict()
     saved = await db.expenses.find_one(
         {"id": expense_id, "trip_id": trip_id}, {"_id": 0}
+    )
+    await record_money_normalizations(
+        normalizations,
+        actor_user_id=user["id"],
+        trip_id=trip_id,
+        resource_type="expense",
+        resource_id=expense_id,
     )
     await record_admin_action(
         user, "expense.updated", trip=trip, resource_type="expense", resource_id=expense_id,
@@ -535,15 +570,17 @@ async def reconvert_expense(trip_id: str, expense_id: str, body: ReconvertIn,
             ),
             version=current_version + 1,
             reason="explicit_reconversion",
+            paid_by_member_id=expense.get("paid_by_member_id"),
         )
     except (ExchangeRateError, ValueError) as exc:
         _conversion_http_error(exc)
 
     current = await _trip_spend(trip_id, excluding_expense_id=expense_id) \
         if trip.get("budget") is not None else 0.0
-    warning = _budget_warning(trip, current, converted["amount"])
-    if warning and not body.force:
-        return {"requires_confirmation": True, "warning": warning}
+    budget_warning = _budget_warning_details(trip, current, converted["amount"])
+    warning = budget_warning["warning"] if budget_warning else None
+    if budget_warning and not body.force:
+        return {"requires_confirmation": True, **budget_warning}
     updates = {
         "amount": converted["amount"], "currency": trip_currency,
         "custom_amounts": converted["custom_amounts"], **converted["metadata"],
@@ -556,6 +593,13 @@ async def reconvert_expense(trip_id: str, expense_id: str, body: ReconvertIn,
         _conversion_conflict()
     saved = await db.expenses.find_one(
         {"id": expense_id, "trip_id": trip_id}, {"_id": 0}
+    )
+    await record_money_normalizations(
+        converted.get("normalizations", []),
+        actor_user_id=user["id"],
+        trip_id=trip_id,
+        resource_type="expense",
+        resource_id=expense_id,
     )
     await record_admin_action(
         user, "expense.reconverted", trip=trip, resource_type="expense",

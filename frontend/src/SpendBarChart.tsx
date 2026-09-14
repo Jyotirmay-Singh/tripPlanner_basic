@@ -63,7 +63,7 @@ export default function SpendBarChart({
     <View testID="spend-bar-chart">
       <T variant="label" muted style={{ marginBottom: 2 }}>{title}</T>
       <T variant="caption" muted style={{ marginBottom: SPACING.md }}>
-        {summaryText ?? `${formatMoney(total, { currency })} spent across ${count} ${count === 1 ? 'entity' : 'entities'}`}
+        {summaryText ?? `${formatMoney(total, { currency })} paid by ${count} ${count === 1 ? 'payer' : 'payers'}`}
       </T>
       <View onLayout={onLayout} style={{ gap: SPACING.md }}>
         {bars.map((b) => {

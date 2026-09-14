@@ -7,7 +7,7 @@ import {
 } from 'react-native';
 import Badge from './Badge';
 import T from './T';
-import { formatMoney } from './format';
+import { formatAccessibleMoney, formatMoney } from './format';
 import { useTheme } from './ThemeContext';
 import { COMPONENT_SIZE, FONTS, SPACING, TYPESCALE } from './theme';
 import type { TripBalanceState } from './tripBalance';
@@ -97,7 +97,7 @@ export function tripCardAccessibilityLabel(
 ): string {
   if (balance.kind === 'settled') return `${title}, settled`;
   if (balance.kind === 'unavailable') return `${title}, balance unavailable`;
-  return `${title}, ${balance.label.toLowerCase()} ${formatMoney(balance.amount, { currency })}`;
+  return `${title}, ${balance.label.toLowerCase()} ${formatAccessibleMoney(balance.amount, { currency })}`;
 }
 
 function TripBalanceBlock({

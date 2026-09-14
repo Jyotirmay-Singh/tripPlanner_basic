@@ -1,7 +1,7 @@
 // BREAK-IT-ALL QA campaign — frontend Settle-Up state/validation probes (Phase 20).
 // Exercises src/payments.ts the way settle-up.tsx consumes it: the active/settled partition, the
 // open->partial->paid badge state machine, the record/edit "Max" caps, and validatePaymentAmount
-// against adversarial input (0, negative, NaN, Infinity, sub-cent boundary).
+// against adversarial input (0, negative, NaN, Infinity, half-whole-unit boundary).
 import {
   paymentStatus,
   buildPairBlocks,
@@ -24,10 +24,10 @@ const pay = (over: Partial<Payment>): Payment => ({
   note: over.note ?? null,
 });
 
-// Mirror the partition settle-up.tsx renders: active vs settled at the 0.01 boundary.
+// Whole-unit blocks are active exactly when a positive residual remains.
 const partition = (blocks: PairBlock[]) => ({
-  active: blocks.filter((b) => b.current_payable > 0.01),
-  settled: blocks.filter((b) => b.current_payable <= 0.01),
+  active: blocks.filter((b) => b.current_payable > 0),
+  settled: blocks.filter((b) => b.current_payable <= 0),
 });
 
 describe('badge state machine (open -> partial -> paid)', () => {
@@ -40,11 +40,11 @@ describe('badge state machine (open -> partial -> paid)', () => {
     expect(paymentStatus(0, 100)).toBe('paid');
   });
 
-  it('ignores only half-minor-unit transport noise', () => {
-    expect(paymentStatus(0.005, 100)).toBe('paid');
-    expect(paymentStatus(0.0051, 100)).toBe('partial');
-    expect(paymentStatus(100, 0.005)).toBe('open');
-    expect(paymentStatus(100, 0.01)).toBe('partial');
+  it('ignores only values below the half-whole-unit boundary', () => {
+    expect(paymentStatus(0.49, 100)).toBe('paid');
+    expect(paymentStatus(0.5, 100)).toBe('partial');
+    expect(paymentStatus(100, 0.49)).toBe('open');
+    expect(paymentStatus(100, 0.5)).toBe('partial');
   });
 });
 

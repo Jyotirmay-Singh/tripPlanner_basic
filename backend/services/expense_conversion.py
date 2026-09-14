@@ -17,7 +17,7 @@ from services.exchange_rates import (
     money,
 )
 from utils.common import now_utc
-from utils.currency_rules import quantize_currency, validate_currency_precision
+from utils.money_policy import normalization_change, positive_whole_money, whole_money
 from utils.date_rules import expense_date_to_iso
 
 
@@ -37,7 +37,7 @@ def _decimal128(value: Decimal) -> Decimal128:
 def _decimal_map(values: Optional[dict]) -> Optional[dict]:
     if values is None:
         return None
-    return {key: _decimal128(Decimal(str(value))) for key, value in values.items()}
+    return {key: int(Decimal(str(value))) for key, value in values.items()}
 
 
 def serialize_bson(value: Any) -> Any:
@@ -81,12 +81,21 @@ def reallocate_exact_with_locked_rate(expense: dict, original_custom_amounts: di
     canonical_currency = expense.get("currency") or "INR"
     original_currency = stored_original_currency(expense, canonical_currency)
     original = validate_original_exact_amounts(
-        stored_original_amount(expense), original_custom_amounts, members, original_currency
+        stored_original_amount(expense),
+        original_custom_amounts,
+        members,
+        original_currency,
+        expense.get("paid_by_member_id"),
     )
     rate = decimal_value(expense.get("exchange_rate", Decimal("1")))
-    canonical = quantize_currency(expense.get("amount"), canonical_currency)
+    canonical = whole_money(expense.get("amount"), label="Expense amount")
     canonical_custom = convert_original_exact_amounts(
-        original, rate, canonical, members, canonical_currency
+        original,
+        rate,
+        canonical,
+        members,
+        canonical_currency,
+        expense.get("paid_by_member_id"),
     )
     return _decimal_map(original), canonical_custom
 
@@ -109,9 +118,7 @@ def locked_exact_reallocation_update(*, expense: dict, original_custom_amounts: 
         "original_amount": _decimal128(original_amount),
         "original_currency": original_currency,
         "original_custom_amounts": original_map,
-        "canonical_amount": float(quantize_currency(
-            expense.get("amount"), expense.get("currency") or "INR"
-        )),
+        "canonical_amount": whole_money(expense.get("amount"), label="Expense amount"),
         "canonical_currency": expense.get("currency") or "INR",
         "canonical_custom_amounts": canonical_custom,
         "rate": _decimal128(rate),
@@ -135,6 +142,15 @@ def locked_exact_reallocation_update(*, expense: dict, original_custom_amounts: 
             "conversion_updated_by": user_id,
         },
         "history": history,
+        "normalizations": [
+            change
+            for member_id, stored in (original_map or {}).items()
+            if (change := normalization_change(
+                f"original_custom_amounts.{member_id}",
+                original_custom_amounts[member_id],
+                stored,
+            ))
+        ],
     }
 
 
@@ -144,11 +160,10 @@ def _quote_manual_value(
     if conversion.manual_input_type == "rate":
         return conversion.manual_rate
     if conversion.manual_input_type == "target_amount":
-        return validate_currency_precision(
+        return Decimal(positive_whole_money(
             conversion.manual_target_amount,
-            target_currency,
             label="Manual final amount",
-        )
+        ))
     return None
 
 
@@ -213,8 +228,9 @@ async def convert_expense(*, user_id: str, trip_currency: str, date: str,
                           original_currency: str,
                           original_custom_amounts: Optional[dict],
                           conversion: Optional[ConversionRequest], version: int,
-                          reason: str) -> dict:
-    source_amount = money(original_amount, original_currency, reject_precision=True)
+                          reason: str, paid_by_member_id: Optional[str] = None) -> dict:
+    submitted_source_amount = money(original_amount)
+    source_amount = Decimal(whole_money(submitted_source_amount, label="Expense amount"))
     requested_date = expense_date_to_iso(date)
     rate_result = await _validated_rate_result(
         user_id=user_id,
@@ -224,24 +240,46 @@ async def convert_expense(*, user_id: str, trip_currency: str, date: str,
         requested_date=requested_date,
         conversion=conversion,
     )
-    canonical = quantize_currency(rate_result["target_amount"], trip_currency)
-    if canonical == 0:
-        raise ValueError("Converted amount rounds to zero in the trip currency")
+    submitted_canonical = Decimal(str(rate_result["target_amount"]))
+    canonical = whole_money(submitted_canonical, label="Converted amount")
 
     normalized_original_custom = None
     canonical_custom = None
     if split_mode == "EXACT":
         normalized_original_custom = validate_original_exact_amounts(
-            source_amount, original_custom_amounts or {}, members, original_currency
+            submitted_source_amount,
+            original_custom_amounts or {},
+            members,
+            original_currency,
+            paid_by_member_id,
         )
         canonical_custom = convert_original_exact_amounts(
-            normalized_original_custom, rate_result["rate"], canonical, members, trip_currency
+            normalized_original_custom,
+            rate_result["rate"],
+            Decimal(canonical),
+            members,
+            trip_currency,
+            paid_by_member_id,
+        )
+
+    normalizations = [
+        normalization_change("original_amount", submitted_source_amount, source_amount),
+        normalization_change("amount", submitted_canonical, canonical),
+    ]
+    if original_custom_amounts and normalized_original_custom:
+        normalizations.extend(
+            normalization_change(
+                f"original_custom_amounts.{member_id}",
+                original_custom_amounts[member_id],
+                normalized_original_custom[member_id],
+            )
+            for member_id in normalized_original_custom
         )
 
     timestamp = now_utc()
     provider_sources = rate_result["provider_sources"]
     metadata = {
-        "original_amount": _decimal128(source_amount),
+        "original_amount": int(source_amount),
         "original_currency": original_currency,
         "original_custom_amounts": _decimal_map(normalized_original_custom),
         "exchange_rate": _decimal128(rate_result["rate"]),
@@ -263,10 +301,11 @@ async def convert_expense(*, user_id: str, trip_currency: str, date: str,
     history = {
         "version": version,
         "reason": reason,
-        "original_amount": _decimal128(source_amount),
+        "original_amount": int(source_amount),
+        "submitted_original_amount": _decimal128(submitted_source_amount),
         "original_currency": original_currency,
         "original_custom_amounts": _decimal_map(normalized_original_custom),
-        "canonical_amount": float(canonical),
+        "canonical_amount": canonical,
         "canonical_currency": trip_currency,
         "canonical_custom_amounts": canonical_custom,
         "rate": _decimal128(rate_result["rate"]),
@@ -282,11 +321,12 @@ async def convert_expense(*, user_id: str, trip_currency: str, date: str,
         "changed_by": user_id,
     }
     return {
-        "amount": float(canonical),
+        "amount": canonical,
         "currency": trip_currency,
         "custom_amounts": canonical_custom,
         "metadata": metadata,
         "history": history,
+        "normalizations": [change for change in normalizations if change],
     }
 
 
@@ -316,4 +356,5 @@ async def convert_create_body(body, trip: dict, user_id: str) -> dict:
         conversion=body.conversion,
         version=1,
         reason="created",
+        paid_by_member_id=body.paid_by_member_id,
     )

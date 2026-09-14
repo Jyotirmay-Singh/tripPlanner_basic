@@ -2,7 +2,7 @@ export type CurrencyDefinition = {
   code: string;
   symbol: string;
   name: string;
-  /** ISO 4217 minor-unit exponent used for entry, storage validation, and exact display. */
+  /** Historical ISO metadata; active app money always uses whole major units. */
   minorUnits: 0 | 2 | 3;
 };
 
@@ -65,16 +65,16 @@ export function currencyScale(code: string | null | undefined): number {
 }
 
 export function currencyIncrement(code: string | null | undefined): string {
-  const digits = currencyMinorUnits(code);
-  return digits === 0 ? '1' : `0.${'0'.repeat(digits - 1)}1`;
+  void code;
+  return '1';
 }
 
 export function currencyAmountPlaceholder(code: string | null | undefined): string {
-  const digits = currencyMinorUnits(code);
-  return digits === 0 ? '0' : `0.${'0'.repeat(digits)}`;
+  void code;
+  return '0';
 }
 
-/** Validate scale from the user's source string so JS number conversion cannot hide extra digits. */
+/** Updated clients accept monetary input as whole major-currency units only. */
 export function currencyPrecisionIssue(
   raw: string,
   code: string | null | undefined,
@@ -82,10 +82,8 @@ export function currencyPrecisionIssue(
 ): string | null {
   const normalized = raw.trim();
   if (!/^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(normalized)) return null;
-  const fraction = (normalized.split('.')[1] ?? '').replace(/0+$/, '');
-  const digits = currencyMinorUnits(code);
-  if (fraction.length <= digits) return null;
-  return `${label} in ${currencyDefinition(code).code} allows at most ${digits} decimal places.`;
+  if (!normalized.includes('.')) return null;
+  return `${label} in ${currencyDefinition(code).code} must be a whole amount without decimal places.`;
 }
 
 /** Round the decimal value represented by a JS number, avoiding binary-float midpoint drift. */
@@ -115,9 +113,89 @@ function decimalHalfUpUnits(value: number, minorUnits: number): number {
 }
 
 export function toCurrencyUnits(value: number, code: string | null | undefined): number {
-  return decimalHalfUpUnits(value, currencyMinorUnits(code));
+  void code;
+  return decimalHalfUpUnits(value, 0);
 }
 
 export function fromCurrencyUnits(units: number, code: string | null | undefined): number {
-  return units / currencyScale(code);
+  void code;
+  return units;
+}
+
+/** Round active money to whole units with decimal ROUND_HALF_UP semantics. */
+export function roundWholeMoney(value: number): number {
+  return decimalHalfUpUnits(value, 0);
+}
+
+/**
+ * Proportionally apportion a whole target while conserving it exactly. Base shares are floored;
+ * the first leftover unit goes to an eligible payer, then the remaining units follow roster order.
+ */
+export function apportionWholeAmounts(
+  values: Record<string, number>,
+  rosterOrder: readonly string[],
+  target: number,
+  preferredId?: string | null,
+): Record<string, number> {
+  const keys = rosterOrder.filter((id, index) => (
+    Object.prototype.hasOwnProperty.call(values, id) && rosterOrder.indexOf(id) === index
+  ));
+  const extras = Object.keys(values).filter((id) => !keys.includes(id)).sort();
+  keys.push(...extras);
+
+  const targetUnits = roundWholeMoney(target);
+  if (!Number.isFinite(targetUnits)) throw new Error('Allocation total must be finite.');
+  if (keys.length === 0) {
+    if (targetUnits !== 0) throw new Error('Whole-unit apportionment has no recipients.');
+    return {};
+  }
+
+  const weights: Record<string, number> = {};
+  let totalWeight = 0;
+  for (const id of keys) {
+    const value = Math.abs(values[id]);
+    if (!Number.isFinite(value)) throw new Error(`Allocation for '${id}' must be finite.`);
+    weights[id] = value;
+    totalWeight += value;
+  }
+  if (totalWeight === 0) {
+    if (targetUnits !== 0) throw new Error('Whole-unit apportionment has no positive weight.');
+    return Object.fromEntries(keys.map((id) => [id, 0]));
+  }
+
+  const magnitude = Math.abs(targetUnits);
+  const sign = targetUnits < 0 ? -1 : 1;
+  const allocated = Object.fromEntries(
+    keys.map((id) => [id, Math.floor((magnitude * weights[id]) / totalWeight)]),
+  ) as Record<string, number>;
+  let needed = magnitude - keys.reduce((sum, id) => sum + allocated[id], 0);
+  if (needed < 0 || needed > keys.length) {
+    throw new Error('Whole-unit apportionment could not conserve the target.');
+  }
+
+  const priority = preferredId && keys.includes(preferredId)
+    ? [preferredId, ...keys.filter((id) => id !== preferredId)]
+    : keys;
+  for (const id of priority) {
+    if (needed <= 0) break;
+    allocated[id] += 1;
+    needed -= 1;
+  }
+
+  return Object.fromEntries(keys.map((id) => [id, sign * allocated[id]]));
+}
+
+export function allocateWholeWeighted(
+  total: number,
+  weights: Record<string, number>,
+  rosterOrder: readonly string[],
+  preferredId?: string | null,
+): Record<string, number> {
+  const positive: Record<string, number> = {};
+  for (const [id, weight] of Object.entries(weights)) {
+    if (!Number.isFinite(weight)) throw new Error(`Weight for '${id}' must be finite.`);
+    if (weight < 0) throw new Error(`Weight for '${id}' cannot be negative.`);
+    if (weight > 0) positive[id] = weight;
+  }
+  return apportionWholeAmounts(positive, rosterOrder, total, preferredId);
 }

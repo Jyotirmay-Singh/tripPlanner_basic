@@ -1,7 +1,7 @@
 import React from 'react';
 import { type StyleProp, type TextStyle } from 'react-native';
 import T from '../T';
-import { formatMoney, formatWholeMoney } from '../format';
+import { formatAccessibleMoney, formatMoney } from '../format';
 
 type Props = {
   value: number;
@@ -20,15 +20,22 @@ type Props = {
 
 /**
  * Renders a monetary value with tabular figures (via the T money variants) and consistent
- * formatting (grouped thousands, 2 decimals). Use everywhere an amount appears so columns align.
+ * formatting (complete grouped whole units). Use everywhere an amount appears so columns align.
  */
 export default function AmountText({
-  value, currency, signed, whole, variant = 'money', colorBySign, color, muted, style, testID,
+  value, currency, signed, variant = 'money', colorBySign, color, muted, style, testID,
 }: Props) {
   // colorBySign is resolved in the screen (needs theme); callers pass an explicit `color`.
   return (
-    <T variant={variant} color={color} muted={muted} style={style} testID={testID}>
-      {whole ? formatWholeMoney(value, { signed, currency }) : formatMoney(value, { signed, currency })}
+    <T
+      variant={variant}
+      color={color}
+      muted={muted}
+      style={[{ flexShrink: 1, textAlign: 'right' }, style]}
+      testID={testID}
+      accessibilityLabel={formatAccessibleMoney(value, { signed, currency })}
+    >
+      {formatMoney(value, { signed, currency })}
     </T>
   );
 }

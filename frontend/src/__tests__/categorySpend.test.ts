@@ -58,27 +58,27 @@ describe('buildCategorySpendBreakdown', () => {
     ]));
   });
 
-  it('uses integer cents so repeated decimal amounts do not drift', () => {
+  it('aggregates whole-unit spends and refunds exactly', () => {
     const result = buildCategorySpendBreakdown([
-      expense('a1', 0.1, 'a'),
-      expense('a2', 0.2, 'a'),
-      expense('r1', -0.1, 'a'),
+      expense('a1', 101, 'a'),
+      expense('a2', 202, 'a'),
+      expense('r1', -101, 'a'),
     ], members, 'Food');
-    expect(result.grossPaid).toBe(0.3);
-    expect(result.refunds).toBe(0.1);
-    expect(result.net).toBe(0.2);
+    expect(result.grossPaid).toBe(303);
+    expect(result.refunds).toBe(101);
+    expect(result.net).toBe(202);
   });
 
-  it('aggregates a three-decimal currency without float drift', () => {
+  it('uses whole units for a formerly three-decimal currency', () => {
     const result = buildCategorySpendBreakdown([
-      expense('a1', 0.001, 'a'),
-      expense('a2', 0.002, 'a'),
-      expense('r1', -0.001, 'a'),
+      expense('a1', 1, 'a'),
+      expense('a2', 2, 'a'),
+      expense('r1', -1, 'a'),
     ], members, 'Food', 'KWD');
-    expect(result.grossPaid).toBe(0.003);
-    expect(result.refunds).toBe(0.001);
-    expect(result.net).toBe(0.002);
-    expect(result.payerSummary.entities[0].paid).toBe(0.003);
+    expect(result.grossPaid).toBe(3);
+    expect(result.refunds).toBe(1);
+    expect(result.net).toBe(2);
+    expect(result.payerSummary.entities[0].paid).toBe(3);
   });
 
   it('orders largest spends first, then largest refunds, with newest ties first', () => {

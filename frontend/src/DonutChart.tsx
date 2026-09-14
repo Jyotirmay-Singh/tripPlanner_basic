@@ -1,9 +1,18 @@
-import React from 'react';
-import { View, TouchableOpacity, StyleSheet, Pressable, Platform, GestureResponderEvent } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  TouchableOpacity,
+  StyleSheet,
+  Pressable,
+  Platform,
+  useWindowDimensions,
+  type GestureResponderEvent,
+  type LayoutChangeEvent,
+} from 'react-native';
 import Svg, { G, Path, Circle, Text as SvgText } from 'react-native-svg';
 import { useTheme } from './ThemeContext';
 import T from './T';
-import { formatMoney } from './format';
+import { formatAccessibleMoney } from './format';
 import ResponsiveAmountText from './ui/ResponsiveAmountText';
 
 export type DonutSlice = { key: string; label: string; value: number; color: string };
@@ -17,6 +26,12 @@ const NATIVE_TOUCH_PADDING = 16;
 
 export function paletteForMode(mode: 'light' | 'dark') {
   return mode === 'dark' ? PALETTE_DARK : PALETTE_LIGHT;
+}
+
+export function donutCenterValueFits(measuredWidth: number, innerDiameter: number): boolean {
+  return Number.isFinite(measuredWidth)
+    && Number.isFinite(innerDiameter)
+    && measuredWidth <= Math.max(0, innerDiameter - 20);
 }
 
 function polar(cx: number, cy: number, r: number, angleDeg: number) {
@@ -47,10 +62,23 @@ export default function DonutChart({
   onSlicePress?: (s: DonutSlice) => void;
 }) {
   const { colors } = useTheme();
+  const { fontScale } = useWindowDimensions();
+  const [measuredCenterWidth, setMeasuredCenterWidth] = useState<number | null>(null);
   const total = data.reduce((s, d) => s + d.value, 0) || 1;
   const cx = size / 2, cy = size / 2;
   const rOuter = size / 2 - 4;
   const rInner = rOuter - thickness;
+  const innerDiameter = rInner * 2;
+  useEffect(() => setMeasuredCenterWidth(null), [centerValue, fontScale, innerDiameter]);
+  const estimatedCenterWidth = (centerValue?.length ?? 0) * 13 * fontScale;
+  const centerFits = !centerValue || donutCenterValueFits(
+    measuredCenterWidth ?? estimatedCenterWidth,
+    innerDiameter,
+  );
+  const recordCenterWidth = (event: LayoutChangeEvent) => {
+    const width = event.nativeEvent.layout.width;
+    setMeasuredCenterWidth((current) => current === width ? current : width);
+  };
 
   let cursor = 0;
   const slices = data.map((d) => {
@@ -105,12 +133,12 @@ export default function DonutChart({
           ))
         )}
       </G>
-      {centerValue ? (
+      {centerValue && centerFits ? (
         <SvgText x={cx} y={cy - 2} textAnchor="middle" fontSize="22" fontWeight="700" fill={colors.textMain}>
           {centerValue}
         </SvgText>
       ) : null}
-      {centerLabel ? (
+      {centerLabel && centerFits ? (
         <SvgText x={cx} y={cy + 18} textAnchor="middle" fontSize="11" fill={colors.textMuted}>
           {centerLabel.toUpperCase()}
         </SvgText>
@@ -120,6 +148,31 @@ export default function DonutChart({
 
   return (
     <View style={styles.wrap}>
+      {centerValue && !centerFits ? (
+        <View
+          style={styles.totalLine}
+          accessible
+          accessibilityLabel={centerAccessibilityLabel}
+          testID="donut-total-line"
+        >
+          <T variant="label" muted importantForAccessibility="no">TOTAL</T>
+          <T variant="money" style={styles.totalValue} importantForAccessibility="no">
+            {centerValue}
+          </T>
+        </View>
+      ) : null}
+      {centerValue ? (
+        <T
+          variant="money"
+          style={styles.centerMeasurement}
+          onLayout={recordCenterWidth}
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          {centerValue}
+        </T>
+      ) : null}
       {Platform.OS !== 'web' && onSlicePress ? (
         <View style={{ width: size, height: size }}>
           {/* react-native-svg can claim Android touches before a wrapping Pressable receives them.
@@ -147,7 +200,7 @@ export default function DonutChart({
               style={styles.legendRow}
               testID={`donut-legend-${d.key}`}
               accessibilityRole="button"
-              accessibilityLabel={`Show ${d.label} transactions, ${formatMoney(d.value, { currency })}`}
+              accessibilityLabel={`Show ${d.label} transactions, ${formatAccessibleMoney(d.value, { currency })}`}
             >
               <View style={[styles.dot, { backgroundColor: d.color }]} />
               <T variant="caption" style={{ flex: 1 }} numberOfLines={1}>{d.label}</T>
@@ -169,9 +222,26 @@ export default function DonutChart({
 }
 
 const styles = StyleSheet.create({
-  wrap: { alignItems: 'center', gap: 12 },
+  wrap: { alignItems: 'center', gap: 12, width: '100%', position: 'relative' },
+  totalLine: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    gap: 8,
+  },
+  totalValue: { maxWidth: '100%', flexShrink: 1, textAlign: 'right' },
+  centerMeasurement: { position: 'absolute', opacity: 0, alignSelf: 'flex-start' },
   legend: { width: '100%', gap: 6 },
-  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44, paddingVertical: 8 },
+  legendRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 44,
+    paddingVertical: 8,
+  },
   legendValue: { textAlign: 'right' },
   dot: { width: 12, height: 12, borderRadius: 6 },
 });

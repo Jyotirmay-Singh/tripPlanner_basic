@@ -86,13 +86,13 @@ class TestSettleAdj:
 class TestEntityLedgerComponents:
     def test_paid_signed_and_share_match_ledger(self):
         members = [_fam("f1", 2), _ind("i1")]
-        # 100 PER_CAPITA paid by i1, split all: H = 2 + 1 = 3 -> f1 owes 66.67, i1 owes 33.33.
+        # 100 PER_CAPITA paid by i1, split all: H = 2 + 1 = 3. The payer receives
+        # the first leftover unit, so f1 owes 66 and i1 owes 34.
         paid, share = entity_ledger_components([_exp("e", 100.0, [], paid_by="i1")], members)
         assert paid == {"f1": 0.0, "i1": 100.0}
-        assert abs(share["f1"] - 200.0 / 3) < 1e-9
-        assert abs(share["i1"] - 100.0 / 3) < 1e-9
+        assert share == {"f1": 66.0, "i1": 34.0}
         # net == paid - share reconstructs the ledger net (pre-settlement).
-        assert abs((paid["i1"] - share["i1"]) - 100.0 / 3 * 2) < 1e-9
+        assert paid["i1"] - share["i1"] == 66.0
 
     def test_historical_split_member_is_ignored_in_current_entity_columns(self):
         # Removed members remain in historical expenses. Report columns cover the current roster;
@@ -116,13 +116,16 @@ class TestSplitMath:
         assert blk["divisor"] == 13
         assert blk["subtotal_units"] == 13
         assert blk["subtotal_allocated"] == 130.0
-        # units sum to the divisor; allocated sums to the amount; allocated == units * per_unit.
+        # Units sum to the divisor and the actual integer allocations sum to the amount.
         assert sum(p["units"] for p in blk["participants"]) == 13
-        assert abs(sum(p["allocated"] for p in blk["participants"]) - 130.0) < 0.005 * 6
+        assert sum(p["allocated"] for p in blk["participants"]) == 130
         by_name = {p["participant"]: p for p in blk["participants"]}
         assert by_name["f1"]["ptype"] == "Family" and by_name["f1"]["units"] == 4
         assert by_name["i1"]["ptype"] == "Individual" and by_name["i1"]["units"] == 1
-        assert all(abs(p["per_unit"] - 10.0) < 1e-9 for p in blk["participants"])
+        assert {name: row["allocated"] for name, row in by_name.items()} == {
+            "f1": 40, "f2": 40, "f3": 20, "f4": 10, "i1": 10, "i2": 10,
+        }
+        assert blk["remainder_recipients"] == []
 
     def test_per_family_block_section_5b(self):
         members = [_fam("f1", 4), _fam("f2", 4), _ind("i1")]
@@ -132,7 +135,8 @@ class TestSplitMath:
         assert blk["mode"] == "Per-Family"
         assert blk["divisor"] == 3
         assert all(p["units"] == 1 for p in blk["participants"])     # entity = 1 unit
-        assert all(abs(p["per_unit"] - 40.0) < 1e-9 for p in blk["participants"])
+        assert all(p["allocated"] == 40 for p in blk["participants"])
+        assert blk["remainder_recipients"] == []
         assert blk["subtotal_allocated"] == 120.0
         assert blk["subtotal_units"] == 3
 

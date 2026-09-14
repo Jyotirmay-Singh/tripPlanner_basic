@@ -1,15 +1,11 @@
-"""Read-only inspection helpers for the ISO currency-precision rollout."""
+"""Read-only inspection helpers for the application-wide whole-unit money policy."""
 
 from __future__ import annotations
 
 from typing import Any, Iterable
 
-from utils.currency_rules import (
-    CurrencyPrecisionError,
-    currency_minor_units,
-    normalize_currency,
-    validate_currency_precision,
-)
+from utils.currency_rules import normalize_currency
+from utils.money_policy import decimal_money, whole_money
 
 
 def _display_value(value: Any) -> str:
@@ -20,8 +16,9 @@ def _display_value(value: Any) -> str:
 
 def _allowed_digits(currency: Any) -> int | None:
     try:
-        return currency_minor_units(currency)
-    except (KeyError, TypeError, ValueError):
+        normalize_currency(currency)
+        return 0
+    except (TypeError, ValueError):
         return None
 
 
@@ -75,18 +72,12 @@ def _audit_amount(
         ))
         return
     try:
-        validate_currency_precision(value, code, label=field)
-    except CurrencyPrecisionError:
-        violations.append(_violation(
-            record_type=record_type,
-            record_id=record_id,
-            trip_id=trip_id,
-            field=field,
-            currency=code,
-            value=value,
-            allowed_digits=currency_minor_units(code),
-            reason="excess_precision",
-        ))
+        parsed = decimal_money(value, label=field)
+        rounded = whole_money(
+            parsed,
+            label=field,
+            reject_nonzero_to_zero=False,
+        )
     except ValueError:
         violations.append(_violation(
             record_type=record_type,
@@ -95,8 +86,20 @@ def _audit_amount(
             field=field,
             currency=code,
             value=value,
-            allowed_digits=currency_minor_units(code),
+            allowed_digits=0,
             reason="invalid_amount",
+        ))
+        return
+    if parsed != rounded:
+        violations.append(_violation(
+            record_type=record_type,
+            record_id=record_id,
+            trip_id=trip_id,
+            field=field,
+            currency=code,
+            value=value,
+            allowed_digits=0,
+            reason="non_whole_unit",
         ))
 
 
@@ -142,7 +145,7 @@ def audit_currency_precision(
     settlements: Iterable[dict],
     payments: Iterable[dict],
 ) -> list[dict]:
-    """Return persisted money values that violate their currency contract.
+    """Return active persisted money values that are not whole major-currency units.
 
     This function is deliberately pure. It never rounds, repairs, or mutates a document.
     """

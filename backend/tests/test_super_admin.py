@@ -1,8 +1,10 @@
 import asyncio
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from bson.decimal128 import Decimal128
 from fastapi import BackgroundTasks, HTTPException
 from starlette.websockets import WebSocketDisconnect
 
@@ -221,6 +223,104 @@ def test_admin_trip_overview_returns_cursor_page_and_summary_pipeline(monkeypatc
     assert any("$lookup" in stage and stage["$lookup"].get("from") == "expenses"
                for stage in data_pipeline)
     assert {"$sort": {"_admin_created_at": -1, "id": -1}} in data_pipeline
+
+
+class _ChainCursor:
+    def __init__(self, rows):
+        self.rows = list(rows)
+        self.limit_value = None
+
+    def sort(self, *_args):
+        return self
+
+    def limit(self, value):
+        self.limit_value = value
+        return self
+
+    async def to_list(self, length=None):
+        cap = self.limit_value if self.limit_value is not None else length
+        return list(self.rows if cap is None else self.rows[:cap])
+
+
+class _AuditCollection:
+    def __init__(self, rows=()):
+        self.rows = list(rows)
+
+    async def count_documents(self, _query):
+        return len(self.rows)
+
+    def find(self, _query, _projection):
+        return _ChainCursor(self.rows)
+
+
+def test_money_audit_serializes_decimal_evidence_without_precision_loss(monkeypatch):
+    normalization = {
+        "id": "normalization-1",
+        "trip_id": "trip-1",
+        "policy_version": "whole_unit_v1",
+        "created_at": "2026-09-13T10:00:00Z",
+        "changes": [{
+            "field": "amount",
+            "before": Decimal128("12.3400"),
+            "after": Decimal("12"),
+            "nested": {"source": Decimal128("12.3400")},
+        }],
+    }
+    trips_collection = SimpleNamespace(find=lambda *_args, **_kwargs: _ChainCursor([
+        {"id": "trip-1", "name": "Audit trip", "currency": "INR"},
+    ]))
+    monkeypatch.setattr(admin, "db", SimpleNamespace(
+        money_normalization_audits=_AuditCollection([normalization]),
+        money_migration_audits=_AuditCollection(),
+        money_migration_adjustments=_AuditCollection(),
+        trips=trips_collection,
+    ))
+
+    page = run(admin.list_money_audit(
+        limit=50,
+        cursor=None,
+        trip_id=None,
+        record_type="normalization",
+        _admin=SUPER_ADMIN,
+    ))
+
+    assert page["total"] == 1
+    item = page["items"][0]
+    assert item["trip_name"] == "Audit trip"
+    assert item["currency"] == "INR"
+    assert item["changes"][0]["before"] == "12.3400"
+    assert item["changes"][0]["after"] == "12"
+    assert item["changes"][0]["nested"] == {"source": "12.3400"}
+
+
+def test_money_audit_exposes_private_adjustment_vector_only_in_admin_feed(monkeypatch):
+    adjustment = {
+        "trip_id": "trip-1",
+        "policy_version": "whole_unit_v1",
+        "created_at": "2026-09-13T09:00:00Z",
+        "vector": {"a": Decimal128("1"), "b": Decimal("-1")},
+    }
+    trips_collection = SimpleNamespace(find=lambda *_args, **_kwargs: _ChainCursor([
+        {"id": "trip-1", "name": "Audit trip", "currency": "INR"},
+    ]))
+    monkeypatch.setattr(admin, "db", SimpleNamespace(
+        money_normalization_audits=_AuditCollection(),
+        money_migration_audits=_AuditCollection(),
+        money_migration_adjustments=_AuditCollection([adjustment]),
+        trips=trips_collection,
+    ))
+
+    page = run(admin.list_money_audit(
+        limit=50,
+        cursor=None,
+        trip_id="trip-1",
+        record_type="adjustment",
+        _admin=SUPER_ADMIN,
+    ))
+
+    assert page["items"][0]["id"] == "adjustment:trip-1"
+    assert page["items"][0]["record_type"] == "adjustment"
+    assert page["items"][0]["vector"] == {"a": "1", "b": "-1"}
 
 
 def test_trip_deletion_cleans_all_related_live_collections(monkeypatch):

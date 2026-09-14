@@ -4,18 +4,18 @@ from decimal import Decimal
 
 from fastapi import HTTPException
 
-from config import WHOLE_UNIT_SETTLEMENTS_ENABLED
 from database import db
 from services.member_breakdown import family_member_breakdown
 from services.settlement_engine import (
     SettlementLedgerError,
+    apply_migration_adjustments,
     build_precise_net,
     build_settlement_projection,
     joint_round,
     scaled_number,
     settlement_increment,
 )
-from utils.currency_rules import quantize_currency
+from utils.money_policy import whole_money
 
 
 def _weight_of_member(member: dict) -> int:
@@ -47,14 +47,22 @@ async def _compute_balances(
     payments = await db.payments.find(
         {"trip_id": trip_id}, {"_id": 0}, **session_options
     ).to_list(None)
+    adjustment_collection = getattr(db, "money_migration_adjustments", None)
+    migration_adjustment = await adjustment_collection.find_one(
+        {"trip_id": trip_id}, {"_id": 0}, **session_options
+    ) if adjustment_collection is not None else None
 
     try:
         precise_net = build_precise_net(members, expenses, settlements, payments)
+        precise_net = apply_migration_adjustments(
+            precise_net,
+            (migration_adjustment or {}).get("vector"),
+        )
 
-        # Keep the legacy numeric ``net`` response, but project it to the official currency's ISO
-        # increment and round jointly so it remains conserving. Whole-unit cash policy is additive.
+        # Keep the legacy numeric ``net`` response shape while jointly projecting every currency to
+        # the application-wide one-major-unit increment so the vector remains conserving.
         currency = trip.get("currency", "INR")
-        compatibility_increment, _ = settlement_increment(currency, False)
+        compatibility_increment, _ = settlement_increment(currency, True)
         compatibility_counts = joint_round(precise_net, compatibility_increment)
         net = {
             member_id: scaled_number(count * compatibility_increment)
@@ -63,7 +71,7 @@ async def _compute_balances(
         transfers, projection = build_settlement_projection(
             precise_net,
             currency,
-            whole_unit_enabled=WHOLE_UNIT_SETTLEMENTS_ENABLED,
+            whole_unit_enabled=True,
         )
     except SettlementLedgerError as exc:
         generic = (
@@ -92,11 +100,12 @@ async def _compute_balances(
                 "kind": member["kind"],
                 "people_count": _weight_of_member(member),
                 "net_total": net.get(member["id"], 0.0),
-                "net_per_person": float(quantize_currency(
-                    Decimal(str(net.get(member["id"], 0.0)))
+                "net_per_person": whole_money(
+                    Decimal(str(net.get(member["id"], 0)))
                     / Decimal(_weight_of_member(member)),
-                    trip.get("currency", "INR"),
-                )),
+                    label="Per-person balance",
+                    reject_nonzero_to_zero=False,
+                ),
                 "family_members": member.get("family_members", []),
                 "members": breakdown.get(member["id"], []),
             }

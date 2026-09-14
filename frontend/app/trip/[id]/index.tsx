@@ -26,9 +26,8 @@ import { sortExpensesDesc } from '../../../src/expenseSort';
 import { hasShareBreakdown, shareVerbs, type ExpenseShares } from '../../../src/expenseShares';
 import { tripTabFromParam, type TripTabKey } from '../../../src/tripTabs';
 import { isTripSettled } from '../../../src/tripSettled';
-import { formatPreciseMoney } from '../../../src/settlementProjection';
 import type { SettlementProjection } from '../../../src/settlementProjection';
-import { formatCompactMoney, formatMoney, formatWholeMoney } from '../../../src/format';
+import { formatAccessibleMoney, formatMoney } from '../../../src/format';
 import { formatTripDates } from '../../../src/date';
 import { formatTime12h } from '../../../src/time';
 import { categoryDetailPath } from '../../../src/categoryRoute';
@@ -136,9 +135,14 @@ function BudgetUsageCard({ spent, budget, currency }: BudgetUsageCardProps) {
   const overAmount = Math.max(0, spent - budget);
   const budgetLabel = formatMoney(budget, { currency });
   const overLabel = overAmount > 0 ? formatMoney(overAmount, { currency }) : null;
-  const accessibilityValueText = overLabel
-    ? `${spentLabel} of ${budgetLabel}; ${overLabel} over budget`
-    : `${spentLabel} of ${budgetLabel}`;
+  const spentAccessibleLabel = formatAccessibleMoney(spent, { currency });
+  const budgetAccessibleLabel = formatAccessibleMoney(budget, { currency });
+  const overAccessibleLabel = overAmount > 0
+    ? formatAccessibleMoney(overAmount, { currency })
+    : null;
+  const accessibilityValueText = overAccessibleLabel
+    ? `${spentAccessibleLabel} of ${budgetAccessibleLabel}; ${overAccessibleLabel} over budget`
+    : `${spentAccessibleLabel} of ${budgetAccessibleLabel}`;
 
   return (
     <Card testID="trip-budget-used-card">
@@ -530,11 +534,9 @@ export default function TripDetail() {
                     <DonutChart
                       data={slices}
                       currency={trip.currency}
-                      centerValue={formatCompactMoney(totalSpent, {
-                        currency: trip.currency, showCurrency: false,
-                      })}
-                      centerLabel={trip.currency}
-                      centerAccessibilityLabel={`Total spent, ${formatMoney(totalSpent, { currency: trip.currency })}`}
+                      centerValue={formatMoney(totalSpent, { currency: trip.currency })}
+                      centerLabel="TOTAL"
+                      centerAccessibilityLabel={`Total spent, ${formatAccessibleMoney(totalSpent, { currency: trip.currency })}`}
                       onSlicePress={(s) => router.push(categoryDetailPath(id as string, s.key) as Href)}
                     />
                   </Card>
@@ -678,25 +680,11 @@ export default function TripDetail() {
 
           {tab === 'balances' && balances && (
             <View style={{ gap: SPACING.sm }}>
-              {balances.settlement_projection?.enabled ? (
-                <Card style={{ gap: SPACING.xs }}>
-                  <T variant="h3">
-                    {balances.settlement_projection.status === 'settled_within_rounding'
-                      ? 'Settled within rounding'
-                      : 'Whole-rupee recommendations'}
-                  </T>
-                  <T muted>
-                    {balances.settlement_projection.status === 'settled_within_rounding'
-                      ? 'No whole-rupee payment remains. Small exact balances are kept for future expenses.'
-                      : 'Exact balances stay in the ledger; suggested payments are rounded together.'}
-                  </T>
-                </Card>
-              ) : null}
               {balances.per_person.map((pp) => {
                 const mine = pp.member_id === trip.members.find((m) => m.user_id === user?.id)?.id;
                 return (
                   <Card key={pp.member_id}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACING.sm }}>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
                           <T variant="h4" numberOfLines={1}>{displayNames[pp.member_id] || pp.member_name}</T>
@@ -715,34 +703,8 @@ export default function TripDetail() {
                       label={`${displayNames[pp.member_id] || pp.member_name} balance`}
                       color={pp.net_total < 0 ? colors.danger : pp.net_total > 0 ? colors.success : colors.textMuted}
                     />
-                        {pp.kind === 'family' && pp.people_count > 1 && (
-                          <T variant="caption" muted>{formatMoney(pp.net_per_person, {
-                            currency: trip.currency, signed: true, showCurrency: false,
-                          })} per person</T>
-                        )}
                       </View>
                     </View>
-                    {balances.settlement_projection?.enabled ? (
-                      <View style={{ marginTop: SPACING.sm, gap: 2 }}>
-                        <T variant="caption" muted>
-                          Exact balance: {formatPreciseMoney(
-                            balances.settlement_projection.precise_net[pp.member_id], trip.currency,
-                          )}
-                        </T>
-                        <T variant="caption" muted>
-                          Rounded to pay/receive: {formatWholeMoney(
-                            balances.settlement_projection.rounded_net[pp.member_id],
-                            { currency: trip.currency, signed: true },
-                          )}
-                        </T>
-                        <T variant="caption" muted>
-                          Rounding adjustment: {formatPreciseMoney(
-                            balances.settlement_projection.rounding_adjustments[pp.member_id],
-                            trip.currency,
-                          )}
-                        </T>
-                      </View>
-                    ) : null}
                     {pp.kind === 'family' && pp.family_members.length > 0 && (
                       <View style={{ marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
                         {(pp.members && pp.members.length > 0
@@ -767,9 +729,7 @@ export default function TripDetail() {
               {balances.transfers.length > 0 && (
                 <>
                   <T variant="label" muted style={{ marginTop: SPACING.md }}>
-                    {balances.settlement_projection?.enabled
-                      ? 'Whole-rupee recommendations'
-                      : 'Suggested settlements'}
+                    Suggested settlements
                   </T>
                   {balances.transfers.map((tr, i) => (
                     <Card key={i} style={styles.rowCard}>

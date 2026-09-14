@@ -43,7 +43,7 @@ function content(renderer: any): string {
     .join(' ');
 }
 
-it('shows KWD precision inline and excludes invalid input from the save rows', () => {
+it('requires whole KWD allocations and excludes decimal input from save rows', () => {
   const onChange = jest.fn();
   let renderer: any;
   act(() => {
@@ -53,7 +53,7 @@ it('shows KWD precision inline and excludes invalid input from the save rows', (
           id: 'a', name: 'Alex', kind: 'individual', family_members: [],
         }]}
         currency="KWD"
-        total={1.234}
+        total={1}
         initialRows={[{
           memberId: 'a', entityId: 'a', included: true, amount: null,
         }]}
@@ -64,20 +64,20 @@ it('shows KWD precision inline and excludes invalid input from the save rows', (
   });
 
   const input = renderer.root.findByType(TextInput);
-  expect(input.props.placeholder).toBe('0.000');
+  expect(input.props.placeholder).toBe('0');
 
   act(() => input.props.onChangeText('1.2345'));
   expect(renderer.root.findByProps({ testID: 'exact-precision-a' })).toBeTruthy();
   expect(content(renderer)).toContain(
-    'Exact split amount in KWD allows at most 3 decimal places.',
+    'Exact split amount in KWD must be a whole amount without decimal places.',
   );
   expect(onChange).toHaveBeenLastCalledWith([
     { memberId: 'a', entityId: 'a', included: true, amount: null },
   ]);
 
-  act(() => input.props.onChangeText('1.234'));
+  act(() => input.props.onChangeText('1'));
   expect(renderer.root.findAllByProps({ testID: 'exact-precision-a' })).toHaveLength(0);
   expect(onChange).toHaveBeenLastCalledWith([
-    { memberId: 'a', entityId: 'a', included: true, amount: 1.234 },
+    { memberId: 'a', entityId: 'a', included: true, amount: 1 },
   ]);
 });

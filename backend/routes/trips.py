@@ -6,11 +6,6 @@ from database import db
 from models.trip import TripIn, TripUpdate, AdminGrant, OwnershipTransfer
 from models.join import JoinRequest, JoinPreviewRequest
 from utils.common import gen_id, gen_trip_code, now_utc
-from utils.currency_rules import (
-    CurrencyPrecisionError,
-    precision_error_detail,
-    validate_currency_precision,
-)
 from utils.date_rules import assert_valid_range, ensure_date_range
 from utils.deps import get_current_user, _trip_or_404, _trip_admin_or_403, _trip_owner_or_403
 from utils.email_rules import assert_gmail, normalize_email
@@ -33,6 +28,14 @@ from services.join_requests import (
 from services.invites import record_invite_use, resolve_join_credential, revoke_trip_invites
 from services.admin_audit import record_admin_action
 from services.receipts import delete_receipts_for_trip
+from services.money_audit import record_money_normalizations
+from utils.money_policy import (
+    AmountRoundsToZeroError,
+    amount_rounds_to_zero_detail,
+    MONEY_POLICY_VERSION,
+    normalization_change,
+    whole_money,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -48,9 +51,9 @@ def _validated_budget(value, currency: str):
     if value is None:
         return None
     try:
-        return float(validate_currency_precision(value, currency, label="Budget"))
-    except CurrencyPrecisionError as exc:
-        raise HTTPException(422, precision_error_detail(exc)) from exc
+        return whole_money(value, label="Budget")
+    except AmountRoundsToZeroError as exc:
+        raise HTTPException(422, amount_rounds_to_zero_detail(exc)) from exc
     except ValueError as exc:
         raise HTTPException(422, {
             "code": "invalid_currency_amount",
@@ -107,10 +110,13 @@ async def create_trip(body: TripIn, user=Depends(get_current_user)):
     # standalone individual (default, legacy behavior) or ONE member inside a family they set up here.
     owner_member = _build_owner_member(body, user)
     currency = body.currency or "INR"
+    budget = _validated_budget(body.budget, currency)
+    budget_change = normalization_change("budget", body.budget, budget) \
+        if body.budget is not None else None
     doc = {
         "id": tid, "code": code, "name": body.name,
         "start_date": start_date, "end_date": end_date,
-        "budget": _validated_budget(body.budget, currency), "currency": currency,
+        "budget": budget, "currency": currency,
         "owner_id": user["id"], "user_ids": [user["id"]],
         "admin_ids": [user["id"]],
         "members": [owner_member],
@@ -119,9 +125,17 @@ async def create_trip(body: TripIn, user=Depends(get_current_user)):
         "invite_generation": 0,
         # Optimistic-concurrency counter for the payment-write guard (Phase 20 BUG-2 fix).
         "version": 0,
+        "money_policy_version": MONEY_POLICY_VERSION,
     }
     await db.trips.insert_one(doc)
     doc.pop("_id", None)
+    await record_money_normalizations(
+        [budget_change],
+        actor_user_id=user["id"],
+        trip_id=tid,
+        resource_type="trip",
+        resource_id=tid,
+    )
     await record_admin_action(
         user, "trip.created", trip=doc, resource_type="trip", resource_id=tid,
         changed_fields=("name", "start_date", "end_date", "budget", "currency"),
@@ -159,9 +173,13 @@ async def update_trip(trip_id: str, body: TripUpdate, user=Depends(get_current_u
             raise HTTPException(409, "Official currency cannot be changed after trip creation")
         updates.pop("currency")
     if "budget" in updates:
+        submitted_budget = updates["budget"]
         updates["budget"] = _validated_budget(
             updates["budget"], trip.get("currency", "INR")
         )
+        budget_change = normalization_change("budget", submitted_budget, updates["budget"])
+    else:
+        budget_change = None
     # If either date is changing, validate the resulting range against the existing values.
     if "start_date" in updates or "end_date" in updates:
         existing = ensure_date_range(dict(trip))
@@ -178,6 +196,13 @@ async def update_trip(trip_id: str, body: TripUpdate, user=Depends(get_current_u
         modified = _write_changed(result)
     saved = ensure_date_range(await db.trips.find_one({"id": trip_id}, {"_id": 0}))
     if modified:
+        await record_money_normalizations(
+            [budget_change],
+            actor_user_id=user["id"],
+            trip_id=trip_id,
+            resource_type="trip",
+            resource_id=trip_id,
+        )
         await record_admin_action(
             user, "trip.updated", trip=saved, resource_type="trip", resource_id=trip_id,
             changed_fields=updates.keys(),

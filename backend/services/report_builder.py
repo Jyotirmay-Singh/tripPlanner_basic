@@ -10,8 +10,6 @@ FastAPI/Motor imports — only pure service/display helpers) so it is unit-testa
 builders never change the settlement path or stored transactions.
 """
 
-import math
-
 from services.calculator import (
     allocate_within_family,
     resolve_weights,
@@ -22,12 +20,7 @@ from services.custom_split import exact_member_shares
 from services.expense_shares import entity_shares_raw
 from services.member_breakdown import family_member_ids
 from utils.display_names import family_member_display_names, member_display_names
-from utils.currency_rules import (
-    apportion_currency_amounts,
-    currency_minor_units,
-    currency_units,
-    quantize_currency,
-)
+from utils.money_policy import apportion_whole_amounts, decimal_money, whole_money
 
 
 def _decimal_text(value, default="") -> str:
@@ -47,10 +40,14 @@ def _decimal_float(value, default=0.0) -> float:
     return float(value)
 
 
-def _money_number(value, currency: str = "INR") -> float:
-    """Return a numeric report value rounded half-up to the ISO currency increment."""
+def _money_number(value, currency: str = "INR") -> int:
+    """Return a whole-major-unit numeric report value."""
 
-    return float(quantize_currency(value, currency))
+    del currency
+    try:
+        return whole_money(value, reject_nonzero_to_zero=False)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _to_12h(value) -> str:
@@ -128,10 +125,16 @@ def build_per_capita_rows(
         split_ids = e.get("split_member_ids") or all_ids
         weights = resolve_weights(split_ids, weight_map, e.get("weight_snapshots"),
                                   e.get("family_participants"), rosters)
-        shares = split_per_capita(e["amount"], weights)
+        shares = split_per_capita(
+            e["amount"], weights,
+            payer_id=e.get("paid_by_member_id"), roster_order=all_ids,
+        )
         if not shares:
             continue  # H <= 0; nothing to split (matches _compute_balances)
-        shown = apportion_currency_amounts(shares, list(shares), e["amount"], currency)
+        shown = apportion_whole_amounts(
+            shares, list(shares), e["amount"],
+            preferred_id=e.get("paid_by_member_id") if e.get("paid_by_member_id") in shares else None,
+        )
         total_humans = sum(weights.values())
         per_human = e["amount"] / total_humans
         for mid, share in shares.items():
@@ -165,10 +168,16 @@ def build_per_family_rows(
         if (e.get("split_mode") or "PER_CAPITA") != "PER_FAMILY":
             continue
         split_ids = e.get("split_member_ids") or all_ids
-        shares = split_per_family(e["amount"], split_ids)
+        shares = split_per_family(
+            e["amount"], split_ids,
+            payer_id=e.get("paid_by_member_id"), roster_order=all_ids,
+        )
         if not shares:
             continue  # E <= 0; nothing to split
-        shown = apportion_currency_amounts(shares, list(shares), e["amount"], currency)
+        shown = apportion_whole_amounts(
+            shares, list(shares), e["amount"],
+            preferred_id=e.get("paid_by_member_id") if e.get("paid_by_member_id") in shares else None,
+        )
         total_entities = len(shares)  # split_per_family de-dupes; len == distinct entities
         per_entity = e["amount"] / total_entities
         for mid, share in shares.items():
@@ -305,16 +314,9 @@ def settle_adj_by_entity(settlements: list) -> dict:
     return out
 
 
-def _amount_minor_units(value, currency: str = "INR") -> int:
-    """Normalize one stored signed amount at the report boundary.
-
-    Using integer ISO minor units prevents entity/category float drift and guarantees every rendered
-    subtotal is the sum of its rendered rows. Invalid legacy values are display-neutral instead of
-    crashing an otherwise readable report.
-    """
-    if not isinstance(value, (int, float)) or not math.isfinite(value):
-        return 0
-    return currency_units(value, currency)
+def _amount_units(value, currency: str = "INR") -> int:
+    """Return a report amount in active whole major-currency units."""
+    return _money_number(value, currency)
 
 
 def build_spend_reconciliation(
@@ -331,7 +333,7 @@ def build_spend_reconciliation(
     own ``category``. The signed-expense model has no original-expense link or refund status to consult.
     Unknown legacy payer ids remain visible under one ``Unassigned entity`` bucket; blank categories
     remain visible under ``Uncategorized``. Current roster entities are initialized even with zero
-    spend, preserving the existing Summary convention. All accumulation is in integer minor units.
+    spend, preserving the existing Summary convention. All accumulation is in whole units.
     """
     names = _names(members)
     member_by_id = {m.get("id"): m for m in members if m.get("id") is not None}
@@ -354,7 +356,7 @@ def build_spend_reconciliation(
     reimbursement_total_units = 0
 
     for expense in expenses or []:
-        units = _amount_minor_units(expense.get("amount", 0.0), currency)
+        units = _amount_units(expense.get("amount", 0.0), currency)
         if units == 0:
             continue
 
@@ -388,7 +390,7 @@ def build_spend_reconciliation(
             category_units[category]["reimbursement_units"] += magnitude
             reimbursement_total_units += magnitude
 
-    scale = 10 ** currency_minor_units(currency)
+    scale = 1
     entities = []
     for row in entity_units.values():
         gross = row["gross_units"] / scale
@@ -433,11 +435,11 @@ def build_members_families_rows(
     then standalone individuals, then a grand TOTAL.
 
     Money is presented so every entity row reconciles EXACTLY: ``Net = Paid - Share + Settlements``.
-    Paid, Settlements, and Net use the currency's ISO precision; Net is the authoritative ledger figure
+    Paid, Settlements, and Net use whole major units; Net is the authoritative ledger figure
     (the in-app +/-); Share is shown as ``Paid + Settlements - Net``, which is ALGEBRAICALLY the
     engine's own Σ share (``net == paid - share + settle`` ⇒ ``share == paid + settle - net``) — so it
     equals the independently-summed allocation (``entity_ledger_components``'s ``share``, cross-checked
-    in tests) yet foots to the minor unit on every row and column (Σ Paid = Σ Share = grand total;
+    in tests) yet foots to the whole unit on every row and column (Σ Paid = Σ Share = grand total;
     Σ Settlements = Σ Net = 0). Family-member rows carry only Net (the post-settlement chronological
     breakdown from ``_compute_balances``, which sums to the family's Net); they are sub-rows EXCLUDED
     from the TOTAL (no double count).
@@ -500,14 +502,12 @@ def build_split_math_rows(expenses: list, members: list, currency: str = "INR") 
     Each block::
 
         {expense, date, category, amount, mode, divisor,
-         participants: [{participant, ptype, units, per_unit, allocated}, ...],
+         participants: [{participant, ptype, units, allocated, remainder_recipient}, ...],
          subtotal_units, subtotal_allocated}
 
-    Per-Person reuses ``build_per_capita_rows`` (``units`` = involved-human weight, ``per_unit`` =
-    amount / total involved humans); Per-Family reuses ``build_per_family_rows`` (``units`` = 1,
-    ``per_unit`` = amount / total entities). ``allocated = units × per_unit``, and Σ allocated ==
-    amount, Σ units == divisor. An expense that splits to nothing (H<=0 / E<=0) is skipped, exactly
-    like the ledger.
+    Reports show each participant's actual integer allocation. ``remainder_recipient`` identifies
+    allocations that received a unit above their proportional floor; payer-first/roster-order
+    allocation is inherited from the same calculator helpers as the ledger.
     """
     names = _names(members)
     kind_by_label = {names[m["id"]]: ("Family" if m.get("kind") == "family" else "Individual")
@@ -520,31 +520,44 @@ def build_split_math_rows(expenses: list, members: list, currency: str = "INR") 
             prows = build_per_family_rows([e], members, currency)
             parts = [{"participant": r["member_name"],
                       "ptype": kind_by_label.get(r["member_name"], "Individual"),
-                      "units": 1, "per_unit": r["per_entity"], "allocated": r["member_share"]}
+                      "units": 1, "allocated": r["member_share"], "_raw_weight": 1}
                      for r in prows]
             divisor = prows[0]["total_entities"] if prows else 0
         elif mode == "EXACT":
             # EXACT: each entity's exact share (family = Σ its typed member amounts, individual = own)
             # straight from the ledger-truth `entity_shares_raw` — no per-unit divisor, units = 1.
             raw = entity_shares_raw(e, members)
-            shown = apportion_currency_amounts(
-                raw, list(raw), e.get("amount", 0.0), currency
+            shown = apportion_whole_amounts(
+                raw, list(raw), e.get("amount", 0.0),
+                preferred_id=e.get("paid_by_member_id") if e.get("paid_by_member_id") in raw else None,
             ) if raw else {}
             parts = [{"participant": names[eid],
                       "ptype": kind_by_label.get(names[eid], "Individual"),
-                      "units": 1, "per_unit": shown[eid], "allocated": shown[eid]}
+                      "units": 1, "allocated": shown[eid],
+                      "_raw_weight": abs(decimal_money(raw[eid]))}
                      for eid in raw]
             divisor = len(parts)
         else:
             prows = build_per_capita_rows([e], members, currency)
             parts = [{"participant": r["member_name"],
                       "ptype": kind_by_label.get(r["member_name"], "Individual"),
-                      "units": r["member_weight"], "per_unit": r["per_human"],
-                      "allocated": r["member_share"]}
+                      "units": r["member_weight"], "allocated": r["member_share"],
+                      "_raw_weight": r["member_weight"]}
                      for r in prows]
             divisor = prows[0]["total_humans"] if prows else 0
         if not parts:
             continue  # H<=0 / E<=0: skipped, exactly like the ledger
+        target_magnitude = abs(decimal_money(e.get("amount", 0)))
+        total_weight = sum((decimal_money(part["_raw_weight"]) for part in parts), start=decimal_money(0))
+        for part in parts:
+            proportional_floor = int(
+                target_magnitude * decimal_money(part["_raw_weight"]) / total_weight
+            ) if total_weight else 0
+            part["remainder_recipient"] = abs(int(part["allocated"])) > proportional_floor
+            part.pop("_raw_weight", None)
+        remainder_recipients = [
+            part["participant"] for part in parts if part["remainder_recipient"]
+        ]
         blocks.append({
             "expense": e.get("description", "") or e.get("category", ""),
             "date": _date_cell(e),
@@ -553,6 +566,7 @@ def build_split_math_rows(expenses: list, members: list, currency: str = "INR") 
             "mode": mode_label(mode),
             "divisor": divisor,
             "participants": parts,
+            "remainder_recipients": remainder_recipients,
             "subtotal_units": sum(p["units"] for p in parts),
             "subtotal_allocated": _money_number(
                 sum(p["allocated"] for p in parts), currency
@@ -567,8 +581,8 @@ def build_split_math_rows(expenses: list, members: list, currency: str = "INR") 
 # engine helpers the ledger/Expenses-tab breakdown use — ``expense_shares.entity_shares_raw`` (the
 # exact per-entity split ``_compute_balances`` computes) and ``calculator.allocate_within_family``
 # (the intra-family division; involved-only in PER_CAPITA, all members in PER_FAMILY) — so no split
-# math is reimplemented here. Rounding is display-only and jointly apportioned at the currency's ISO
-# precision, so every expense block reconciles without feeding ``net``/settlements. Total Payable is
+# math is reimplemented here. Values are jointly apportioned in whole major-currency units, so every
+# expense block reconciles without feeding ``net``/settlements. Total Payable is
 # the GROSS per-expense share, so settlements are irrelevant to this tab.
 
 
@@ -591,11 +605,12 @@ def build_expense_member_rows(expenses: list, members: list, currency: str = "IN
     expense that splits to nothing (H<=0 / E<=0 → ``entity_shares_raw`` returns ``{}``) is skipped,
     exactly like the ledger. Member rows are emitted by iterating ``members`` in array order (families
     expand over their roster; individuals are one row), so the person order is identical in every
-    block. A member with a 0.00 share (excluded from the split / not participating) has
-    ``participates=False`` → renderers show ``"-"``. Family member shares come from
+    block. Eligibility is tracked separately from the allocated value: a participant can receive a
+    legitimate zero when the whole total is smaller than the participant count, while an excluded
+    member has ``participates=False`` and renderers show ``"-"``. Family member shares come from
     ``allocate_within_family`` on the family's entity share (excluded members → 0.0); individuals take
     their own entity share. Shares are rounded together with a deterministic largest-remainder pass,
-    so every valid per-expense block sums exactly to its canonical amount in ISO minor units.
+    so every valid per-expense block sums exactly to its canonical whole-unit amount.
     """
     names = _names(members)
     # roster (id, display-name) pairs per family, parallel to ``family_members``.
@@ -630,6 +645,9 @@ def build_expense_member_rows(expenses: list, members: list, currency: str = "IN
         amount = e.get("amount", 0.0)
         fam_participants = e.get("family_participants") or {}
         mode = e.get("split_mode") or "PER_CAPITA"
+        split_ids = e.get("split_member_ids") or [member["id"] for member in members]
+        selected_entities = set(split_ids)
+        exact_amounts = e.get("custom_amounts") or {}
         row_specs: list = []
         raw_person_shares: dict = {}
         for m in members:
@@ -642,9 +660,13 @@ def build_expense_member_rows(expenses: list, members: list, currency: str = "IN
                 # the split); PER_CAPITA excludes non-participants, PER_FAMILY splits over all members.
                 # EXACT shows each member's explicit typed amount (absent -> 0), matching the ledger.
                 if mode == "EXACT":
-                    alloc = exact_member_shares(e.get("custom_amounts"), roster_ids)
+                    alloc = exact_member_shares(exact_amounts, roster_ids)
+                    participating_ids = set(exact_amounts)
                 else:
                     alloc = allocate_within_family(raw.get(mid, 0.0), fam_participants.get(mid), roster_ids)
+                    recorded = set(fam_participants.get(mid) or [])
+                    chosen = [rid for rid in roster_ids if rid in recorded]
+                    participating_ids = set(chosen or roster_ids) if mid in selected_entities else set()
                 for rid, rname in roster:
                     index = len(row_specs)
                     raw_share = alloc.get(rid, 0.0)
@@ -653,7 +675,7 @@ def build_expense_member_rows(expenses: list, members: list, currency: str = "IN
                         "person_id": rid,
                         "family": fam_label,
                         "person": rname,
-                        "participates": raw_share != 0.0,
+                        "participates": rid in participating_ids,
                     })
             else:
                 label = names.get(mid, "?")
@@ -664,17 +686,24 @@ def build_expense_member_rows(expenses: list, members: list, currency: str = "IN
                     "person_id": mid,
                     "family": label,
                     "person": label,
-                    "participates": raw_share != 0.0,
+                    "participates": (
+                        mid in exact_amounts if mode == "EXACT" else mid in selected_entities
+                    ),
                 })
 
-        # Snap the whole expense jointly. This prevents independent rounding from turning, for
-        # example, JPY 100 / 3 into a report subtotal of JPY 99 (or KWD 1.000 into KWD 0.999).
+        # Reconcile the whole expense jointly. Values are emitted in one-unit increments.
         order = list(raw_person_shares)
         raw_person_total = sum(raw_person_shares.values())
-        emitted_target = amount if currency_units(raw_person_total, currency) == \
-            currency_units(amount, currency) else raw_person_total
-        shown = apportion_currency_amounts(
-            raw_person_shares, order, emitted_target, currency
+        emitted_target = amount if whole_money(
+            raw_person_total, reject_nonzero_to_zero=False
+        ) == whole_money(amount, reject_nonzero_to_zero=False) else raw_person_total
+        payer_person_index = next((
+            index for index, spec in enumerate(row_specs)
+            if spec["person_id"] == e.get("paid_by_member_id")
+        ), None)
+        shown = apportion_whole_amounts(
+            raw_person_shares, order, emitted_target,
+            preferred_id=payer_person_index,
         ) if order else {}
         rows = []
         for index, spec in enumerate(row_specs):
@@ -687,8 +716,11 @@ def build_expense_member_rows(expenses: list, members: list, currency: str = "IN
             })
             _add_pivot(spec["person_id"], spec["person"], share)
         block_payable = _money_number(sum(shown.values()), currency)
-        original_amount = _decimal_float(e.get("original_amount"), amount)
         original_currency = e.get("original_currency") or e.get("currency") or ""
+        original_source = e.get("original_amount")
+        original_amount = _money_number(
+            amount if original_source is None else original_source, original_currency
+        )
         canonical_currency = e.get("currency") or original_currency
         exchange_rate = _decimal_text(e.get("exchange_rate"), "1")
         exchange_date = e.get("exchange_rate_date") or e.get("exchange_rate_requested_date") \
@@ -697,7 +729,7 @@ def build_expense_member_rows(expenses: list, members: list, currency: str = "IN
         exchange_mode = e.get("exchange_rate_mode") or "automatic"
         original_exact = e.get("original_custom_amounts") or {}
         original_exact_label = "; ".join(
-            f"{person_names.get(person_id, person_id)}: {_decimal_text(value)} {original_currency}"
+            f"{person_names.get(person_id, person_id)}: {_money_number(value, original_currency)} {original_currency}"
             for person_id, value in original_exact.items()
         )
         blocks.append({

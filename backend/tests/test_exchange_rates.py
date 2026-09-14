@@ -8,11 +8,15 @@ import httpx
 import pytest
 
 from services import exchange_rates as rates
-from utils.currency_rules import CurrencyPrecisionError
 
 
 def run(awaitable):
     return asyncio.run(awaitable)
+
+
+@pytest.fixture(autouse=True)
+def isolate_money_normalization_audit(monkeypatch):
+    monkeypatch.setattr(rates, "record_money_normalizations", AsyncMock())
 
 
 class FakeResponse:
@@ -169,10 +173,10 @@ def test_manual_final_amount_preserves_refund_sign_and_is_auditable(monkeypatch)
         manual_input_type="target_amount", manual_target_amount="352.04",
     ))
 
-    assert result["target_amount"] == "-352.04"
-    assert result["rate"] == "3.5204"
+    assert result["target_amount"] == "-352"
+    assert result["rate"] == "3.52"
     assert result["provider"] == "manual"
-    assert result["manual_input_value"] == "352.04"
+    assert result["manual_input_value"] == "352"
     stored = quotes.insert_one.await_args.args[0]
     assert stored["manual_input_type"] == "target_amount"
 
@@ -188,7 +192,7 @@ def test_manual_rate_quote_uses_decimal_arithmetic_and_audit_fields(monkeypatch)
         manual_input_type="rate", manual_rate="1.375",
     ))
 
-    assert result["target_amount"] == "2062.50"
+    assert result["target_amount"] == "2063"
     assert result["rate"] == "1.375"
     assert result["manual_input_type"] == "rate"
     assert result["manual_input_value"] == "1.375"
@@ -222,7 +226,8 @@ def test_same_currency_quote_uses_identity_without_provider(monkeypatch):
     ))
 
     assert result["rate"] == "1"
-    assert result["target_amount"] == "125.50"
+    assert result["source_amount"] == "126"
+    assert result["target_amount"] == "126"
     assert result["provider"] == "identity"
     provider.assert_not_awaited()
 
@@ -230,14 +235,14 @@ def test_same_currency_quote_uses_identity_without_provider(monkeypatch):
 @pytest.mark.parametrize(
     "source_amount,target_currency,rate,expected",
     [
-        ("1.00", "USD", "1.005", "1.01"),
+        ("1.00", "USD", "1.005", "1"),
         ("1.00", "JPY", "2.5", "3"),
-        ("1.00", "KWD", "1.2345", "1.235"),
+        ("1.00", "KWD", "1.2345", "1"),
         ("-1.00", "JPY", "2.5", "-3"),
-        ("-1.00", "KWD", "1.2345", "-1.235"),
+        ("-1.00", "KWD", "1.2345", "-1"),
     ],
 )
-def test_automatic_quote_rounds_half_up_to_target_precision(
+def test_automatic_quote_rounds_half_up_to_whole_target_units(
     monkeypatch, source_amount, target_currency, rate, expected
 ):
     quotes = SimpleNamespace(insert_one=AsyncMock())
@@ -259,37 +264,55 @@ def test_automatic_quote_rounds_half_up_to_target_precision(
 
 
 @pytest.mark.parametrize(
-    "source_currency,source_amount",
-    [("JPY", "12.1"), ("USD", "12.345"), ("KWD", "12.3456")],
+    "source_currency,source_amount,expected",
+    [("JPY", "12.1", "12"), ("USD", "12.345", "12"), ("KWD", "12.3456", "12")],
 )
-def test_quote_rejects_excessive_source_precision(source_currency, source_amount):
-    with pytest.raises(CurrencyPrecisionError):
-        run(rates.create_quote(
-            user_id="u1", source_currency=source_currency, target_currency="INR",
-            source_amount=source_amount, requested_date="2026-08-28", mode="automatic",
-        ))
+def test_quote_normalizes_legacy_decimal_source_amounts(
+    monkeypatch, source_currency, source_amount, expected
+):
+    quotes = SimpleNamespace(insert_one=AsyncMock())
+    monkeypatch.setattr(rates, "db", SimpleNamespace(exchange_rate_quotes=quotes))
+    monkeypatch.setattr(rates, "get_reference_rate", AsyncMock(return_value={
+        "rate_id": "r1", "rate": Decimal("1"), "effective_date": "2026-08-28",
+        "provider": rates.PROVIDER, "provider_sources": [], "cache_revision": 1,
+        "cache_hit": False, "stale": False,
+    }))
+
+    result = run(rates.create_quote(
+        user_id="u1", source_currency=source_currency, target_currency="INR",
+        source_amount=source_amount, requested_date="2026-08-28", mode="automatic",
+    ))
+
+    assert result["source_amount"] == expected
+    assert result["target_amount"] == expected
+    rates.record_money_normalizations.assert_awaited_once()
 
 
 @pytest.mark.parametrize(
-    "target_currency,target_amount",
-    [("JPY", "12.1"), ("USD", "12.345"), ("KWD", "12.3456")],
+    "target_currency,target_amount,expected",
+    [("JPY", "12.1", "12"), ("USD", "12.345", "12"), ("KWD", "12.3456", "12")],
 )
-def test_manual_final_amount_rejects_excessive_target_precision(
-    target_currency, target_amount
+def test_manual_final_amount_normalizes_legacy_decimal_target_amounts(
+    monkeypatch, target_currency, target_amount, expected
 ):
-    with pytest.raises(CurrencyPrecisionError):
-        run(rates.create_quote(
-            user_id="u1", source_currency="INR", target_currency=target_currency,
-            source_amount="10.00", requested_date="2026-08-28", mode="manual",
-            manual_input_type="target_amount", manual_target_amount=target_amount,
-        ))
+    quotes = SimpleNamespace(insert_one=AsyncMock())
+    monkeypatch.setattr(rates, "db", SimpleNamespace(exchange_rate_quotes=quotes))
+
+    result = run(rates.create_quote(
+        user_id="u1", source_currency="INR", target_currency=target_currency,
+        source_amount="10.00", requested_date="2026-08-28", mode="manual",
+        manual_input_type="target_amount", manual_target_amount=target_amount,
+    ))
+
+    assert result["target_amount"] == expected
+    assert result["manual_input_value"] == expected
 
 
 @pytest.mark.parametrize(
     "target_currency,rate,expected",
-    [("JPY", "2.5", "3"), ("KWD", "1.2345", "1.235")],
+    [("JPY", "2.5", "3"), ("KWD", "1.2345", "1")],
 )
-def test_manual_rate_quote_rounds_half_up_to_target_precision(
+def test_manual_rate_quote_rounds_half_up_to_whole_target_units(
     monkeypatch, target_currency, rate, expected
 ):
     quotes = SimpleNamespace(insert_one=AsyncMock())

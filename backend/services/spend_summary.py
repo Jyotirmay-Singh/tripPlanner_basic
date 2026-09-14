@@ -14,9 +14,7 @@ mapping the payer to its member is needed. Nothing here touches ``_compute_balan
 settlement engine, or any persisted document.
 """
 
-from decimal import Decimal
-
-from utils.currency_rules import decimal_amount, quantize_currency
+from utils.money_policy import whole_money
 
 
 def aggregate_spend(members: list, expenses: list, currency: str = "INR") -> dict:
@@ -38,11 +36,13 @@ def aggregate_spend(members: list, expenses: list, currency: str = "INR") -> dic
     Per-entity ``paid`` is rounded to the trip currency's legal precision and ``total`` sums those
     rendered values so the header figure equals the sum of the bars.
     """
-    paid = {m["id"]: Decimal(0) for m in members}
+    paid = {m["id"]: 0 for m in members}
     counts = {m["id"]: 0 for m in members}
     for e in expenses:
         try:
-            amount = decimal_amount(e.get("amount", 0), label="Expense amount")
+            amount = whole_money(
+                e.get("amount", 0), label="Expense amount", reject_nonzero_to_zero=False
+            )
         except ValueError:
             continue
         if amount <= 0:
@@ -57,13 +57,11 @@ def aggregate_spend(members: list, expenses: list, currency: str = "INR") -> dic
             "entity_id": m["id"],
             "entity_type": m.get("kind", "individual"),
             "name": m.get("name", ""),
-            "paid": float(quantize_currency(paid[m["id"]], currency)),
+            "paid": paid[m["id"]],
             "expense_count": counts[m["id"]],
         }
         for m in members
     ]
-    total = float(quantize_currency(
-        sum((Decimal(str(ent["paid"])) for ent in entities), Decimal(0)), currency
-    ))
+    total = sum(ent["paid"] for ent in entities)
     count = sum(1 for ent in entities if ent["paid"] > 0)
     return {"total": total, "count": count, "entities": entities}

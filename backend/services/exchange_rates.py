@@ -17,7 +17,12 @@ from pymongo.errors import DuplicateKeyError
 
 from database import db
 from utils.common import gen_id, now_utc
-from utils.currency_rules import quantize_currency, validate_currency_precision
+from services.money_audit import record_money_normalizations
+from utils.money_policy import (
+    normalization_change,
+    positive_whole_money,
+    whole_money,
+)
 
 
 PROVIDER = "frankfurter_v2_blended"
@@ -68,16 +73,14 @@ def error_detail(exc: ExchangeRateError) -> dict:
     return {"code": exc.code, "message": str(exc), "retryable": exc.retryable}
 
 
-def money(value: Any, currency: str = "INR", *, reject_precision: bool = False) -> Decimal:
+def money(value: Any) -> Decimal:
     try:
         parsed = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError):
         raise ValueError("Amount must be a number")
     if not parsed.is_finite() or parsed == 0:
         raise ValueError("Amount must be a finite non-zero number")
-    if reject_precision:
-        return validate_currency_precision(parsed, currency)
-    return quantize_currency(parsed, currency)
+    return parsed
 
 
 def positive_decimal(value: Any, label: str) -> Decimal:
@@ -429,7 +432,9 @@ async def create_quote(*, user_id: str, source_currency: str, target_currency: s
     else:
         raise ValueError("Unsupported exchange-rate mode")
 
-    source = money(source_amount, source_currency, reject_precision=True)
+    submitted_source = money(source_amount)
+    source = Decimal(whole_money(submitted_source, label="Amount"))
+    changes = [normalization_change("source_amount", submitted_source, source)]
     if source_currency == target_currency:
         if mode != "automatic":
             raise ValueError("Same-currency expenses always use rate 1")
@@ -440,14 +445,19 @@ async def create_quote(*, user_id: str, source_currency: str, target_currency: s
     elif mode == "manual":
         if manual_input_type == "rate":
             rate = positive_decimal(manual_rate, "Manual rate")
-            target = quantize_currency(source * rate, target_currency)
+            raw_target = source * rate
+            target = Decimal(whole_money(raw_target, label="Converted amount"))
+            changes.append(normalization_change("target_amount", raw_target, target))
             manual_value = rate
         elif manual_input_type == "target_amount":
-            magnitude = validate_currency_precision(
-                positive_decimal(manual_target_amount, "Manual final amount"),
-                target_currency,
+            submitted_target = positive_decimal(manual_target_amount, "Manual final amount")
+            magnitude = Decimal(positive_whole_money(
+                submitted_target,
                 label="Manual final amount",
-            )
+            ))
+            changes.append(normalization_change(
+                "manual_target_amount", submitted_target, magnitude
+            ))
             target = magnitude.copy_sign(source)
             rate = magnitude / abs(source)
             manual_value = magnitude
@@ -467,7 +477,9 @@ async def create_quote(*, user_id: str, source_currency: str, target_currency: s
         rate_data = await get_reference_rate(
             source_currency, target_currency, requested_date, refresh=refresh
         )
-        target = quantize_currency(source * rate_data["rate"], target_currency)
+        raw_target = source * rate_data["rate"]
+        target = Decimal(whole_money(raw_target, label="Converted amount"))
+        changes.append(normalization_change("target_amount", raw_target, target))
         manual_input_type = None
         manual_value = None
 
@@ -504,6 +516,13 @@ async def create_quote(*, user_id: str, source_currency: str, target_currency: s
         # record or widening the durable ledger/audit surface.
         document["payment_handoff"] = dict(payment_handoff)
     await db.exchange_rate_quotes.insert_one(document)
+    await record_money_normalizations(
+        changes,
+        actor_user_id=user_id,
+        trip_id=(payment_handoff or {}).get("trip_id"),
+        resource_type="exchange_rate_quote",
+        resource_id=quote_id,
+    )
     return quote_public(document)
 
 

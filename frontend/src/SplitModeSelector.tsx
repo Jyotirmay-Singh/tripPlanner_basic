@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from './ThemeContext';
 import { SPACING, RADIUS, FONTS, SHADOW } from './theme';
 import T from './T';
-import { perCapitaHumans } from './familyParticipation';
+import { automaticEntityAllocations } from './familyParticipation';
 import { formatMoney } from './format';
 
 export type SplitMode = 'PER_CAPITA' | 'PER_FAMILY' | 'EXACT';
@@ -78,6 +78,7 @@ export function splitPreviewLabel(opts: {
   weightOverrides: Record<string, number>;
   currency: string;
   familyExcluded?: Record<string, string[]>;
+  payerId?: string | null;
   /** EXACT: entity rollup {entityId -> amount} and entity display names, for the "Sharma 90 · Alex 10"
    *  preview. Both come from the ExactSplitEditor's live rows. */
   exactShares?: Record<string, number>;
@@ -98,19 +99,21 @@ export function splitPreviewLabel(opts: {
   // amount may be negative (money back); only 0 / blank falls back to the hint.
   if (!Number.isFinite(amount) || amount === 0 || splitSel.length === 0) return HINT;
 
-  if (mode === 'PER_FAMILY') {
-    // §5B: divide equally across entities; family size is ignored.
-    const E = splitSel.length;
-    const per = amount / E;
-    return `${formatMoney(per, { currency })} per group`;
-  }
-
-  // §5A: divide across total INVOLVED humans (individual = 1, family = override ?? involved count ??
-  // size). Mirrors backend resolve_weights; familyExcluded lets a partial family count correctly.
-  const H = perCapitaHumans(members, splitSel, weightOverrides, familyExcluded ?? {});
-  if (H <= 0) return HINT;
-  const per = amount / H;
-  return `${formatMoney(per, { currency })} per person`;
+  const shares = automaticEntityAllocations(
+    amount,
+    members,
+    splitSel,
+    weightOverrides,
+    mode,
+    familyExcluded ?? {},
+    opts.payerId,
+  );
+  const entries = members
+    .filter((member) => Object.prototype.hasOwnProperty.call(shares, member.id))
+    .map((member) => (
+      `${opts.names?.[member.id] ?? member.id} ${formatMoney(shares[member.id], { currency })}`
+    ));
+  return entries.length ? entries.join(' · ') : HINT;
 }
 
 const styles = StyleSheet.create({

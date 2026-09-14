@@ -1,4 +1,6 @@
 import io
+from copy import copy
+from math import ceil
 
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
@@ -13,7 +15,7 @@ from utils.balances import _compute_balances
 from utils.display_names import member_display_names
 from utils.ist_time import format_ist
 from utils.security import decode_token
-from utils.currency_rules import currency_minor_units, quantize_currency
+from utils.money_policy import whole_money
 from services.report_builder import (
     build_expense_member_rows,
     build_members_families_rows,
@@ -52,17 +54,17 @@ def _style_header_row(ws, row: int, ncols: int) -> None:
 
 
 def _money(cell, currency: str = "INR") -> None:
-    """Right-align a numeric cell using the currency's ISO minor-unit format."""
-    digits = currency_minor_units(currency)
-    fraction = f".{''.join('0' for _ in range(digits))}" if digits else ""
-    cell.number_format = f"#,##0{fraction};[Red](#,##0{fraction})"
+    """Right-align a whole-unit numeric cell; ISO code is carried by its column label."""
+    del currency
+    cell.number_format = _WHOLE_MONEY_FMT
     cell.alignment = _RIGHT
 
 
-def _money_value(value, currency: str = "INR") -> float:
-    """Numeric workbook value rounded half-up to the currency's ISO precision."""
+def _money_value(value, currency: str = "INR") -> int:
+    """Numeric workbook value rounded half-up to a whole major unit."""
 
-    return float(quantize_currency(value, currency))
+    del currency
+    return whole_money(value, reject_nonzero_to_zero=False)
 
 
 def _whole_money(cell) -> None:
@@ -74,6 +76,54 @@ def _whole_money(cell) -> None:
 def _set_widths(ws, widths) -> None:
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
+
+
+def _finalize_sheet_layout(ws, money_columns=()) -> None:
+    """Fit complete money values and wrap long labels without hiding report content.
+
+    XLSX columns start from intentional, compact widths.  Money columns may grow to the complete
+    grouped value, while long free text wraps and receives an explicit row height so viewers do not
+    depend on an application's auto-fit behaviour.
+    """
+
+    for column in money_columns:
+        letter = get_column_letter(column)
+        current_width = ws.column_dimensions[letter].width or 13
+        required_width = current_width
+        for cell in ws.iter_cols(
+            min_col=column, max_col=column, min_row=1, max_row=ws.max_row
+        ):
+            for item in cell:
+                if isinstance(item.value, (int, float)) and not isinstance(item.value, bool):
+                    amount = _money_value(item.value)
+                    rendered = f"({abs(amount):,})" if amount < 0 else f"{amount:,}"
+                    required_width = max(required_width, len(rendered) + 2)
+        ws.column_dimensions[letter].width = min(255, required_width)
+
+    for row in range(1, ws.max_row + 1):
+        needed_lines = 1
+        for column in range(1, ws.max_column + 1):
+            cell = ws.cell(row=row, column=column)
+            if not isinstance(cell.value, str) or not cell.value:
+                continue
+            width = ws.column_dimensions[get_column_letter(column)].width or 13
+            line_capacity = max(1, int(width) - 1)
+            line_count = sum(
+                max(1, ceil(len(segment) / line_capacity))
+                for segment in cell.value.splitlines() or [cell.value]
+            )
+            if line_count <= 1:
+                continue
+            alignment = copy(cell.alignment)
+            alignment.wrap_text = True
+            alignment.vertical = "top"
+            cell.alignment = alignment
+            needed_lines = max(needed_lines, line_count)
+        if needed_lines > 1:
+            ws.row_dimensions[row].height = max(
+                ws.row_dimensions[row].height or 15,
+                15 * needed_lines,
+            )
 
 
 def _style_subsection_row(ws, row: int, ncols: int, *, reimbursement: bool = False) -> None:
@@ -102,6 +152,14 @@ async def _load_report_expenses(trip_id: str) -> list:
     return await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(length=None)
 
 
+async def _load_migration_adjustment(trip_id: str):
+    """Tolerate lightweight route-test database doubles that predate this audit collection."""
+    collection = getattr(db, "money_migration_adjustments", None)
+    if collection is None:
+        return None
+    return await collection.find_one({"trip_id": trip_id}, {"_id": 0})
+
+
 # ---------- Reports ----------
 @router.get("/trips/{trip_id}/report")
 async def report(trip_id: str, user=Depends(get_current_user)):
@@ -119,14 +177,14 @@ async def report(trip_id: str, user=Depends(get_current_user)):
     currency = trip.get("currency", "INR")
     return {
         "trip": trip,
-        "total_expense": float(quantize_currency(total_expense, currency)),
+        "total_expense": _money_value(total_expense, currency),
         "budget": trip.get("budget"),
         "by_category": [
-            {"category": k, "amount": float(quantize_currency(v, currency))}
+            {"category": k, "amount": _money_value(v, currency)}
             for k, v in by_cat.items()
         ],
         "by_date": [
-            {"date": k, "amount": float(quantize_currency(v, currency))}
+            {"date": k, "amount": _money_value(v, currency)}
             for k, v in sorted(by_date.items())
         ],
         "balances": bal,
@@ -158,6 +216,7 @@ async def report_xlsx(trip_id: str, token: str,
         {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}).to_list(None)
     payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}) \
         .sort("created_at", 1).to_list(None)
+    migration_adjustment = await _load_migration_adjustment(trip_id)
 
     wb = Workbook()
 
@@ -312,29 +371,29 @@ async def report_xlsx(trip_id: str, token: str,
 
     # ----- Tab 3: Split Math (flagship — one auditable block per expense) -----
     s3 = wb.create_sheet("Split Math")
-    sm_headers = ["Expense", "Date", "Total Amount", "Split Mode", "Participant",
-                  "Participant Type", "Units", f"Per-Unit Cost ({cur})", f"Allocated ({cur})"]
+    sm_headers = ["Expense", "Date", f"Total Amount ({cur})", "Split Mode", "Participant",
+                  "Participant Type", "Units / Weight", f"Actual Allocation ({cur})",
+                  "Remainder Unit Recipient"]
     s3.append(sm_headers)
     _style_header_row(s3, 1, len(sm_headers))
     for blk in build_split_math_rows(expenses, members, cur):
         amt = _money_value(blk["amount"], cur)
         for p in blk["participants"]:
             s3.append([blk["expense"], blk["date"], amt, blk["mode"], p["participant"],
-                       p["ptype"], p["units"], _money_value(p["per_unit"], cur),
-                       _money_value(p["allocated"], cur)])
+                       p["ptype"], p["units"], _money_value(p["allocated"], cur),
+                       "Yes" if p["remainder_recipient"] else "No"])
             rr = s3.max_row
             _money(s3.cell(row=rr, column=3), cur)
             s3.cell(row=rr, column=7).alignment = _RIGHT
             _money(s3.cell(row=rr, column=8), cur)
-            _money(s3.cell(row=rr, column=9), cur)
         s3.append([f"{blk['expense']} — Subtotal", "", amt, blk["mode"], "", "",
-                   blk["subtotal_units"], "", blk["subtotal_allocated"]])
+                   blk["subtotal_units"], blk["subtotal_allocated"], ""])
         rr = s3.max_row
         for col in range(1, len(sm_headers) + 1):
             s3.cell(row=rr, column=col).font = _BOLD
         _money(s3.cell(row=rr, column=3), cur)
         s3.cell(row=rr, column=7).alignment = _RIGHT
-        _money(s3.cell(row=rr, column=9), cur)
+        _money(s3.cell(row=rr, column=8), cur)
     s3.freeze_panes = "A2"
     _set_widths(s3, [24, 18, 14, 12, 20, 16, 8, 16, 16])
 
@@ -444,12 +503,7 @@ async def report_xlsx(trip_id: str, token: str,
     projection = bal.get("settlement_projection") or {}
     if projection.get("enabled"):
         row = s5.max_row + 2
-        s5.cell(row=row, column=1, value="Whole-rupee settlement projection").font = _TITLE_FONT
-        row += 1
-        s5.cell(row=row, column=1, value=(
-            "Payments are rounded together so the group stays balanced. "
-            "Exact balances remain authoritative."
-        ))
+        s5.cell(row=row, column=1, value="Settlement plan").font = _TITLE_FONT
         row += 1
         for label, value in (
             ("Settlement currency", projection.get("currency")),
@@ -463,19 +517,6 @@ async def report_xlsx(trip_id: str, token: str,
             s5.cell(row=row, column=2, value=value)
             row += 1
         row += 1
-        headers = ["Entity", "Exact balance", "Rounded balance", "Rounding adjustment"]
-        for column, header in enumerate(headers, 1):
-            s5.cell(row=row, column=column, value=header)
-        _style_header_row(s5, row, len(headers))
-        for member in members:
-            member_id = member["id"]
-            row += 1
-            s5.cell(row=row, column=1, value=display.get(member_id, member.get("name", "?")))
-            s5.cell(row=row, column=2, value=projection["precise_net"].get(member_id))
-            s5.cell(row=row, column=3, value=projection["rounded_net"].get(member_id))
-            s5.cell(row=row, column=4, value=projection["rounding_adjustments"].get(member_id))
-            _whole_money(s5.cell(row=row, column=3))
-        row += 2
         transfer_headers = ["Suggested payer", "Suggested receiver", f"Whole amount ({cur})"]
         for column, header in enumerate(transfer_headers, 1):
             s5.cell(row=row, column=column, value=header)
@@ -488,6 +529,46 @@ async def report_xlsx(trip_id: str, token: str,
             _whole_money(s5.cell(row=row, column=3))
     s5.freeze_panes = "A2"
     _set_widths(s5, [32, 32, 22, 24, 30, 28])
+
+    # Private migration adjustments are never mixed into transactions/payments; reports expose a
+    # dedicated audit section so administrators can reconcile a migrated trip explicitly.
+    if migration_adjustment:
+        s6 = wb.create_sheet("Migration Adjustments")
+        s6["A1"] = "Whole-unit migration adjustments"
+        s6["A1"].font = _TITLE_FONT
+        s6["A2"] = "Policy version"
+        s6["A2"].font = _BOLD
+        s6["B2"] = migration_adjustment.get("policy_version")
+        s6["A3"] = "Created at"
+        s6["A3"].font = _BOLD
+        s6["B3"] = migration_adjustment.get("created_at")
+        s6.append([])
+        s6.append(["Entity", f"Adjustment ({cur})"])
+        _style_header_row(s6, s6.max_row, 2)
+        vector = migration_adjustment.get("vector") or {}
+        for member in members:
+            member_id = member["id"]
+            s6.append([
+                display.get(member_id, member.get("name", "?")),
+                _money_value(vector.get(member_id, 0), cur),
+            ])
+            _money(s6.cell(row=s6.max_row, column=2), cur)
+        s6.append(["TOTAL", _money_value(sum(vector.values()), cur)])
+        s6[s6.max_row][0].font = _BOLD
+        s6[s6.max_row][1].font = _BOLD
+        _money(s6.cell(row=s6.max_row, column=2), cur)
+        _set_widths(s6, [32, 24])
+
+    money_columns = {
+        "Summary": (2, 3),
+        "Members & Families": (4, 5, 6, 7),
+        "Split Math": (3, 8),
+        "Transactions": (5, 6, 17, 20),
+        "Payments": (3,),
+        "Migration Adjustments": (2,),
+    }
+    for sheet in wb.worksheets:
+        _finalize_sheet_layout(sheet, money_columns.get(sheet.title, ()))
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -519,6 +600,7 @@ async def report_pdf(trip_id: str, token: str,
     )
     payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}) \
         .sort("created_at", 1).to_list(None)
+    migration_adjustment = await _load_migration_adjustment(trip_id)
     # Members & Families rows — identical construction to the XLSX route (same builders + the same
     # settlements + payments overlay), so the PDF's Settlements column and reconciliation match.
     bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
@@ -535,6 +617,7 @@ async def report_pdf(trip_id: str, token: str,
         reconciliation=reconciliation, payments=payments, mf_rows=mf_rows,
         settlement_projection=bal.get("settlement_projection"),
         settlement_transfers=bal.get("transfers"),
+        migration_adjustment=migration_adjustment,
     )
     fname = f"{trip['name'].replace(' ','_')}_report.pdf"
     return StreamingResponse(

@@ -11,7 +11,6 @@ Render's free-tier constraints. Builds entirely in-memory and returns PDF bytes.
 """
 
 import io
-from decimal import Decimal
 from functools import partial
 
 from reportlab.lib import colors
@@ -25,12 +24,13 @@ from reportlab.platypus import (
 
 from services.report_builder import (
     build_expense_member_rows,
+    build_split_math_rows,
     composition_label,
 )
 from utils.date_rules import trip_date_label
 from utils.display_names import member_display_names
 from utils.ist_time import format_ist
-from utils.currency_rules import currency_minor_units, quantize_currency
+from utils.money_policy import whole_money
 
 _BRAND = colors.HexColor("#1C3F39")      # header fill / headings (matches the XLSX _BRAND)
 _RED = colors.HexColor("#C0392B")        # negatives (mirrors the XLSX [Red] number format)
@@ -52,20 +52,13 @@ _CELL_HDR = ParagraphStyle("cellHdr", fontSize=7.3, leading=8.6, fontName="Helve
 
 
 def _fmt_money(v, currency: str = "INR") -> str:
-    """ISO-precision accounting format with negatives in parentheses."""
+    """Whole-unit accounting format; ISO currency is carried by the surrounding label."""
     if v is None:
         return ""
-    amount = quantize_currency(v, currency)
-    s = f"{abs(amount):,.{currency_minor_units(currency)}f}"
+    del currency
+    amount = whole_money(v, reject_nonzero_to_zero=False)
+    s = f"{abs(amount):,}"
     return f"({s})" if amount < 0 else s
-
-
-def _fmt_whole(v) -> str:
-    """Whole-unit accounting format for rounded settlement values."""
-    if v is None:
-        return ""
-    s = f"{abs(int(v)):,}"
-    return f"({s})" if v < 0 else s
 
 
 def _p(text, bold=False):
@@ -429,7 +422,7 @@ def _payments_section(base, payments, members, currency):
     names = member_display_names(members)
     data = [[_hp("Payer"), _hp("Receiver"), _hp(f"Amount ({currency})"), _hp("Date & Time"),
              _hp("Remark"), _hp("Source")]]
-    total = Decimal(0)
+    total = 0
     for p in payments:
         data.append([
             _p(names.get(p["from_member_id"], "?")),
@@ -440,61 +433,104 @@ def _payments_section(base, payments, members, currency):
             _p("UPI — recipient confirmed" if p.get("source") == "upi_recipient_confirmed"
                else "Recorded payment"),
         ])
-        total += quantize_currency(p["amount"], currency)
+        total += whole_money(p["amount"], reject_nonzero_to_zero=False)
     data.append([_p("Total", bold=True), "", money(total), "", "", ""])
     flow.append(_styled_table(data, [105, 110, 80, 100, 115, 130], right_cols=(2,),
                               total_row=len(data) - 1))
     return flow
 
 
-def _rounded_settlement_section(base, projection, transfers, members, currency):
-    """Auditable exact-versus-rounded balances and the derived whole-unit route."""
+def _split_allocations_section(base, expenses, members, currency):
+    """Actual integer shares and explicit automatic-remainder recipients."""
+
+    flow = _section(base, "Split Allocations")
+    data = [[
+        _hp("Expense"), _hp("Date"), _hp("Mode"), _hp("Participant"),
+        _hp("Type"), _hp("Units / Weight"), _hp(f"Actual ({currency})"),
+        _hp("Remainder unit"),
+    ]]
+    neg_cells = []
+    row_index = 1
+    for block in build_split_math_rows(expenses, members, currency):
+        for participant in block["participants"]:
+            data.append([
+                _p(block["expense"]), block["date"], block["mode"],
+                _p(participant["participant"]), participant["ptype"],
+                participant["units"], _fmt_money(participant["allocated"], currency),
+                "Yes" if participant["remainder_recipient"] else "No",
+            ])
+            if participant["allocated"] < 0:
+                neg_cells.append((6, row_index))
+            row_index += 1
+    flow.append(_styled_table(
+        data, [110, 66, 58, 115, 65, 65, 78, 72],
+        right_cols=(5, 6), center_cols=(2, 7), neg_cells=neg_cells,
+    ))
+    return flow
+
+
+def _settlement_plan_section(base, projection, transfers, members, currency):
+    """Whole-unit transfer route without obsolete precise-versus-rounded detail."""
 
     names = member_display_names(members)
-    flow = _section(base, "Whole-rupee settlement projection")
+    flow = _section(base, "Settlement Plan")
     route_label = "Minimum payment plan" if projection.get("routing", {}).get("optimal") \
         else "Simplified payment plan"
     flow.append(_p(
-        "Payments are rounded together so the group stays balanced. Exact balances are kept "
-        "for records and future expenses."
-    ))
-    flow.append(Spacer(1, 3 * mm))
-    flow.append(_p(
         f"Currency: {currency}  |  Increment: {projection.get('increment', '1')}  |  "
-        f"Status: {projection.get('status', '')}  |  {route_label}",
+        f"Status: {projection.get('status', '')}  |  {route_label}  |  "
+        f"Policy: {projection.get('policy_version', '')}",
         bold=True,
     ))
-    flow.append(Spacer(1, 3 * mm))
-    data = [[_hp("Entity"), _hp("Exact balance"), _hp("Rounded balance"),
-             _hp("Rounding adjustment")]]
-    for member in members:
-        member_id = member["id"]
-        data.append([
-            _p(names.get(member_id, member.get("name", "?"))),
-            _p(projection.get("precise_net", {}).get(member_id, "")),
-            _fmt_whole(projection.get("rounded_net", {}).get(member_id, 0)),
-            _p(projection.get("rounding_adjustments", {}).get(member_id, "")),
-        ])
-    flow.append(_styled_table(data, [155, 130, 120, 140], right_cols=(1, 2, 3)))
-
     if transfers:
         flow.append(Spacer(1, 4 * mm))
         route_data = [[_hp("Suggested payer"), _hp("Suggested receiver"),
-                       _hp(f"Whole amount ({currency})")]]
+                       _hp(f"Amount ({currency})")]]
         for transfer in transfers:
             route_data.append([
                 _p(names.get(transfer["from_member_id"], "?")),
                 _p(names.get(transfer["to_member_id"], "?")),
-                _fmt_whole(transfer["amount"]),
+                _fmt_money(transfer["amount"], currency),
             ])
         flow.append(_styled_table(route_data, [190, 190, 130], right_cols=(2,)))
+    return flow
+
+
+def _migration_adjustment_section(base, adjustment, members, currency):
+    """Private ledger migration vector, isolated from transaction and payment logs."""
+
+    names = member_display_names(members)
+    flow = _section(base, "Migration Adjustments")
+    flow.append(_p(
+        f"Policy: {adjustment.get('policy_version', '')}  |  "
+        f"Created: {adjustment.get('created_at', '')}",
+        bold=True,
+    ))
+    flow.append(Spacer(1, 3 * mm))
+    vector = adjustment.get("vector") or {}
+    data = [[_hp("Entity"), _hp(f"Adjustment ({currency})")]]
+    neg_cells = []
+    for row_index, member in enumerate(members, start=1):
+        value = whole_money(vector.get(member["id"], 0), reject_nonzero_to_zero=False)
+        data.append([
+            _p(names.get(member["id"], member.get("name", "?"))),
+            _fmt_money(value, currency),
+        ])
+        if value < 0:
+            neg_cells.append((1, row_index))
+    total = sum(whole_money(value, reject_nonzero_to_zero=False) for value in vector.values())
+    data.append([_p("TOTAL", bold=True), _fmt_money(total, currency)])
+    flow.append(_styled_table(
+        data, [230, 150], right_cols=(1,), total_row=len(data) - 1, neg_cells=neg_cells,
+    ))
     return flow
 
 
 def build_report_pdf(trip: dict, members: list, expenses: list, currency: str,
                      reconciliation: dict, payments: list = None, mf_rows: list = None,
                      settlement_projection: dict = None,
-                     settlement_transfers: list = None) -> bytes:
+                     settlement_transfers: list = None,
+                     migration_adjustment: dict = None) -> bytes:
     """Render the FULL report (Summary, Members & Families, exploded Transactions, Payments) to PDF bytes.
 
     ``reconciliation`` is the shared ``build_spend_reconciliation`` result used by XLSX and PDF.
@@ -532,15 +568,25 @@ def build_report_pdf(trip: dict, members: list, expenses: list, currency: str,
 
     if settlement_projection and settlement_projection.get("enabled"):
         story.append(Spacer(1, 8 * mm))
-        story += _rounded_settlement_section(
+        story += _settlement_plan_section(
             base, settlement_projection, settlement_transfers or [], members, currency
         )
 
-    # ---------- Section 3: Transactions (wide — start on a fresh page) ----------
+    if migration_adjustment:
+        story.append(Spacer(1, 8 * mm))
+        story += _migration_adjustment_section(
+            base, migration_adjustment, members, currency
+        )
+
+    # ---------- Section 3: actual split allocations ----------
+    story.append(PageBreak())
+    story += _split_allocations_section(base, expenses, members, currency)
+
+    # ---------- Section 4: Transactions (wide — start on a fresh page) ----------
     story.append(PageBreak())
     story += _transactions_section(base, tx, currency)
 
-    # ---------- Section 4: Payments ----------
+    # ---------- Section 5: Payments ----------
     if payments:
         story.append(Spacer(1, 8 * mm))
         story += _payments_section(base, payments, members, currency)

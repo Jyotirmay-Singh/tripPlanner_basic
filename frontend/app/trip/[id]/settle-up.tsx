@@ -41,17 +41,11 @@ import {
 import type { Payment, PaymentAttempt, PaymentAttemptRecipientAction } from '../../../src/payments';
 import {
   currentSuggestedAmount,
-  formatPreciseMoney,
-  usesWholeUnits,
 } from '../../../src/settlementProjection';
 import type { BalanceResponse } from '../../../src/settlementProjection';
-import { formatMoney, formatWholeMoney } from '../../../src/format';
+import { formatMoney } from '../../../src/format';
 import { formatIST } from '../../../src/istTime';
-import {
-  currencyAmountPlaceholder,
-  fromCurrencyUnits,
-  toCurrencyUnits,
-} from '../../../src/currencies';
+import { currencyAmountPlaceholder } from '../../../src/currencies';
 import {
   Screen, Card, Button, Icon, IconButton, Input, EmptyState, AmountText, SkeletonCard, useToast,
 } from '../../../src/ui';
@@ -66,10 +60,6 @@ type Member = {
 };
 type Balances = BalanceResponse<Member>;
 type Trip = RoleTrip & { id: string; name: string; currency: string; members: Member[] };
-
-const roundCurrency = (n: number, currency: string) => {
-  return fromCurrencyUnits(toCurrencyUnits(n, currency), currency);
-};
 
 const attemptStatusLabel = (status: PaymentAttempt['status']) => ({
   initiated: 'Waiting for payer',
@@ -122,7 +112,6 @@ export default function SettleUp() {
   const [attempts, setAttempts] = useState<PaymentAttempt[] | null>(null);
   const [trip, setTrip] = useState<Trip | null>(null);
   const [busy, setBusy] = useState(false);
-  const [showRounding, setShowRounding] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [handoff, setHandoff] = useState<
     | null
@@ -184,7 +173,7 @@ export default function SettleUp() {
     (a.initiated_at || '') < (b.initiated_at || '') ? 1 : -1,
   );
   const projection = bal?.settlement_projection;
-  const wholeUnit = usesWholeUnits(projection);
+  const wholeUnit = true;
 
   const allow = (toId: string) => !!trip && canRecordPayment(
     trip, toId, user?.id, members, user?.is_super_admin === true,
@@ -294,13 +283,9 @@ export default function SettleUp() {
       fromName: nameOf(payment.from_member_id), toName: nameOf(payment.to_member_id),
       // Cap on edit = current residual + this payment's own effect (mirrors the backend).
       initial: payment.amount,
-      max: wholeUnit
-        ? currentSuggestedAmount(
-          recommendations, payment.from_member_id, payment.to_member_id,
-        ) + payment.amount
-        : roundCurrency(currentSuggestedAmount(
-          recommendations, payment.from_member_id, payment.to_member_id,
-        ) + payment.amount, currency),
+      max: currentSuggestedAmount(
+        recommendations, payment.from_member_id, payment.to_member_id,
+      ) + payment.amount,
       paymentId: payment.id,
       note: payment.note ?? '',
       originalAmount: payment.amount,
@@ -318,9 +303,7 @@ export default function SettleUp() {
         : 'Confirm payment',
       message: e.amountLocked
         ? `Update the remark for ${e.fromName}’s recipient-confirmed UPI payment to ${e.toName}? The amount stays ${formatMoney(e.initial, { currency })}.`
-        : `Confirm ${e.fromName} paid ${wholeUnit && Number.isInteger(amount)
-          ? formatWholeMoney(amount, { currency })
-          : formatMoney(amount, { currency })} to ${e.toName}?`,
+        : `Confirm ${e.fromName} paid ${formatMoney(amount, { currency })} to ${e.toName}?`,
       yesLabel: e.mode === 'edit' ? 'Update' : 'Confirm',
       yesVariant: 'primary',
       yesId: 'payment-confirm',
@@ -380,9 +363,7 @@ export default function SettleUp() {
     <Screen edges={['left', 'right', 'bottom']}>
       <T variant="h1">Settle Up</T>
       <T muted>
-        {wholeUnit
-          ? 'Whole-rupee recommendations. Payments are rounded together so the group stays balanced.'
-          : 'A deterministic payment plan calculated from the trip ledger.'}
+        A deterministic whole-unit payment plan calculated from the trip ledger.
       </T>
       {projection ? (
         <T variant="caption" muted>
@@ -405,12 +386,8 @@ export default function SettleUp() {
       ) : recommendations.length === 0 ? (
         <EmptyState
           icon="check-circle"
-          title={projection?.status === 'settled_within_rounding' ? 'Settled within rounding' : 'All square!'}
-          body={projection?.status === 'settled_within_rounding'
-            ? (wholeUnit
-              ? 'No whole-rupee payment remains. Small exact balances are kept and will carry into future expenses.'
-              : `No ${projection?.increment || 'minor-unit'} payment remains. Small exact balances are kept and will carry into future expenses.`)
-            : 'No one owes anything on this trip.'}
+          title="All square!"
+          body="No one owes anything on this trip."
           testID="settle-empty"
         />
       ) : (
@@ -590,37 +567,6 @@ export default function SettleUp() {
         </View>
       ) : null}
 
-      {projection?.enabled ? (
-        <Card style={styles.detailsCard}>
-          <T variant="h3">Whole-rupee recommendations</T>
-          <T muted>
-            Exact balances are kept for records and future expenses. Only the payment plan is rounded.
-          </T>
-          <Button
-            label={showRounding ? 'Hide rounding details' : 'How rounding was applied'}
-            variant="secondary"
-            size="sm"
-            onPress={() => setShowRounding((shown) => !shown)}
-            testID="rounding-details-toggle"
-          />
-          {showRounding ? members.map((member) => (
-            <View key={member.id} style={[styles.detailRow, { borderTopColor: colors.border }]}>
-              <T variant="h4">{nameOf(member.id)}</T>
-              <View style={styles.detailValues}>
-                <T variant="caption" muted>Exact balance</T>
-                <T variant="caption">{formatPreciseMoney(projection.precise_net[member.id], currency)}</T>
-                <T variant="caption" muted>Rounded to pay/receive</T>
-                <T variant="caption">{formatWholeMoney(
-                  projection.rounded_net[member.id], { currency, signed: true },
-                )}</T>
-                <T variant="caption" muted>Rounding adjustment</T>
-                <T variant="caption">{formatPreciseMoney(projection.rounding_adjustments[member.id], currency)}</T>
-              </View>
-            </View>
-          )) : null}
-        </Card>
-      ) : null}
-
       {history.length > 0 ? (
         <View style={styles.historySection}>
           <T variant="h3">Payment history</T>
@@ -685,8 +631,6 @@ export default function SettleUp() {
           initial={editor.initial}
           max={editor.max}
           currency={currency}
-          wholeUnit={wholeUnit}
-          allowLegacyDecimal={editor.mode === 'edit' && !Number.isInteger(editor.initial)}
           amountLocked={editor.amountLocked}
           initialNote={editor.note ?? ''}
           submitLabel={editor.mode === 'edit' ? 'Continue' : 'Continue'}
@@ -741,20 +685,20 @@ export default function SettleUp() {
 // Exported (named) for a focused render test of the ✕/footer wiring — expo-router only consumes
 // the file's default export, so this does not register a route.
 export function AmountModal({
-  title, subtitle, initial, max, currency, initialNote, submitLabel, wholeUnit = false,
-  allowLegacyDecimal = false, amountLocked = false, onCancel, onSubmit,
+  title, subtitle, initial, max, currency, initialNote, submitLabel,
+  amountLocked = false, onCancel, onSubmit,
 }: {
   title: string; subtitle: string; initial: number; max: number; currency: string;
-  initialNote: string; submitLabel: string; wholeUnit?: boolean; allowLegacyDecimal?: boolean;
+  initialNote: string; submitLabel: string;
+  /** Deprecated compatibility props; whole-unit input is now application-wide. */
+  wholeUnit?: boolean; allowLegacyDecimal?: boolean;
   amountLocked?: boolean;
   onCancel: () => void;
   onSubmit: (amount: number, note: string) => void;
 }) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const [amountStr, setAmountStr] = useState(
-    String(wholeUnit ? initial : roundCurrency(initial, currency)),
-  );
+  const [amountStr, setAmountStr] = useState(String(initial));
   const [noteStr, setNoteStr] = useState(initialNote);
   const [error, setError] = useState<string | null>(null);
   const amountRef = useRef<TextInput>(null);
@@ -765,13 +709,11 @@ export function AmountModal({
       return;
     }
     const parsed = Number(amountStr);
-    const unchangedLegacy = allowLegacyDecimal && parsed === initial;
     const amt = parsed;
     const v = validatePaymentAmount(amt, max, {
-      wholeUnit: wholeUnit && !unchangedLegacy,
+      wholeUnit: true,
       currency,
       rawAmount: amountStr,
-      allowLegacyPrecision: unchangedLegacy,
     });
     if (!v.ok) {
       const message = v.error || 'Enter a valid amount';
@@ -853,14 +795,10 @@ export function AmountModal({
                   label={`Amount (${currency})`}
                   value={amountStr}
                   onChangeText={(t) => { setAmountStr(t); if (error) setError(null); }}
-                  keyboardType={wholeUnit ? 'number-pad' : 'decimal-pad'}
-                  inputMode={wholeUnit ? 'numeric' : 'decimal'}
+                  keyboardType="number-pad"
+                  inputMode="numeric"
                   placeholder={currencyAmountPlaceholder(currency)}
-                  helper={wholeUnit
-                    ? (allowLegacyDecimal && !Number.isInteger(initial)
-                      ? `Keep the current decimal for a note-only edit, or enter a whole ${currency} amount up to ${formatWholeMoney(Math.floor(max), { currency })}`
-                      : `Whole ${currency} amounts only · Max ${formatWholeMoney(Math.floor(max), { currency })}`)
-                    : `Max ${formatMoney(max, { currency })}`}
+                  helper={`Whole ${currency} amounts only · Max ${formatMoney(max, { currency })}`}
                   error={error}
                   autoFocus
                   returnKeyType="next"

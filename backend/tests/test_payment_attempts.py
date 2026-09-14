@@ -335,8 +335,8 @@ def test_creation_persists_exact_immutable_snapshot_before_handoff(monkeypatch):
     stored = fake_db.payment_attempts.rows[0]
     assert result["id"] == "attempt-new"
     assert result["amount_paise"] == 2500
-    assert result["inr_amount"] == "25.00"
-    assert result["source_amount"] == "25.00"
+    assert result["inr_amount"] == "25"
+    assert result["source_amount"] == "25"
     assert result["quote_rate_snapshot"] == "1"
     assert result["upi_id_snapshot"] == "recipient@upi"
     assert result["upi_updated_at_snapshot"] == "2026-09-11T10:00:00+00:00"

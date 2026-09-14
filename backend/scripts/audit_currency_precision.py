@@ -1,4 +1,4 @@
-"""Audit persisted money values before enabling multi-currency expenses.
+"""Audit active persisted money values against the whole-unit policy.
 
 Run from the backend directory with:
 
@@ -25,8 +25,8 @@ from services.currency_precision_audit import audit_database  # noqa: E402
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Read-only audit of persisted amounts against each trip or expense currency's "
-            "ISO precision. No document is ever changed."
+            "Read-only audit of persisted amounts against whole_unit_v1. "
+            "No document is ever changed."
         ),
     )
     parser.add_argument(

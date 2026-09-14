@@ -111,8 +111,6 @@ Backend (`backend/.env`):
   used by Android Credential Manager/web and the iOS client when iOS sign-in is enabled.
 - `MULTI_CURRENCY_EXPENSES_ENABLED`: runtime rollout flag for expense conversion; defaults to
   `false`. Frankfurter v2 requires no API key or new secret.
-- `WHOLE_UNIT_SETTLEMENTS_ENABLED`: runtime rollout flag for conserving whole-rupee LKR/NPR
-  recommendations and new/amount-edited payment writes; defaults to `false`.
 
 Frontend (`frontend/.env` or build environment):
 
@@ -154,11 +152,10 @@ Preserve these unless the task explicitly changes them. Changes require focused 
 - Saved rates and converted amounts are locked. Unrelated edits must not reconvert; changing a
   conversion input or explicitly requesting reconversion increments `conversion_version` and appends
   audit history.
-- Backend rate/original metadata arithmetic uses `Decimal`/Mongo `Decimal128`; the persisted canonical
-  expense amount remains the immutable trip-currency source. Settlement parses stored values through
-  decimal strings into 12-place scaled integers, preserving split fractions without fetching or
-  mutating FX history. The compatibility `net` field remains a jointly rounded two-decimal numeric
-  view; currency-specific ledger minor units beyond the LKR/NPR settlement projection are deferred.
+- Backend rate/original metadata arithmetic uses `Decimal`/Mongo `Decimal128`; exchange-rate ratios
+  and immutable historical FX evidence retain their original precision. Active source and canonical
+  expense amounts, allocations, balances, settlements, and payments use whole major-currency units.
+  The compatibility `net` field remains a JSON number, now guaranteed to be an integer.
 - Exact allocations are entered as positive magnitudes in the original currency, validated against
   `abs(original_amount)`, converted with the locked rate, and largest-remainder rounded so canonical
   shares sum exactly to canonical `amount`. Refund shares receive the transaction's negative sign.
@@ -228,7 +225,8 @@ Divide equally among selected root entities: each family counts as one and each 
 
 - At least one amount must be positive, all amounts must be non-negative, IDs must be valid, and assigned amounts must sum to the expense total.
 - The frontend disables Save while unreconciled, but backend create/edit validation is mandatory and returns HTTP 422 on mismatch.
-- Reconciliation uses integer cents and largest-remainder snapping.
+- Reconciliation uses whole major-currency units with payer-first, then visible-roster-order,
+  remainder allocation.
 - Person amounts roll up to the existing entity-share ledger shape; family per-member display uses the typed proportions.
 - Backend logic is centralized in `backend/services/custom_split.py`; frontend parity is pinned through `shared/exact-split-vectors.json`.
 
@@ -239,24 +237,22 @@ Divide equally among selected root entities: each family counts as one and each 
 - The precise signed member vector must sum to zero. Never independently round member balances or
   transfers. Material imbalance is HTTP 409; only admins receive the diagnostic code/detail.
 - `settlement_projection` is derived, not persisted. It exposes the immutable trip currency,
-  increment, exact/rounded member nets, per-member adjustments, policy/tie-break metadata, route
-  algorithm, optimality, state count, fallback reason, and greedy transfer-count bound.
-- With `WHOLE_UNIT_SETTLEMENTS_ENABLED=true`, only LKR/NPR use a one-rupee increment. Joint
-  largest-remainder rounding is deterministic (equal remainders prefer moving a negative balance
-  toward zero, then stable member ID) and conserves the group total. Other currencies retain a
-  conserving cent projection.
+  increment `1`, compatibility exact/rounded member nets, policy/tie-break metadata, route algorithm,
+  optimality, state count, fallback reason, and greedy transfer-count bound.
+- Every supported currency uses the application-wide `whole_unit_v1` policy. Legacy decimal vectors
+  are jointly rounded with deterministic tie-breaking so the group total remains zero; migrated
+  active ledgers already agree with that whole-unit vector.
 - Routing is dependency-free: exact zero-sum partition search proves the minimum transfer count for
   at most 12 non-zero entities within 100,000 deterministic states; otherwise heap-greedy routing
   emits at most debtors + creditors - 1 transfers. Never describe the fallback as globally minimal.
 - Only non-pending legacy settlements offset balances; pending settlements do not.
 - Historical expenses may retain a removed entity ID. They remain replayable only when that
-  entity's complete precise position is exactly zero; whole-entity removal must not orphan a
-  disclosed sub-cent residual.
+  entity's complete position is exactly zero; whole-entity removal must not orphan a balance.
 - Payments are persistent directed ledger overlays. They reduce the current obligation, and the
   balance engine re-derives and may reroute residual pairs after any payment or later expense.
-- Enabled LKR/NPR trips require whole rupees for new payments/settlements and amount edits. Legacy
-  decimals remain valid; marking a legacy pending record paid and note-only legacy payment edits must
-  preserve the original amount exactly.
+- Updated clients accept whole values for new payments, settlements, expenses, and amount edits.
+  Legacy decimal submissions are rounded half-up and audited by the server. Note-only edits preserve
+  a stored legacy amount, and recipient-confirmed UPI monetary evidence remains immutable.
 - The backend recommendation list is authoritative. Payment history is chronological and separate
   from the live route; do not reattach old payments to newly derived pairs.
 - Chronological family-member breakdown replays expenses plus effective settlement/payment events and scales running member positions. It is display-only and must always sum to the family entity net.
@@ -306,8 +302,8 @@ Broadly implemented areas include:
 - historical and manual multi-currency expense conversion with locked audit metadata and a guarded
   runtime rollout flag;
 - receipts and gallery support;
-- precise conserving balance calculation, optional whole-rupee LKR/NPR settlement projection,
-  legacy settlements, and partial-payment ledger;
+- conserving whole-unit balance calculation, deterministic settlement projection, legacy
+  settlements, and partial-payment ledger;
 - spend/category/member drill-downs and date/time expense ordering;
 - XLSX and PDF reporting;
 - hosted-build configuration for Render, Vercel, Expo, and EAS.
@@ -341,7 +337,7 @@ Before finishing:
 1. Run the narrowest relevant tests first, then broader checks proportional to risk.
 2. For backend domain changes, cover pure unit tests and identify any live API/MongoDB suite not run.
 3. For frontend changes, run relevant Jest tests, TypeScript checking, and lint when available.
-4. For split/report changes, verify cent-level reconciliation and parity across ledger, UI helpers, XLSX, and PDF.
+4. For split/report changes, verify whole-unit conservation and parity across ledger, UI helpers, XLSX, and PDF.
 5. Review the final diff and confirm only intended files changed.
 6. Update `docs/APP_FEATURE_INVENTORY.md`, `USER_GUIDE.md`, and relevant plans/specs when a feature's actual status or behavior changes.
 7. Report commands run, results, limitations, and unverified runtime dependencies accurately.

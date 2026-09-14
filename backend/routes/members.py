@@ -306,7 +306,7 @@ async def delete_family_member(trip_id: str, family_id: str, fm_id: str,
                                user=Depends(get_current_user)):
     """Remove ONE member from inside a family, gated by settlement + the no-empty-family invariant.
 
-    Allowed only when (1) the targeted family member's displayed net rounds to 0.00 and (2) at least
+    Allowed only when (1) the targeted family member's displayed net is 0 whole units and (2) at least
     one member remains afterward — the LAST member must be removed via whole-family removal
     (``DELETE /trips/{id}/members/{family_id}``), never by emptying the roster. The surviving rows
     keep their stable ids; ``reweight_past=False`` pins the family's OLD weight onto past PER_CAPITA

@@ -1,4 +1,3 @@
-import math
 from decimal import Decimal
 from typing import Dict, List, Optional, Literal
 
@@ -17,16 +16,20 @@ def _validate_amount(v):
     both ExpenseIn (required) and ExpenseUpdate (optional -> None passes through)."""
     if v is None:
         return v
-    if not math.isfinite(v) or v == 0:
+    try:
+        parsed = Decimal(str(v))
+    except Exception as exc:
+        raise ValueError("amount must be a non-zero number") from exc
+    if not parsed.is_finite() or parsed == 0:
         raise ValueError("amount must be a non-zero number")
-    return v
+    return parsed
 
 
 class ExpenseIn(BaseModel):
     # Legacy clients send amount/currency and are supported for same-currency writes. New clients
     # send original_amount/original_currency; the response's existing amount/currency fields remain
     # the canonical trip-currency ledger values.
-    amount: Optional[float] = None
+    amount: Optional[Decimal] = None
     currency: Optional[str] = None  # defaults to the trip's locked official currency
     original_amount: Optional[Decimal] = None
     original_currency: Optional[str] = None
@@ -45,7 +48,7 @@ class ExpenseIn(BaseModel):
     # the family's entity total, the trip headcount, the ledger net, and every other entity are
     # untouched.
     family_participants: Optional[Dict[str, List[str]]] = None
-    custom_amounts: Optional[Dict[str, float]] = None  # EXACT mode: person-level member_id -> exact amount
+    custom_amounts: Optional[Dict[str, Decimal]] = None  # EXACT mode: person-level member_id -> exact amount
     original_custom_amounts: Optional[Dict[str, Decimal]] = None
     receipt_id: Optional[str] = None  # GridFS receipt id (Step 22); set via the upload endpoint
     receipt_base64: Optional[str] = None  # legacy/read-only inline receipt (superseded by receipt_id)
@@ -99,7 +102,7 @@ class ExpenseIn(BaseModel):
 
 
 class ExpenseUpdate(BaseModel):
-    amount: Optional[float] = None
+    amount: Optional[Decimal] = None
     currency: Optional[str] = None
     original_amount: Optional[Decimal] = None
     original_currency: Optional[str] = None
@@ -114,7 +117,7 @@ class ExpenseUpdate(BaseModel):
     split_mode: Optional[SplitMode] = None
     weight_snapshots: Optional[dict] = None
     family_participants: Optional[Dict[str, List[str]]] = None
-    custom_amounts: Optional[Dict[str, float]] = None  # EXACT mode: person-level member_id -> exact amount
+    custom_amounts: Optional[Dict[str, Decimal]] = None  # EXACT mode: person-level member_id -> exact amount
     original_custom_amounts: Optional[Dict[str, Decimal]] = None
     receipt_id: Optional[str] = None  # GridFS receipt id (Step 22); set via the upload endpoint
     receipt_base64: Optional[str] = None  # legacy/read-only inline receipt (superseded by receipt_id)

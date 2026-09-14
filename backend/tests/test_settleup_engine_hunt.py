@@ -2,7 +2,7 @@
 
 Exercises the conserving compatibility entry point (services.calculator.minimize_transfers) and the
 pure per-pair payment roll-up (services.payments) against adversarial inputs: exact ±0.01 residuals,
-cyclic debt, large fan-outs, and cent-snapping leaks. Mirrors the style of test_calculator.py /
+cyclic debt, large fan-outs, and unit-snapping leaks. Mirrors the style of test_calculator.py /
 test_payments_rollup.py.
 
 Tests carrying a ``FINDING`` comment DOCUMENT a suspected imprecision — they assert the OBSERVED
@@ -16,42 +16,36 @@ from services.payments import pair_blocks, payment_status
 
 
 def _sum_transfers(transfers):
-    return round(sum(t["amount"] for t in transfers), 2)
+    return sum(t["amount"] for t in transfers)
 
 
 def _positive_net(net):
-    return round(sum(v for v in net.values() if v > 0), 2)
+    return sum(v for v in net.values() if v > 0)
 
 
-class TestCentSnapTermination:
-    """Cent projection must resolve cleanly and retain values on the old 0.01 boundary."""
+class TestWholeUnitTermination:
+    """Whole-unit projection resolves cleanly at and below the legal unit boundary."""
 
-    def test_exact_one_cent_residual_is_settled(self):
-        # Regression: the former strict filter dropped both members at exactly ±0.01.
-        assert minimize_transfers({"a": -0.01, "b": 0.01}) == [
-            {"from_member_id": "a", "to_member_id": "b", "amount": 0.01}
+    def test_exact_one_unit_residual_is_settled(self):
+        assert minimize_transfers({"a": -1, "b": 1}) == [
+            {"from_member_id": "a", "to_member_id": "b", "amount": 1}
         ]
 
-    def test_just_beyond_one_cent_produces_a_transfer(self):
-        assert minimize_transfers({"a": -0.02, "b": 0.02}) == [
-            {"from_member_id": "a", "to_member_id": "b", "amount": 0.02}
-        ]
+    def test_below_half_a_unit_rounds_to_no_transfer(self):
+        assert minimize_transfers({"a": -0.49, "b": 0.49}) == []
 
-    def test_half_cent_ledger_imbalance_is_rejected(self):
-        # -10.005 vs +10.0: 0.005 leftover on the debtor must not spawn a spurious micro-transfer.
+    def test_half_unit_ledger_imbalance_is_rejected(self):
         with pytest.raises(SettlementLedgerError, match="imbalanced"):
-            minimize_transfers({"a": -10.005, "b": 10.0})
+            minimize_transfers({"a": -10.5, "b": 10.0})
 
-    def test_pathological_many_tiny_values_terminate(self):
-        # 50 debtors of -0.03 and 50 creditors of +0.03 — proves the pointer always advances
-        # (no infinite loop) even with hundreds of sub-cent-adjacent settlements.
+    def test_pathological_many_unit_values_terminate(self):
         net = {}
         for i in range(50):
-            net[f"d{i}"] = -0.03
-            net[f"c{i}"] = 0.03
+            net[f"d{i}"] = -1
+            net[f"c{i}"] = 1
         transfers = minimize_transfers(net)  # must simply RETURN
         assert len(transfers) == 50
-        assert _sum_transfers(transfers) == 1.50
+        assert _sum_transfers(transfers) == 50
 
 
 class TestCyclicDebt:
@@ -85,32 +79,32 @@ class TestReconciliation:
         assert _sum_transfers(transfers) == 300.0
         assert all(t["to_member_id"] == "whale" for t in transfers)
 
-    def test_thirds_reconcile_at_two_dp(self):
-        net = {"a": -66.67, "b": 33.33, "c": 33.34}
+    def test_whole_thirds_reconcile_exactly(self):
+        net = {"a": -67, "b": 33, "c": 34}
         transfers = minimize_transfers(net)
-        assert _sum_transfers(transfers) == _positive_net(net) == 66.67
+        assert _sum_transfers(transfers) == _positive_net(net) == 67
 
     def test_balanced_ledger_reconciles_to_the_cent(self):
-        # A balanced cent ledger reconciles exactly; routing never loses money to float drift.
+    # A balanced whole-unit ledger reconciles exactly; routing never loses money to float drift.
         net = {"a": -100.00, "b": 33.33, "c": 33.33, "d": 33.34}
         transfers = minimize_transfers(net)
         assert _sum_transfers(transfers) == _positive_net(net) == 100.00
 
-    def test_precise_thirds_are_jointly_rounded_without_a_residual(self):
+    def test_legacy_precise_thirds_are_jointly_rounded_without_a_residual(self):
         # The precise vector sums to zero even though independently rounded member values would not.
-        net = {"a": -0.10, "b": 0.033333, "c": 0.033333, "d": 0.033334}  # cents: -10 vs 3+3+3 = 9
+        net = {"a": -10, "b": 3.333333, "c": 3.333333, "d": 3.333334}
         transfers = minimize_transfers(net)
-        assert _sum_transfers(transfers) == 0.10
+        assert _sum_transfers(transfers) == 10
 
 
 class TestPaymentRollupBoundaries:
     """Payment status ignores only less than one legal currency unit (mirrors frontend)."""
 
     def test_status_boundary_exactly_at_eps(self):
-        assert payment_status(0.005, 100.0) == "paid"
-        assert payment_status(0.0051, 100.0) == "partial"
-        assert payment_status(100.0, 0.005) == "open"
-        assert payment_status(100.0, 0.01) == "partial"
+        assert payment_status(0.49, 100.0) == "paid"
+        assert payment_status(0.5, 100.0) == "partial"
+        assert payment_status(100.0, 0.49) == "open"
+        assert payment_status(100.0, 0.5) == "partial"
 
     def test_original_payable_is_current_plus_paid(self):
         transfers = [{"from_member_id": "x", "to_member_id": "y", "amount": 40.0}]

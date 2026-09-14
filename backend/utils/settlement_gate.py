@@ -4,23 +4,21 @@ from decimal import Decimal, InvalidOperation
 
 from fastapi import HTTPException
 
-from config import WHOLE_UNIT_SETTLEMENTS_ENABLED
 from services.settlement_engine import POLICY_VERSION, settlement_increment
-from utils.currency_rules import (
-    CurrencyPrecisionError,
-    currency_quantum,
-    precision_error_detail,
-    validate_currency_precision,
+from utils.money_policy import (
+    AmountRoundsToZeroError,
+    amount_rounds_to_zero_detail,
+    positive_whole_money,
 )
 
 
 # Backward-compatible INR default for callers that import the constant; currency-aware gates derive
-# their actual threshold as half of the trip currency's minor unit.
-SETTLED_EPS = 0.005
+# their actual threshold from the application-wide whole-unit increment.
+SETTLED_EPS = 0.5
 
 
 def settled_epsilon(currency: str = "INR") -> float:
-    return float(currency_quantum(currency) / 2)
+    return 0.5
 
 
 def is_settled(net_value: float, currency: str = "INR") -> bool:
@@ -85,35 +83,27 @@ def decimal_amount(value: object) -> Decimal:
 
 
 def whole_unit_policy_enabled(trip: dict) -> bool:
-    _increment, enabled = settlement_increment(
-        trip.get("currency", "INR"), WHOLE_UNIT_SETTLEMENTS_ENABLED
-    )
+    _increment, enabled = settlement_increment(trip.get("currency", "INR"), True)
     return enabled
 
 
 def validate_new_amount(trip: dict, value: object) -> tuple[Decimal, dict]:
     """Validate a newly recorded or amount-edited value and return audit fields."""
 
-    currency = str(trip.get("currency", "INR")).upper()
     try:
-        amount = validate_currency_precision(value, currency)
-    except CurrencyPrecisionError as exc:
-        raise HTTPException(422, precision_error_detail(exc)) from exc
-    if amount <= 0:
-        raise HTTPException(400, "Amount must be greater than zero")
-    if not whole_unit_policy_enabled(trip):
-        return amount, {}
-    if amount != amount.to_integral_value():
-        raise HTTPException(400, f"{currency} payments must be whole-rupee amounts")
-    return amount, {
+        amount = positive_whole_money(value)
+    except AmountRoundsToZeroError as exc:
+        raise HTTPException(422, amount_rounds_to_zero_detail(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return Decimal(amount), {
         "settlement_policy_version": POLICY_VERSION,
         "settlement_increment": "1",
+        "money_policy_version": POLICY_VERSION,
     }
 
 
 def payable_tolerance(trip: dict) -> Decimal:
-    """Allow only sub-minor-unit transport noise; a full legal unit can never overpay."""
+    """Whole-unit writes allow no overpayment tolerance."""
 
-    if whole_unit_policy_enabled(trip):
-        return Decimal("0")
-    return currency_quantum(trip.get("currency", "INR")) / 2
+    return Decimal("0")

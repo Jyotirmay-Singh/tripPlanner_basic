@@ -15,8 +15,8 @@ import SplitModeSelector, { SplitMode, splitPreviewLabel } from '../../../src/Sp
 import ExactSplitEditor from '../../../src/ExactSplitEditor';
 import { ExactRow, buildExactRows, reconcile, resolveEntityShares, rowsToCustomAmounts } from '../../../src/exactSplit';
 import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displayNames';
-import { buildFamilyParticipants, familyMemberIds, familyShareEach } from '../../../src/familyParticipation';
-import { formatMoney } from '../../../src/format';
+import { buildFamilyParticipants, familyMemberAllocations, familyMemberIds } from '../../../src/familyParticipation';
+import { formatBudgetWarning, formatMoney } from '../../../src/format';
 import { parseAmount, isValidAmount, refundExceedsSpend, REFUND_WARNING } from '../../../src/signedAmount';
 import { createExpenseAmountFields } from '../../../src/expenseConversionPayload';
 import {
@@ -217,7 +217,7 @@ export default function AddExpense() {
       const res = await api<any>(`/trips/${id}/expenses${qs}`, { method: 'POST', body });
       if (res.requires_confirmation) {
         setSaving(false);
-        return setBudgetWarn(res.warning || 'This exceeds the trip budget.');
+        return setBudgetWarn(formatBudgetWarning(res));
       }
       const newId = res.expense?.id;
       if (receiptAsset && newId) {
@@ -407,7 +407,7 @@ export default function AddExpense() {
               value={splitMode}
               onChange={setSplitMode}
               subLabel={splitPreviewLabel({
-                amount: parseFloat(amount), mode: splitMode, members: trip.members, splitSel, weightOverrides, currency: expenseCurrency, familyExcluded,
+                amount: parseFloat(amount), mode: splitMode, members: trip.members, splitSel, weightOverrides, currency: expenseCurrency, familyExcluded, payerId: paidBy,
                 exactShares: resolveEntityShares(exactRows, expenseCurrency), names: displayNames,
               })}
             />
@@ -418,6 +418,7 @@ export default function AddExpense() {
               <ExactSplitEditor
                 members={trip.members} currency={expenseCurrency} total={parsedAmount}
                 initialRows={exactRows} onChange={setExactRows} displayNames={displayNames}
+                payerId={paidBy}
               />
               ) : (
               <>
@@ -441,6 +442,17 @@ export default function AddExpense() {
                   const rosterNames = isFamily ? familyMemberDisplayNames(m) : [];
                   const excluded = familyExcluded[m.id] || [];
                   const includedCount = roster.filter((rid) => !excluded.includes(rid)).length;
+                  const familyAllocations = isFamily && active && includedCount > 0
+                    ? familyMemberAllocations(
+                      parseFloat(amount), trip.members, splitSel, weightOverrides, m.id,
+                      splitMode, familyExcluded, paidBy,
+                    )
+                    : {};
+                  const familyAllocationLabel = roster
+                    .map((rid, index) => ({ rid, index }))
+                    .filter(({ rid }) => Object.prototype.hasOwnProperty.call(familyAllocations, rid))
+                    .map(({ rid, index }) => `${rosterNames[index]} ${formatMoney(familyAllocations[rid], { currency: expenseCurrency })}`)
+                    .join(' · ');
                   return (
                     <View key={m.id} style={[styles.row, { backgroundColor: active ? colors.surfaceMuted : colors.surface, borderColor: active ? colors.primary : colors.border, flexDirection: 'column', alignItems: 'stretch', gap: 8 }]}>
                       <TouchableOpacity onPress={() => toggleSplit(m.id)} testID={`ae-split-${m.id}`}
@@ -470,13 +482,11 @@ export default function AddExpense() {
                           </View>
                           {includedCount === 0 ? (
                             <T variant="caption" color={colors.danger}>At least one member must take part.</T>
-                          ) : includedCount < roster.length ? (
+                          ) : (
                             <T variant="caption" muted testID={`ae-fam-preview-${m.id}`}>
-                              {expenseCurrency} {formatMoney(familyShareEach(parseFloat(amount), trip.members, splitSel, weightOverrides, m.id, includedCount, splitMode, familyExcluded), {
-                                currency: expenseCurrency, showCurrency: false,
-                              })} each (excluded owe 0)
+                              {familyAllocationLabel}{excluded.length ? ' (excluded owe 0)' : ''}
                             </T>
-                          ) : null}
+                          )}
                         </View>
                       )}
                     </View>

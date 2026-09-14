@@ -4,13 +4,13 @@ from services.calculator import allocate_within_family
 from services.custom_split import exact_member_shares
 from services.member_breakdown import family_member_ids
 from services.settlement_engine import expense_entity_shares_scaled, scaled_number
-from utils.currency_rules import apportion_currency_amounts
+from utils.money_policy import apportion_whole_amounts
 from utils.display_names import family_member_display_names, member_display_names
 
 
 def _apportion(raw: dict, order: list, target: float, currency: str) -> dict:
-    """Largest-remainder display whose values add in the currency's minor units."""
-    return apportion_currency_amounts(raw, order, target, currency)
+    """Whole-unit allocation whose values add exactly to the stored total."""
+    return apportion_whole_amounts(raw, order, target)
 
 
 def entity_shares_raw(expense: dict, members: list) -> dict:

@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { View } from 'react-native';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { api } from '../../../../src/api';
 import { useTheme } from '../../../../src/ThemeContext';
 import { RADIUS } from '../../../../src/theme';
@@ -56,6 +56,7 @@ export default function MemberSpendDetail() {
 
   return (
     <Screen edges={['left', 'right', 'bottom']} refreshing={refreshing} onRefresh={load}>
+      <Stack.Screen options={{ title: 'Spending details' }} />
       <Card variant="primary" padding="lg" radius={RADIUS.xl}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Icon name={isFamily ? 'users' : 'user'} size={16} color={colors.primaryText} />
@@ -64,20 +65,26 @@ export default function MemberSpendDetail() {
           </T>
         </View>
         <AmountText value={total} currency={trip?.currency} variant="moneyLg" color={colors.primaryText} style={{ marginTop: 4 }} />
-        <T color={colors.primaryText} style={{ opacity: 0.8, marginTop: 4 }}>{pluralize(ordered.length, 'transaction')} fronted</T>
+        <T color={colors.primaryText} style={{ opacity: 0.8, marginTop: 4 }}>
+          {pluralize(ordered.length, 'transaction')}
+        </T>
       </Card>
 
       {!loaded ? (
         <SkeletonCard count={3} />
       ) : ordered.length === 0 ? (
-        <EmptyState icon="receipt" title="No spending yet" body={`${name} hasn't fronted any expenses on this trip.`} testID="member-spend-empty" />
+        <EmptyState
+          icon="receipt"
+          title="No payments yet"
+          body={`Transactions paid by ${name} will appear here.`}
+          testID="member-spend-empty"
+        />
       ) : (
         ordered.map((r) => (
           <ListRow
             key={r.id}
             title={r.description || r.category}
             subtitle={`${r.date}${r.time ? ` · ${formatTime12h(r.time)}` : ''} · ${r.category} · ${r.split_mode === 'PER_FAMILY' ? 'Per family' : 'Per person'}${r.original_currency && r.original_currency !== trip?.currency && r.original_amount != null ? ` · originally ${formatMoney(Number(r.original_amount), { currency: r.original_currency })}` : ''}`}
-            meta={r.share != null ? `their share ${formatMoney(r.share, { currency: trip?.currency })}` : undefined}
             right={<AmountText value={r.amount} currency={trip?.currency} />}
             onPress={() => router.push({ pathname: '/trip/[id]/edit-expense', params: { id: id as string, eid: r.id } })}
             showChevron={false}

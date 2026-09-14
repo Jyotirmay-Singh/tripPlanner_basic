@@ -193,17 +193,58 @@ describe('DonutChart drill-down affordances', () => {
         <DonutChart
           data={SINGLE}
           currency="KWD"
-          centerValue="123.46M"
+          centerValue="₹123,456,789"
           centerLabel="INR"
-          centerAccessibilityLabel="Total spent, INR 123,456,789.00"
+          centerAccessibilityLabel="Total spent, INR 123,456,789"
           onSlicePress={jest.fn()}
         />,
       );
     });
 
     expect(r.root.findByType('Svg' as any).props.accessibilityLabel)
-      .toBe('Total spent, INR 123,456,789.00');
+      .toBe('Total spent, INR 123,456,789');
     expect(pressable(r, 'donut-legend-Food').props.accessibilityLabel)
-      .toBe('Show Food transactions, KWD 100.000');
+      .toBe('Show Food transactions, KWD 100');
+  });
+
+  it('keeps formerly identical 4K-range slices distinct and calculates whole percentages', () => {
+    setPlatform('web');
+    const data: DonutSlice[] = [
+      { key: 'Stay', label: 'Stay', value: 4_123, color: '#a' },
+      { key: 'Travel', label: 'Travel', value: 4_987, color: '#b' },
+    ];
+    let r: any;
+    act(() => {
+      r = TestRenderer.create(
+        <DonutChart
+          data={data}
+          currency="INR"
+          centerValue={'\u20b99,110'}
+          centerLabel="Total"
+          centerAccessibilityLabel="Total spent, INR 9,110"
+          onSlicePress={jest.fn()}
+        />,
+      );
+    });
+
+    const renderedText = r.root.findAll(() => true).flatMap((node: any) => {
+      const children = node.props?.children;
+      if (typeof children === 'string') return [children];
+      if (Array.isArray(children) && children.every((child) => typeof child === 'string')) {
+        return [children.join('')];
+      }
+      return [];
+    });
+    expect(renderedText).toContain('\u20b99,110');
+    expect(renderedText).toContain('4,123');
+    expect(renderedText).toContain('4,987');
+    expect(renderedText).toContain('45%');
+    expect(renderedText).toContain('55%');
+    expect(renderedText).not.toContain('4K');
+    expect(pressable(r, 'donut-legend-Stay').props.accessibilityLabel)
+      .toBe('Show Stay transactions, INR 4,123');
+    expect(pressable(r, 'donut-legend-Travel').props.accessibilityLabel)
+      .toBe('Show Travel transactions, INR 4,987');
+    expect(r.root.findAllByType('Path' as any)).toHaveLength(2);
   });
 });

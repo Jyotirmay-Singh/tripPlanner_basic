@@ -10,6 +10,7 @@ import asyncio
 from datetime import datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -42,7 +43,7 @@ EXPENSE_CASES = [
         "original_currency": "INR",
         "original_amount": "1234.56",
         "rate": "1",
-        "expected_canonical": "1234.56",
+        "expected_canonical": "1235",
         "payer": "a",
         "split_mode": "PER_FAMILY",
         "split_ids": ["a", "b", "c", "d", "f"],
@@ -52,7 +53,7 @@ EXPENSE_CASES = [
         "original_currency": "USD",
         "original_amount": "45.67",
         "rate": "83.25",
-        "expected_canonical": "3802.03",
+        "expected_canonical": "3830",
         "payer": "b",
         "split_mode": "PER_CAPITA",
         "split_ids": ["a", "b", "c", "d", "f"],
@@ -63,7 +64,7 @@ EXPENSE_CASES = [
         "original_currency": "EUR",
         "original_amount": "32.10",
         "rate": "90.50",
-        "expected_canonical": "2905.05",
+        "expected_canonical": "2896",
         "payer": "c",
         "split_mode": "PER_FAMILY",
         "split_ids": ["a", "b", "c", "f"],
@@ -73,7 +74,7 @@ EXPENSE_CASES = [
         "original_currency": "GBP",
         "original_amount": "18.75",
         "rate": "105.75",
-        "expected_canonical": "1982.81",
+        "expected_canonical": "2009",
         "payer": "d",
         "split_mode": "EXACT",
         "split_ids": ["a", "b", "c", "d", "f"],
@@ -86,12 +87,12 @@ EXPENSE_CASES = [
             "f2": "1.50",
         },
         "expected_custom_amounts": {
-            "a": "396.56",
-            "b": "423.00",
-            "c": "264.38",
-            "d": "528.75",
-            "f1": "211.50",
-            "f2": "158.62",
+            "a": "423",
+            "b": "423",
+            "c": "212",
+            "d": "635",
+            "f1": "211",
+            "f2": "105",
         },
     },
     {
@@ -99,7 +100,7 @@ EXPENSE_CASES = [
         "original_currency": "AED",
         "original_amount": "250.25",
         "rate": "22.68",
-        "expected_canonical": "5675.67",
+        "expected_canonical": "5670",
         "payer": "f",
         "split_mode": "PER_CAPITA",
         "split_ids": ["a", "c", "f"],
@@ -110,7 +111,7 @@ EXPENSE_CASES = [
         "original_currency": "JPY",
         "original_amount": "12345",
         "rate": "0.56",
-        "expected_canonical": "6913.20",
+        "expected_canonical": "6913",
         "payer": "a",
         "split_mode": "PER_FAMILY",
         "split_ids": ["b", "c", "d"],
@@ -120,7 +121,7 @@ EXPENSE_CASES = [
         "original_currency": "KRW",
         "original_amount": "98765",
         "rate": "0.063",
-        "expected_canonical": "6222.20",
+        "expected_canonical": "6222",
         "payer": "b",
         "split_mode": "PER_CAPITA",
         "split_ids": ["a", "b", "d", "f"],
@@ -131,7 +132,7 @@ EXPENSE_CASES = [
         "original_currency": "KWD",
         "original_amount": "12.345",
         "rate": "270.40",
-        "expected_canonical": "3338.09",
+        "expected_canonical": "3245",
         "payer": "c",
         "split_mode": "EXACT",
         "split_ids": ["a", "b", "c", "d", "f"],
@@ -144,12 +145,12 @@ EXPENSE_CASES = [
             "f2": "2.346",
         },
         "expected_custom_amounts": {
-            "a": "300.42",
-            "b": "600.83",
-            "c": "901.24",
-            "d": "600.83",
-            "f1": "300.41",
-            "f2": "634.36",
+            "a": "271",
+            "b": "541",
+            "c": "1082",
+            "d": "541",
+            "f1": "270",
+            "f2": "540",
         },
     },
     {
@@ -157,7 +158,7 @@ EXPENSE_CASES = [
         "original_currency": "BHD",
         "original_amount": "8.765",
         "rate": "220.80",
-        "expected_canonical": "1935.31",
+        "expected_canonical": "1987",
         "payer": "d",
         "split_mode": "PER_FAMILY",
         "split_ids": ["a", "d", "f"],
@@ -167,7 +168,7 @@ EXPENSE_CASES = [
         "original_currency": "OMR",
         "original_amount": "-4.321",
         "rate": "216.25",
-        "expected_canonical": "-934.42",
+        "expected_canonical": "-865",
         "payer": "f",
         "split_mode": "PER_CAPITA",
         "split_ids": ["b", "c", "f"],
@@ -176,32 +177,32 @@ EXPENSE_CASES = [
 ]
 
 EXPECTED_PRECISE_NET = {
-    "a": "2224.362999999999",
-    "b": "3767.208833333333",
-    "c": "-19.038666666667",
-    "d": "-2597.096999999999",
-    "f": "-3375.436166666666",
+    "a": "2209",
+    "b": "3833",
+    "c": "-267",
+    "d": "-2587",
+    "f": "-3188",
 }
 EXPECTED_ROUNDED_NET = {
-    "a": "2224.36",
-    "b": "3767.21",
-    "c": "-19.04",
-    "d": "-2597.10",
-    "f": "-3375.43",
+    "a": "2209",
+    "b": "3833",
+    "c": "-267",
+    "d": "-2587",
+    "f": "-3188",
 }
 EXPECTED_AFTER_PAYMENT_PRECISE_NET = {
-    "a": "2224.362999999999",
-    "b": "2767.208833333333",
-    "c": "-19.038666666667",
-    "d": "-2597.096999999999",
-    "f": "-2375.436166666666",
+    "a": "2209",
+    "b": "2833",
+    "c": "-267",
+    "d": "-2587",
+    "f": "-2188",
 }
 EXPECTED_AFTER_PAYMENT_ROUNDED_NET = {
-    "a": "2224.36",
-    "b": "2767.21",
-    "c": "-19.04",
-    "d": "-2597.10",
-    "f": "-2375.43",
+    "a": "2209",
+    "b": "2833",
+    "c": "-267",
+    "d": "-2587",
+    "f": "-2188",
 }
 
 
@@ -247,6 +248,7 @@ def converted_scenario(monkeypatch) -> dict:
     )
     monkeypatch.setattr(exchange_rates, "gen_id", lambda: next(quote_ids))
     monkeypatch.setattr(exchange_rates, "now_utc", lambda: fixed_now)
+    monkeypatch.setattr(exchange_rates, "record_money_normalizations", AsyncMock())
 
     async def convert_all() -> tuple[list[dict], dict[str, dict], dict[str, dict]]:
         ledger_expenses = []
@@ -281,6 +283,7 @@ def converted_scenario(monkeypatch) -> dict:
                 ),
                 version=1,
                 reason="created",
+                paid_by_member_id=case["payer"],
             )
             results[case["id"]] = result
             expense = {
@@ -396,14 +399,14 @@ def test_ten_currency_mixed_settlement_matches_independent_member_oracle(
         precise_net, "INR", whole_unit_enabled=False
     )
     assert projection["currency"] == "INR"
-    assert projection["increment"] == "0.01"
+    assert projection["increment"] == "1"
     assert projection["routing"]["optimal"] is True
     assert len(transfers) == 4
     _assert_balance_oracle(
         projection["rounded_net"], EXPECTED_ROUNDED_NET, phase="initial rounded"
     )
     _assert_projection_conserves(transfers, projection)
-    assert sum(Decimal(str(row["amount"])) for row in transfers) == Decimal("5991.57")
+    assert sum(Decimal(str(row["amount"])) for row in transfers) == Decimal("6042")
 
 
 def test_partial_payment_reduces_settlement_volume_by_exactly_one_thousand(
@@ -446,6 +449,6 @@ def test_partial_payment_reduces_settlement_volume_by_exactly_one_thousand(
 
     initial_volume = sum(Decimal(str(row["amount"])) for row in initial_transfers)
     remaining_volume = sum(Decimal(str(row["amount"])) for row in remaining_transfers)
-    assert initial_volume == Decimal("5991.57")
-    assert remaining_volume == Decimal("4991.57")
-    assert initial_volume - remaining_volume == Decimal("1000.00")
+    assert initial_volume == Decimal("6042")
+    assert remaining_volume == Decimal("5042")
+    assert initial_volume - remaining_volume == Decimal("1000")

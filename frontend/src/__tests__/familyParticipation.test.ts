@@ -4,6 +4,8 @@ import {
   perCapitaHumans,
   buildFamilyParticipants,
   excludedFromParticipants,
+  automaticEntityAllocations,
+  familyMemberAllocations,
   familyShareEach,
   rowsToPayload,
   familyToRows,
@@ -108,6 +110,32 @@ describe('familyShareEach', () => {
   it('returns 0 for invalid input', () => {
     expect(familyShareEach(0, members, ['S', 'I'], {}, 'S', 3, 'PER_CAPITA')).toBe(0);
     expect(familyShareEach(50, members, ['S', 'I'], {}, 'S', 0, 'PER_CAPITA')).toBe(0);
+  });
+});
+
+describe('whole-unit allocation previews', () => {
+  it('uses payer-first then visible entity roster order for PER_FAMILY', () => {
+    expect(automaticEntityAllocations(
+      10, members, ['S', 'G', 'I'], {}, 'PER_FAMILY', {}, 'G',
+    )).toEqual({ S: 3, G: 4, I: 3 });
+  });
+
+  it('uses involved family weights and skips payer priority when payer is excluded', () => {
+    expect(automaticEntityAllocations(
+      10, members, ['S', 'I'], {}, 'PER_CAPITA', { S: ['r'] }, 'G',
+    )).toEqual({ S: 8, I: 2 });
+  });
+
+  it('allocates family leftovers in participating roster order without a sub-payer', () => {
+    expect(familyMemberAllocations(
+      10, members, ['S'], {}, 'S', 'PER_FAMILY', { S: ['r'] }, 'S',
+    )).toEqual({ a: 4, v: 3, s: 3 });
+  });
+
+  it('mirrors refunds while keeping excluded family members at zero', () => {
+    expect(familyMemberAllocations(
+      -10, members, ['S'], {}, 'S', 'PER_FAMILY', { S: ['v', 'r'] }, 'S',
+    )).toEqual({ a: -5, s: -5 });
   });
 });
 

@@ -1,66 +1,76 @@
-import { formatCompactMoney, formatMoney, formatWholeMoney, pluralize } from '../format';
+import { CURRENCY_CATALOG } from '../currencies';
+import {
+  formatAccessibleMoney,
+  formatBudgetWarning,
+  formatMoney,
+  formatWholeMoney,
+  pluralize,
+} from '../format';
 
-describe('formatMoney', () => {
-  it('formats with grouped thousands and 2 decimals', () => {
-    expect(formatMoney(1200)).toBe('1,200.00');
-    expect(formatMoney(1234567.5)).toBe('1,234,567.50');
-    expect(formatMoney(0)).toBe('0.00');
-    expect(formatMoney(42.1)).toBe('42.10');
+describe('whole-unit money formatting', () => {
+  it('groups complete values without decimals or compact suffixes', () => {
+    expect(formatMoney(1_200)).toBe('1,200');
+    expect(formatMoney(1_234_567.5)).toBe('1,234,568');
+    expect(formatMoney(9_876_543_210_123)).toBe('9,876,543,210,123');
+    expect(formatMoney(0)).toBe('0');
   });
 
-  it('handles negatives (sign before the grouped digits)', () => {
-    expect(formatMoney(-1500.5)).toBe('-1,500.50');
-    expect(formatMoney(-0.004)).toBe('0.00'); // rounds to zero, no stray minus
+  it('uses symmetric decimal ROUND_HALF_UP and never leaves a negative zero', () => {
+    expect(formatMoney(400.49)).toBe('400');
+    expect(formatMoney(400.5)).toBe('401');
+    expect(formatMoney(-400.49)).toBe('-400');
+    expect(formatMoney(-400.5)).toBe('-401');
+    expect(formatMoney(-0.49)).toBe('0');
   });
 
-  it('adds a + only for non-negative values when signed', () => {
-    expect(formatMoney(250, { signed: true })).toBe('+250.00');
-    expect(formatMoney(0, { signed: true })).toBe('+0.00');
-    expect(formatMoney(-250, { signed: true })).toBe('-250.00');
+  it('places the sign before the attached presentation symbol', () => {
+    expect(formatMoney(4_125, { currency: 'INR' })).toBe('₹4,125');
+    expect(formatMoney(-400, { currency: 'USD' })).toBe('-$400');
+    expect(formatMoney(400, { currency: 'SGD', signed: true })).toBe('+S$400');
+    expect(formatMoney(4_125, { currency: 'INR', showCurrency: false })).toBe('4,125');
   });
 
-  it('prefixes a currency code when given', () => {
-    expect(formatMoney(1200, { currency: 'INR' })).toBe('INR 1,200.00');
-    expect(formatMoney(-99.9, { currency: 'USD', signed: true })).toBe('USD -99.90');
-    expect(formatMoney(1200, { currency: 'JPY', showCurrency: false })).toBe('1,200');
+  it.each(CURRENCY_CATALOG)('uses the catalog symbol for $code', ({ code, symbol }) => {
+    expect(formatMoney(1_234.5, { currency: code })).toBe(`${symbol}1,235`);
   });
 
-  it('uses ISO precision for zero- and three-decimal currencies', () => {
-    expect(formatMoney(1234.6, { currency: 'JPY' })).toBe('JPY 1,235');
-    expect(formatMoney(-0.4, { currency: 'KRW' })).toBe('KRW 0');
-    expect(formatMoney(12.3, { currency: 'KWD' })).toBe('KWD 12.300');
-    expect(formatMoney(12.3456, { currency: 'OMR' })).toBe('OMR 12.346');
+  it('uses ISO codes in accessibility labels', () => {
+    expect(formatAccessibleMoney(4_125, { currency: 'INR' })).toBe('INR 4,125');
+    expect(formatAccessibleMoney(-400, { currency: 'USD', signed: true })).toBe('USD -400');
+    expect(formatAccessibleMoney(400, { currency: 'SGD', signed: true })).toBe('SGD +400');
   });
 
-  it('rounds decimal midpoint values half-up without binary-float drift', () => {
-    expect(formatMoney(10.075, { currency: 'USD' })).toBe('USD 10.08');
-    expect(formatMoney(-10.075, { currency: 'USD' })).toBe('USD -10.08');
+  it('falls back to zero for non-finite values', () => {
+    expect(formatMoney(Number.NaN, { currency: 'INR' })).toBe('₹0');
+    expect(formatMoney(Number.POSITIVE_INFINITY)).toBe('0');
   });
 
-  it('falls back to 0.00 for non-finite input', () => {
-    expect(formatMoney(NaN)).toBe('0.00');
-    expect(formatMoney(Infinity)).toBe('0.00');
-  });
-});
-
-describe('formatCompactMoney', () => {
-  it('keeps small values exact and abbreviates large values with trimmed precision', () => {
-    expect(formatCompactMoney(0, { currency: 'INR' })).toBe('INR 0.00');
-    expect(formatCompactMoney(100_000, { currency: 'INR' })).toBe('INR 100K');
-    expect(formatCompactMoney(9_999_999.99, { currency: 'INR' })).toBe('INR 10M');
-    expect(formatCompactMoney(123_456_789, { currency: 'INR' })).toBe('INR 123.46M');
+  it('keeps formatWholeMoney as a compatibility alias', () => {
+    expect(formatWholeMoney(1_250, { currency: 'LKR' })).toBe('Rs1,250');
+    expect(formatWholeMoney(-1_250, { currency: 'NPR' })).toBe('-रू1,250');
   });
 
-  it('supports shorter fallback precision without losing sign or currency context', () => {
-    expect(formatCompactMoney(-123_456_789, { currency: 'USD', maximumFractionDigits: 1 })).toBe('USD -123.5M');
-    expect(formatCompactMoney(123_456_789, { signed: true, maximumFractionDigits: 0 })).toBe('+123M');
-    expect(formatCompactMoney(NaN, { currency: 'INR' })).toBe('INR 0.00');
+  it('formats structured budget overages with symbols and complete grouped values', () => {
+    expect(formatBudgetWarning({
+      budget_overage: 4_125,
+      currency: 'INR',
+      warning: 'Legacy INR warning',
+    })).toBe('This expense puts you ₹4,125 over the trip budget.');
+    expect(formatBudgetWarning({
+      budget_overage: 400,
+      currency: 'SGD',
+    })).toBe('This expense puts you S$400 over the trip budget.');
   });
 
-  it('uses currency precision even when the code is visually hidden', () => {
-    expect(formatCompactMoney(12.345, {
-      currency: 'KWD', showCurrency: false,
-    })).toBe('12.345');
+  it('falls back to legacy or generic budget warnings for older or invalid responses', () => {
+    expect(formatBudgetWarning({ warning: 'Legacy server warning.' }))
+      .toBe('Legacy server warning.');
+    expect(formatBudgetWarning({
+      budget_overage: 400.5,
+      currency: 'INR',
+      warning: 'Invalid structured response fallback.',
+    })).toBe('Invalid structured response fallback.');
+    expect(formatBudgetWarning(undefined)).toBe('This exceeds the trip budget.');
   });
 });
 
@@ -69,18 +79,6 @@ describe('pluralize', () => {
     expect(pluralize(1, 'trip')).toBe('1 trip');
     expect(pluralize(0, 'trip')).toBe('0 trips');
     expect(pluralize(3, 'trip')).toBe('3 trips');
-  });
-
-  it('respects an explicit plural form', () => {
     expect(pluralize(2, 'person', 'people')).toBe('2 people');
-    expect(pluralize(1, 'person', 'people')).toBe('1 person');
-  });
-});
-
-describe('formatWholeMoney', () => {
-  it('renders LKR/NPR settlement units without decimal places', () => {
-    expect(formatWholeMoney(1250, { currency: 'LKR' })).toBe('LKR 1,250');
-    expect(formatWholeMoney(-1250, { currency: 'NPR' })).toBe('NPR -1,250');
-    expect(formatWholeMoney(4, { signed: true })).toBe('+4');
   });
 });

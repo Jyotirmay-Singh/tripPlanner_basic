@@ -18,10 +18,12 @@ class TestPaymentStatus:
         assert payment_status(0.0, 100.0) == "paid"
 
     def test_below_epsilon_residual_counts_as_paid(self):
-        assert payment_status(0.005, 100.0) == "paid"
+        assert payment_status(0.49, 100.0) == "paid"
 
-    def test_tiny_payment_is_still_open(self):
-        assert payment_status(100.0, 0.005) == "open"
+    def test_half_unit_boundary_is_not_hidden(self):
+        assert payment_status(100.0, 0.49) == "open"
+        assert payment_status(100.0, 0.5) == "partial"
+        assert payment_status(0.5, 100.0) == "partial"
 
     def test_one_yen_is_never_treated_as_zero(self):
         assert payment_status(100.0, 1.0, "JPY") == "partial"
@@ -83,22 +85,22 @@ class TestPairBlocks:
         transfers = [{"from_member_id": "a", "to_member_id": "b", "amount": 10.0}]
         payments = [
             {"from_member_id": "a", "to_member_id": "b", "amount": 5.0, "created_at": "2026-07-01"},
-            {"from_member_id": "c", "to_member_id": "d", "amount": 7.5, "created_at": "2026-07-01"},
+            {"from_member_id": "c", "to_member_id": "d", "amount": 8, "created_at": "2026-07-01"},
         ]
         blocks = pair_blocks(transfers, payments)
-        assert round(sum(b["paid"] for b in blocks), 2) == round(sum(p["amount"] for p in payments), 2)
+        assert sum(b["paid"] for b in blocks) == sum(p["amount"] for p in payments) == 13
 
-    def test_three_decimal_payments_sum_in_kwd_minor_units(self):
-        transfers = [{"from_member_id": "a", "to_member_id": "b", "amount": 1.001}]
+    def test_kwd_payments_use_the_same_whole_units(self):
+        transfers = [{"from_member_id": "a", "to_member_id": "b", "amount": 1}]
         payments = [
-            {"from_member_id": "a", "to_member_id": "b", "amount": 0.001,
+            {"from_member_id": "a", "to_member_id": "b", "amount": 1,
              "created_at": "2026-07-01"},
-            {"from_member_id": "a", "to_member_id": "b", "amount": 0.002,
+            {"from_member_id": "a", "to_member_id": "b", "amount": 2,
              "created_at": "2026-07-02"},
         ]
         block = pair_blocks(transfers, payments, "KWD")[0]
-        assert block["paid"] == 0.003
-        assert block["original_payable"] == 1.004
+        assert block["paid"] == 3
+        assert block["original_payable"] == 4
 
 
 class TestCanRecordPayment:

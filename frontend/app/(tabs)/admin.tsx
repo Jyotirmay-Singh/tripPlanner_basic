@@ -4,9 +4,11 @@ import { useFocusEffect, useRouter } from 'expo-router';
 
 import {
   listAdminActivity,
+  listAdminMoneyAudit,
   listAdminTrips,
   type AdminAuditEvent,
   type AdminTripSummary,
+  type MoneyAuditRecord,
 } from '../../src/api';
 import { useAuth } from '../../src/AuthContext';
 import { formatTripDates } from '../../src/date';
@@ -26,11 +28,12 @@ import {
   TabScreen,
 } from '../../src/ui';
 
-type AdminView = 'trips' | 'activity';
+type AdminView = 'trips' | 'activity' | 'money';
 
 const ADMIN_VIEWS = [
   { value: 'trips' as const, label: 'Trips', icon: 'briefcase' as const },
   { value: 'activity' as const, label: 'Activity', icon: 'document' as const },
+  { value: 'money' as const, label: 'Money audit', icon: 'shield' as const },
 ];
 
 function timestamp(value: string): string {
@@ -43,6 +46,12 @@ function actionLabel(value: string): string {
   return text ? `${text[0].toUpperCase()}${text.slice(1)}` : 'Admin action';
 }
 
+function auditValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value == null || typeof value === 'number' || typeof value === 'boolean') return String(value);
+  try { return JSON.stringify(value); } catch { return String(value); }
+}
+
 export default function AdminScreen() {
   const { user } = useAuth();
   const { colors } = useTheme();
@@ -52,6 +61,7 @@ export default function AdminScreen() {
   const [settledQuery, setSettledQuery] = useState('');
   const [trips, setTrips] = useState<AdminTripSummary[]>([]);
   const [activity, setActivity] = useState<AdminAuditEvent[]>([]);
+  const [moneyAudit, setMoneyAudit] = useState<MoneyAuditRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -81,12 +91,16 @@ export default function AdminScreen() {
     try {
       const page = view === 'trips'
         ? await listAdminTrips({ query: settledQuery, cursor })
-        : await listAdminActivity({ cursor });
+        : view === 'activity'
+          ? await listAdminActivity({ cursor })
+          : await listAdminMoneyAudit({ cursor });
       if (current !== generation.current) return;
       if (view === 'trips') {
         setTrips((existing) => append ? [...existing, ...(page.items as AdminTripSummary[])] : page.items as AdminTripSummary[]);
-      } else {
+      } else if (view === 'activity') {
         setActivity((existing) => append ? [...existing, ...(page.items as AdminAuditEvent[])] : page.items as AdminAuditEvent[]);
+      } else {
+        setMoneyAudit((existing) => append ? [...existing, ...(page.items as MoneyAuditRecord[])] : page.items as MoneyAuditRecord[]);
       }
       setTotal(page.total);
       nextCursorRef.current = page.next_cursor;
@@ -124,7 +138,7 @@ export default function AdminScreen() {
     );
   }
 
-  const rows = view === 'trips' ? trips : activity;
+  const rows = view === 'trips' ? trips : view === 'activity' ? activity : moneyAudit;
 
   return (
     <TabScreen refreshing={refreshing} onRefresh={() => load(false)} testID="admin-screen">
@@ -181,7 +195,7 @@ export default function AdminScreen() {
       ) : null}
 
       <View style={styles.sectionHeading}>
-        <T variant="label">{view === 'trips' ? 'All trips' : 'Admin activity'}</T>
+        <T variant="label">{view === 'trips' ? 'All trips' : view === 'activity' ? 'Admin activity' : 'Money policy audit'}</T>
         {loaded ? <T variant="caption" muted>{total} total</T> : null}
       </View>
 
@@ -195,10 +209,12 @@ export default function AdminScreen() {
       ) : rows.length === 0 ? (
         <EmptyState
           icon={view === 'trips' ? 'briefcase' : 'document'}
-          title={view === 'trips' ? 'No matching trips' : 'No admin activity yet'}
+          title={view === 'trips' ? 'No matching trips' : view === 'activity' ? 'No admin activity yet' : 'No money audit records yet'}
           body={view === 'trips'
             ? 'Try another trip name, code, owner name, or Gmail address.'
-            : 'Privileged changes will appear here after they are completed.'}
+            : view === 'activity'
+              ? 'Privileged changes will appear here after they are completed.'
+              : 'API normalizations and whole-unit migration records will appear here.'}
           testID={`admin-${view}-empty`}
         />
       ) : view === 'trips' ? (
@@ -232,7 +248,7 @@ export default function AdminScreen() {
             </View>
           </Card>
         ))
-      ) : (
+      ) : view === 'activity' ? (
         activity.map((event) => (
           <Card key={event.id} testID={`admin-activity-${event.id}`}>
             <View style={styles.recordTop}>
@@ -258,6 +274,50 @@ export default function AdminScreen() {
             ) : null}
           </Card>
         ))
+      ) : (
+        moneyAudit.map((record) => {
+          const vector = record.vector || record.adjustment_vector || {};
+          return (
+            <Card key={`${record.record_type}-${record.id}`} testID={`admin-money-audit-${record.id}`}>
+              <View style={styles.recordTop}>
+                <View style={[styles.recordIcon, { backgroundColor: colors.surfaceMuted }]}>
+                  <Icon name="shield" size={18} color={colors.primary} />
+                </View>
+                <View style={styles.flex}>
+                  <T style={styles.actionText}>{actionLabel(record.record_type)}</T>
+                  <T variant="caption" muted>
+                    {record.trip_name || record.trip_id || 'Application'} · {record.policy_version}
+                  </T>
+                </View>
+              </View>
+              <T variant="caption" muted style={styles.auditTimestamp}>{timestamp(record.created_at)}</T>
+              {(record.changes || []).map((change, index) => (
+                <View key={`${change.field}-${index}`} style={[styles.auditChange, { borderTopColor: colors.border }]}>
+                  <T variant="caption" style={styles.auditField}>
+                    {[change.collection, change.document_id, change.field].filter(Boolean).join(' · ')}
+                  </T>
+                  <T variant="caption" muted>{auditValue(change.before)} → {auditValue(change.after)}</T>
+                </View>
+              ))}
+              {Object.keys(vector).length > 0 ? (
+                <View style={[styles.auditChange, { borderTopColor: colors.border }]}>
+                  <T variant="caption" style={styles.auditField}>Private adjustment vector</T>
+                  {Object.entries(vector).map(([memberId, value]) => (
+                    <View key={memberId} style={styles.vectorRow}>
+                      <T variant="caption" muted style={styles.flex}>{memberId}</T>
+                      <T variant="caption">
+                        {formatMoney(Number(value), {
+                          currency: record.currency || undefined,
+                          signed: true,
+                        })}
+                      </T>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </Card>
+          );
+        })
       )}
 
       {error && rows.length > 0 ? <T color={colors.danger}>{error}</T> : null}
@@ -320,5 +380,9 @@ const styles = StyleSheet.create({
     paddingLeft: 40 + SPACING.md,
   },
   changedFields: { marginTop: SPACING.sm, paddingLeft: 40 + SPACING.md },
+  auditTimestamp: { marginTop: SPACING.md, paddingLeft: 40 + SPACING.md },
+  auditChange: { marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: StyleSheet.hairlineWidth },
+  auditField: { fontFamily: FONTS.bodySemibold, marginBottom: SPACING.xs },
+  vectorRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: SPACING.sm },
   retry: { marginTop: SPACING.md },
 });

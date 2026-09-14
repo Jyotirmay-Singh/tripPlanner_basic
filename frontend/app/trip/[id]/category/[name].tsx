@@ -30,7 +30,7 @@ type Expense = {
 
 function payerRowDetail(paid: number, expenseCount: number, grossPaid: number): string {
   const percentage = grossPaid > 0 ? (paid / grossPaid) * 100 : 0;
-  return `${percentage.toFixed(0)}% · ${pluralize(expenseCount, 'transaction')}`;
+  return `${percentage.toFixed(0)}% of payments · ${pluralize(expenseCount, 'transaction')}`;
 }
 
 export default function CategoryDetail() {
@@ -96,7 +96,7 @@ export default function CategoryDetail() {
       ) : (
         <>
           <Card testID="category-summary" variant="primary" padding="lg" radius={RADIUS.xl}>
-            <T variant="label" color={colors.primaryText} style={{ opacity: 0.85 }}>{decoded}</T>
+            <T variant="label" color={colors.primaryText} style={{ opacity: 0.85 }}>Net spend</T>
             <AmountText
               value={breakdown.net}
               currency={trip?.currency}
@@ -105,18 +105,18 @@ export default function CategoryDetail() {
               style={{ marginTop: 4 }}
             />
             <T color={colors.primaryText} style={{ opacity: 0.8, marginTop: 4 }}>
-              {pluralize(breakdown.transactionCount, 'transaction')} · net total
+              {pluralize(breakdown.transactionCount, 'transaction')}
             </T>
             <View style={[styles.reconciliation, { borderTopColor: `${colors.primaryText}33` }]}>
               <View style={styles.reconciliationItem}>
-                <T variant="caption" color={colors.primaryText} style={styles.reconciliationLabel}>Gross paid</T>
+                <T variant="caption" color={colors.primaryText} style={styles.reconciliationLabel}>Paid</T>
                 <T variant="h4" color={colors.primaryText}>
                   {formatMoney(breakdown.grossPaid, { currency: trip?.currency })}
                 </T>
               </View>
               <View style={[styles.reconciliationDivider, { backgroundColor: `${colors.primaryText}33` }]} />
               <View style={styles.reconciliationItem}>
-                <T variant="caption" color={colors.primaryText} style={styles.reconciliationLabel}>Refunds</T>
+                <T variant="caption" color={colors.primaryText} style={styles.reconciliationLabel}>Refunded</T>
                 <T variant="h4" color={colors.primaryText}>
                   {formatMoney(breakdown.refunds, { currency: trip?.currency })}
                 </T>
@@ -129,8 +129,8 @@ export default function CategoryDetail() {
               summary={breakdown.payerSummary}
               displayNames={displayNames}
               currency={trip?.currency || ''}
-              title="Who paid"
-              summaryText={`${formatMoney(breakdown.grossPaid, { currency: trip?.currency })} fronted before refunds`}
+              title="Paid by"
+              summaryText={pluralize(breakdown.payerSummary.count, 'payer')}
               emptyMessage="No positive spending to rank in this category."
               rowDetail={(payer, grossPaid) => payerRowDetail(payer.paid, payer.expense_count, grossPaid)}
             />

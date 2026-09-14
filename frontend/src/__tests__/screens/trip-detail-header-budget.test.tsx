@@ -437,11 +437,11 @@ describe('Budget Used card', () => {
     const total = hostByTestID(renderer.root, 'T', 'trip-budget-used-total');
     const progress = hostByTestID(renderer.root, 'ProgressBar', 'trip-budget-progress');
 
-    expect(textContent(spent)).toBe('INR 50,000.00');
-    expect(textContent(total)).toBe('INR 100,000.00');
+    expect(textContent(spent)).toBe('₹50,000');
+    expect(textContent(total)).toBe('₹100,000');
     expect(`${textContent(spent)} ${textContent(total)}`).not.toMatch(/[KMBT]\b/);
     expect(progress.props.progress).toBe(0.5);
-    expect(progress.props.accessibilityValueText).toBe('INR 50,000.00 of INR 100,000.00');
+    expect(progress.props.accessibilityValueText).toBe('INR 50,000 of INR 100,000');
     expect(hostByTestID(renderer.root, 'T', 'trip-budget-overage')).toBeUndefined();
   });
 
@@ -459,14 +459,14 @@ describe('Budget Used card', () => {
     const overProgress = hostByTestID(overRenderer.root, 'ProgressBar', 'trip-budget-progress');
     const overage = overRenderer.root.findAll((node: any) => node.props.testID === 'trip-budget-overage').at(-1);
 
-    expect(textContent(overSpent)).toBe('INR 152,899.00');
-    expect(textContent(overTotal)).toBe('INR 100,000.00');
+    expect(textContent(overSpent)).toBe('₹152,899');
+    expect(textContent(overTotal)).toBe('₹100,000');
     expect(overProgress.props.progress).toBeCloseTo(1.52899);
     expect(overProgress.props.accessibilityValueText).toBe(
-      'INR 152,899.00 of INR 100,000.00; INR 52,899.00 over budget',
+      'INR 152,899 of INR 100,000; INR 52,899 over budget',
     );
     expect(overage.findAllByType('T' as any).map(textContent).join(' ')).toContain(
-      'INR 52,899.00 over budget',
+      '₹52,899 over budget',
     );
     expect(overSpent.props.color).toBe('#ff8a66');
     expect(overTotal.props.color).toBe('#ff8a66');
@@ -484,7 +484,7 @@ describe('Budget Used card', () => {
     const spent = hostByTestID(card, 'T', 'trip-budget-used-spent');
     const stateText = hostByTestID(card, 'T', 'trip-budget-used-state');
 
-    expect(textContent(spent)).toBe('INR 50,000.00 spent');
+    expect(textContent(spent)).toBe('₹50,000 spent');
     expect(textContent(stateText)).toBe(state);
     expect(card.findAllByType('ProgressBar' as any)).toHaveLength(0);
   });
@@ -497,8 +497,8 @@ describe('Budget Used card', () => {
     const spent = hostByTestID(renderer.root, 'T', 'trip-budget-used-spent');
     const total = hostByTestID(renderer.root, 'T', 'trip-budget-used-total');
 
-    expect(textContent(spent)).toBe('INR 123,456,789.12');
-    expect(textContent(total)).toBe('INR 9,876,543,210.98');
+    expect(textContent(spent)).toBe('₹123,456,789');
+    expect(textContent(total)).toBe('₹9,876,543,211');
     expect(spent.props.numberOfLines).toBeUndefined();
     expect(total.props.numberOfLines).toBeUndefined();
     expect(StyleSheet.flatten(spent.props.style)).toEqual(expect.objectContaining({
@@ -509,7 +509,7 @@ describe('Budget Used card', () => {
   it('supports negative net spend and rejects a non-finite aggregate presentation', async () => {
     const negativeRenderer = await mountTrip({ budget: 100, expenses: [expense(-50)] });
     expect(textContent(hostByTestID(negativeRenderer.root, 'T', 'trip-budget-used-spent')))
-      .toBe('INR -50.00');
+      .toBe('-₹50');
     expect(hostByTestID(negativeRenderer.root, 'ProgressBar', 'trip-budget-progress').props.progress)
       .toBe(-0.5);
 

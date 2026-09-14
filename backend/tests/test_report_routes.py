@@ -9,24 +9,36 @@ from openpyxl import load_workbook
 from openpyxl import Workbook
 
 from routes import reports
+from utils.currency_rules import SUPPORTED_CURRENCIES
 
 
-def test_xlsx_money_values_and_formats_follow_iso_precision():
-    assert reports._money_value("1.005", "USD") == 1.01
-    assert reports._money_value("2.5", "JPY") == 3.0
-    assert reports._money_value("1.2345", "KWD") == 1.235
+def test_xlsx_money_values_and_formats_follow_whole_unit_policy():
+    assert reports._money_value("1.005", "USD") == 1
+    assert reports._money_value("2.5", "JPY") == 3
+    assert reports._money_value("1.2345", "KWD") == 1
+    assert reports._money_value("-2.5", "INR") == -3
 
     workbook = Workbook()
     sheet = workbook.active
-    expected_formats = {
-        "JPY": "#,##0;[Red](#,##0)",
-        "USD": "#,##0.00;[Red](#,##0.00)",
-        "KWD": "#,##0.000;[Red](#,##0.000)",
-    }
-    for row, (currency, expected) in enumerate(expected_formats.items(), start=1):
+    for row, currency in enumerate(SUPPORTED_CURRENCIES, start=1):
         cell = sheet.cell(row=row, column=1, value=reports._money_value("1", currency))
         reports._money(cell, currency)
-        assert cell.number_format == expected
+        assert cell.number_format == "#,##0;[Red](#,##0)"
+
+
+def test_xlsx_layout_wraps_long_text_and_fits_complete_money_values():
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.column_dimensions["A"].width = 12
+    sheet.column_dimensions["B"].width = 8
+    sheet["A1"] = "Participant with a deliberately long display name"
+    reports._money(sheet.cell(row=1, column=2, value=-9_876_543_210_123))
+
+    reports._finalize_sheet_layout(sheet, (2,))
+
+    assert sheet["A1"].alignment.wrap_text is True
+    assert sheet.row_dimensions[1].height > 15
+    assert sheet.column_dimensions["B"].width >= len("(9,876,543,210,123)") + 2
 
 
 class _Cursor:
@@ -170,12 +182,18 @@ def test_xlsx_summary_renders_time_gross_reimbursement_and_net_separately(monkey
 
     payment_rows = [tuple(cell.value for cell in row[:4])
                     for row in workbook["Payments"].iter_rows()]
-    assert any(row[0] == "Whole-rupee settlement projection" for row in payment_rows)
+    assert any(row[0] == "Settlement plan" for row in payment_rows)
     assert ("Settlement currency", "LKR", None, None) in payment_rows
-    assert ("Entity", "Exact balance", "Rounded balance", "Rounding adjustment") in payment_rows
-    assert ("Time", "0.000000000000", 0, "0.000000000000") in payment_rows
-    time_row = next(row for row in workbook["Payments"].iter_rows() if row[0].value == "Time")
-    assert time_row[2].number_format == "#,##0;[Red](#,##0)"
+    assert ("Increment", "1", None, None) in payment_rows
+    assert ("Status", "settled_exactly", None, None) in payment_rows
+    assert ("Routing", "Minimum payment plan", None, None) in payment_rows
+    assert ("Policy version", "whole_unit_v1", None, None) in payment_rows
+    assert ("Suggested payer", "Suggested receiver", "Whole amount (LKR)", None) in payment_rows
+    payment_text = " ".join(str(value) for row in payment_rows for value in row if value is not None)
+    assert "Exact balance" not in payment_text
+    assert "Rounded balance" not in payment_text
+    assert "Rounding adjustment" not in payment_text
+    assert "0.000000000000" not in payment_text
 
 
 def test_xlsx_payment_source_is_labeled_without_private_attempt_data(monkeypatch):
@@ -240,9 +258,94 @@ def test_xlsx_payment_source_is_labeled_without_private_attempt_data(monkeypatch
     assert rows[0] == (
         "Payer", "Receiver", "Amount (INR)", "Date & Time", "Remark", "Source",
     )
-    assert rows[1][0:3] == ("Payer", "Receiver", 12.34)
+    assert rows[1][0:3] == ("Payer", "Receiver", 12)
     assert rows[1][4:] == ("—", "UPI — recipient confirmed")
     all_text = " ".join(str(value) for row in rows for value in row if value is not None)
     assert "private@upi" not in all_text
     assert "PRIVATE-UTR" not in all_text
     assert "private-attempt-id" not in all_text
+
+
+def test_xlsx_reports_integer_allocations_iso_labels_and_migration_adjustments(monkeypatch):
+    members = [
+        {"id": "a", "name": "Ann", "kind": "individual"},
+        {"id": "b", "name": "Bob", "kind": "individual"},
+        {"id": "c", "name": "Cam", "kind": "individual"},
+    ]
+    trip = {
+        "id": "trip-1",
+        "name": "Allocation report",
+        "start_date": "2026-09-12",
+        "end_date": "2026-09-13",
+        "currency": "INR",
+        "code": "ALLOC",
+        "members": members,
+    }
+    expenses = [{
+        "id": "expense-1",
+        "amount": 10,
+        "category": "Food",
+        "description": "Remainder dinner",
+        "date": "2026-09-12",
+        "paid_by_member_id": "a",
+        "split_member_ids": ["a", "b", "c"],
+        "split_mode": "PER_FAMILY",
+    }]
+    per_person = [
+        {
+            "member_id": member["id"],
+            "member_name": member["name"],
+            "kind": "individual",
+            "net_total": 0,
+            "members": [],
+        }
+        for member in members
+    ]
+
+    monkeypatch.setattr(reports, "decode_token", lambda _token: {"sub": "user-1"})
+    monkeypatch.setattr(reports, "_trip_or_404", AsyncMock(return_value=trip))
+    monkeypatch.setattr(reports, "_load_report_expenses", AsyncMock(return_value=expenses))
+    monkeypatch.setattr(reports, "_compute_balances", AsyncMock(return_value={
+        "per_person": per_person,
+        "transfers": [],
+        "settlement_projection": {"enabled": False},
+    }))
+    monkeypatch.setattr(reports, "db", SimpleNamespace(
+        users=SimpleNamespace(find_one=AsyncMock(return_value={"id": "user-1"})),
+        settlements=SimpleNamespace(find=lambda *_args, **_kwargs: _Cursor([])),
+        payments=SimpleNamespace(find=lambda *_args, **_kwargs: _Cursor([])),
+        money_migration_adjustments=SimpleNamespace(find_one=AsyncMock(return_value={
+            "trip_id": "trip-1",
+            "policy_version": "whole_unit_v1",
+            "created_at": "2026-09-13T00:00:00+00:00",
+            "vector": {"a": 1, "b": -1, "c": 0},
+        })),
+    ))
+
+    async def render():
+        response = await reports.report_xlsx("trip-1", "token")
+        return b"".join([chunk async for chunk in response.body_iterator])
+
+    workbook = load_workbook(io.BytesIO(asyncio.run(render())), data_only=True)
+    split_sheet = workbook["Split Math"]
+    split_rows = list(split_sheet.iter_rows(values_only=True))
+    assert split_rows[0][2] == "Total Amount (INR)"
+    assert split_rows[0][7] == "Actual Allocation (INR)"
+    allocations = {row[4]: (row[7], row[8]) for row in split_rows[1:4]}
+    assert allocations == {
+        "Ann": (4, "Yes"),
+        "Bob": (3, "No"),
+        "Cam": (3, "No"),
+    }
+    for row in range(2, 5):
+        assert split_sheet.cell(row=row, column=8).number_format == "#,##0;[Red](#,##0)"
+
+    adjustment_sheet = workbook["Migration Adjustments"]
+    adjustment_rows = list(adjustment_sheet.iter_rows(values_only=True))
+    assert adjustment_rows[0][0] == "Whole-unit migration adjustments"
+    assert adjustment_rows[4][:2] == ("Entity", "Adjustment (INR)")
+    assert adjustment_rows[5][:2] == ("Ann", 1)
+    assert adjustment_rows[6][:2] == ("Bob", -1)
+    assert adjustment_rows[8][:2] == ("TOTAL", 0)
+    for row in range(6, 10):
+        assert adjustment_sheet.cell(row=row, column=2).number_format == "#,##0;[Red](#,##0)"

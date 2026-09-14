@@ -63,12 +63,12 @@ describe('partitionSettlements', () => {
 describe('isRecorded', () => {
   const pending = [mk({ from_member_id: 'a', to_member_id: 'b', amount: 100 })];
 
-  it('matches a pending record with same from/to and amount within a cent', () => {
+  it('matches a pending record with the same direction and normalized whole amount', () => {
     expect(isRecorded({ from_member_id: 'a', to_member_id: 'b', amount: 100 }, pending)).toBe(true);
-    expect(isRecorded({ from_member_id: 'a', to_member_id: 'b', amount: 100.004 }, pending)).toBe(true);
+    expect(isRecorded({ from_member_id: 'a', to_member_id: 'b', amount: 100.49 }, pending)).toBe(true);
   });
 
-  it('does not match a different from/to or an amount off by more than a cent', () => {
+  it('does not match a different direction or a distinct normalized whole amount', () => {
     expect(isRecorded({ from_member_id: 'b', to_member_id: 'a', amount: 100 }, pending)).toBe(false);
     expect(isRecorded({ from_member_id: 'a', to_member_id: 'c', amount: 100 }, pending)).toBe(false);
     expect(isRecorded({ from_member_id: 'a', to_member_id: 'b', amount: 100.5 }, pending)).toBe(false);

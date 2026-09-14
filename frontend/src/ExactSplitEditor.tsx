@@ -24,6 +24,7 @@ type Props = {
   initialRows: ExactRow[];
   onChange: (rows: ExactRow[]) => void;
   displayNames: Record<string, string>;
+  payerId?: string | null;
   editable?: boolean;
 };
 
@@ -32,7 +33,7 @@ type Props = {
  * checkbox + amount; individuals get a checkbox + amount. A live reconciliation bar mirrors the backend
  * save-gate (the parent disables Save until `reconcile().isValid`). Pure math lives in exactSplit.ts.
  */
-export default function ExactSplitEditor({ members, currency, total, initialRows, onChange, displayNames, editable = true }: Props) {
+export default function ExactSplitEditor({ members, currency, total, initialRows, onChange, displayNames, payerId, editable = true }: Props) {
   const { colors } = useTheme();
   const [included, setIncluded] = useState<Record<string, boolean>>(
     () => Object.fromEntries(initialRows.map((r) => [r.memberId, r.included])),
@@ -107,7 +108,7 @@ export default function ExactSplitEditor({ members, currency, total, initialRows
     // the filled amounts back into the text inputs.
     const blanks = rows.filter((r) => r.included && r.amount == null);
     if (blanks.length === 0) return;
-    const split = splitRemainingEqually(rows, total, currency);
+    const split = splitRemainingEqually(rows, total, currency, payerId);
     const byId = Object.fromEntries(split.map((row) => [row.memberId, row.amount]));
     setTexts((s) => {
       const o = { ...s };
@@ -124,8 +125,8 @@ export default function ExactSplitEditor({ members, currency, total, initialRows
         value={texts[mid] ?? ''}
         onChangeText={(v) => setText(mid, v)}
         editable={editable}
-        keyboardType="decimal-pad"
-        inputMode="decimal"
+        keyboardType="number-pad"
+        inputMode="numeric"
         placeholder={currencyAmountPlaceholder(currency)}
         accessibilityLabel={`Exact amount for ${displayNames[mid] || 'trip member'}`}
         error={precisionIssues[mid]}

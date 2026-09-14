@@ -84,12 +84,13 @@ describe('category detail screen', () => {
   it('shows gross/refund reconciliation and a display-only payer breakdown', async () => {
     const renderer = await mount();
     const chart = host(renderer, 'SpendBarChart');
-    expect(chart.props.title).toBe('Who paid');
+    expect(chart.props.title).toBe('Paid by');
+    expect(chart.props.summaryText).toBe('2 payers');
     expect(chart.props.summary).toMatchObject({ total: 120, count: 2 });
     expect(chart.props.onBarPress).toBeUndefined();
 
     const family = chart.props.summary.entities.find((row: any) => row.entity_id === 'fam');
-    expect(chart.props.rowDetail(family, 120)).toBe('83% · 1 transaction');
+    expect(chart.props.rowDetail(family, 120)).toBe('83% of payments · 1 transaction');
 
     expect(host(renderer, 'AmountText').props.value).toBe(90);
     expect(rows(renderer).map((row: any) => row.props.right.props.value)).toEqual([100, 20, -30]);

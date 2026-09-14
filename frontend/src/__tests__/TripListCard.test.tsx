@@ -23,7 +23,7 @@ import { TYPESCALE } from '../theme';
 
 const baseProps = {
   title: 'Lakshadweep',
-  subtitle: '12/11/2026 – 19/11/2026 · INR · Budget 100000',
+  subtitle: '12/11/2026 – 19/11/2026 · INR · Budget 100,000',
   meta: '17 individuals across 4 families · Code UCK3RZ',
   currency: 'INR',
   onPress: jest.fn(),
@@ -48,7 +48,7 @@ describe('TripListCard responsive layout', () => {
 
   it('builds a single clear TalkBack relationship label', () => {
     expect(tripCardAccessibilityLabel('Lakshadweep', tripBalanceState(1250), 'INR'))
-      .toBe("Lakshadweep, you're owed INR 1,250.00");
+      .toBe("Lakshadweep, you're owed INR 1,250");
     expect(tripCardAccessibilityLabel('Goa', tripBalanceState(0), 'INR'))
       .toBe('Goa, settled');
     expect(tripCardAccessibilityLabel('Offline trip', tripBalanceState(null), 'USD'))
@@ -73,7 +73,7 @@ describe('TripListCard balance states', () => {
     });
 
     const amount = renderer.root.findAllByType(T)
-      .find((node: any) => node.props.children === 'INR 1,250.00');
+      .find((node: any) => node.props.children === '₹1,250');
     expect(amount?.props.color).toBe(mockColors.success);
     expect(amount?.props).toMatchObject({
       numberOfLines: 1,
@@ -100,7 +100,7 @@ describe('TripListCard balance states', () => {
       );
     });
     const amount = renderer.root.findAllByType(T)
-      .find((node: any) => node.props.children === 'INR 800.00');
+      .find((node: any) => node.props.children === '₹800');
     expect(amount?.props.color).toBe(mockColors.danger);
     expect(renderer.root.findAllByType(T).some((node: any) => node.props.children === 'You owe'))
       .toBe(true);
@@ -117,7 +117,7 @@ describe('TripListCard balance states', () => {
     expect(badge.props).toMatchObject({
       label: 'Settled', color: mockColors.success, textColor: mockColors.textMain, size: 'status',
     });
-    expect(renderer.root.findAllByType(T).some((node: any) => node.props.children === '0.00'))
+    expect(renderer.root.findAllByType(T).some((node: any) => node.props.children === '₹0'))
       .toBe(false);
   });
 
@@ -129,7 +129,7 @@ describe('TripListCard balance states', () => {
       );
     });
     const texts = renderer.root.findAllByType(T).map((node: any) => node.props.children);
-    expect(texts).toContain('INR 12,345,678.90');
+    expect(texts).toContain('₹12,345,679');
     expect(texts).not.toContain('INR');
     expect(texts.some((value: unknown) => typeof value === 'string' && /[KMB]$/.test(value)))
       .toBe(false);
@@ -165,7 +165,7 @@ describe('TripListCard balance states', () => {
           {...baseProps}
           title={longTitle}
           meta={longMeta}
-          balance={tripBalanceState(0.01)}
+          balance={tripBalanceState(1)}
         />,
       );
     });
@@ -175,7 +175,7 @@ describe('TripListCard balance states', () => {
       .toBe(2);
     expect(textNodes.find((node: any) => node.props.children === longMeta)?.props.numberOfLines)
       .toBe(2);
-    expect(textNodes.some((node: any) => node.props.children === 'INR 0.01')).toBe(true);
+    expect(textNodes.some((node: any) => node.props.children === '₹1')).toBe(true);
   });
 
   it('keeps the grouped balance non-interactive and hidden from duplicate accessibility focus', () => {

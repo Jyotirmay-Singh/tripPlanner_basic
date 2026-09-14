@@ -19,8 +19,7 @@ class TestSplitPerFamily:
         # Same selection: per-capita charges by family size (unequal); per-family
         # charges a flat per-entity share (equal). Proves size has no effect here.
         per_capita = split_per_capita(100.0, {"fam": 5, "ind": 1})
-        assert abs(per_capita["fam"] - (100.0 * 5 / 6)) < 1e-12
-        assert abs(per_capita["ind"] - (100.0 * 1 / 6)) < 1e-12
+        assert per_capita == {"fam": 84, "ind": 16}
         assert per_capita["fam"] != per_capita["ind"]
 
         per_family = split_per_family(100.0, ["fam", "ind"])
@@ -32,12 +31,17 @@ class TestSplitPerFamily:
     def test_single_entity_owes_full_amount(self):
         assert split_per_family(100.0, ["a"]) == {"a": 100.0}
 
-    def test_non_divisible_remainder_no_intermediate_rounding(self):
-        # 100 / 3 entities: shares are exact floats, sum back to amount within epsilon.
-        shares = split_per_family(100.0, ["a", "b", "c"])
-        assert abs(sum(shares.values()) - 100.0) < 1e-9
-        for v in shares.values():
-            assert abs(v - (100.0 / 3)) < 1e-12  # no rounding applied
+    def test_non_divisible_remainder_prefers_the_payer(self):
+        shares = split_per_family(
+            100.0, ["a", "b", "c"], payer_id="b", roster_order=["a", "b", "c"]
+        )
+        assert shares == {"a": 33, "b": 34, "c": 33}
+        assert sum(shares.values()) == 100
+
+    def test_non_divisible_remainder_uses_roster_when_payer_is_excluded(self):
+        assert split_per_family(
+            100.0, ["a", "b", "c"], payer_id="payer", roster_order=["a", "b", "c"]
+        ) == {"a": 34, "b": 33, "c": 33}
 
     def test_duplicate_ids_collapse_to_one_entity(self):
         # A repeated id counts once: E = 2, single result entry per id.

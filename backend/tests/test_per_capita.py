@@ -29,13 +29,19 @@ class TestSplitPerCapita:
     def test_single_individual_owes_full_amount(self):
         assert split_per_capita(100.0, {"a": 1}) == {"a": 100.0}
 
-    def test_non_divisible_remainder_no_intermediate_rounding(self):
-        # 100 / 3 humans: shares are exact floats, sum back to amount within epsilon.
+    def test_non_divisible_remainder_prefers_the_payer(self):
         weights = {"a": 1, "b": 1, "c": 1}
-        shares = split_per_capita(100.0, weights)
-        assert abs(sum(shares.values()) - 100.0) < 1e-9
-        for v in shares.values():
-            assert abs(v - (100.0 / 3)) < 1e-12  # no rounding applied
+        shares = split_per_capita(
+            100.0, weights, payer_id="b", roster_order=["a", "b", "c"]
+        )
+        assert shares == {"a": 33, "b": 34, "c": 33}
+        assert sum(shares.values()) == 100
+
+    def test_non_divisible_remainder_uses_roster_when_payer_is_excluded(self):
+        weights = {"a": 1, "b": 1, "c": 1}
+        assert split_per_capita(
+            100.0, weights, payer_id="payer", roster_order=["a", "b", "c"]
+        ) == {"a": 34, "b": 33, "c": 33}
 
     def test_family_weight_scales_share(self):
         # A family of 3 owes 3x an individual's per-human share.

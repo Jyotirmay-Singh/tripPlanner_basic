@@ -4,7 +4,8 @@
 #
 # EXACT: the author assigns explicit per-person amounts. Person-level input rolls UP to entity shares
 # (family = Σ its members present; individual = own) and feeds the SAME ledger/settlement engine as the
-# other two modes. The one hard rule (Σ amounts == total) is validated + cent-snapped in custom_split.
+# other two modes. The one hard rule (Σ amounts == total) is validated and then reconciled to
+# whole units in custom_split for legacy decimal clients.
 import json
 import os
 
@@ -36,10 +37,6 @@ def _exp(amount, custom_amounts, paid_by, eid="e1"):
             "paid_by_member_id": paid_by, "custom_amounts": custom_amounts}
 
 
-def _cents(mapping):
-    return {k: round(v * 100) for k, v in mapping.items()}
-
-
 # =========================================================================== validate_exact_amounts
 class TestValidate:
     def test_ok_returns_normalized(self):
@@ -47,12 +44,13 @@ class TestValidate:
         assert out == {"a": 80.0, "b": 10.0, "c": 10.0}
         assert round(sum(out.values()) * 100) == 10000
 
-    def test_penny_snap_sums_exactly(self):
-        # 33.33 + 33.33 + 33.34 == 100.00 already; snap is a no-op but must stay exact.
+    def test_legacy_decimal_split_is_reconciled_in_visible_order(self):
+        # Legacy decimals still validate, then the first remainder unit follows input/roster order.
         out = validate_exact_amounts(100.0, {"a": 33.33, "b": 33.33, "c": 33.34}, {"a", "b", "c"})
-        assert round(sum(out.values()) * 100) == 10000
+        assert out == {"a": 34, "b": 33, "c": 33}
+        assert sum(out.values()) == 100
 
-    def test_one_minor_unit_short_is_rejected(self):
+    def test_exact_total_mismatch_is_rejected(self):
         # User-entered exact shares must add up exactly; the server never changes a person's input.
         with pytest.raises(ValueError, match="must add up to the total"):
             validate_exact_amounts(
@@ -60,27 +58,30 @@ class TestValidate:
             )
 
     @pytest.mark.parametrize(
-        ("currency", "total", "amounts"),
+        ("currency", "total", "amounts", "expected"),
         [
-            ("JPY", 100, {"a": 60, "b": 40}),
-            ("INR", 1.23, {"a": 1.0, "b": 0.23}),
-            ("KWD", 1.234, {"a": 1.001, "b": 0.233}),
+            ("JPY", 100, {"a": 60, "b": 40}, {"a": 60, "b": 40}),
+            ("INR", 1.23, {"a": 1.0, "b": 0.23}, {"a": 1, "b": 0}),
+            ("KWD", 1.234, {"a": 1.001, "b": 0.233}, {"a": 1, "b": 0}),
         ],
     )
-    def test_accepts_exact_0_2_3_decimal_currency_splits(self, currency, total, amounts):
-        assert validate_exact_amounts(total, amounts, set(amounts), currency) == amounts
+    def test_old_client_decimals_are_group_rounded_for_every_currency(
+        self, currency, total, amounts, expected
+    ):
+        assert validate_exact_amounts(total, amounts, set(amounts), currency) == expected
 
     @pytest.mark.parametrize(
-        ("currency", "total", "amounts"),
+        ("currency", "total", "amounts", "expected"),
         [
-            ("JPY", 2, {"a": 1.5, "b": 0.5}),
-            ("INR", 1.001, {"a": 1.001}),
-            ("KWD", 1.0001, {"a": 1.0001}),
+            ("JPY", 2, {"a": 1.5, "b": 0.5}, {"a": 2, "b": 0}),
+            ("INR", 1.001, {"a": 1.001}, {"a": 1}),
+            ("KWD", 1.0001, {"a": 1.0001}, {"a": 1}),
         ],
     )
-    def test_rejects_excess_precision(self, currency, total, amounts):
-        with pytest.raises(ValueError):
-            validate_exact_amounts(total, amounts, set(amounts), currency)
+    def test_legacy_precision_is_normalized_instead_of_rejected(
+        self, currency, total, amounts, expected
+    ):
+        assert validate_exact_amounts(total, amounts, set(amounts), currency) == expected
 
     def test_sum_under_raises(self):
         with pytest.raises(ValueError):

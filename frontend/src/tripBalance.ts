@@ -36,19 +36,19 @@ export const BALANCE_COPY = {
 } as const;
 
 export type TripBalanceState =
-  | { kind: 'owed'; label: typeof BALANCE_COPY.owed; amount: number; cents: number }
-  | { kind: 'owe'; label: typeof BALANCE_COPY.owe; amount: number; cents: number }
-  | { kind: 'settled'; label: typeof BALANCE_COPY.settled; amount: 0; cents: 0 }
-  | { kind: 'unavailable'; label: typeof BALANCE_COPY.unavailable; amount: null; cents: null };
+  | { kind: 'owed'; label: typeof BALANCE_COPY.owed; amount: number; units: number }
+  | { kind: 'owe'; label: typeof BALANCE_COPY.owe; amount: number; units: number }
+  | { kind: 'settled'; label: typeof BALANCE_COPY.settled; amount: 0; units: 0 }
+  | { kind: 'unavailable'; label: typeof BALANCE_COPY.unavailable; amount: null; units: null };
 
 export type CurrencyBalance = {
   currency: string;
-  cents: number;
+  units: number;
   value: number;
 };
 
-/** Convert a finite money value to signed currency minor units, normalizing negative zero. */
-export function moneyCents(value: number, currency = 'INR'): number | null {
+/** Convert a finite money value to signed whole units, normalizing negative zero. */
+export function moneyUnits(value: number, currency = 'INR'): number | null {
   if (!Number.isFinite(value)) return null;
   const absolute = Math.abs(toCurrencyUnits(value, currency));
   if (absolute === 0) return 0;
@@ -92,35 +92,35 @@ export function resolveUserTripBalance(
   return null;
 }
 
-/** Map a rounded balance to its one unambiguous presentation state. */
+/** Map a whole-unit balance to its one unambiguous presentation state. */
 export function tripBalanceState(
   value: number | null | undefined,
   currency = 'INR',
 ): TripBalanceState {
   if (value == null) {
-    return { kind: 'unavailable', label: BALANCE_COPY.unavailable, amount: null, cents: null };
+    return { kind: 'unavailable', label: BALANCE_COPY.unavailable, amount: null, units: null };
   }
-  const cents = moneyCents(value, currency);
-  if (cents == null) {
-    return { kind: 'unavailable', label: BALANCE_COPY.unavailable, amount: null, cents: null };
+  const units = moneyUnits(value, currency);
+  if (units == null) {
+    return { kind: 'unavailable', label: BALANCE_COPY.unavailable, amount: null, units: null };
   }
-  if (cents > 0) {
+  if (units > 0) {
     return {
       kind: 'owed',
       label: BALANCE_COPY.owed,
-      amount: fromCurrencyUnits(cents, currency),
-      cents,
+      amount: fromCurrencyUnits(units, currency),
+      units,
     };
   }
-  if (cents < 0) {
+  if (units < 0) {
     return {
       kind: 'owe',
       label: BALANCE_COPY.owe,
-      amount: fromCurrencyUnits(Math.abs(cents), currency),
-      cents,
+      amount: fromCurrencyUnits(Math.abs(units), currency),
+      units,
     };
   }
-  return { kind: 'settled', label: BALANCE_COPY.settled, amount: 0, cents: 0 };
+  return { kind: 'settled', label: BALANCE_COPY.settled, amount: 0, units: 0 };
 }
 
 /** Group complete per-trip balances without ever adding unlike currencies together. */
@@ -130,22 +130,22 @@ export function groupBalancesByCurrency(
   const totals = new Map<string, number>();
   for (const row of rows) {
     const currency = row.currency || 'INR';
-    const cents = moneyCents(row.balance, currency);
-    if (cents == null) continue;
-    totals.set(currency, (totals.get(currency) ?? 0) + cents);
+    const units = moneyUnits(row.balance, currency);
+    if (units == null) continue;
+    totals.set(currency, (totals.get(currency) ?? 0) + units);
   }
   return [...totals.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([currency, cents]) => ({
+    .map(([currency, units]) => ({
       currency,
-      cents,
-      value: fromCurrencyUnits(cents, currency),
+      units,
+      value: fromCurrencyUnits(units, currency),
     }));
 }
 
 export function netPositionMessage(groups: CurrencyBalance[]): string {
-  const hasPositive = groups.some((group) => group.cents > 0);
-  const hasNegative = groups.some((group) => group.cents < 0);
+  const hasPositive = groups.some((group) => group.units > 0);
+  const hasNegative = groups.some((group) => group.units < 0);
   if (!hasPositive && !hasNegative) return 'All settled up';
   if (hasPositive && hasNegative) return 'Balances vary by currency';
   return hasPositive ? 'You come out ahead' : 'You owe overall';

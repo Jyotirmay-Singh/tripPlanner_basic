@@ -90,7 +90,7 @@ describe('Trips personal balance wiring', () => {
     expect(rows[0].props.balance.amount).toBe(1250);
     expect(rows[1].props.balance.amount).toBe(800);
     expect(rows[2].props.settledTestID).toBe('trip-settled-zero');
-    expect(rows[0].props.subtitle).toBe('01/01/2026 – 02/01/2026 · INR · Budget 100,000.00');
+    expect(rows[0].props.subtitle).toBe('01/01/2026 – 02/01/2026 · INR · Budget 100,000');
     expect(rows[0].props.meta).toBe('2 individuals · Code AAAAAA');
     expect(rows[1].props.meta).toBe('2 individuals');
 

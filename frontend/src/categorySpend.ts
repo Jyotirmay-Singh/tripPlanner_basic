@@ -62,26 +62,26 @@ export function buildCategorySpendBreakdown<T extends CategorySpendExpense>(
 ): CategorySpendBreakdown<T> {
   const matched = (expenses ?? []).filter((expense) => expense.category === category);
   const memberById = new Map((members ?? []).map((member) => [member.id, member]));
-  const payerCents = new Map<string, { paid: number; expenseCount: number }>();
-  let netCents = 0;
-  let grossCents = 0;
-  let refundCents = 0;
+  const payerUnits = new Map<string, { paid: number; expenseCount: number }>();
+  let netUnits = 0;
+  let grossUnits = 0;
+  let refundUnits = 0;
 
   for (const expense of matched) {
-    const amountCents = units(expense.amount, currency);
-    netCents += amountCents;
-    if (amountCents > 0) {
-      grossCents += amountCents;
-      const current = payerCents.get(expense.paid_by_member_id) ?? { paid: 0, expenseCount: 0 };
-      current.paid += amountCents;
+    const amountUnits = units(expense.amount, currency);
+    netUnits += amountUnits;
+    if (amountUnits > 0) {
+      grossUnits += amountUnits;
+      const current = payerUnits.get(expense.paid_by_member_id) ?? { paid: 0, expenseCount: 0 };
+      current.paid += amountUnits;
       current.expenseCount += 1;
-      payerCents.set(expense.paid_by_member_id, current);
-    } else if (amountCents < 0) {
-      refundCents += Math.abs(amountCents);
+      payerUnits.set(expense.paid_by_member_id, current);
+    } else if (amountUnits < 0) {
+      refundUnits += Math.abs(amountUnits);
     }
   }
 
-  const entities: SpendEntity[] = Array.from(payerCents, ([entityId, aggregate]) => {
+  const entities: SpendEntity[] = Array.from(payerUnits, ([entityId, aggregate]) => {
     const member = memberById.get(entityId);
     return {
       entity_id: entityId,
@@ -93,12 +93,12 @@ export function buildCategorySpendBreakdown<T extends CategorySpendExpense>(
   });
 
   return {
-    net: fromCurrencyUnits(netCents, currency),
-    grossPaid: fromCurrencyUnits(grossCents, currency),
-    refunds: fromCurrencyUnits(refundCents, currency),
+    net: fromCurrencyUnits(netUnits, currency),
+    grossPaid: fromCurrencyUnits(grossUnits, currency),
+    refunds: fromCurrencyUnits(refundUnits, currency),
     transactionCount: matched.length,
     payerSummary: {
-      total: fromCurrencyUnits(grossCents, currency),
+      total: fromCurrencyUnits(grossUnits, currency),
       count: entities.length,
       entities,
     },

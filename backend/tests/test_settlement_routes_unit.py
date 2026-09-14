@@ -9,7 +9,6 @@ from models.payment import PaymentCreate, PaymentPatch
 from models.settlement import SettlementCreate, SettlementPatch
 from routes import balances as balance_routes
 from routes import payments as payment_routes
-from utils import settlement_gate
 
 
 TRIP = {
@@ -27,8 +26,9 @@ def run(awaitable):
 
 
 @pytest.fixture(autouse=True)
-def whole_units(monkeypatch):
-    monkeypatch.setattr(settlement_gate, "WHOLE_UNIT_SETTLEMENTS_ENABLED", True)
+def isolate_money_audit(monkeypatch):
+    monkeypatch.setattr(payment_routes, "record_money_normalizations", AsyncMock())
+    monkeypatch.setattr(balance_routes, "record_money_normalizations", AsyncMock())
 
 
 def _payment_db(modified_count=1):
@@ -79,7 +79,7 @@ def test_large_whole_payment_is_stored_without_a_binary_float_round_trip(monkeyp
     assert isinstance(doc["amount"], int)
 
 
-def test_exact_one_cent_recommendation_can_be_recorded(monkeypatch):
+def test_subunit_payment_is_rejected_when_it_rounds_to_zero(monkeypatch):
     trip = {**TRIP, "currency": "INR"}
     fake_db = _payment_db()
     monkeypatch.setattr(payment_routes, "db", fake_db)
@@ -90,23 +90,29 @@ def test_exact_one_cent_recommendation_can_be_recorded(monkeypatch):
     }))
     monkeypatch.setattr(payment_routes, "enqueue_notification_event", AsyncMock())
 
-    doc = run(payment_routes.record_payment(
-        "t1", PaymentCreate(from_member_id="a", to_member_id="b", amount="0.01"),
-        BackgroundTasks(), user={"id": "admin"},
-    ))
+    with pytest.raises(HTTPException) as error:
+        run(payment_routes.record_payment(
+            "t1", PaymentCreate(from_member_id="a", to_member_id="b", amount="0.01"),
+            BackgroundTasks(), user={"id": "admin"},
+        ))
+    assert error.value.status_code == 422
+    assert error.value.detail["code"] == "amount_rounds_to_zero"
 
-    assert doc["amount"] == 0.01
 
-
-def test_decimal_new_or_amount_edited_payment_is_rejected_but_note_only_legacy_edit_works(monkeypatch):
+def test_old_client_decimals_are_normalized_while_note_only_legacy_edits_preserve_amount(monkeypatch):
     monkeypatch.setattr(payment_routes, "db", _payment_db())
     monkeypatch.setattr(payment_routes, "_trip_or_404", AsyncMock(return_value=TRIP))
     monkeypatch.setattr(payment_routes, "can_record_payment", lambda *_args: True)
-    with pytest.raises(HTTPException, match="whole-rupee"):
-        run(payment_routes.record_payment(
-            "t1", PaymentCreate(from_member_id="a", to_member_id="b", amount="10.25"),
-            BackgroundTasks(), user={"id": "admin"},
-        ))
+    monkeypatch.setattr(payment_routes, "_compute_balances", AsyncMock(return_value={
+        "transfers": [{"from_member_id": "a", "to_member_id": "b", "amount": 10}]
+    }))
+    monkeypatch.setattr(payment_routes, "enqueue_notification_event", AsyncMock())
+    created = run(payment_routes.record_payment(
+        "t1", PaymentCreate(from_member_id="a", to_member_id="b", amount="10.25"),
+        BackgroundTasks(), user={"id": "admin"},
+    ))
+    assert created["amount"] == 10
+    assert payment_routes.record_money_normalizations.await_count == 1
 
     legacy = {"id": "p-old", "trip_id": "t1", "from_member_id": "a",
               "to_member_id": "b", "amount": 10.25, "note": "old"}
@@ -118,11 +124,11 @@ def test_decimal_new_or_amount_edited_payment_is_rejected_but_note_only_legacy_e
     resent = run(payment_routes.edit_payment(
         "t1", "p-old", PaymentPatch(amount="10.25", note="old client"), user={"id": "admin"},
     ))
-    assert resent["amount"] == 10.25 and resent["note"] == "old client"
-    with pytest.raises(HTTPException, match="whole-rupee"):
-        run(payment_routes.edit_payment(
-            "t1", "p-old", PaymentPatch(amount="10.5"), user={"id": "admin"},
-        ))
+    assert resent["amount"] == 10 and resent["note"] == "old client"
+    rounded_up = run(payment_routes.edit_payment(
+        "t1", "p-old", PaymentPatch(amount="10.5"), user={"id": "admin"},
+    ))
+    assert rounded_up["amount"] == 11
 
 
 def test_stale_payment_write_keeps_version_conflict(monkeypatch):
@@ -140,15 +146,15 @@ def test_stale_payment_write_keeps_version_conflict(monkeypatch):
     assert error.value.status_code == 409
 
 
-def test_new_pending_settlement_is_whole_but_legacy_decimal_can_be_marked_paid(monkeypatch):
+def test_new_pending_settlement_normalizes_old_client_decimal_and_legacy_can_be_marked_paid(monkeypatch):
     db = SimpleNamespace(settlements=SimpleNamespace(insert_one=AsyncMock(), update_one=AsyncMock()))
     monkeypatch.setattr(balance_routes, "db", db)
     monkeypatch.setattr(balance_routes, "_trip_or_404", AsyncMock(return_value=TRIP))
-    with pytest.raises(HTTPException, match="whole-rupee"):
-        run(balance_routes.create_settlement(
-            "t1", SettlementCreate(from_member_id="a", to_member_id="b", amount="9.5"),
-            user={"id": "admin"},
-        ))
+    created = run(balance_routes.create_settlement(
+        "t1", SettlementCreate(from_member_id="a", to_member_id="b", amount="9.5"),
+        user={"id": "admin"},
+    ))
+    assert created["amount"] == 10
 
     pending = {"id": "s-old", "trip_id": "t1", "from_member_id": "a",
                "to_member_id": "b", "amount": 9.5, "status": "pending"}

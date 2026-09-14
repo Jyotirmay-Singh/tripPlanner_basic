@@ -2,8 +2,6 @@
 // (backend/utils/settlement_gate.py + routes/members.py); these only drive what the manage-member
 // screen shows/enables and never decide anything the server doesn't re-check.
 
-import { currencyMinorUnits } from './currencies';
-
 export type RemovalMember = {
   id: string;
   name?: string;
@@ -14,10 +12,11 @@ export type RemovalMember = {
 export type RemovalTrip = { owner_id?: string | null };
 export type BreakdownRow = { id: string; name: string; net: number };
 
-// Backward-compatible default threshold; isSettled derives the actual threshold from the currency.
-export const SETTLED_EPS = 0.005;
-export const isSettled = (net: number, currency = 'INR'): boolean =>
-  Math.abs(net) < (10 ** -currencyMinorUnits(currency)) / 2;
+export const SETTLED_EPS = 0.5;
+export const isSettled = (net: number, currency = 'INR'): boolean => {
+  void currency;
+  return Math.abs(net) < SETTLED_EPS;
+};
 
 // The owner's member row is the trip root and is never removable (mirror of the backend guard).
 export const isOwnerRow = (trip: RemovalTrip, member: { user_id?: string | null }): boolean =>

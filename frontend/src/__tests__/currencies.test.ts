@@ -1,4 +1,6 @@
 import {
+  allocateWholeWeighted,
+  apportionWholeAmounts,
   CURRENCY_CATALOG,
   currencyAmountPlaceholder,
   currencyDefinition,
@@ -7,6 +9,8 @@ import {
   currencyPrecisionIssue,
   currencyShortLabel,
   filterCurrencies,
+  fromCurrencyUnits,
+  roundWholeMoney,
   toCurrencyUnits,
 } from '../currencies';
 
@@ -18,30 +22,58 @@ describe('currency catalog', () => {
     expect(codes).toEqual(expect.arrayContaining(['INR', 'USD', 'LKR', 'NPR']));
   });
 
-  it('keeps standard symbols and readable short labels', () => {
+  it('keeps ISO metadata and readable presentation symbols', () => {
     expect(currencyDefinition('INR')).toMatchObject({ symbol: '₹', name: 'Indian Rupee' });
     expect(currencyDefinition('LKR')).toMatchObject({ symbol: 'Rs', name: 'Sri Lankan Rupee' });
     expect(currencyShortLabel('USD')).toBe('USD ($)');
-  });
-
-  it('carries ISO minor units and validates source strings without rounding', () => {
     expect(currencyMinorUnits('JPY')).toBe(0);
     expect(currencyMinorUnits('USD')).toBe(2);
     expect(currencyMinorUnits('KWD')).toBe(3);
-    expect(currencyIncrement('JPY')).toBe('1');
-    expect(currencyIncrement('KWD')).toBe('0.001');
-    expect(currencyAmountPlaceholder('OMR')).toBe('0.000');
-    expect(currencyPrecisionIssue('12.1', 'JPY')).toContain('at most 0 decimal places');
-    expect(currencyPrecisionIssue('12.345', 'USD')).toContain('at most 2 decimal places');
-    expect(currencyPrecisionIssue('12.345', 'KWD')).toBeNull();
-    expect(currencyPrecisionIssue('12.3400', 'USD')).toBeNull();
   });
 
-  it('rounds computed positive and negative midpoint values half-up', () => {
-    expect(toCurrencyUnits(10.075, 'USD')).toBe(1008);
-    expect(toCurrencyUnits(-10.075, 'USD')).toBe(-1008);
-    expect(toCurrencyUnits(1.2345, 'KWD')).toBe(1235);
-    expect(toCurrencyUnits(-1.2345, 'KWD')).toBe(-1235);
+  it('uses a whole-unit increment and placeholder for every currency', () => {
+    for (const currency of CURRENCY_CATALOG) {
+      expect(currencyIncrement(currency.code)).toBe('1');
+      expect(currencyAmountPlaceholder(currency.code)).toBe('0');
+    }
+  });
+
+  it('rejects every decimal-form money input, including a zero fraction', () => {
+    expect(currencyPrecisionIssue('12', 'USD')).toBeNull();
+    expect(currencyPrecisionIssue('-12', 'KWD')).toBeNull();
+    expect(currencyPrecisionIssue('12.0', 'USD')).toContain('whole amount');
+    expect(currencyPrecisionIssue('.5', 'JPY')).toContain('whole amount');
+  });
+
+  it('rounds active units symmetrically at decimal midpoints', () => {
+    expect(roundWholeMoney(400.49)).toBe(400);
+    expect(roundWholeMoney(400.5)).toBe(401);
+    expect(roundWholeMoney(-400.49)).toBe(-400);
+    expect(roundWholeMoney(-400.5)).toBe(-401);
+    expect(toCurrencyUnits(10.5, 'USD')).toBe(11);
+    expect(toCurrencyUnits(-10.5, 'KWD')).toBe(-11);
+    expect(fromCurrencyUnits(11, 'KWD')).toBe(11);
+  });
+
+  it('apportions leftovers payer-first and then in visible roster order', () => {
+    expect(allocateWholeWeighted(10, { a: 1, b: 1, c: 1 }, ['a', 'b', 'c'], 'b')).toEqual({
+      a: 3, b: 4, c: 3,
+    });
+    expect(allocateWholeWeighted(5, { a: 1, b: 1, c: 1 }, ['a', 'b', 'c'], 'x')).toEqual({
+      a: 2, b: 2, c: 1,
+    });
+    expect(allocateWholeWeighted(-5, { a: 1, b: 1, c: 1 }, ['a', 'b', 'c'], 'b')).toEqual({
+      a: -2, b: -2, c: -1,
+    });
+  });
+
+  it('reconciles legacy exact decimals without negative allocations', () => {
+    const allocated = apportionWholeAmounts(
+      { a: 3.34, b: 3.33, c: 3.33 }, ['a', 'b', 'c'], 10, 'c',
+    );
+    expect(allocated).toEqual({ a: 3, b: 3, c: 4 });
+    expect(Object.values(allocated).every((value) => value >= 0)).toBe(true);
+    expect(Object.values(allocated).reduce((sum, value) => sum + value, 0)).toBe(10);
   });
 
   it('searches by code, name, and symbol', () => {

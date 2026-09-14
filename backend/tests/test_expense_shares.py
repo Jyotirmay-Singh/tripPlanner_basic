@@ -53,7 +53,9 @@ class TestEntitySharesEqualCalculator:
         members = _members_5a()
         e = _expense()
         weights = resolve_weights([m["id"] for m in members], _weight_map(members), None)
-        assert entity_shares_raw(e, members) == pytest.approx(split_per_capita(130.0, weights))
+        assert entity_shares_raw(e, members) == pytest.approx(split_per_capita(
+            130.0, weights, payer_id="i1", roster_order=[m["id"] for m in members]
+        ))
 
     def test_per_capita_section5a_values(self):
         members = _members_5a()
@@ -77,7 +79,9 @@ class TestEntitySharesEqualCalculator:
         snaps = {"f1": 2}  # partial-family override: count f1 as 2 humans, not 4
         e = _expense(weight_snapshots=snaps)
         weights = resolve_weights([m["id"] for m in members], _weight_map(members), snaps)
-        assert entity_shares_raw(e, members) == pytest.approx(split_per_capita(130.0, weights))
+        assert entity_shares_raw(e, members) == pytest.approx(split_per_capita(
+            130.0, weights, payer_id="i1", roster_order=[m["id"] for m in members]
+        ))
         # sanity: f1 now weighs 2, so total humans drops 13 -> 11.
         assert sum(weights.values()) == 11
 
@@ -91,7 +95,9 @@ class TestEntitySharesEqualCalculator:
         members = _members_5a()
         e = _expense(amount=90.0, split_member_ids=["f3", "i1", "i2"])  # 2 + 1 + 1 = 4 humans
         weights = resolve_weights(["f3", "i1", "i2"], _weight_map(members), None)
-        assert entity_shares_raw(e, members) == split_per_capita(90.0, weights)
+        assert entity_shares_raw(e, members) == split_per_capita(
+            90.0, weights, payer_id="i1", roster_order=["f3", "i1", "i2"]
+        )
 
 
 class TestDisplaySumsExactly:
@@ -111,8 +117,7 @@ class TestDisplaySumsExactly:
         bd = expense_share_breakdown(_expense(amount=100.0, paid_by_member_id="i1"), members)
         shares = sorted(ent["share"] for ent in bd["entities"])
         assert sum(shares) == 100.0
-        # 100/3 -> two 33.33 and one 33.34 (largest-remainder)
-        assert shares == [33.33, 33.33, 33.34]
+        assert shares == [33, 33, 34]
 
     def test_family_sub_shares_sum_to_entity_share(self):
         members = _members_5a()

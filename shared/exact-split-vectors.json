@@ -65,14 +65,14 @@
   ],
   "splitRemaining": [
     {
-      "name": "split 100 across 3 blank rows, snap the last",
+      "name": "split 100 across 3 blank rows in roster order",
       "total": 100,
       "rows": [
         {"memberId": "a", "entityId": "a", "included": true, "amount": null},
         {"memberId": "b", "entityId": "b", "included": true, "amount": null},
         {"memberId": "c", "entityId": "c", "included": true, "amount": null}
       ],
-      "expectedAmounts": {"a": 33.33, "b": 33.33, "c": 33.34}
+      "expectedAmounts": {"a": 34, "b": 33, "c": 33}
     },
     {
       "name": "fill the two blanks around a fixed 40",

@@ -61,7 +61,7 @@ def test_time_example_renders_gross_and_reimbursement_as_distinct_positive_rows(
     ]
     reconciliation, pdf_bytes, pages = _render(members, expenses, "Time example")
     text = "\n".join(pages)
-    summary_text = text.split("Transactions", 1)[0]
+    summary_text = text.split("Split Allocations", 1)[0]
 
     assert pdf_bytes.startswith(b"%PDF")
     assert reconciliation["entities"][0]["net"] == 10_000.0
@@ -70,10 +70,11 @@ def test_time_example_renders_gross_and_reimbursement_as_distinct_positive_rows(
     assert summary_text.count("REIMBURSEMENTS") == 2
     assert summary_text.count("Gross spend subtotal") == 2
     assert summary_text.count("Total reimbursements") == 2
-    assert summary_text.count("14,000.00") >= 2
-    assert summary_text.count("4,000.00") >= 2
-    assert summary_text.count("10,000.00") >= 3  # metadata + two final net rows
-    assert "(4,000.00)" not in summary_text  # positive magnitude inside the labelled section
+    assert summary_text.count("14,000") >= 2
+    assert summary_text.count("4,000") >= 2
+    assert summary_text.count("10,000") >= 3  # metadata + two final net rows
+    assert "14,000.00" not in summary_text
+    assert "(4,000)" not in summary_text  # positive magnitude inside the labelled section
     assert "Time" in summary_text and "Family" in summary_text
     assert "Local Transportation" in summary_text
 
@@ -82,7 +83,7 @@ def test_empty_reimbursements_and_negative_net_keep_the_full_structure():
     members = [_member("ann", "Ann")]
 
     _, _, no_refund_pages = _render(members, [_expense("gross", 100, "ann")])
-    no_refund_summary = "\n".join(no_refund_pages).split("Transactions", 1)[0]
+    no_refund_summary = "\n".join(no_refund_pages).split("Split Allocations", 1)[0]
     assert no_refund_summary.count("REIMBURSEMENTS") == 2
     assert no_refund_summary.count("Total reimbursements") == 2
     assert no_refund_summary.count("Net spend") >= 5
@@ -92,11 +93,12 @@ def test_empty_reimbursements_and_negative_net_keep_the_full_structure():
         [_expense("gross", 100, "ann"), _expense("refund", -150, "ann")],
         "Net credit",
     )
-    credit_summary = "\n".join(credit_pages).split("Transactions", 1)[0]
+    credit_summary = "\n".join(credit_pages).split("Split Allocations", 1)[0]
     assert reconciliation["totals"]["net"] == -50.0
-    assert credit_summary.count("(50.00)") >= 3  # metadata plus both final net rows
-    assert "150.00" in credit_summary
-    assert "(150.00)" not in credit_summary
+    assert credit_summary.count("(50)") >= 3  # metadata plus both final net rows
+    assert "150" in credit_summary
+    assert "(150)" not in credit_summary
+    assert ".00" not in credit_summary
 
 
 def test_transactions_render_original_amount_and_locked_fx_audit_metadata():
@@ -117,7 +119,8 @@ def test_transactions_render_original_amount_and_locked_fx_audit_metadata():
     transaction_text = "\n".join(pages).split("Transactions", 1)[-1]
 
     assert pdf_bytes.startswith(b"%PDF")
-    assert "NPR 1,000.00" in transaction_text
+    assert "NPR 1,000" in transaction_text
+    assert "NPR 1,000.00" not in transaction_text
     assert "1 NPR = 3.5204 INR" in transaction_text
     assert "2026-08-28" in transaction_text
     assert "frankfurter_v2_blended" in transaction_text
@@ -226,18 +229,25 @@ def test_whole_unit_projection_is_auditable_in_pdf():
         settlement_transfers=[{"from_member_id": "b", "to_member_id": "a", "amount": 3}],
     )
     text = "\n".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(payload)).pages)
-    assert "Whole-rupee settlement projection" in text
-    assert "Exact balance" in text and "Rounding adjustment" in text
+    assert "Settlement Plan" in text
+    assert "Currency: LKR" in text
+    assert "Increment: 1" in text
+    assert "Status: open" in text
+    assert "Policy: whole_unit_v1" in text
     assert "Minimum payment plan" in text
+    assert "Suggested payer" in text and "Suggested receiver" in text
+    assert "Exact balance" not in text
+    assert "Rounding adjustment" not in text
+    assert "3.333000000000" not in text
     assert "3.00" not in text
 
 
 @pytest.mark.parametrize(
     "currency,amount,expected,forbidden",
     [("JPY", 1235, "1,235", "1,235.00"),
-     ("KWD", 1.235, "1.235", "1.24")],
+     ("KWD", 1235.5, "1,236", "1,235.500")],
 )
-def test_pdf_money_uses_iso_precision(currency, amount, expected, forbidden):
+def test_pdf_money_uses_whole_unit_formatting(currency, amount, expected, forbidden):
     members = [_member("ann", "Ann")]
     expenses = [_expense("dinner", amount, "ann")]
     trip = _trip(f"{currency} precision")
@@ -251,3 +261,35 @@ def test_pdf_money_uses_iso_precision(currency, amount, expected, forbidden):
     )
     assert expected in text
     assert forbidden not in text
+
+
+def test_pdf_reports_actual_allocations_remainders_and_migration_adjustments():
+    members = [_member("a", "Ann"), _member("b", "Bob"), _member("c", "Cam")]
+    expense = _expense("dinner", 10, "a", description="Remainder dinner")
+    expense["split_member_ids"] = ["a", "b", "c"]
+    reconciliation = build_spend_reconciliation(members, [expense])
+
+    payload = build_report_pdf(
+        _trip("Allocation audit"),
+        members,
+        [expense],
+        "INR",
+        reconciliation=reconciliation,
+        migration_adjustment={
+            "policy_version": "whole_unit_v1",
+            "created_at": "2026-09-13T00:00:00+00:00",
+            "vector": {"a": 1, "b": -1, "c": 0},
+        },
+    )
+    text = "\n".join(
+        page.extract_text() or "" for page in PdfReader(io.BytesIO(payload)).pages
+    )
+
+    assert "Split Allocations" in text
+    assert "Actual (INR)" in text
+    assert "Remainder unit" in text
+    assert "Remainder dinner" in text
+    assert "Migration Adjustments" in text
+    assert "Adjustment (INR)" in text
+    assert "Policy: whole_unit_v1" in text
+    assert "(1)" in text

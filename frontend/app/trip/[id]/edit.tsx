@@ -102,12 +102,12 @@ export default function EditTrip() {
               label="Budget"
               value={budget}
               onChangeText={(value) => { setBudget(value); setBudgetError(null); }}
-              keyboardType="decimal-pad"
+              keyboardType="number-pad"
               placeholder={currencyAmountPlaceholder(currency)}
               error={budgetError || budgetPrecisionIssue}
               focusOnError={!!budgetError}
               icon="wallet"
-              inputMode="decimal"
+              inputMode="numeric"
               autoComplete="off"
               returnKeyType="done"
             />

@@ -2,6 +2,7 @@
 // screens and unit-tested in src/__tests__/familyParticipation.test.ts.
 //
 import { isGmail, isEmailTaken } from './validation';
+import { allocateWholeWeighted } from './currencies';
 //
 // Unchecking a member sends a `family_participants` entry (family id -> participating member ids).
 // Absent / all checked => nothing sent => backend default "everyone participates" (exact back-compat).
@@ -161,6 +162,64 @@ export function buildFamilyParticipants(
     if (ids.length > 1 && included.length > 0 && included.length < ids.length) out[sid] = included;
   }
   return Object.keys(out).length ? out : null;
+}
+
+/** Whole entity allocations used by live previews; mirrors backend calculator allocation. */
+export function automaticEntityAllocations(
+  amount: number,
+  members: FPMember[],
+  splitSel: string[],
+  weightOverrides: Record<string, number>,
+  splitMode: string,
+  familyExcluded: Record<string, string[]> = {},
+  payerId?: string | null,
+): Record<string, number> {
+  const selected = new Set(splitSel);
+  const order = members.map((member) => member.id).filter((id) => selected.has(id));
+  const weights = Object.fromEntries(order.map((id) => {
+    const member = members.find((candidate) => candidate.id === id);
+    if (splitMode === 'PER_FAMILY' || member?.kind !== 'family') return [id, 1];
+    return [id, familyInvolvedWeight(member, weightOverrides[id], familyExcluded[id])];
+  }));
+  return allocateWholeWeighted(
+    amount,
+    weights,
+    order,
+    payerId && selected.has(payerId) ? payerId : undefined,
+  );
+}
+
+/** Whole participating-person allocations inside one family, in visible family roster order. */
+export function familyMemberAllocations(
+  amount: number,
+  members: FPMember[],
+  splitSel: string[],
+  weightOverrides: Record<string, number>,
+  familyId: string,
+  splitMode: string,
+  familyExcluded: Record<string, string[]> = {},
+  payerId?: string | null,
+): Record<string, number> {
+  const family = members.find((member) => member.id === familyId);
+  if (!family || family.kind !== 'family') return {};
+  const excluded = new Set(familyExcluded[familyId] ?? []);
+  const participants = familyMemberIds(family).filter((id) => !excluded.has(id));
+  if (participants.length === 0) return {};
+  const entities = automaticEntityAllocations(
+    amount,
+    members,
+    splitSel,
+    weightOverrides,
+    splitMode,
+    familyExcluded,
+    payerId,
+  );
+  const familyShare = entities[familyId] ?? 0;
+  return allocateWholeWeighted(
+    familyShare,
+    Object.fromEntries(participants.map((id) => [id, 1])),
+    participants,
+  );
 }
 
 /** Seed the edit screen's excluded map from a stored family_participants (roster id - participants). */

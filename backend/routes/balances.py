@@ -14,7 +14,9 @@ from utils.balances import _compute_balances
 from utils.settlement_gate import validate_new_amount
 from services.push_notifications import enqueue_notification_event
 from services.admin_audit import record_admin_action
+from services.money_audit import record_money_normalizations
 from services.ledger_transactions import run_optional_transaction
+from utils.money_policy import normalization_change
 
 router = APIRouter()
 
@@ -80,6 +82,13 @@ async def settle(trip_id: str, body: SettleIn, background_tasks: BackgroundTasks
 
     await run_optional_transaction(transactional_write, standalone_write)
     doc.pop("_id", None)
+    await record_money_normalizations(
+        [normalization_change("amount", body.amount, amount)],
+        actor_user_id=user["id"],
+        trip_id=trip_id,
+        resource_type="settlement",
+        resource_id=doc["id"],
+    )
     await record_admin_action(
         user, "settlement.recorded_paid", trip=trip, resource_type="settlement",
         resource_id=doc["id"],
@@ -128,6 +137,13 @@ async def create_settlement(trip_id: str, body: SettlementCreate, user=Depends(g
            **audit_fields}
     await db.settlements.insert_one(doc)
     doc.pop("_id", None)
+    await record_money_normalizations(
+        [normalization_change("amount", body.amount, amount)],
+        actor_user_id=user["id"],
+        trip_id=trip_id,
+        resource_type="settlement",
+        resource_id=doc["id"],
+    )
     await record_admin_action(
         user, "settlement.created", trip=trip, resource_type="settlement",
         resource_id=doc["id"],

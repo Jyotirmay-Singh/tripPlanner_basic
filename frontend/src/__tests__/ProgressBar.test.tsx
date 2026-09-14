@@ -55,7 +55,7 @@ describe('ProgressBar', () => {
   );
 
   it('forwards an exact contextual accessibility description', () => {
-    const description = 'INR 152,899.00 of INR 100,000.00; INR 52,899.00 over budget';
+    const description = 'INR 152,899 of INR 100,000; INR 52,899 over budget';
     const { track } = renderProgress(1.52899, {
       accessibilityLabel: 'Budget used',
       accessibilityValueText: description,

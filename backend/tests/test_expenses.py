@@ -163,6 +163,8 @@ class TestExpenses:
         assert data["requires_confirmation"] is True
         assert "warning" in data
         assert "over" in data["warning"].lower()
+        assert data["budget_overage"] == 500
+        assert data["currency"] == "GBP"
 
     def test_budget_over_limit_with_force(self, api_client, test_user):
         """Test expense with ?force=true bypasses budget check"""

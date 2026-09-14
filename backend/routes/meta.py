@@ -7,8 +7,8 @@ from config import (
     EMAIL_FEATURES_ENABLED,
     INVITE_LINKS_ENABLED,
     MULTI_CURRENCY_EXPENSES_ENABLED,
-    WHOLE_UNIT_SETTLEMENTS_ENABLED,
 )
+from utils.money_policy import money_policy_config
 
 router = APIRouter()
 CHAT_PROTOCOL_VERSION = 1
@@ -35,7 +35,9 @@ async def get_config():
         "email_features_enabled": EMAIL_FEATURES_ENABLED,
         "invite_links_enabled": INVITE_LINKS_ENABLED,
         "multi_currency_expenses_enabled": MULTI_CURRENCY_EXPENSES_ENABLED,
-        "whole_unit_settlements_enabled": WHOLE_UNIT_SETTLEMENTS_ENABLED,
+        # Compatibility field for old clients. It is permanently true under whole_unit_v1.
+        "whole_unit_settlements_enabled": True,
+        "money_policy": money_policy_config(),
         "chat_protocol_version": CHAT_PROTOCOL_VERSION,
     }
 

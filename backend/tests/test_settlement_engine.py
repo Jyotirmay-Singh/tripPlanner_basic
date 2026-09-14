@@ -60,7 +60,7 @@ def test_build_precise_net_handles_all_split_modes_refunds_families_and_overlays
           "status": "paid"}],
         [{"id": "p", "from_member_id": "b", "to_member_id": "a", "amount": 1}],
     )
-    assert net == {"a": to_scaled("5.5"), "b": to_scaled("-3"), "f": to_scaled("-2.5")}
+    assert net == {"a": to_scaled("4.5"), "b": to_scaled("-2"), "f": to_scaled("-2.5")}
     assert sum(net.values()) == 0
 
 
@@ -206,10 +206,10 @@ def test_routing_has_deterministic_state_and_entity_fallbacks():
     assert _flow(entity_fallback.transfers) == many
 
 
-def test_projection_is_integer_for_lkr_npr_and_cent_based_elsewhere():
+def test_projection_is_integer_for_every_supported_currency():
     precise = {"a": to_scaled("-10"), "b": to_scaled("3.333"),
                "c": to_scaled("3.333"), "d": to_scaled("3.334")}
-    for currency in ("LKR", "NPR"):
+    for currency in ("LKR", "NPR", "INR"):
         transfers, projection = build_settlement_projection(
             precise, currency, whole_unit_enabled=True
         )
@@ -218,36 +218,29 @@ def test_projection_is_integer_for_lkr_npr_and_cent_based_elsewhere():
         assert all(isinstance(transfer["amount"], int) or transfer["amount"].is_integer()
                    for transfer in transfers)
         assert sum(projection["rounded_net"].values()) == 0
-    _transfers, projection = build_settlement_projection(precise, "INR", whole_unit_enabled=True)
-    assert projection["enabled"] is False
-    assert projection["increment"] == "0.01"
-
-
 @pytest.mark.parametrize(
-    "currency,debit,credit,increment,expected_amount",
+    "currency,debit,credit,expected_amount",
     [
-        ("JPY", "-10.4", "10.4", "1", 10),
-        ("USD", "-1.234", "1.234", "0.01", 1.23),
-        ("KWD", "-1.2344", "1.2344", "0.001", 1.234),
+        ("JPY", "-10.4", "10.4", 10),
+        ("USD", "-1.234", "1.234", 1),
+        ("KWD", "-1.2344", "1.2344", 1),
     ],
 )
-def test_projection_uses_iso_minor_unit_increment(
-    currency, debit, credit, increment, expected_amount
+def test_projection_uses_whole_unit_increment(
+    currency, debit, credit, expected_amount
 ):
     transfers, projection = build_settlement_projection(
         {"a": to_scaled(debit), "b": to_scaled(credit)},
         currency,
         whole_unit_enabled=True,
     )
-    assert projection["enabled"] is False
-    assert projection["increment"] == increment
-    assert projection["policy_version"] == "iso_minor_unit_v1"
+    assert projection["enabled"] is True
+    assert projection["increment"] == "1"
+    assert projection["policy_version"] == "whole_unit_v1"
     assert transfers == [{
         "from_member_id": "a", "to_member_id": "b", "amount": expected_amount,
     }]
-    scale = 10 ** {"JPY": 0, "USD": 2, "KWD": 3}[currency]
-    assert all(round(value * scale) == value * scale
-               for value in projection["rounded_net"].values())
+    assert all(isinstance(value, int) for value in projection["rounded_net"].values())
 
 
 def test_same_state_is_byte_deterministic_regardless_of_mapping_order():
@@ -335,11 +328,11 @@ def test_recording_one_suggestion_recomputes_a_valid_plan():
                for transfer in next_transfers)
 
 
-def test_exact_one_cent_and_one_unit_are_never_dropped():
+def test_subunit_noise_is_dropped_but_one_whole_unit_is_never_dropped():
     assert build_settlement_projection(
         {"a": to_scaled("-0.01"), "b": to_scaled("0.01")},
         "INR", whole_unit_enabled=False,
-    )[0] == [{"from_member_id": "a", "to_member_id": "b", "amount": 0.01}]
+    )[0] == []
     assert build_settlement_projection(
         {"a": -SCALE, "b": SCALE}, "LKR", whole_unit_enabled=True,
     )[0] == [{"from_member_id": "a", "to_member_id": "b", "amount": 1}]

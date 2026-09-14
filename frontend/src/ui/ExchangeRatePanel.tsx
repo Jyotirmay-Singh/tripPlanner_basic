@@ -14,8 +14,8 @@ import {
 import { useExchangeRateQuote } from '../useExchangeRateQuote';
 import {
   currencyAmountPlaceholder,
-  currencyMinorUnits,
   currencyPrecisionIssue,
+  roundWholeMoney,
 } from '../currencies';
 import Button from './Button';
 import Input from './Input';
@@ -65,8 +65,9 @@ function displayDate(value: string | null | undefined): string {
 
 function moneyKey(value: string | number, currency: string): string {
   const parsed = Number(value);
+  void currency;
   return Number.isFinite(parsed)
-    ? parsed.toFixed(currencyMinorUnits(currency))
+    ? String(roundWholeMoney(parsed))
     : String(value);
 }
 
@@ -284,8 +285,8 @@ export default function ExchangeRatePanel({
               : 'Use the rate shown by your bank, card, or receipt.'}
             value={manualValue}
             onChangeText={setManualValue}
-            keyboardType="decimal-pad"
-            inputMode="decimal"
+            keyboardType={manualInputType === 'rate' ? 'decimal-pad' : 'number-pad'}
+            inputMode={manualInputType === 'rate' ? 'decimal' : 'numeric'}
             placeholder={manualInputType === 'target_amount'
               ? currencyAmountPlaceholder(targetCurrency)
               : '0.000000'}

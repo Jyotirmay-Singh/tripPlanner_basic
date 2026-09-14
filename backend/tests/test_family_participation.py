@@ -30,9 +30,15 @@ def _compute_net(members, expenses, settlements):
         if mode == "PER_CAPITA":
             weights = resolve_weights(split_ids, weight_map, e.get("weight_snapshots"),
                                       e.get("family_participants"), rosters)
-            shares = split_per_capita(e["amount"], weights)
+            shares = split_per_capita(
+                e["amount"], weights,
+                payer_id=e["paid_by_member_id"], roster_order=all_ids,
+            )
         else:
-            shares = split_per_family(e["amount"], split_ids)
+            shares = split_per_family(
+                e["amount"], split_ids,
+                payer_id=e["paid_by_member_id"], roster_order=all_ids,
+            )
         if not shares:
             continue
         for sid, share in shares.items():
@@ -50,10 +56,8 @@ class TestAllocateWithinFamily:
         # The bug repro: family share 40, 1 of 4 excluded -> 3 split it, excluded owes 0.
         out = allocate_within_family(40.0, ["a", "v", "s"], ["a", "v", "s", "r"])
         assert out["r"] == 0.0
-        assert abs(out["a"] - 40.0 / 3) < 1e-12
-        assert abs(out["v"] - 40.0 / 3) < 1e-12
-        assert abs(out["s"] - 40.0 / 3) < 1e-12
-        assert abs(sum(out.values()) - 40.0) < 1e-9  # total preserved exactly
+        assert out == {"a": 14, "v": 13, "s": 13, "r": 0}
+        assert sum(out.values()) == 40
 
     def test_none_or_empty_participants_means_all(self):
         roster = ["a", "b", "c", "d"]
@@ -72,12 +76,11 @@ class TestAllocateWithinFamily:
         out = allocate_within_family(40.0, ["a"], ["a", "b", "c", "d"])
         assert out == {"a": 40.0, "b": 0.0, "c": 0.0, "d": 0.0}
 
-    def test_non_divisible_remainder_no_intermediate_rounding(self):
+    def test_non_divisible_remainder_follows_participant_roster_order(self):
         out = allocate_within_family(100.0, ["a", "b", "c"], ["a", "b", "c", "d"])
         assert out["d"] == 0.0
-        assert abs(sum(out.values()) - 100.0) < 1e-9
-        for k in ("a", "b", "c"):
-            assert abs(out[k] - 100.0 / 3) < 1e-12
+        assert out == {"a": 34, "b": 33, "c": 33, "d": 0}
+        assert sum(out.values()) == 100
 
     def test_empty_roster_returns_empty(self):
         assert allocate_within_family(40.0, ["a"], []) == {}
@@ -116,20 +119,20 @@ class TestFamilyMemberBreakdown:
         assert net_no["S"] == -40.0 and net_no["G"] == -20.0 and net_no["I"] == 60.0  # full size
         assert net_yes != net_no                               # involved count now drives the ledger
         assert net_yes["S"] == -35.0                           # 3 * 70/6 exactly
-        assert abs(net_yes["G"] - (-2 * 70 / 6)) < 0.01        # Gupta unrestricted -> 2 humans
-        assert abs(net_yes["I"] - (70 - 70 / 6)) < 0.01        # payer credited net of its own share
-        assert round(sum(net_yes.values()), 2) == 0.0          # conservation
+        assert net_yes["G"] == -23.0                           # Gupta unrestricted -> 2 humans
+        assert net_yes["I"] == 58.0                            # payer gets the leftover unit
+        assert sum(net_yes.values()) == 0.0                    # conservation
 
         bd = family_member_breakdown(members, exp_yes, [], net_yes)
         sharma = {row["id"]: row["net"] for row in bd["S"]}
         assert sharma["r"] == 0.0                              # excluded member owes nothing
         assert round(sum(sharma.values()), 2) == -35.0         # members sum EXACTLY to the family total
-        for mid in ("a", "v", "s"):
-            assert abs(sharma[mid] - (-35.0 / 3)) < 0.01       # ~ -11.67 each
-        # Gupta has no restriction, but -23.33 cannot be divided equally at INR precision.
-        # The indivisible paisa is assigned in stable roster order and the rows still reconcile.
-        assert [row["net"] for row in bd["G"]] == [-11.66, -11.67]
-        assert sum(row["net"] for row in bd["G"]) == -23.33
+        assert {mid: sharma[mid] for mid in ("a", "v", "s")} == {
+            "a": -12, "v": -12, "s": -11,
+        }
+        # Gupta's indivisible whole unit follows stable family-member roster order.
+        assert [row["net"] for row in bd["G"]] == [-12, -11]
+        assert sum(row["net"] for row in bd["G"]) == -23
         assert "I" not in bd
 
     def test_no_restriction_is_byte_identical_to_net_per_person(self):
@@ -215,11 +218,12 @@ class TestPerFamilyParticipation:
         bd = family_member_breakdown(members, [self._expense(fp)], [], net_yes)
         f1 = {row["id"]: row["net"] for row in bd["F1"]}
         f2 = {row["id"]: row["net"] for row in bd["F2"]}
-        # F1: 500 split among 3 -> ~166.67 each, excluded D owes 0, members sum EXACTLY to -500.
+        # F1: 500 split among 3 in whole units, excluded D owes 0, members sum exactly to -500.
         assert f1["d"] == 0.0
-        for mid in ("a", "b", "c"):
-            assert abs(f1[mid] - (-500.0 / 3)) < 0.01
-        assert round(sum(f1.values()), 2) == -500.0
+        assert {mid: f1[mid] for mid in ("a", "b", "c")} == {
+            "a": -167, "b": -167, "c": -166,
+        }
+        assert sum(f1.values()) == -500
         # F2: 500 split among 2 -> exactly 250 each; Y/Z owe 0.
         assert f2["w"] == -250.0 and f2["x"] == -250.0
         assert f2["y"] == 0.0 and f2["z"] == 0.0

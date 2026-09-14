@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, field_validator
@@ -9,7 +10,7 @@ class TripIn(BaseModel):
     name: str
     start_date: Optional[str] = None  # YYYY-MM-DD (timezone-free calendar date)
     end_date: Optional[str] = None    # YYYY-MM-DD; when both exist, must be >= start_date
-    budget: Optional[float] = None
+    budget: Optional[Decimal] = None
     currency: str = "INR"
     # Phase 26 — the creator's own identity in this trip. Default "individual" preserves the legacy
     # behavior (creator is a standalone member carrying their login email). "family" makes the creator
@@ -30,7 +31,7 @@ class TripUpdate(BaseModel):
     name: Optional[str] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    budget: Optional[float] = None
+    budget: Optional[Decimal] = None
     currency: Optional[str] = None
 
     @field_validator("currency")

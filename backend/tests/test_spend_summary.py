@@ -5,6 +5,8 @@ import os
 import uuid
 
 import pytest
+
+from utils.money_policy import whole_money
 import requests
 
 from services.spend_summary import aggregate_spend
@@ -98,10 +100,10 @@ class TestAggregateSpendPure:
         assert out["total"] == round(sum(e["paid"] for e in out["entities"]), 2)
         assert out["count"] == 3  # f1, f2, i1 spent; f3, f4, i2 did not
 
-    def test_rounding_two_dp(self):
+    def test_rounding_each_expense_to_whole_units(self):
         members = _members()
         out = aggregate_spend(members, [_exp("i1", 10.005), _exp("i1", 0.001)])
-        assert _by_id(out)["i1"]["paid"] == 10.01
+        assert _by_id(out)["i1"]["paid"] == 10
 
     def test_empty_expenses(self):
         out = aggregate_spend(_members(), [])
@@ -122,10 +124,12 @@ class TestDrilldownReconcilesToBar:
 
     def _drilldown_total(self, expenses, eid):
         # Mirror of frontend src/memberSpend.memberSpendHistory: positive fronted amounts by THIS payer,
-        # summed in cents to 2dp — refunds (negative) and zero excluded, exactly like the gross bar.
-        cents = sum(round(e["amount"] * 100) for e in expenses
-                    if e["amount"] > 0 and e["paid_by_member_id"] == eid)
-        return cents / 100
+        # summed as individually normalized whole units; refunds and zero are excluded.
+        return sum(
+            whole_money(e["amount"], reject_nonzero_to_zero=False)
+            for e in expenses
+            if e["amount"] > 0 and e["paid_by_member_id"] == eid
+        )
 
     def test_reconciles_across_modes_and_entity_kinds(self):
         members = _members()
@@ -145,7 +149,7 @@ class TestDrilldownReconcilesToBar:
             # Per entity: the drill-down running total == that entity's gross-spend bar value.
             assert self._drilldown_total(expenses, eid) == by_id[eid]["paid"], eid
         # And every drill-down total foots to the same trip total as the bars.
-        assert round(sum(self._drilldown_total(expenses, m["id"]) for m in members), 2) == out["total"]
+        assert sum(self._drilldown_total(expenses, m["id"]) for m in members) == out["total"]
 
 
 # ---------- Live API tests (Step 51) ----------

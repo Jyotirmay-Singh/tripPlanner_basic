@@ -110,7 +110,8 @@ describe('settle-up AmountModal (✕ close + reachable footer)', () => {
     expect(onCancel).not.toHaveBeenCalled();
   });
 
-  it('preserves an unchanged legacy decimal exactly for a note-only edit', () => {
+  it('rejects a legacy decimal in the updated whole-unit editor', () => {
+    jest.useFakeTimers();
     const onSubmit = jest.fn();
     const legacyAmount = 1.234567;
     const r = mount(jest.fn(), onSubmit, {
@@ -121,12 +122,13 @@ describe('settle-up AmountModal (✕ close + reachable footer)', () => {
       allowLegacyDecimal: true,
     });
 
-    expect(host(r, 'payment-amount-input').props.helper).toContain(
-      'Keep the current decimal for a note-only edit',
-    );
+    expect(host(r, 'payment-amount-input').props.helper).toContain('Whole LKR amounts only');
     act(() => { host(r, 'payment-amount-continue').props.onPress(); });
 
-    expect(onSubmit).toHaveBeenCalledWith(legacyAmount, '');
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(host(r, 'payment-amount-input').props.error).toBe('Enter a whole LKR amount');
+    jest.clearAllTimers();
+    jest.useRealTimers();
   });
 
   it('renders a remark-only editor for a recipient-confirmed UPI payment', () => {

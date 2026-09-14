@@ -16,7 +16,6 @@ from services.report_builder import (
     build_spend_reconciliation,
     build_transaction_rows,
 )
-from utils.currency_rules import currency_units
 
 
 def _fam(mid, size, name=None):
@@ -136,22 +135,26 @@ class TestPerCapita:
         assert by["f1"]["total_humans"] == 5
 
     def test_shares_sum_to_amount_within_tolerance(self):
-        # $100 across H = 13 produces repeating decimals; rounded shares still reconcile.
-        # Each 2dp share can drift up to 0.005, so n rows bound the total drift at 0.005 * n.
+        # 100 across H = 13 is apportioned to complete units and reconciles exactly.
         rows = build_per_capita_rows([_exp("e1", 100.0, [])], _roster())
-        assert abs(sum(r["member_share"] for r in rows) - 100.0) <= 0.005 * len(rows) + 1e-9
+        assert sum(r["member_share"] for r in rows) == 100
+        assert {r["member_name"]: r["member_share"] for r in rows} == {
+            "f1": 31, "f2": 31, "f3": 16, "f4": 8, "i1": 7, "i2": 7,
+        }
 
     @pytest.mark.parametrize(
         "currency,amount,expected",
-        [("JPY", 100, [33.0, 33.0, 34.0]),
-         ("KWD", 1.000, [0.333, 0.333, 0.334])],
+        [("JPY", 100, [33, 33, 34]),
+         ("KWD", 1, [0, 0, 1])],
     )
-    def test_iso_precision_shares_reconcile_exactly(self, currency, amount, expected):
+    def test_whole_unit_shares_reconcile_exactly_for_every_currency(
+        self, currency, amount, expected
+    ):
         members = [_ind("a"), _ind("b"), _ind("c")]
         rows = build_per_capita_rows([_exp("e", amount, [])], members, currency)
         shares = [row["member_share"] for row in rows]
         assert sorted(shares) == expected
-        assert currency_units(sum(shares), currency) == currency_units(amount, currency)
+        assert sum(shares) == amount
         assert rows == build_per_capita_rows([_exp("e", amount, [])], members, currency)
 
 
@@ -198,25 +201,27 @@ class TestPerFamily:
         assert {r["member_name"] for r in rows} == {"f1", "f2", "f3", "f4", "i1", "i2"}
 
     def test_shares_sum_to_amount_within_tolerance(self):
-        # $100 across 6 entities -> 16.67 each; rounded shares still reconcile.
-        # Each 2dp share can drift up to 0.005, so n rows bound the total drift at 0.005 * n.
+        # 100 across 6 entities is apportioned in whole units, payer first, then roster order.
         rows = build_per_family_rows(
             [_exp("e1", 100.0, [], mode="PER_FAMILY")], _roster())
-        assert abs(sum(r["member_share"] for r in rows) - 100.0) <= 0.005 * len(rows) + 1e-9
+        assert sum(r["member_share"] for r in rows) == 100
+        assert {r["member_name"]: r["member_share"] for r in rows} == {
+            "f1": 17, "f2": 17, "f3": 17, "f4": 17, "i1": 16, "i2": 16,
+        }
 
     @pytest.mark.parametrize(
         "currency,amount,expected",
-        [("JPY", -100, [-34.0, -33.0, -33.0]),
-         ("KWD", -1.000, [-0.334, -0.333, -0.333])],
+        [("JPY", -100, [-34, -33, -33]),
+         ("KWD", -1, [-1, 0, 0])],
     )
-    def test_refund_shares_use_iso_precision_and_reconcile(self, currency, amount, expected):
+    def test_refund_shares_use_whole_units_and_reconcile(self, currency, amount, expected):
         members = [_ind("a"), _ind("b"), _ind("c")]
         rows = build_per_family_rows(
             [_exp("e", amount, [], mode="PER_FAMILY")], members, currency
         )
         shares = [row["member_share"] for row in rows]
         assert sorted(shares) == expected
-        assert currency_units(sum(shares), currency) == currency_units(amount, currency)
+        assert sum(shares) == amount
 
 
 class TestTransactions:
@@ -400,7 +405,7 @@ class TestSpendReconciliation:
         ]
         self._assert_invariants(out)
 
-    def test_cent_normalization_zero_legacy_values_and_input_immutability(self):
+    def test_subunit_legacy_values_round_to_zero_without_mutating_inputs(self):
         members = [_ind("i1", "Ann")]
         expenses = [
             self._row("a", 0.1), self._row("b", 0.2), self._row("r", -0.1),
@@ -410,7 +415,7 @@ class TestSpendReconciliation:
         out = build_spend_reconciliation(members, expenses)
         assert expenses[:4] == snapshot[:4]
         assert math.isnan(expenses[4]["amount"])
-        assert out["totals"] == {"gross": 0.3, "reimbursements": 0.1, "net": 0.2}
+        assert out["totals"] == {"gross": 0.0, "reimbursements": 0.0, "net": 0.0}
         self._assert_invariants(out)
 
     def test_current_zero_spend_entities_are_retained_with_types(self):
@@ -424,7 +429,7 @@ class TestSpendReconciliation:
 
     @pytest.mark.parametrize(
         "currency,half_unit,expected",
-        [("JPY", 0.5, 1.0), ("USD", 0.005, 0.01), ("KWD", 0.0005, 0.001)],
+        [("JPY", 0.5, 1), ("USD", 0.5, 1), ("KWD", 0.5, 1)],
     )
     def test_legacy_half_units_are_rounded_half_up_in_reconciliation(
         self, currency, half_unit, expected
@@ -524,24 +529,24 @@ class TestExplodedTransactions:
         result = build_expense_member_rows(expenses, members)
         block = result["blocks"][0]
 
-        assert block["amount"] == 3520.40
+        assert block["amount"] == 3520
         assert block["canonical_currency"] == "LKR"
-        assert result["grand_amount"] == 3520.40
-        assert block["original_amount"] == 1000.0
+        assert result["grand_amount"] == 3520
+        assert block["original_amount"] == 1000
         assert block["original_currency"] == "INR"
         assert block["exchange_rate"] == "3.5204"
         assert block["exchange_rate_date"] == "2026-08-28"
         assert block["exchange_rate_provider"] == "frankfurter_v2_blended"
         assert block["exchange_rate_mode"] == "automatic"
-        assert block["original_exact_allocations"] == "Ann: 1000.00 INR"
+        assert block["original_exact_allocations"] == "Ann: 1000 INR"
 
     def test_pivot_and_grand_totals_match_oracle(self):
         members, expenses = self._oracle()
         out = build_expense_member_rows(expenses, members)
         pivot = {r["name"]: r["total"] for r in out["pivot"]["rows"]}
-        assert pivot == {"Bheem": 7525.0, "Chutki": 7084.99, "Golmal": 13060.0,
-                         "Jaggu": 9084.99, "Jerry": 10410.01,
-                         "Raju": 7085.0, "Tom": 8850.01}
+        assert pivot == {"Bheem": 7525, "Chutki": 7084, "Golmal": 13061,
+                         "Jaggu": 9085, "Jerry": 10410,
+                         "Raju": 7085, "Tom": 8850}
         # pivot is alphabetical by person name
         assert [r["name"] for r in out["pivot"]["rows"]] == \
             ["Bheem", "Chutki", "Golmal", "Jaggu", "Jerry", "Raju", "Tom"]
@@ -602,7 +607,7 @@ class TestExplodedTransactions:
         members, expenses = self._oracle()
         refund = build_expense_member_rows(expenses, members)["blocks"][2]
         assert [r["payable"] for r in refund["rows"]] == [
-            -85.71, -85.71, -85.71, -85.71, -85.72, -85.72, -85.72,
+            -86, -86, -86, -86, -86, -85, -85,
         ]
         assert all(r["participates"] is True for r in refund["rows"])  # nonzero (negative)
         assert refund["block_payable"] == -600.0
@@ -639,7 +644,7 @@ class TestExplodedTransactions:
         assert out["blocks"] == []
         assert out["grand_amount"] == 0.0
 
-    @pytest.mark.parametrize("currency,amount", [("JPY", 1), ("KWD", 0.001)])
+    @pytest.mark.parametrize("currency,amount", [("JPY", 1), ("KWD", 1)])
     def test_zero_display_shares_remain_participants_and_block_reconciles(
         self, currency, amount
     ):
@@ -647,8 +652,7 @@ class TestExplodedTransactions:
         expense = _exp("tiny", amount, [], paid_by="a")
         out = build_expense_member_rows([expense], members, currency)
         block = out["blocks"][0]
-        assert currency_units(sum(row["payable"] for row in block["rows"]), currency) == \
-            currency_units(amount, currency)
+        assert sum(row["payable"] for row in block["rows"]) == amount
         assert block["block_payable"] == amount
         assert all(row["participates"] is True for row in block["rows"])
         assert out["grand_amount"] == out["grand_payable"] == \

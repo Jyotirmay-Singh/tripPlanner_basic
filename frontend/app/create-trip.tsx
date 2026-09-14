@@ -138,12 +138,12 @@ export default function CreateTrip() {
               label="Budget (optional)"
               value={budget}
               onChangeText={(value) => { setBudget(value); if (fieldError?.field === 'budget') setFieldError(null); }}
-              keyboardType="decimal-pad"
+              keyboardType="number-pad"
               placeholder={currencyAmountPlaceholder(currency)}
               error={fieldError?.field === 'budget' ? fieldError.message : budgetPrecisionIssue}
               focusOnError={fieldError?.field === 'budget'}
               icon="wallet"
-              inputMode="decimal"
+              inputMode="numeric"
               autoComplete="off"
               returnKeyType={selfKind === 'family' ? 'next' : 'done'}
             />

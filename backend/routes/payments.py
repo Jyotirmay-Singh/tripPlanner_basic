@@ -30,13 +30,14 @@ from utils.settlement_gate import (
     validate_new_amount,
 )
 from services.push_notifications import enqueue_notification_event
-from utils.currency_rules import currency_minor_units, quantize_currency
 from services.admin_audit import record_admin_action
+from services.money_audit import record_money_normalizations
 from services.ledger_transactions import (
     TransactionUnavailableError,
     run_optional_transaction,
     run_required_transaction,
 )
+from utils.money_policy import normalization_change, whole_money
 
 router = APIRouter()
 
@@ -61,7 +62,7 @@ def _handoff_error(status_code: int, code: str, message: str, *, retryable: bool
 
 
 def _money_string(value: object, currency: str) -> str:
-    return format(quantize_currency(value, currency), "f")
+    return str(whole_money(value, label="Amount", reject_nonzero_to_zero=False))
 
 
 def _aware_datetime(value: object):
@@ -319,7 +320,7 @@ async def preview_payment_handoff(
                 user_id=user["id"],
                 source_currency=currency,
                 target_currency="INR",
-                source_amount=format(amount, "f"),
+                source_amount=body.amount,
                 requested_date=None,
                 mode="automatic",
                 payment_handoff=handoff_context,
@@ -392,8 +393,7 @@ async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: Ba
     if payable <= 0:
         raise HTTPException(400, "You can only record a payment along a currently suggested transfer")
     if amount > payable + tolerance:
-        digits = currency_minor_units(trip.get("currency", "INR"))
-        raise HTTPException(400, f"Amount exceeds the {payable:.{digits}f} payable for this pair")
+        raise HTTPException(400, f"Amount exceeds the {int(payable):,} payable for this pair")
 
     doc = {"id": gen_id(), "trip_id": trip_id,
            "from_member_id": body.from_member_id,
@@ -427,6 +427,13 @@ async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: Ba
 
     await run_optional_transaction(transactional_write, standalone_write)
     doc.pop("_id", None)
+    await record_money_normalizations(
+        [normalization_change("amount", body.amount, amount)],
+        actor_user_id=user["id"],
+        trip_id=trip_id,
+        resource_type="payment",
+        resource_id=doc["id"],
+    )
     await record_admin_action(
         user, "payment.created", trip=trip, resource_type="payment", resource_id=doc["id"],
         changed_fields=("from_member_id", "to_member_id", "amount", "note"),
@@ -450,26 +457,34 @@ async def edit_payment(trip_id: str, payment_id: str, body: PaymentPatch,
     trip, payment = await _payment_or_403(trip_id, payment_id, user)
     current_version = trip.get("version", 0)
     updates: dict = {}
+    amount_change = None
     if body.amount is not None:
         requested = decimal_amount(body.amount)
         existing = decimal_amount(payment["amount"])
-        # Older clients resend the current amount on every note edit. Treat an exactly unchanged
-        # value as no amount edit so legacy decimal records remain note-editable after rollout.
-        if requested != existing:
-            if payment.get("source") == "upi_recipient_confirmed":
+        # Recipient-confirmed UPI evidence is immutable, including a legacy decimal value resent
+        # unchanged by an older client. Other explicitly supplied values pass through the active
+        # policy even when their pre-normalized decimal matches a legacy stored amount.
+        immutable_unchanged = (
+            payment.get("source") == "upi_recipient_confirmed" and requested == existing
+        )
+        if not immutable_unchanged:
+            amount, audit_fields = validate_new_amount(trip, requested)
+            amount_change = normalization_change("amount", requested, amount)
+            if amount != existing and payment.get("source") == "upi_recipient_confirmed":
                 raise _handoff_error(
                     409,
                     "upi_confirmed_amount_immutable",
                     "A recipient-confirmed UPI payment amount cannot be changed",
                 )
-            amount, audit_fields = validate_new_amount(trip, requested)
+            if amount == existing:
+                amount = None
+        if not immutable_unchanged and amount is not None:
             bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
             residual = _suggested_amount(bal["transfers"],
                                          payment["from_member_id"], payment["to_member_id"])
             cap = residual + existing
             if amount > cap + payable_tolerance(trip):
-                digits = currency_minor_units(trip.get("currency", "INR"))
-                raise HTTPException(400, f"Amount exceeds the {cap:.{digits}f} payable for this pair")
+                raise HTTPException(400, f"Amount exceeds the {int(cap):,} payable for this pair")
             updates["amount"] = int(amount) if audit_fields else float(amount)
             updates.update(audit_fields)
     if body.note is not None:
@@ -502,6 +517,13 @@ async def edit_payment(trip_id: str, payment_id: str, body: PaymentPatch,
             user, "payment.updated", trip=trip, resource_type="payment",
             resource_id=payment_id, changed_fields=updates.keys(),
         )
+    await record_money_normalizations(
+        [amount_change],
+        actor_user_id=user["id"],
+        trip_id=trip_id,
+        resource_type="payment",
+        resource_id=payment_id,
+    )
     return payment
 
 

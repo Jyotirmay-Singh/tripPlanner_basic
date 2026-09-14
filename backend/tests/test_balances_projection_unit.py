@@ -54,7 +54,6 @@ def _install_db(monkeypatch, trip, expenses, settlements=None, payments=None):
 
 
 def test_balance_response_exposes_conserving_whole_unit_projection_and_no_row_cap(monkeypatch):
-    monkeypatch.setattr(balances, "WHOLE_UNIT_SETTLEMENTS_ENABLED", True)
     trip = _trip()
     # A fronted 10 for only B/C/D: precise debts are thirds and must jointly round to 10.
     expense = {"id": "e", "amount": 10, "currency": "LKR", "original_currency": "USD",
@@ -73,7 +72,6 @@ def test_balance_response_exposes_conserving_whole_unit_projection_and_no_row_ca
 
 
 def test_recording_one_and_then_all_suggestions_recomputes_validly(monkeypatch):
-    monkeypatch.setattr(balances, "WHOLE_UNIT_SETTLEMENTS_ENABLED", True)
     payment_rows = []
     trip = _trip("NPR")
     expense = {"id": "e", "amount": 10, "paid_by_member_id": "a",
@@ -90,11 +88,10 @@ def test_recording_one_and_then_all_suggestions_recomputes_validly(monkeypatch):
         payment_rows.append({"id": f"p{index}", **transfer})
     closed = asyncio.run(balances._compute_balances("t1"))
     assert closed["transfers"] == []
-    assert closed["settlement_projection"]["status"] == "settled_within_rounding"
+    assert closed["settlement_projection"]["status"] == "settled_exactly"
 
 
 def test_removed_but_exactly_settled_member_history_remains_replayable(monkeypatch):
-    monkeypatch.setattr(balances, "WHOLE_UNIT_SETTLEMENTS_ENABLED", True)
     trip = {
         "id": "t1", "currency": "LKR",
         "members": [{"id": "a", "name": "A", "kind": "individual"}],

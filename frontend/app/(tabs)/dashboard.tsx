@@ -106,7 +106,7 @@ export default function Dashboard() {
             value={currencyBalances[0]?.value ?? 0}
             currency={currencyBalances[0]?.currency}
             variant="moneyLg"
-            signed={(currencyBalances[0]?.cents ?? 0) > 0}
+            signed={(currencyBalances[0]?.units ?? 0) > 0}
             color={colors.primaryText}
             style={{ marginTop: SPACING.xs }}
           />
@@ -117,7 +117,7 @@ export default function Dashboard() {
                 <AmountText
                   value={balance.value}
                   currency={balance.currency}
-                  signed={balance.cents > 0}
+                  signed={balance.units > 0}
                   color={colors.primaryText}
                 />
               </View>

@@ -132,7 +132,7 @@ it('shows a locked conversion without requiring a new quote for unrelated edits'
   });
 
   expect(renderer.root.findByProps({ testID: 'exchange-rate-locked' })).toBeTruthy();
-  expect(textContent(renderer)).toContain('LKR 3,520.40');
+  expect(textContent(renderer)).toContain('Rs3,520');
   expect(textContent(renderer)).toContain('Reference rate from 28 Aug 2026');
   expect(textContent(renderer)).toContain('frankfurter_v2_blended');
   expect(mockUseExchangeRateQuote).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
@@ -148,7 +148,7 @@ it('keeps an unchanged locked conversion visible while new conversions are disab
   });
 
   expect(renderer.root.findByProps({ testID: 'exchange-rate-locked' })).toBeTruthy();
-  expect(textContent(renderer)).toContain('LKR 3,520.40');
+  expect(textContent(renderer)).toContain('Rs3,520');
   expect(mockUseExchangeRateQuote).toHaveBeenLastCalledWith(
     expect.objectContaining({ enabled: false }),
   );
@@ -187,8 +187,8 @@ it('approves an automatic cached stale quote and clears approval when an input c
 
 it('submits an explicit manual final-amount conversion', () => {
   mockUseExchangeRateQuote.mockImplementation((inputs: any) => ({
-    status: inputs.mode === 'manual' && inputs.manualValue === '3600.00' ? 'success' : 'idle',
-    quote: inputs.mode === 'manual' && inputs.manualValue === '3600.00' ? manualQuote : null,
+    status: inputs.mode === 'manual' && inputs.manualValue === '3600' ? 'success' : 'idle',
+    quote: inputs.mode === 'manual' && inputs.manualValue === '3600' ? manualQuote : null,
     error: null,
     valid: true,
     retry: jest.fn(),
@@ -204,22 +204,22 @@ it('submits an explicit manual final-amount conversion', () => {
   act(() => renderer.root.findByProps({ testID: 'exchange-rate-manual' }).props.onPress());
   act(() => renderer.root.findByProps({ testID: 'exchange-rate-manual-target' }).props.onPress());
   const input = renderer.root.findByType(TextInput);
-  act(() => input.props.onChangeText('3600.00'));
+  act(() => input.props.onChangeText('3600'));
 
   expect(mockUseExchangeRateQuote).toHaveBeenLastCalledWith(expect.objectContaining({
-    mode: 'manual', manualInputType: 'target_amount', manualValue: '3600.00',
+    mode: 'manual', manualInputType: 'target_amount', manualValue: '3600',
   }));
   act(() => renderer.root.findByProps({ testID: 'exchange-rate-approve' }).props.onPress());
   expect(onApprovalChange).toHaveBeenLastCalledWith({
     quote: manualQuote,
     request: {
       mode: 'manual', quote_id: 'quote-manual', approved: true, allow_stale: false,
-      manual_input_type: 'target_amount', manual_target_amount: '3600.00',
+      manual_input_type: 'target_amount', manual_target_amount: '3600',
     },
   });
 });
 
-it('rejects a manual KWD final amount with more than three decimals', () => {
+it('rejects a pasted decimal manual final amount for every currency', () => {
   let renderer: any;
   act(() => {
     renderer = TestRenderer.create(
@@ -233,7 +233,7 @@ it('rejects a manual KWD final amount with more than three decimals', () => {
 
   expect(renderer.root.findByProps({ testID: 'exchange-rate-precision' })).toBeTruthy();
   expect(textContent(renderer)).toContain(
-    'Manual final amount in KWD allows at most 3 decimal places.',
+    'Manual final amount in KWD must be a whole amount without decimal places.',
   );
   expect(mockUseExchangeRateQuote).toHaveBeenLastCalledWith(
     expect.objectContaining({ enabled: false, manualValue: '1.2345' }),

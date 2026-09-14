@@ -191,10 +191,12 @@ describe('paymentStatus', () => {
   });
   it('is paid when the residual is cleared', () => {
     expect(paymentStatus(0, 100)).toBe('paid');
-    expect(paymentStatus(0.005, 100)).toBe('paid');
+    expect(paymentStatus(0.49, 100)).toBe('paid');
+    expect(paymentStatus(0.5, 100)).toBe('partial');
   });
-  it('treats a sub-cent payment as still open', () => {
-    expect(paymentStatus(100, 0.005)).toBe('open');
+  it('uses the half-unit boundary without hiding a legal whole payment', () => {
+    expect(paymentStatus(100, 0.49)).toBe('open');
+    expect(paymentStatus(100, 0.5)).toBe('partial');
   });
   it('does not hide one legal yen as zero', () => {
     expect(paymentStatus(100, 1, 'JPY')).toBe('partial');
@@ -223,12 +225,12 @@ describe('paymentsForPair / pairPaid', () => {
     expect(pairPaid(list, 'c', 'b')).toBe(99);
     expect(pairPaid(list, 'b', 'a')).toBe(0);
   });
-  it('sums three-decimal payments in integer KWD minor units', () => {
+  it('sums KWD payments in the same whole units as every other currency', () => {
     const kwd = [
-      pay({ amount: 0.001 }),
-      pay({ id: 'two', amount: 0.002 }),
+      pay({ amount: 1 }),
+      pay({ id: 'two', amount: 2 }),
     ];
-    expect(pairPaid(kwd, 'a', 'b', 'KWD')).toBe(0.003);
+    expect(pairPaid(kwd, 'a', 'b', 'KWD')).toBe(3);
   });
   it('tolerates null input', () => {
     expect(paymentsForPair(null, 'a', 'b')).toEqual([]);
@@ -264,11 +266,11 @@ describe('buildPairBlocks', () => {
   it('reconciles: sum of block.paid equals sum of payment amounts', () => {
     const payments = [
       pay({ from_member_id: 'a', to_member_id: 'b', amount: 5 }),
-      pay({ from_member_id: 'c', to_member_id: 'd', amount: 7.5 }),
+      pay({ from_member_id: 'c', to_member_id: 'd', amount: 8 }),
     ];
     const blocks = buildPairBlocks([{ from_member_id: 'a', to_member_id: 'b', amount: 10 }], payments);
     const totalPaid = blocks.reduce((s, b) => s + b.paid, 0);
-    expect(totalPaid).toBeCloseTo(12.5, 2);
+    expect(totalPaid).toBe(13);
   });
 });
 
@@ -278,7 +280,7 @@ describe('validatePaymentAmount', () => {
     expect(validatePaymentAmount(-5, 100).ok).toBe(false);
     expect(validatePaymentAmount(NaN, 100).ok).toBe(false);
   });
-  it('rejects overpayment beyond a cent of tolerance', () => {
+  it('rejects overpayment beyond a whole unit of tolerance', () => {
     expect(validatePaymentAmount(100.5, 100).ok).toBe(false);
   });
   it('accepts valid amounts up to the max and rejects hidden extra precision', () => {
@@ -286,21 +288,21 @@ describe('validatePaymentAmount', () => {
     expect(validatePaymentAmount(100.004, 100).ok).toBe(false);
     expect(validatePaymentAmount(40, 100).ok).toBe(true);
   });
-  it('enforces JPY and KWD precision and caps', () => {
+  it('enforces whole-unit input and caps for every catalog currency', () => {
     expect(validatePaymentAmount(40.5, 100, {
       currency: 'JPY', rawAmount: '40.5',
     }).ok).toBe(false);
     expect(validatePaymentAmount(101, 100, {
       currency: 'JPY', rawAmount: '101',
     }).ok).toBe(false);
+    expect(validatePaymentAmount(1, 2, {
+      currency: 'KWD', rawAmount: '1',
+    })).toEqual({ ok: true, error: null });
     expect(validatePaymentAmount(1.234, 2, {
       currency: 'KWD', rawAmount: '1.234',
-    })).toEqual({ ok: true, error: null });
-    expect(validatePaymentAmount(1.2345, 2, {
-      currency: 'KWD', rawAmount: '1.2345',
     }).ok).toBe(false);
-    expect(validatePaymentAmount(2.001, 2, {
-      currency: 'KWD', rawAmount: '2.001',
+    expect(validatePaymentAmount(3, 2, {
+      currency: 'KWD', rawAmount: '3',
     }).ok).toBe(false);
   });
   it('enforces exact whole-unit amounts when requested', () => {

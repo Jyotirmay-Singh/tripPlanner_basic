@@ -35,7 +35,7 @@ import {
   type UpiApp,
   type UpiAvailability,
 } from './upiLauncher';
-import { currencyMinorUnits } from './currencies';
+import { currencyAmountPlaceholder, roundWholeMoney } from './currencies';
 import { useTheme } from './ThemeContext';
 import { RADIUS, SPACING } from './theme';
 import T from './T';
@@ -105,9 +105,9 @@ export function paymentHandoffChangeMessage(
 }
 
 function inputAmount(value: number, currency: string, wholeUnit: boolean): string {
-  if (wholeUnit) return String(Math.round(value));
-  const digits = currencyMinorUnits(currency);
-  return value.toFixed(digits);
+  void currency;
+  void wholeUnit;
+  return String(roundWholeMoney(value));
 }
 
 function expiryLabel(value: string): string {
@@ -331,7 +331,7 @@ export default function UpiPaymentSheet({
   const reviewPayment = async () => {
     const parsedAmount = Number(amount);
     const validation = validatePaymentAmount(parsedAmount, Number(maxPayable), {
-      wholeUnit,
+      wholeUnit: true,
       currency,
       rawAmount: amount,
     });
@@ -803,8 +803,10 @@ export default function UpiPaymentSheet({
               label={`Amount (${currency})`}
               value={amount}
               onChangeText={changeAmount}
-              keyboardType="decimal-pad"
-              helper={`Up to ${maxPayable} ${currency}. You will enter the reviewed INR amount in the payment app.`}
+              keyboardType="number-pad"
+              inputMode="numeric"
+              placeholder={currencyAmountPlaceholder(currency)}
+              helper={`Whole ${currency} amounts only, up to ${maxPayable}. You will enter the reviewed INR amount in the payment app.`}
               error={amountError}
               errorTestID="upi-amount-error"
               testID="upi-handoff-amount"
