@@ -23,6 +23,7 @@ from services.payment_attempts import (
 )
 from services.push_notifications import enqueue_notification_event
 from services.money_audit import record_money_normalizations
+from services.trip_activity import with_trip_activity
 from utils.balances import _compute_balances
 from utils.common import gen_id, now_utc
 from utils.deps import _trip_or_404, get_current_user, is_trip_admin
@@ -536,7 +537,7 @@ async def _confirm_received_transaction(
         version = trip.get("version", 0)
         guard = await db.trips.update_one(
             {"id": trip_id, "version": version},
-            {"$inc": {"version": 1}},
+            with_trip_activity({"$inc": {"version": 1}}, timestamp),
             session=session,
         )
         if not _changed(guard):

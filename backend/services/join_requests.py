@@ -20,6 +20,7 @@ from utils.members import (
     member_has_financial_history,
     padded_family_member_ids,
 )
+from services.trip_activity import with_trip_activity
 
 
 RETRY_COOLDOWN = timedelta(hours=24)
@@ -446,13 +447,13 @@ async def approve_request(request_id: str, admin_user_id: str) -> tuple[dict, di
                     "email": target.get("email_raw"),
                 }},
             },
-            {
+            with_trip_activity({
                 "$addToSet": {"user_ids": requester["id"]},
                 "$set": {
                     "members.$.user_id": requester["id"],
                     "members.$.email": requester_email,
                 },
-            },
+            }, timestamp),
         )
     else:
         index = target["index"]
@@ -467,13 +468,13 @@ async def approve_request(request_id: str, admin_user_id: str) -> tuple[dict, di
                     f"family_member_emails.{index}": target.get("email_raw"),
                 }},
             },
-            {
+            with_trip_activity({
                 "$addToSet": {"user_ids": requester["id"]},
                 "$set": {
                     f"members.$.family_member_user_ids.{index}": requester["id"],
                     f"members.$.family_member_emails.{index}": requester_email,
                 },
-            },
+            }, timestamp),
         )
 
     if result is not None and result.modified_count == 0:

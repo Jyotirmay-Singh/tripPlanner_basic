@@ -18,6 +18,7 @@ from services.push_notifications import start_push_dispatcher, stop_push_dispatc
 from services.exchange_rates import start_exchange_rate_client, stop_exchange_rate_client
 from services.invites import retire_legacy_invites
 from services.payment_attempts import start_payment_attempt_sweeper, stop_payment_attempt_sweeper
+from services.trip_activity import backfill_trip_activity
 
 
 # ---------- Startup / Shutdown ----------
@@ -65,7 +66,9 @@ async def _ensure_super_admin() -> None:
 async def lifespan(app: FastAPI):
     await db.users.create_index("email", unique=True)
     await db.trips.create_index("code", unique=True)
-    await db.trips.create_index([("created_at", -1), ("id", -1)])
+    await db.trips.create_index([
+        ("last_activity_at", -1), ("created_at", -1), ("id", -1),
+    ])
     await db.join_requests.create_index("id", unique=True)
     await db.join_requests.create_index(
         [("trip_id", 1), ("requester_user_id", 1)],
@@ -169,6 +172,10 @@ async def lifespan(app: FastAPI):
         {"status": {"$exists": False}},
         [{"$set": {"status": "paid", "paid_at": "$created_at"}}],
     )
+    # Reconstruct the recoverable activity baseline after legacy settlements have been classified.
+    # The backfill is idempotent and uses monotonic/conditional writes, so it cannot replace a newer
+    # live mutation that races application startup.
+    await backfill_trip_activity(db)
     # backfill start_date/end_date for legacy single-date trips: parse the old DD-MM-YY
     # travel_date into YYYY-MM-DD and set both endpoints to it (idempotent — only un-migrated
     # trips). Done in Python since DD-MM-YY parsing is awkward in an aggregation pipeline.

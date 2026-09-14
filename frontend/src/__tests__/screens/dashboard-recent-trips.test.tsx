@@ -2,9 +2,9 @@
 // jest.mock calls must precede the module imports they replace, and their factories use require();
 // both are idiomatic for jest and intentionally exempted here (mirrors unverified-banner.test.tsx).
 //
-// Render test for the dashboard "Recent trips" cap: the screen shows at most the LATEST 2 trips
-// (frontend/app/(tabs)/dashboard.tsx). The backend already returns /trips newest-first, so the
-// screen just slices the first two. Peripheral UI/theme/helpers are stubbed so the test stays
+// Render test for the dashboard "Recent trips" cap: the screen shows at most the first 2 trips
+// (frontend/app/(tabs)/dashboard.tsx). The backend returns /trips in qualifying-activity order, so
+// the screen preserves that order and slices the first two. Peripheral UI/theme/helpers are stubbed
 // focused on how many `dash-trip-*` rows render.
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
@@ -63,6 +63,7 @@ const tripRows = (r: any) =>
 async function mountWith(tripCount: number) {
   const trips = Array.from({ length: tripCount }, (_, i) => ({
     id: `t${i + 1}`, name: `Trip ${i + 1}`, code: `C${i + 1}`, currency: 'INR', members: [],
+    last_activity_at: `2026-09-${String(10 - i).padStart(2, '0')}T10:00:00Z`,
   }));
   apiMock.mockImplementation((url: string) => {
     if (url === '/trips') return Promise.resolve(trips);
@@ -91,7 +92,7 @@ describe('dashboard recent trips cap', () => {
     expect(tripRows(r).length).toBe(2);
   });
 
-  it('caps at the first 2 (newest) rows when there are more than 2', async () => {
+  it('caps at the first 2 activity-ordered rows when there are more than 2', async () => {
     const r = await mountWith(4);
     const rows = tripRows(r);
     expect(rows.length).toBe(2);

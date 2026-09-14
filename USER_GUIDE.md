@@ -40,8 +40,8 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
 
 | Tab | Purpose |
 |---|---|
-| 🏠 **Home** | Snapshot of all your trips + a live "you owe / you're owed" summary |
-| 💼 **Trips** | All trips you've created or joined; create or join from here |
+| 🏠 **Home** | Your two most recently active trips + a live "you owe / you're owed" summary |
+| 💼 **Trips** | All trips you've created or joined, most recently active first |
 | ➕ **Add** | Pick a trip and instantly add a transaction |
 | 📊 **Reports** | One-tap XLSX or PDF download per trip |
 | 👤 **Profile** | Your info, payment details, dark mode toggle, sign out |
@@ -54,6 +54,12 @@ The **Home** tab keeps one **Net position** card for your overall position. When
 use the same currency it shows one signed total. If your trips use different currencies, it shows a
 separate total for each currency rather than adding unlike currencies together. Its message changes
 between **You come out ahead**, **You owe overall**, **All settled up**, and a mixed-currency message.
+
+Below that summary, Home shows the first two trips from the server's activity-ordered list. The
+**Trips** tab shows the complete list in the same order. Qualifying activity includes saved expense,
+roster/join, payment, and completed-settlement changes made by any participant. Pending or failed
+actions, trip-setting edits, receipts, chat, role changes, and invite actions do not reorder a trip.
+Trip cards keep the same details and do not show a separate “last updated” label.
 
 On the **Trips** tab, every trip card shows your own position for that trip:
 - **YOU'RE OWED** with a green exact amount when other members collectively owe you;

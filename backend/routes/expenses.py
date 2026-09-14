@@ -4,7 +4,7 @@ from config import CATEGORIES, MULTI_CURRENCY_EXPENSES_ENABLED
 from database import db
 from models.expense import ExpenseIn, ExpenseUpdate
 from models.exchange_rate import ConversionRequest, ReconvertIn
-from utils.common import gen_id, now_utc
+from utils.common import gen_id
 from utils.deps import get_current_user, _trip_or_404, _expense_modify_or_403
 from services.receipts import delete_receipts_for_expense
 from services.expense_shares import expense_share_breakdown
@@ -28,8 +28,19 @@ from utils.money_policy import (
     whole_money,
 )
 from utils.permissions import is_super_admin
+from services.trip_activity import activity_timestamp, touch_trip_activity_safely
 
 router = APIRouter()
+
+
+def _write_changed(result) -> bool:
+    count = getattr(result, "modified_count", None)
+    return count != 0 if isinstance(count, int) else True
+
+
+def _delete_changed(result) -> bool:
+    count = getattr(result, "deleted_count", None)
+    return count != 0 if isinstance(count, int) else True
 
 
 def _conversion_http_error(exc: Exception):
@@ -205,6 +216,7 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
         return {"requires_confirmation": True, **budget_warning}
 
     eid = gen_id()
+    created_at = activity_timestamp()
     doc = {
         "id": eid, "trip_id": trip_id,
         "amount": converted["amount"], "currency": trip_currency, "category": body.category,
@@ -219,12 +231,13 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
         "custom_amounts": custom_amounts,  # Phase 22 — EXACT only; None otherwise
         # Step 22: receipts are no longer stored inline; the client uploads the bill image to
         # POST /trips/{id}/expenses/{eid}/receipt after the expense is created, which sets receipt_id.
-        "created_by": user["id"], "created_at": now_utc().isoformat(),
+        "created_by": user["id"], "created_at": created_at,
     }
     doc.update(converted["metadata"])
     doc["conversion_history"] = [converted["history"]]
     await db.expenses.insert_one(doc)
     doc.pop("_id", None)
+    await touch_trip_activity_safely(db, trip_id, timestamp=created_at)
     await record_money_normalizations(
         converted.get("normalizations", []),
         actor_user_id=user["id"],
@@ -534,20 +547,23 @@ async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
     result = await db.expenses.update_one(query, mutation)
     if conversion_write and getattr(result, "matched_count", 1) == 0:
         _conversion_conflict()
+    changed = _write_changed(result)
     saved = await db.expenses.find_one(
         {"id": expense_id, "trip_id": trip_id}, {"_id": 0}
     )
-    await record_money_normalizations(
-        normalizations,
-        actor_user_id=user["id"],
-        trip_id=trip_id,
-        resource_type="expense",
-        resource_id=expense_id,
-    )
-    await record_admin_action(
-        user, "expense.updated", trip=trip, resource_type="expense", resource_id=expense_id,
-        changed_fields=updates.keys(),
-    )
+    if changed:
+        await touch_trip_activity_safely(db, trip_id)
+        await record_money_normalizations(
+            normalizations,
+            actor_user_id=user["id"],
+            trip_id=trip_id,
+            resource_type="expense",
+            resource_id=expense_id,
+        )
+        await record_admin_action(
+            user, "expense.updated", trip=trip, resource_type="expense", resource_id=expense_id,
+            changed_fields=updates.keys(),
+        )
     return serialize_bson(saved)
 
 
@@ -602,23 +618,26 @@ async def reconvert_expense(trip_id: str, expense_id: str, body: ReconvertIn,
     )
     if getattr(result, "matched_count", 1) == 0:
         _conversion_conflict()
+    changed = _write_changed(result)
     saved = await db.expenses.find_one(
         {"id": expense_id, "trip_id": trip_id}, {"_id": 0}
     )
-    await record_money_normalizations(
-        converted.get("normalizations", []),
-        actor_user_id=user["id"],
-        trip_id=trip_id,
-        resource_type="expense",
-        resource_id=expense_id,
-    )
-    await record_admin_action(
-        user, "expense.reconverted", trip=trip, resource_type="expense",
-        resource_id=expense_id,
-        changed_fields=(
-            "amount", "currency", "custom_amounts", "conversion_history", "conversion_version",
-        ),
-    )
+    if changed:
+        await touch_trip_activity_safely(db, trip_id)
+        await record_money_normalizations(
+            converted.get("normalizations", []),
+            actor_user_id=user["id"],
+            trip_id=trip_id,
+            resource_type="expense",
+            resource_id=expense_id,
+        )
+        await record_admin_action(
+            user, "expense.reconverted", trip=trip, resource_type="expense",
+            resource_id=expense_id,
+            changed_fields=(
+                "amount", "currency", "custom_amounts", "conversion_history", "conversion_version",
+            ),
+        )
     return {"expense": serialize_bson(saved), "warning": warning}
 
 
@@ -628,8 +647,10 @@ async def delete_expense(trip_id: str, expense_id: str, user=Depends(get_current
     trip, _expense = await _expense_modify_or_403(trip_id, expense_id, user)
     # Step 22: clean up any GridFS receipt so we never leave orphaned receipts.files/.chunks.
     await delete_receipts_for_expense(expense_id)
-    await db.expenses.delete_one({"id": expense_id, "trip_id": trip_id})
-    await record_admin_action(
-        user, "expense.deleted", trip=trip, resource_type="expense", resource_id=expense_id,
-    )
+    result = await db.expenses.delete_one({"id": expense_id, "trip_id": trip_id})
+    if _delete_changed(result):
+        await touch_trip_activity_safely(db, trip_id)
+        await record_admin_action(
+            user, "expense.deleted", trip=trip, resource_type="expense", resource_id=expense_id,
+        )
     return {"ok": True}

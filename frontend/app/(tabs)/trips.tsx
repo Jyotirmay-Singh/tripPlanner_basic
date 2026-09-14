@@ -20,7 +20,7 @@ import {
 import { TabScreen, Card, Button, EmptyState, SkeletonCard, Icon, IconButton } from '../../src/ui';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; user_id?: string | null; email?: string | null };
-type Trip = { id: string; name: string; code?: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; members: Member[] };
+type Trip = { id: string; name: string; code?: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; members: Member[]; last_activity_at: string };
 
 const UNAVAILABLE_BALANCE = tripBalanceState(null);
 

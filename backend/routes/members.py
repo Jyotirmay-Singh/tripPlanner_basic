@@ -19,6 +19,7 @@ from services.reallocation import run_member_update_with_reallocation, freeze_an
 from services.chat_realtime import chat_connections
 from services.admin_audit import record_admin_action
 from services.payment_attempts import MEMBER_BLOCKING_PAYMENT_ATTEMPT_STATUSES
+from services.trip_activity import with_trip_activity
 
 router = APIRouter()
 
@@ -104,7 +105,7 @@ async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user
     if merge_target:
         await db.trips.update_one(
             {"id": trip_id, "members.id": merge_target["id"]},
-            {"$set": {
+            with_trip_activity({"$set": {
                 "members.$.name": name,
                 "members.$.kind": "family",
                 "members.$.family_members": body.family_members,
@@ -119,7 +120,7 @@ async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user
                 "members.$.family_member_user_ids": [None] * len(body.family_members),
                 # Phase 26: the resulting family carries NO entity email.
                 "members.$.email": None,
-            }},
+            }}),
         )
         t = await db.trips.find_one({"id": trip_id}, {"_id": 0})
         saved = next((m for m in t["members"] if m["id"] == merge_target["id"]), None)
@@ -129,7 +130,9 @@ async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user
             changed_fields=("name", "kind", "family_members", "family_member_emails"),
         )
         return saved
-    await db.trips.update_one({"id": trip_id}, {"$push": {"members": new_member}})
+    await db.trips.update_one(
+        {"id": trip_id}, with_trip_activity({"$push": {"members": new_member}}),
+    )
     await record_admin_action(
         user, "member.created", trip=trip, resource_type="member", resource_id=new_member["id"],
         changed_fields=("name", "kind", "email", "family_members", "family_member_emails"),
@@ -198,6 +201,14 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
             await assert_unique_email_in_trip(trip, em, exclude_id=member_id)
         updates["members.$.email"] = em
 
+    # A PATCH that only repeats stored values is not roster activity.  Pruning here is important:
+    # adding ``$max`` to an otherwise-no-op Mongo write would itself make the update look modified.
+    updates = {
+        field: value
+        for field, value in updates.items()
+        if target.get(field.removeprefix("members.$.")) != value
+    }
+
     # Step 8: a family size change re-allocates past PER_CAPITA expenses. reweight_past defaults to
     # True (recalculate the past); False freezes the past at the pre-mutation weight. The member-doc
     # update and the expense reallocation are applied atomically (transaction with a standalone
@@ -205,10 +216,11 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
     old_weight = _weight_of_member(target)
     new_weight_member = {**target, "kind": new_kind, "family_members": new_fm}
     new_weight = _weight_of_member(new_weight_member)
-    await run_member_update_with_reallocation(
-        trip_id, member_id, updates, old_weight, new_weight,
-        reweight_past=(body.reweight_past is not False),
-    )
+    if updates:
+        await run_member_update_with_reallocation(
+            trip_id, member_id, updates, old_weight, new_weight,
+            reweight_past=(body.reweight_past is not False),
+        )
     if vanished_uids:
         # A previously-linked sub-member this edit dropped loses trip access + admin rights (parallel
         # to whole-member removal's eviction). Balance-neutral — the member doc is already rewritten.
@@ -220,10 +232,11 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
         await chat_connections.disconnect_users(trip_id, vanished_uids)
     t = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     saved = next((m for m in t["members"] if m["id"] == member_id), None)
-    await record_admin_action(
-        user, "member.updated", trip=trip, resource_type="member", resource_id=member_id,
-        changed_fields=(field.removeprefix("members.$.") for field in updates),
-    )
+    if updates:
+        await record_admin_action(
+            user, "member.updated", trip=trip, resource_type="member", resource_id=member_id,
+            changed_fields=(field.removeprefix("members.$.") for field in updates),
+        )
     return saved
 
 

@@ -212,6 +212,7 @@ def test_approval_replaces_email_and_finalizes_request(monkeypatch):
     query, update = trip_collection.update_one.await_args.args
     assert query["members"]["$elemMatch"]["email"] == "saved@gmail.com"
     assert update["$set"]["members.$.email"] == "newdev@gmail.com"
+    assert update["$max"]["last_activity_at"].endswith("+00:00")
     assert document["target_email_before"] == "saved@gmail.com"
     request_collection.update_one.assert_awaited()
     request_collection.update_many.assert_awaited_once()
@@ -262,6 +263,7 @@ def test_approval_links_a_family_member_and_guards_the_saved_email(monkeypatch):
     assert target_query["family_member_emails.0"] is None
     assert update["$set"]["members.$.family_member_user_ids.0"] == "requester-1"
     assert update["$set"]["members.$.family_member_emails.0"] == "newdev@gmail.com"
+    assert update["$max"]["last_activity_at"].endswith("+00:00")
 
 
 def test_approval_retry_finalizes_a_roster_link_left_in_approving_state(monkeypatch):

@@ -37,6 +37,11 @@ from services.ledger_transactions import (
     run_optional_transaction,
     run_required_transaction,
 )
+from services.trip_activity import (
+    activity_timestamp,
+    touch_trip_activity_safely,
+    with_trip_activity,
+)
 from utils.money_policy import normalization_change, whole_money
 
 router = APIRouter()
@@ -44,6 +49,11 @@ router = APIRouter()
 
 def _write_changed(result) -> bool:
     count = getattr(result, "modified_count", None)
+    return count != 0 if isinstance(count, int) else True
+
+
+def _delete_changed(result) -> bool:
+    count = getattr(result, "deleted_count", None)
     return count != 0 if isinstance(count, int) else True
 
 
@@ -410,7 +420,7 @@ async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: Ba
     async def transactional_write(session):
         guard = await db.trips.update_one(
             {"id": trip_id, "version": current_version},
-            {"$inc": {"version": 1}},
+            with_trip_activity({"$inc": {"version": 1}}, doc["created_at"]),
             session=session,
         )
         if not _write_changed(guard):
@@ -424,6 +434,7 @@ async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: Ba
         if not _write_changed(guard):
             raise _balances_changed()
         await db.payments.insert_one(doc)
+        await touch_trip_activity_safely(db, trip_id, timestamp=doc["created_at"])
 
     await run_optional_transaction(transactional_write, standalone_write)
     doc.pop("_id", None)
@@ -487,16 +498,21 @@ async def edit_payment(trip_id: str, payment_id: str, body: PaymentPatch,
                 raise HTTPException(400, f"Amount exceeds the {int(cap):,} payable for this pair")
             updates["amount"] = int(amount) if audit_fields else float(amount)
             updates.update(audit_fields)
-    if body.note is not None:
+    if body.note is not None and body.note != payment.get("note"):
         updates["note"] = body.note
     if updates:
         # An amount change has the same over-settle risk as recording, so guard it against concurrent
         # writes; a note-only edit doesn't touch balances and needs no guard.
         amount_changed = "amount" in updates
 
+        activity_at = activity_timestamp()
+
         async def update_payment(session=None):
             options = {"session": session} if session is not None else {}
-            if amount_changed:
+            # The standalone path must claim the balance version before changing the child row.
+            # Inside a transaction we can update the child first, then touch the trip only when the
+            # child actually changed; a failed guard rolls the entire transaction back.
+            if amount_changed and session is None:
                 guard = await db.trips.update_one(
                     {"id": trip_id, "version": current_version},
                     {"$inc": {"version": 1}},
@@ -504,19 +520,34 @@ async def edit_payment(trip_id: str, payment_id: str, body: PaymentPatch,
                 )
                 if not _write_changed(guard):
                     raise _balances_changed()
-            await db.payments.update_one(
+            result = await db.payments.update_one(
                 {"id": payment_id, "trip_id": trip_id}, {"$set": updates}, **options
             )
+            changed = _write_changed(result)
+            if not changed:
+                return False
+            if amount_changed and session is not None:
+                guard = await db.trips.update_one(
+                    {"id": trip_id, "version": current_version},
+                    with_trip_activity({"$inc": {"version": 1}}, activity_at),
+                    **options,
+                )
+                if not _write_changed(guard):
+                    raise _balances_changed()
+            if session is None:
+                await touch_trip_activity_safely(db, trip_id, timestamp=activity_at)
+            return True
 
         if amount_changed:
-            await run_optional_transaction(update_payment, update_payment)
+            changed = await run_optional_transaction(update_payment, update_payment)
         else:
-            await update_payment()
-        payment.update(updates)
-        await record_admin_action(
-            user, "payment.updated", trip=trip, resource_type="payment",
-            resource_id=payment_id, changed_fields=updates.keys(),
-        )
+            changed = await update_payment()
+        if changed:
+            payment.update(updates)
+            await record_admin_action(
+                user, "payment.updated", trip=trip, resource_type="payment",
+                resource_id=payment_id, changed_fields=updates.keys(),
+            )
     await record_money_normalizations(
         [amount_change],
         actor_user_id=user["id"],
@@ -544,17 +575,19 @@ async def delete_payment(trip_id: str, payment_id: str, user=Depends(get_current
             )
             if not current_trip or not current_payment:
                 raise HTTPException(404, "Payment not found")
+            timestamp = activity_timestamp()
             guard = await db.trips.update_one(
                 {"id": trip_id, "version": current_trip.get("version", 0)},
-                {"$inc": {"version": 1}},
+                with_trip_activity({"$inc": {"version": 1}}, timestamp),
                 session=session,
             )
             if not _write_changed(guard):
                 raise _balances_changed()
-            await db.payments.delete_one(
+            deleted = await db.payments.delete_one(
                 {"id": payment_id, "trip_id": trip_id}, session=session
             )
-            timestamp = now_utc().isoformat()
+            if not _delete_changed(deleted):
+                raise HTTPException(404, "Payment not found")
             changed = await db.payment_attempts.update_one(
                 {
                     "id": attempt_id,
@@ -584,17 +617,22 @@ async def delete_payment(trip_id: str, payment_id: str, user=Depends(get_current
                 retryable=True,
             ) from exc
     else:
+        activity_at = activity_timestamp()
+
         async def transactional_delete(session):
             guard = await db.trips.update_one(
                 {"id": trip_id, "version": trip.get("version", 0)},
-                {"$inc": {"version": 1}},
+                with_trip_activity({"$inc": {"version": 1}}, activity_at),
                 session=session,
             )
             if not _write_changed(guard):
                 raise _balances_changed()
-            await db.payments.delete_one(
+            result = await db.payments.delete_one(
                 {"id": payment_id, "trip_id": trip_id}, session=session
             )
+            if not _delete_changed(result):
+                raise HTTPException(404, "Payment not found")
+            return True
 
         async def standalone_delete():
             guard = await db.trips.update_one(
@@ -603,9 +641,15 @@ async def delete_payment(trip_id: str, payment_id: str, user=Depends(get_current
             )
             if not _write_changed(guard):
                 raise _balances_changed()
-            await db.payments.delete_one({"id": payment_id, "trip_id": trip_id})
+            result = await db.payments.delete_one({"id": payment_id, "trip_id": trip_id})
+            changed = _delete_changed(result)
+            if changed:
+                await touch_trip_activity_safely(db, trip_id, timestamp=activity_at)
+            return changed
 
-        await run_optional_transaction(transactional_delete, standalone_delete)
+        deleted = await run_optional_transaction(transactional_delete, standalone_delete)
+        if not deleted:
+            return {"ok": True}
     await record_admin_action(
         user, "payment.deleted", trip=trip, resource_type="payment", resource_id=payment_id,
     )

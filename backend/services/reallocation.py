@@ -24,6 +24,8 @@ MongoDB; all writes are idempotent absolute ``$set``s, so the fallback can never
 from pymongo import UpdateOne
 from pymongo.errors import OperationFailure, PyMongoError
 
+from services.trip_activity import with_trip_activity
+
 # NOTE: `database` (and its `config` env requirements) is imported lazily inside the async helpers
 # so that `plan_reallocation` stays a pure, server-free import for unit tests.
 
@@ -181,7 +183,7 @@ async def run_member_update_with_reallocation(trip_id: str, member_id: str, memb
         if member_updates:
             await db.trips.update_one(
                 {"id": trip_id, "members.id": member_id},
-                {"$set": member_updates}, session=session,
+                with_trip_activity({"$set": member_updates}), session=session,
             )
         if ops:
             await db.expenses.bulk_write(ops, session=session)
@@ -251,7 +253,9 @@ async def freeze_and_remove_member(trip_id: str, member_id: str, weight: int,
         if ops:
             await db.expenses.bulk_write(ops, session=session)
         await db.trips.update_one(
-            {"id": trip_id}, {"$pull": pull}, session=session,
+            {"id": trip_id, "members.id": member_id},
+            with_trip_activity({"$pull": pull}),
+            session=session,
         )
 
     if await _transactions_supported():

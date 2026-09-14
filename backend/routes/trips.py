@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from database import db
 from models.trip import TripIn, TripUpdate, AdminGrant, OwnershipTransfer
 from models.join import JoinRequest, JoinPreviewRequest
-from utils.common import gen_id, gen_trip_code, now_utc
+from utils.common import gen_id, gen_trip_code
 from utils.date_rules import assert_valid_range, ensure_date_range
 from utils.deps import get_current_user, _trip_or_404, _trip_admin_or_403, _trip_owner_or_403
 from utils.email_rules import assert_gmail, normalize_email
@@ -29,6 +29,11 @@ from services.invites import record_invite_use, resolve_join_credential, revoke_
 from services.admin_audit import record_admin_action
 from services.receipts import delete_receipts_for_trip
 from services.money_audit import record_money_normalizations
+from services.trip_activity import (
+    activity_timestamp,
+    ensure_activity_payload,
+    with_trip_activity,
+)
 from utils.money_policy import (
     AmountRoundsToZeroError,
     amount_rounds_to_zero_detail,
@@ -113,6 +118,7 @@ async def create_trip(body: TripIn, user=Depends(get_current_user)):
     budget = _validated_budget(body.budget, currency)
     budget_change = normalization_change("budget", body.budget, budget) \
         if body.budget is not None else None
+    created_at = activity_timestamp()
     doc = {
         "id": tid, "code": code, "name": body.name,
         "start_date": start_date, "end_date": end_date,
@@ -120,7 +126,8 @@ async def create_trip(body: TripIn, user=Depends(get_current_user)):
         "owner_id": user["id"], "user_ids": [user["id"]],
         "admin_ids": [user["id"]],
         "members": [owner_member],
-        "created_at": now_utc().isoformat(),
+        "created_at": created_at,
+        "last_activity_at": created_at,
         # Stable invitation links are derived from this counter; admins reset a link by advancing it.
         "invite_generation": 0,
         # Optimistic-concurrency counter for the payment-write guard (Phase 20 BUG-2 fix).
@@ -145,14 +152,16 @@ async def create_trip(body: TripIn, user=Depends(get_current_user)):
 
 @router.get("/trips")
 async def list_trips(user=Depends(get_current_user)):
-    cur = db.trips.find({"user_ids": user["id"]}, {"_id": 0}).sort("created_at", -1)
-    trips = await cur.to_list(500)
-    return [ensure_date_range(t) for t in trips]
+    cur = db.trips.find({"user_ids": user["id"]}, {"_id": 0}).sort([
+        ("last_activity_at", -1), ("created_at", -1), ("id", -1),
+    ])
+    trips = await cur.to_list(None)
+    return [ensure_activity_payload(ensure_date_range(t)) for t in trips]
 
 
 @router.get("/trips/{trip_id}")
 async def get_trip(trip_id: str, user=Depends(get_current_user)):
-    return ensure_date_range(await _trip_or_404(trip_id, user))
+    return ensure_activity_payload(ensure_date_range(await _trip_or_404(trip_id, user)))
 
 
 @router.patch("/trips/{trip_id}")
@@ -194,7 +203,9 @@ async def update_trip(trip_id: str, body: TripUpdate, user=Depends(get_current_u
     if updates:
         result = await db.trips.update_one({"id": trip_id}, {"$set": updates})
         modified = _write_changed(result)
-    saved = ensure_date_range(await db.trips.find_one({"id": trip_id}, {"_id": 0}))
+    saved = ensure_activity_payload(
+        ensure_date_range(await db.trips.find_one({"id": trip_id}, {"_id": 0}))
+    )
     if modified:
         await record_money_normalizations(
             [budget_change],
@@ -260,7 +271,10 @@ async def _claim_member(trip, members, user, user_email, body):
             "user_ids": {"$ne": user["id"]},
             "members": {"$elemMatch": {"id": target["id"], "user_id": None}},
         },
-        {"$addToSet": {"user_ids": user["id"]}, "$set": {"members.$.user_id": user["id"]}},
+        with_trip_activity({
+            "$addToSet": {"user_ids": user["id"]},
+            "$set": {"members.$.user_id": user["id"]},
+        }),
     )
     if res.modified_count == 0:
         # Lost the race (or already linked): succeed only if it ended up linked to US.
@@ -303,8 +317,10 @@ async def _claim_sub_member(trip, members, user, user_email, body):
     res = await db.trips.update_one(
         {"id": trip["id"], "user_ids": {"$ne": user["id"]}, "members": {"$elemMatch": {
             "id": family["id"], f"family_member_user_ids.{idx}": None}}},
-        {"$addToSet": {"user_ids": user["id"]},
-         "$set": {f"members.$.family_member_user_ids.{idx}": user["id"]}},
+        with_trip_activity({
+            "$addToSet": {"user_ids": user["id"]},
+            "$set": {f"members.$.family_member_user_ids.{idx}": user["id"]},
+        }),
     )
     if res.modified_count == 0:
         # Lost the race (or already linked): succeed only if this slot ended up linked to US.
@@ -359,7 +375,9 @@ async def _resolve_clean_stub_for_join_new(trip, own_stubs, user_email, body):
                 f"family_member_user_ids.{idx}": None,
                 f"family_member_emails.{idx}": user_email,
             }}},
-            {"$set": {f"members.$.family_member_emails.{idx}": None}},
+            with_trip_activity({
+                "$set": {f"members.$.family_member_emails.{idx}": None},
+            }),
         )
         if result.modified_count == 0:
             raise HTTPException(409, "This family member changed. Enter the trip code again.")
@@ -373,7 +391,10 @@ async def _resolve_clean_stub_for_join_new(trip, own_stubs, user_email, body):
     if await member_has_financial_history(trip["id"], stub["id"]):
         raise HTTPException(409, "This profile has expense history — claim it instead of joining as new")
     # Clean stub => zero expense/settlement references => a plain $pull is balance-neutral.
-    await db.trips.update_one({"id": trip["id"]}, {"$pull": {"members": {"id": stub["id"]}}})
+    await db.trips.update_one(
+        {"id": trip["id"], "members.id": stub["id"]},
+        with_trip_activity({"$pull": {"members": {"id": stub["id"]}}}),
+    )
 
 
 async def _apply_mode(trip, members, user, user_email, body):
@@ -394,8 +415,10 @@ async def _apply_mode(trip, members, user, user_email, body):
                     "user_ids": {"$ne": user["id"]},
                     "members": {"$elemMatch": {"id": stub["id"], "user_id": None}},
                 },
-                {"$addToSet": {"user_ids": user["id"]},
-                 "$set": {"members.$.user_id": user["id"]}},
+                with_trip_activity({
+                    "$addToSet": {"user_ids": user["id"]},
+                    "$set": {"members.$.user_id": user["id"]},
+                }),
             )
             if result.modified_count == 0:
                 fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
@@ -415,7 +438,10 @@ async def _apply_mode(trip, members, user, user_email, body):
             }
             result = await db.trips.update_one(
                 {"id": trip["id"], "user_ids": {"$ne": user["id"]}},
-                {"$addToSet": {"user_ids": user["id"]}, "$push": {"members": new_member}},
+                with_trip_activity({
+                    "$addToSet": {"user_ids": user["id"]},
+                    "$push": {"members": new_member},
+                }),
             )
             if result.modified_count == 0:
                 fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
@@ -433,7 +459,10 @@ async def _apply_mode(trip, members, user, user_email, body):
         }
         result = await db.trips.update_one(
             {"id": trip["id"], "user_ids": {"$ne": user["id"]}},
-            {"$addToSet": {"user_ids": user["id"]}, "$push": {"members": new_member}},
+            with_trip_activity({
+                "$addToSet": {"user_ids": user["id"]},
+                "$push": {"members": new_member},
+            }),
         )
         if result.modified_count == 0:
             fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
@@ -476,7 +505,9 @@ async def _apply_mode(trip, members, user, user_email, body):
         res = await db.trips.update_one(
             {"id": trip["id"], "user_ids": {"$ne": user["id"]}, "members": {"$elemMatch": {
                 "id": target["id"], f"family_member_user_ids.{idx}": None}}},
-            {"$addToSet": {"user_ids": user["id"]}, "$set": set_fields},
+            with_trip_activity({
+                "$addToSet": {"user_ids": user["id"]}, "$set": set_fields,
+            }),
         )
         if res.modified_count == 0:
             fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
@@ -510,7 +541,10 @@ async def _apply_mode(trip, members, user, user_email, body):
         }
         result = await db.trips.update_one(
             {"id": trip["id"], "user_ids": {"$ne": user["id"]}},
-            {"$addToSet": {"user_ids": user["id"]}, "$push": {"members": new_member}},
+            with_trip_activity({
+                "$addToSet": {"user_ids": user["id"]},
+                "$push": {"members": new_member},
+            }),
         )
         if result.modified_count == 0:
             fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})

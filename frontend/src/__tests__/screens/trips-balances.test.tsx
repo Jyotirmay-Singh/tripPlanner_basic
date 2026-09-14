@@ -53,9 +53,9 @@ import { api } from '../../api';
 
 const apiMock = api as unknown as jest.Mock;
 const trips = [
-  { id: 'credit', name: 'Credit trip', code: 'AAAAAA', currency: 'INR', budget: 100000, members: [] },
-  { id: 'debit', name: 'Debit trip', currency: 'INR', members: [] },
-  { id: 'zero', name: 'New empty trip', code: 'CCCCCC', currency: 'USD', members: [] },
+  { id: 'credit', name: 'Credit trip', code: 'AAAAAA', currency: 'INR', budget: 100000, members: [], last_activity_at: '2026-09-12T10:00:00Z' },
+  { id: 'debit', name: 'Debit trip', currency: 'INR', members: [], last_activity_at: '2026-09-11T10:00:00Z' },
+  { id: 'zero', name: 'New empty trip', code: 'CCCCCC', currency: 'USD', members: [], last_activity_at: '2026-09-10T10:00:00Z' },
 ];
 const initialValues: Record<string, number> = { credit: 1250, debit: -800, zero: 0 };
 let values = { ...initialValues };
@@ -86,6 +86,9 @@ describe('Trips personal balance wiring', () => {
     await act(async () => { renderer = TestRenderer.create(<Trips />); });
 
     const rows = renderer.root.findAll((node: any) => node.type === 'TripListCard');
+    expect(rows.map((row: any) => row.props.testID)).toEqual([
+      'trip-item-credit', 'trip-item-debit', 'trip-item-zero',
+    ]);
     expect(rows.map((row: any) => row.props.balance.kind)).toEqual(['owed', 'owe', 'settled']);
     expect(rows[0].props.balance.amount).toBe(1250);
     expect(rows[1].props.balance.amount).toBe(800);

@@ -149,6 +149,9 @@ class MemoryCollection:
             row.pop(key, None)
         for key, value in update.get("$inc", {}).items():
             row[key] = row.get(key, 0) + value
+        for key, value in update.get("$max", {}).items():
+            if key not in row or row[key] < value:
+                row[key] = value
         return before != row
 
     async def update_one(self, query, update, **_options):
@@ -619,10 +622,12 @@ def test_confirmation_uses_latest_payable_and_posts_once(
     if expected_posted is None:
         assert fake_db.payments.rows == []
         assert fake_db.trips.rows[0]["version"] == 4
+        assert "last_activity_at" not in fake_db.trips.rows[0]
         assert result["reason"] == "no_current_payable"
         assert "active_key" in fake_db.payment_attempts.rows[0]
     else:
         assert fake_db.trips.rows[0]["version"] == 5
+        assert fake_db.trips.rows[0]["last_activity_at"].endswith("+00:00")
         assert len(fake_db.payments.rows) == 1
         payment = fake_db.payments.rows[0]
         assert payment["amount"] == expected_posted
