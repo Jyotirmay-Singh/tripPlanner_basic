@@ -2,8 +2,8 @@
 
 Business writes only enqueue an idempotent event. A best-effort FastAPI background task sends it
 immediately, while the single-process dispatcher reclaims due or interrupted work from MongoDB.
-No financial details, chat text, personal names, or push tokens are copied into notification copy
-or logs. A compact trip name is the only user-authored notification text.
+Expense-created events may snapshot compact actor and description/category labels. No amount,
+currency, email, receipt, chat text, or push token is copied into notification copy or logs.
 """
 
 import asyncio
@@ -28,6 +28,8 @@ EXPO_SEND_URL = "https://exp.host/--/api/v2/push/send"
 EXPO_RECEIPTS_URL = "https://exp.host/--/api/v2/push/getReceipts"
 PUSH_CHANNEL_ID = "trip_activity"
 TRIP_NAME_MAX_LENGTH = 60
+ACTOR_NAME_MAX_LENGTH = 60
+EXPENSE_HEADING_MAX_LENGTH = 80
 TRIP_NAME_FALLBACK = "One of your trips"
 
 # This map is the notification contract. Callers provide an event type and source id; routing,
@@ -127,16 +129,21 @@ def notification_event_key(event_type: str, source_id: str) -> str:
     return f"{event_type}:{source_id}"
 
 
-def notification_trip_name(value: Any) -> Optional[str]:
-    """Return a compact, single-line trip label suitable for Android notification chrome."""
+def notification_label(value: Any, max_length: int) -> Optional[str]:
+    """Return a compact, single-line, bounded notification label."""
     if not isinstance(value, str):
         return None
     clean = re.sub(r"\s+", " ", value).strip()
     if not clean:
         return None
-    if len(clean) > TRIP_NAME_MAX_LENGTH:
-        return clean[:TRIP_NAME_MAX_LENGTH - 1].rstrip() + "…"
+    if len(clean) > max_length:
+        return clean[:max_length - 1].rstrip() + "…"
     return clean
+
+
+def notification_trip_name(value: Any) -> Optional[str]:
+    """Return a compact trip label suitable for Android notification chrome."""
+    return notification_label(value, TRIP_NAME_MAX_LENGTH)
 
 
 def build_expo_message(event: dict, delivery: dict) -> dict:
@@ -144,6 +151,14 @@ def build_expo_message(event: dict, delivery: dict) -> dict:
     definition = _EVENT_DEFINITIONS.get(event.get("event_type"))
     if not definition:
         raise ValueError("unsupported notification event type")
+    title = definition["title"]
+    if event.get("event_type") == "expense.created":
+        actor_name = notification_label(event.get("actor_name"), ACTOR_NAME_MAX_LENGTH)
+        expense_heading = notification_label(
+            event.get("expense_heading"), EXPENSE_HEADING_MAX_LENGTH,
+        )
+        if actor_name and expense_heading:
+            title = f"{actor_name} added {expense_heading}"
     source_id = event["source_id"]
     data = {
         "payloadVersion": 1,
@@ -156,7 +171,7 @@ def build_expo_message(event: dict, delivery: dict) -> dict:
     }
     return {
         "to": delivery["token"],
-        "title": definition["title"],
+        "title": title,
         "body": notification_trip_name(event.get("trip_name")) or TRIP_NAME_FALLBACK,
         "sound": "default",
         "channelId": PUSH_CHANNEL_ID,
@@ -172,6 +187,8 @@ async def enqueue_notification_event(
     trip_id: str,
     actor_user_id: str,
     recipient_user_ids_override: Optional[list[str]] = None,
+    actor_name: Optional[str] = None,
+    expense_heading: Optional[str] = None,
     background_tasks: Any = None,
 ) -> bool:
     """Persist one idempotent event without ever failing the completed business operation."""
@@ -221,6 +238,15 @@ async def enqueue_notification_event(
         "updated_at": timestamp,
         "completed_at": None,
     }
+    if event_type == "expense.created":
+        clean_actor_name = notification_label(actor_name, ACTOR_NAME_MAX_LENGTH)
+        clean_expense_heading = notification_label(
+            expense_heading, EXPENSE_HEADING_MAX_LENGTH,
+        )
+        if clean_actor_name:
+            document["actor_name"] = clean_actor_name
+        if clean_expense_heading:
+            document["expense_heading"] = clean_expense_heading
     inserted = False
     for attempt in range(1, 4):
         try:

@@ -261,6 +261,40 @@ def test_payload_is_private_versioned_and_contains_typed_routing_data(
     assert "private reason" not in str(message)
 
 
+def test_expense_payload_has_rich_copy_and_unchanged_routing_data():
+    event = {
+        "event_key": f"expense.created:{SOURCE_ID}",
+        "event_type": "expense.created",
+        "source_id": SOURCE_ID,
+        "trip_id": TRIP_ID,
+        "trip_name": "Weekend in Goa",
+        "actor_name": "  Ravi\n Kumar  ",
+        "expense_heading": "  Beach\t dinner  ",
+        "amount": 999,
+        "currency": "INR",
+        "email": "private@example.com",
+        "receipt": "private-receipt",
+    }
+
+    message = notifications.build_expo_message(event, {"token": VALID_TOKEN})
+
+    assert message["title"] == "Ravi Kumar added Beach dinner"
+    assert message["body"] == "Weekend in Goa"
+    assert message["data"] == {
+        "payloadVersion": 1,
+        "eventKey": f"expense.created:{SOURCE_ID}",
+        "eventType": "expense.created",
+        "tripId": TRIP_ID,
+        "target": "trip_expenses",
+        "sourceId": SOURCE_ID,
+        "expenseId": SOURCE_ID,
+    }
+    assert "999" not in str(message)
+    assert "INR" not in str(message)
+    assert "private@example.com" not in str(message)
+    assert "private-receipt" not in str(message)
+
+
 def test_trip_name_is_single_line_bounded_and_has_a_generic_fallback():
     assert notifications.notification_trip_name("  Goa\n  Weekend\t2026  ") == "Goa Weekend 2026"
     assert notifications.notification_trip_name(None) is None
@@ -281,6 +315,29 @@ def test_trip_name_is_single_line_bounded_and_has_a_generic_fallback():
     message = notifications.build_expo_message(event, {"token": VALID_TOKEN})
     assert message["title"] == "Expense added"
     assert message["body"] == "One of your trips"
+
+    event["actor_name"] = "Ravi"
+    assert notifications.build_expo_message(event, {"token": VALID_TOKEN})["title"] \
+        == "Expense added"
+    event.pop("actor_name")
+    event["expense_heading"] = "Dinner"
+    assert notifications.build_expo_message(event, {"token": VALID_TOKEN})["title"] \
+        == "Expense added"
+
+
+def test_notification_labels_are_single_line_and_bounded():
+    assert notifications.notification_label("  Ravi\n  Kumar\t ", 60) == "Ravi Kumar"
+    assert notifications.notification_label(None, 60) is None
+    assert notifications.notification_label(" \n\t ", 60) is None
+
+    long_actor = notifications.notification_label("A" * 100, notifications.ACTOR_NAME_MAX_LENGTH)
+    long_heading = notifications.notification_label(
+        "B" * 100, notifications.EXPENSE_HEADING_MAX_LENGTH,
+    )
+    assert long_actor == ("A" * (notifications.ACTOR_NAME_MAX_LENGTH - 1)) + "…"
+    assert len(long_actor) == notifications.ACTOR_NAME_MAX_LENGTH
+    assert long_heading == ("B" * (notifications.EXPENSE_HEADING_MAX_LENGTH - 1)) + "…"
+    assert len(long_heading) == notifications.EXPENSE_HEADING_MAX_LENGTH
 
 
 def test_enqueue_is_idempotent_and_schedules_immediate_dispatch(monkeypatch):
@@ -305,6 +362,8 @@ def test_enqueue_is_idempotent_and_schedules_immediate_dispatch(monkeypatch):
     assert stored["status"] == "pending"
     assert stored["trip_name"] is None
     assert stored["deliveries"] == []
+    assert "actor_name" not in stored
+    assert "expense_heading" not in stored
     background.add_task.assert_called_once_with(
         notifications.dispatch_outbox_event, "expense.created:e1",
     )
@@ -322,6 +381,51 @@ def test_enqueue_is_idempotent_and_schedules_immediate_dispatch(monkeypatch):
     assert inserted_again is False
 
 
+def test_expense_enqueue_snapshots_only_sanitized_display_labels(monkeypatch):
+    outbox = SimpleNamespace(insert_one=AsyncMock())
+    monkeypatch.setattr(notifications, "PUSH_NOTIFICATIONS_ENABLED", True)
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(notification_outbox=outbox))
+
+    inserted = run(notifications.enqueue_notification_event(
+        event_type="expense.created",
+        source_id="e1",
+        trip_id="t1",
+        actor_user_id="u1",
+        actor_name="  Ravi\n Kumar  ",
+        expense_heading="  Dinner\t near\n the beach  ",
+    ))
+
+    assert inserted is True
+    stored = outbox.insert_one.await_args.args[0]
+    assert stored["actor_name"] == "Ravi Kumar"
+    assert stored["expense_heading"] == "Dinner near the beach"
+    assert "amount" not in stored
+    assert "currency" not in stored
+    assert "email" not in stored
+    assert "receipt" not in stored
+
+
+def test_expense_enqueue_bounds_snapshotted_display_labels(monkeypatch):
+    outbox = SimpleNamespace(insert_one=AsyncMock())
+    monkeypatch.setattr(notifications, "PUSH_NOTIFICATIONS_ENABLED", True)
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(notification_outbox=outbox))
+
+    run(notifications.enqueue_notification_event(
+        event_type="expense.created",
+        source_id="e1",
+        trip_id="t1",
+        actor_user_id="u1",
+        actor_name="A" * 100,
+        expense_heading="B" * 100,
+    ))
+
+    stored = outbox.insert_one.await_args.args[0]
+    assert len(stored["actor_name"]) == notifications.ACTOR_NAME_MAX_LENGTH
+    assert stored["actor_name"].endswith("…")
+    assert len(stored["expense_heading"]) == notifications.EXPENSE_HEADING_MAX_LENGTH
+    assert stored["expense_heading"].endswith("…")
+
+
 def test_join_event_stores_only_the_explicit_private_audience(monkeypatch):
     outbox = SimpleNamespace(insert_one=AsyncMock())
     monkeypatch.setattr(notifications, "PUSH_NOTIFICATIONS_ENABLED", True)
@@ -333,6 +437,8 @@ def test_join_event_stores_only_the_explicit_private_audience(monkeypatch):
         trip_id=TRIP_ID,
         actor_user_id="requester",
         recipient_user_ids_override=["admin-1", "requester", "admin-1", "admin-2"],
+        actor_name="Should not be stored",
+        expense_heading="Should not be stored",
     ))
 
     assert inserted is True
@@ -341,6 +447,8 @@ def test_join_event_stores_only_the_explicit_private_audience(monkeypatch):
     assert "requester_email" not in document
     assert "target_name" not in document
     assert "target_email" not in document
+    assert "actor_name" not in document
+    assert "expense_heading" not in document
 
 
 def test_disabled_feature_does_not_accumulate_old_outbox_events(monkeypatch):

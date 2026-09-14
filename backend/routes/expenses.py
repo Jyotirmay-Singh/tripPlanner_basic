@@ -8,6 +8,7 @@ from utils.common import gen_id, now_utc
 from utils.deps import get_current_user, _trip_or_404, _expense_modify_or_403
 from services.receipts import delete_receipts_for_expense
 from services.expense_shares import expense_share_breakdown
+from services.chat import resolve_chat_sender
 from services.push_notifications import enqueue_notification_event
 from services.admin_audit import record_admin_action
 from services.money_audit import record_money_normalizations
@@ -26,6 +27,7 @@ from utils.money_policy import (
     amount_rounds_to_zero_detail,
     whole_money,
 )
+from utils.permissions import is_super_admin
 
 router = APIRouter()
 
@@ -237,11 +239,20 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
             "paid_by_member_id", "split_member_ids", "split_mode",
         ),
     )
+    actor = resolve_chat_sender(trip, user["id"])
+    actor_name = actor.get("sender_name") if actor else None
+    if not actor_name and is_super_admin(user):
+        # Match the existing privileged trip identity used by group chat.
+        actor_name = "Application Admin"
+    description = (body.description or "").strip()
+    expense_heading = description or body.category
     await enqueue_notification_event(
         event_type="expense.created",
         source_id=eid,
         trip_id=trip_id,
         actor_user_id=user["id"],
+        actor_name=actor_name,
+        expense_heading=expense_heading,
         background_tasks=background_tasks,
     )
     return {"expense": serialize_bson(doc), "warning": warning}

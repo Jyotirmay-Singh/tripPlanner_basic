@@ -15,8 +15,9 @@ Android devices.
   first-trip requester can receive approval or rejection. Sign-in and foreground synchronization
   retry interrupted, offline, or unavailable attempts.
 - On Android 13+, the first eligible account with undecided permission sees a rationale explaining
-  that alerts identify the trip and activity type while excluding personal and activity details.
-  Android's dialog appears only after **Enable notifications** is pressed.
+  that alerts identify the trip and activity type, and that expense alerts may also contain the
+  actor's trip-roster name plus the expense description or category. It also discloses the excluded
+  fields. Android's dialog appears only after **Enable notifications** is pressed.
 - **Not now** is remembered and suppresses later automatic rationale prompts. Recovery remains
   available from Profile and Android app settings.
 - Revoked or denied permission deactivates the current server registration when the app next
@@ -80,8 +81,9 @@ and `expense.created:<sourceId>` event key without exposing expense content:
    `inserted=true`.
 2. `push.delivery_snapshot` reports one expected recipient and two active Android deliveries.
 3. Expo returns two successful tickets.
-4. Both devices display exactly one **Expense added** notification with the sanitized trip name
-   within two minutes.
+4. Both devices display exactly one **{Owner roster name} added {expense description or category}**
+   notification with the sanitized trip name as its supporting line within two minutes. Verify the
+   exact copy on-device, but keep the values redacted from the test record.
 5. The receipt-check cycle reaches two `receipt_ok` statuses; allow up to 20 minutes.
 6. Tapping on each device opens the activity trip's Expenses tab and matching expense. Repeat a
    tap and confirm it does not add another navigation entry.
@@ -95,7 +97,7 @@ Allow two minutes for display and 20 minutes for a terminal Expo receipt. Run on
 
 | Event | Receiver state | Eligible audience | Exact title / supporting line | Tap destination |
 | --- | --- | --- | --- | --- |
-| Expense created | Foreground | Member's two active devices, not Owner | `Expense added` / trip name | Activity trip Expenses tab and matching expense |
+| Expense created | Foreground | Member's two active devices, not Owner | `{actor trip-roster name} added {description, or category when blank}` / trip name | Activity trip Expenses tab and matching expense |
 | Chat message created | Background | Member's two active devices, not Owner | `New group message` / trip name | Activity trip Chat tab and matching message |
 | Payment recorded | Swiped away, not force-stopped | Member's two active devices, not Owner | `Payment recorded` / trip name | Activity trip Settle Up and matching payment |
 | Settlement marked paid | Background | Member's two active devices, not Owner | `Settlement marked paid` / trip name | Activity trip Settle Up and matching settlement |
@@ -107,8 +109,10 @@ For every positive case require:
 
 - the exact action-first title, sanitized trip-name supporting line, one notification per eligible
   active installation, and sound/banner appropriate to the device state;
-- no person name, email, amount, currency, note, expense details, rejection reason, or chat text in
-  notification copy; the trip name is the only user-authored text allowed;
+- no amount, currency, email address, receipt data, payer/split data, rejection reason, or chat text
+  in notification copy; `expense.created` additionally allows only the actor's sanitized
+  trip-roster name and sanitized description/category, while the trip name remains the only
+  user-authored text allowed for every other event;
 - a white monochrome **TS** status icon and the configured mint notification accent;
 - `payloadVersion=1`, the exact `eventKey`, `eventType`, `tripId`, `sourceId`, target, and exactly one
   matching typed source key: `expenseId`, `messageId`, `paymentId`, `settlementId`, or `requestId`;

@@ -2,6 +2,7 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
 from fastapi import BackgroundTasks
 
 from models.expense import ExpenseIn
@@ -27,8 +28,17 @@ def run(awaitable):
 
 
 def test_successful_expense_enqueues_after_insert(monkeypatch):
-    expense_collection = SimpleNamespace(insert_one=AsyncMock())
-    enqueue = AsyncMock()
+    inserted = False
+
+    async def insert_one(_document):
+        nonlocal inserted
+        inserted = True
+
+    async def enqueue_after_insert(**_kwargs):
+        assert inserted is True
+
+    expense_collection = SimpleNamespace(insert_one=AsyncMock(side_effect=insert_one))
+    enqueue = AsyncMock(side_effect=enqueue_after_insert)
     monkeypatch.setattr(expenses, "db", SimpleNamespace(expenses=expense_collection))
     monkeypatch.setattr(expenses, "_trip_or_404", AsyncMock(return_value=TRIP))
     monkeypatch.setattr(expenses, "enqueue_notification_event", enqueue)
@@ -49,6 +59,112 @@ def test_successful_expense_enqueues_after_insert(monkeypatch):
     assert kwargs["event_type"] == "expense.created"
     assert kwargs["source_id"] == result["expense"]["id"]
     assert kwargs["actor_user_id"] == "u1"
+    assert kwargs["actor_name"] == "One"
+    assert kwargs["expense_heading"] == "Refund"
+
+
+@pytest.mark.parametrize(
+    ("trip", "user", "paid_by_member_id", "expected_actor"),
+    [
+        (
+            {
+                **TRIP,
+                "members": [
+                    {"id": "m1", "kind": "individual", "name": "Ravi", "user_id": "u1"},
+                    {"id": "m2", "kind": "individual", "name": "Ravi", "user_id": "u2"},
+                ],
+            },
+            {"id": "u2"},
+            "m2",
+            "Ravi_2",
+        ),
+        (
+            {
+                **TRIP,
+                "members": [{
+                    "id": "family",
+                    "kind": "family",
+                    "name": "The Sharmas",
+                    "family_members": ["Ravi", "Ravi"],
+                    "family_member_ids": ["p1", "p2"],
+                    "family_member_user_ids": [None, "u2"],
+                }],
+            },
+            {"id": "u2"},
+            "family",
+            "Ravi_TheSharmas_2",
+        ),
+        (TRIP, {"id": "application-admin"}, "m1", "Application Admin"),
+    ],
+)
+def test_expense_notification_uses_trip_specific_actor_identity(
+    monkeypatch, trip, user, paid_by_member_id, expected_actor,
+):
+    expense_collection = SimpleNamespace(insert_one=AsyncMock())
+    enqueue = AsyncMock()
+    monkeypatch.setattr(expenses, "db", SimpleNamespace(expenses=expense_collection))
+    monkeypatch.setattr(expenses, "_trip_or_404", AsyncMock(return_value=trip))
+    monkeypatch.setattr(expenses, "enqueue_notification_event", enqueue)
+    monkeypatch.setattr(
+        expenses, "is_super_admin", lambda viewer: viewer["id"] == "application-admin",
+    )
+
+    run(expenses.add_expense(
+        "t1",
+        ExpenseIn(
+            amount=25, category="Travel", description="  Airport\n taxi  ", date="25-08-26",
+            paid_by_member_id=paid_by_member_id, split_member_ids=[],
+        ),
+        BackgroundTasks(),
+        user=user,
+    ))
+
+    kwargs = enqueue.await_args.kwargs
+    assert kwargs["actor_name"] == expected_actor
+    assert kwargs["expense_heading"] == "Airport\n taxi"
+
+
+def test_blank_expense_description_uses_category_for_notification(monkeypatch):
+    expense_collection = SimpleNamespace(insert_one=AsyncMock())
+    enqueue = AsyncMock()
+    monkeypatch.setattr(expenses, "db", SimpleNamespace(expenses=expense_collection))
+    monkeypatch.setattr(expenses, "_trip_or_404", AsyncMock(return_value=TRIP))
+    monkeypatch.setattr(expenses, "enqueue_notification_event", enqueue)
+
+    run(expenses.add_expense(
+        "t1",
+        ExpenseIn(
+            amount=25, category="Food", description=" \n\t ", date="25-08-26",
+            paid_by_member_id="m1", split_member_ids=[],
+        ),
+        BackgroundTasks(),
+        user={"id": "u1"},
+    ))
+
+    assert enqueue.await_args.kwargs["expense_heading"] == "Food"
+
+
+def test_failed_expense_insert_does_not_enqueue(monkeypatch):
+    expense_collection = SimpleNamespace(
+        insert_one=AsyncMock(side_effect=RuntimeError("write failed")),
+    )
+    enqueue = AsyncMock()
+    monkeypatch.setattr(expenses, "db", SimpleNamespace(expenses=expense_collection))
+    monkeypatch.setattr(expenses, "_trip_or_404", AsyncMock(return_value=TRIP))
+    monkeypatch.setattr(expenses, "enqueue_notification_event", enqueue)
+
+    with pytest.raises(RuntimeError, match="write failed"):
+        run(expenses.add_expense(
+            "t1",
+            ExpenseIn(
+                amount=25, category="Food", description="Dinner", date="25-08-26",
+                paid_by_member_id="m1", split_member_ids=[],
+            ),
+            BackgroundTasks(),
+            user={"id": "u1"},
+        ))
+
+    enqueue.assert_not_awaited()
 
 
 def test_budget_confirmation_does_not_enqueue(monkeypatch):
