@@ -5,6 +5,8 @@ import { ApiError, api, getToken, setToken } from './api';
 import type { ChatCapability } from './chat';
 import { unregisterCurrentPushInstallation } from './pushNotifications';
 import { isValidUpiId, normalizeUpiId, UPI_ID_INVALID_MESSAGE } from './validation';
+import { canonicalMobileNumber } from './mobileNumber';
+import type { CountryCode } from 'libphonenumber-js';
 
 export type MultiCurrencyCapability = 'loading' | 'enabled' | 'disabled' | 'unknown';
 
@@ -21,6 +23,9 @@ export type User = {
   // Optional for compatibility while the additive backend fields roll out.
   upi_id?: string | null;
   upi_updated_at?: string | null;
+  mobile_number?: string | null;
+  mobile_country_code?: CountryCode | null;
+  mobile_verified_at?: string | null;
 };
 
 const SAVED_EMAIL_KEY = 'last_login_email';
@@ -35,6 +40,8 @@ type Ctx = {
   emailFeaturesEnabled: boolean;
   inviteLinksEnabled: boolean;
   pendingInvitePath: string | null;
+  // Volatile: explicit authentication may offer mobile setup, but token restoration never does.
+  mobileOnboardingPending: boolean;
   // Volatile by design: only an account created in this running app session receives the
   // optional UPI offer. Restoring a session after an app restart must never recreate it.
   upiOnboardingPending: boolean;
@@ -44,9 +51,11 @@ type Ctx = {
   refreshRuntimeConfig: () => Promise<RuntimeConfigSnapshot>;
   refreshUserProfile: () => Promise<void>;
   handleAuthenticationRequired: () => Promise<void>;
-  signIn: (email: string, password: string) => Promise<void>;
-  register: (email: string, name: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<User>;
+  register: (email: string, name: string, password: string) => Promise<User>;
   signInWithGoogle: (idToken: string) => Promise<User>;
+  updateMobileNumber: (mobileNumber: string | null, countryCode: CountryCode | null) => Promise<User>;
+  completeMobileOnboarding: () => void;
   updateUpiId: (upiId: string | null) => Promise<User>;
   completeUpiOnboarding: () => void;
   signOut: (clearSavedEmail?: boolean) => Promise<void>;
@@ -69,6 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [emailFeaturesEnabled, setEmailFeaturesEnabled] = useState(true);
   const [inviteLinksEnabled, setInviteLinksEnabled] = useState(false);
   const [pendingInvitePath, setPendingInvitePath] = useState<string | null>(null);
+  const [mobileOnboardingPending, setMobileOnboardingPending] = useState(false);
   const [upiOnboardingPending, setUpiOnboardingPending] = useState(false);
   const [multiCurrencyCapability, setMultiCurrencyCapability] =
     useState<MultiCurrencyCapability>('loading');
@@ -120,6 +130,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const handleAuthenticationRequired = useCallback(async () => {
     await setToken(null);
+    setMobileOnboardingPending(false);
     setUpiOnboardingPending(false);
     setUser(null);
   }, []);
@@ -147,6 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Never let an older null read overwrite that newer in-memory invitation.
     setPendingInvitePath((current) => pending ?? current);
     if (!t) {
+      setMobileOnboardingPending(false);
       setUpiOnboardingPending(false);
       setUser(null);
       return;
@@ -156,6 +168,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(u);
     } catch {
       await setToken(null);
+      setMobileOnboardingPending(false);
       setUpiOnboardingPending(false);
       setUser(null);
     }
@@ -180,8 +193,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await setToken(res.access_token);
     await AsyncStorage.setItem(SAVED_EMAIL_KEY, res.user.email);
     setSavedEmail(res.user.email);
+    setMobileOnboardingPending(!res.user.mobile_number);
     setUpiOnboardingPending(false);
     setUser(res.user);
+    return res.user;
   };
 
   const register = async (email: string, name: string, password: string) => {
@@ -191,8 +206,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await setToken(res.access_token);
     await AsyncStorage.setItem(SAVED_EMAIL_KEY, res.user.email);
     setSavedEmail(res.user.email);
+    setMobileOnboardingPending(!res.user.mobile_number);
     setUpiOnboardingPending(true);
     setUser(res.user);
+    return res.user;
   };
 
   const signInWithGoogle = async (idToken: string): Promise<User> => {
@@ -202,12 +219,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await setToken(res.access_token);
     await AsyncStorage.setItem(SAVED_EMAIL_KEY, res.user.email);
     setSavedEmail(res.user.email);
+    setMobileOnboardingPending(!res.user.mobile_number);
     setUpiOnboardingPending(res.user.credentials_set === false);
     setUser(res.user);
     // Returned so the caller can route a first-time OAuth user (credentials_set === false)
     // through mandatory local-password setup instead of straight to the dashboard.
     return res.user;
   };
+
+  const updateMobileNumber = async (
+    mobileNumber: string | null,
+    countryCode: CountryCode | null,
+  ): Promise<User> => {
+    if ((mobileNumber === null) !== (countryCode === null)) {
+      throw new Error('Mobile number and country are required together');
+    }
+    const canonical = mobileNumber === null
+      ? null
+      : canonicalMobileNumber(mobileNumber, countryCode as CountryCode);
+    const updated = await api<User>('/auth/me/mobile', {
+      method: 'PATCH',
+      body: { mobile_number: canonical, mobile_country_code: countryCode },
+    });
+    setUser(updated);
+    return updated;
+  };
+
+  const completeMobileOnboarding = useCallback(() => {
+    setMobileOnboardingPending(false);
+  }, []);
 
   const updateUpiId = async (upiId: string | null): Promise<User> => {
     if (upiId !== null && !isValidUpiId(upiId)) {
@@ -231,6 +271,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // authenticated foreground sync safely reassigns this installation and Expo token.
     await unregisterCurrentPushInstallation();
     await setToken(null);
+    setMobileOnboardingPending(false);
     setUpiOnboardingPending(false);
     if (clearSavedEmail) {
       await AsyncStorage.removeItem(SAVED_EMAIL_KEY);
@@ -251,6 +292,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       emailFeaturesEnabled,
       inviteLinksEnabled,
       pendingInvitePath,
+      mobileOnboardingPending,
       upiOnboardingPending,
       multiCurrencyCapability,
       multiCurrencyExpensesEnabled,
@@ -261,6 +303,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signIn,
       register,
       signInWithGoogle,
+      updateMobileNumber,
+      completeMobileOnboarding,
       updateUpiId,
       completeUpiOnboarding,
       signOut,

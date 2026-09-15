@@ -20,6 +20,7 @@ const mockAuthState: any = {
   signOut: mockSignOut,
   forgetSavedEmail: mockForgetSavedEmail,
   pendingInvitePath: null,
+  mobileOnboardingPending: false,
   upiOnboardingPending: false,
 };
 
@@ -78,8 +79,9 @@ beforeEach(() => {
   mockAuthState.savedEmail = null;
   mockAuthState.emailFeaturesEnabled = true;
   mockAuthState.pendingInvitePath = null;
+  mockAuthState.mobileOnboardingPending = false;
   mockAuthState.upiOnboardingPending = false;
-  mockSignIn.mockResolvedValue(undefined);
+  mockSignIn.mockResolvedValue({ mobile_number: '+919876543210' });
   mockRegister.mockResolvedValue(undefined);
   mockRefresh.mockResolvedValue(undefined);
   mockSignOut.mockResolvedValue(undefined);
@@ -117,7 +119,18 @@ describe('password-only authentication screens', () => {
     await act(async () => findByTestId(renderer, 'reg-submit').props.onPress());
 
     expect(mockRegister).toHaveBeenCalledWith('new@gmail.com', 'New User', 'password123');
-    expect(mockReplace).toHaveBeenCalledWith('/set-upi');
+    expect(mockReplace).toHaveBeenCalledWith('/set-mobile');
+  });
+
+  it('offers mobile setup after an explicit login without a saved number', async () => {
+    mockSignIn.mockResolvedValueOnce({ mobile_number: null });
+    const renderer = mount(<Login />);
+
+    act(() => findByTestId(renderer, 'login-email').props.onChangeText('person@gmail.com'));
+    act(() => findByTestId(renderer, 'login-password').props.onChangeText('password123'));
+    await act(async () => findByTestId(renderer, 'login-submit').props.onPress());
+
+    expect(mockReplace).toHaveBeenCalledWith('/set-mobile');
   });
 
   it('requires Google users to create a password and offers account switching instead of skip', async () => {
@@ -136,6 +149,22 @@ describe('password-only authentication screens', () => {
     });
     expect(mockRefresh).toHaveBeenCalledTimes(1);
     expect(mockReplace).toHaveBeenCalledWith('/set-upi');
+  });
+
+  it('continues a new Google account from password to mobile before UPI', async () => {
+    const invite = `/invite/${'a'.repeat(43)}`;
+    mockAuthState.pendingInvitePath = invite;
+    mockAuthState.mobileOnboardingPending = true;
+    mockAuthState.upiOnboardingPending = true;
+    const renderer = mount(<SetCredentials />);
+
+    act(() => findByTestId(renderer, 'setcred-password').props.onChangeText('password123'));
+    act(() => findByTestId(renderer, 'setcred-confirm').props.onChangeText('password123'));
+    await act(async () => findByTestId(renderer, 'setcred-submit').props.onPress());
+
+    expect(mockReplace).toHaveBeenCalledWith({
+      pathname: '/set-mobile', params: { returnTo: invite },
+    });
   });
 
   it('does not recreate the optional UPI offer for a restored password-setup session', async () => {

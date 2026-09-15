@@ -81,6 +81,7 @@ jest.mock('../../ui', () => {
     AmountText: stub('AmountText'),
     ResponsiveAmountText: stub('ResponsiveAmountText'),
     SkeletonCard: stub('SkeletonCard'),
+    ActionSheet: stub('ActionSheet'),
     // Render each tab segment as a pressable host node so the test can switch tabs.
     SegmentedControl: (p: any) =>
       R.createElement(

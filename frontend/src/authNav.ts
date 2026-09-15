@@ -1,6 +1,6 @@
 import type { Href } from 'expo-router';
 import type { User } from './AuthContext';
-import { passwordSetupHref, postAuthHref, upiSetupHref } from './inviteNavigation';
+import { mobileSetupHref, passwordSetupHref, postAuthHref, upiSetupHref } from './inviteNavigation';
 
 // Pure auth-navigation helpers, kept free of React/JSX so they can be unit-tested
 // without a component renderer (the project has no @testing-library/react-native).
@@ -30,12 +30,21 @@ export function authRedirectTarget(
   pendingInvitePath: string | null = null,
   upiOnboardingPending: boolean = false,
   inUpiSetup: boolean = false,
+  mobileOnboardingPending: boolean = false,
+  inMobileSetup: boolean = false,
+  inMobileProfile: boolean = false,
 ): Href | null {
   if (user === undefined) return null;
   if (isPublicRoute) return null;
   if (!user && !inAuthGroup) return AUTH_LOGIN_HREF;
   if (user?.credentials_set === false && !inPasswordSetup) return passwordSetupHref(pendingInvitePath);
+  if (user && mobileOnboardingPending) {
+    return inMobileSetup ? null : mobileSetupHref(pendingInvitePath);
+  }
   if (user && upiOnboardingPending && !inUpiSetup) return upiSetupHref(pendingInvitePath);
+  if (user && !mobileOnboardingPending && inMobileSetup && !inMobileProfile) {
+    return upiOnboardingPending ? upiSetupHref(pendingInvitePath) : postAuthHref(pendingInvitePath);
+  }
   if (user && user.credentials_set !== false && inPasswordSetup) return postAuthHref(pendingInvitePath);
   if (user && inAuthGroup) return postAuthHref(pendingInvitePath);
   return null;

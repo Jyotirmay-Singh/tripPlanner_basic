@@ -19,6 +19,7 @@ from services.exchange_rates import start_exchange_rate_client, stop_exchange_ra
 from services.invites import retire_legacy_invites
 from services.payment_attempts import start_payment_attempt_sweeper, stop_payment_attempt_sweeper
 from services.trip_activity import backfill_trip_activity
+from services.mobile_claims import reconcile_mobile_claims
 
 
 # ---------- Startup / Shutdown ----------
@@ -66,6 +67,16 @@ async def _ensure_super_admin() -> None:
 async def lifespan(app: FastAPI):
     await db.users.create_index("email", unique=True)
     await db.trips.create_index("code", unique=True)
+    await db.trip_mobile_claims.create_index(
+        [("trip_id", 1), ("mobile_number", 1)],
+        unique=True,
+        name="unique_mobile_per_trip",
+    )
+    await db.trip_mobile_claims.create_index(
+        [("trip_id", 1), ("user_id", 1)],
+        unique=True,
+        name="unique_user_mobile_claim_per_trip",
+    )
     await db.trips.create_index([
         ("last_activity_at", -1), ("created_at", -1), ("id", -1),
     ])
@@ -153,6 +164,9 @@ async def lifespan(app: FastAPI):
     # never lock anyone out. Idempotent: only touches docs missing the field.
     await db.users.update_many({"email_verified": {"$exists": False}}, {"$set": {"email_verified": True}})
     await db.users.update_many({"credentials_set": {"$exists": False}}, {"$set": {"credentials_set": True}})
+    await db.users.update_many({"mobile_number": {"$exists": False}}, {"$set": {"mobile_number": None}})
+    await db.users.update_many({"mobile_country_code": {"$exists": False}}, {"$set": {"mobile_country_code": None}})
+    await db.users.update_many({"mobile_verified_at": {"$exists": False}}, {"$set": {"mobile_verified_at": None}})
     # Password-only auth migration. Removing obsolete hashes and raw PIN-reset tokens is
     # idempotent and ensures the retired credential cannot be used or recovered after cutover.
     await _remove_retired_pin_data()
@@ -241,6 +255,10 @@ async def lifespan(app: FastAPI):
 
     # Existing password/Google fields are left untouched when this promotes an account.
     await _ensure_super_admin()
+
+    # Rebuild the claim projection after all legacy family/account migrations have completed.
+    # The pass is idempotent and is also the crash-recovery path for standalone MongoDB writes.
+    await reconcile_mobile_claims()
 
     # one-time, secret-free summary of how outbound email behaves in this process
     logger.info(sender_mode_summary())

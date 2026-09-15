@@ -344,6 +344,8 @@ def test_trip_deletion_cleans_all_related_live_collections(monkeypatch):
     monkeypatch.setattr(trips, "_trip_owner_or_403", AsyncMock(return_value=TRIP))
     monkeypatch.setattr(trips, "revoke_trip_invites", AsyncMock())
     monkeypatch.setattr(trips, "delete_receipts_for_trip", AsyncMock())
+    release_claims = AsyncMock()
+    monkeypatch.setattr(trips, "release_trip_claims", release_claims)
     disconnect = AsyncMock()
     monkeypatch.setattr(trips, "chat_connections", SimpleNamespace(disconnect_trip=disconnect))
     audit = AsyncMock()
@@ -356,6 +358,7 @@ def test_trip_deletion_cleans_all_related_live_collections(monkeypatch):
         collections[name].delete_many.assert_awaited_once_with({"trip_id": "trip-1"})
     trips.revoke_trip_invites.assert_awaited_once_with("trip-1", SUPER_ADMIN["id"])
     trips.delete_receipts_for_trip.assert_awaited_once_with("trip-1")
+    release_claims.assert_awaited_once_with("trip-1")
     disconnect.assert_awaited_once_with("trip-1")
     audit.assert_awaited_once()
 

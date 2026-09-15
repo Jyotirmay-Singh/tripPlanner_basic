@@ -9,8 +9,9 @@ from database import db
 from models.auth import (
     RegisterIn, LoginIn, GoogleAuthIn,
     VerifyEmailIn, RequestPasswordResetIn, ResetPasswordIn, SetCredentialsIn, ChangePasswordIn,
-    UpiProfileUpdate,
+    UpiProfileUpdate, MobileProfileUpdate,
 )
+from services.mobile_claims import update_account_mobile
 from utils.common import gen_id, now_utc
 from utils.email_rules import assert_gmail, normalize_email
 from utils.security import hash_secret, verify_secret, create_token
@@ -48,6 +49,9 @@ def _user_payload(user: dict) -> dict:
         "credentials_set": user.get("credentials_set", True),
         "upi_id": user.get("upi_id"),
         "upi_updated_at": user.get("upi_updated_at"),
+        "mobile_number": user.get("mobile_number"),
+        "mobile_country_code": user.get("mobile_country_code"),
+        "mobile_verified_at": user.get("mobile_verified_at"),
     }
 
 
@@ -57,6 +61,9 @@ def _self_profile_payload(user: dict) -> dict:
     payload["is_super_admin"] = is_super_admin(user)
     payload["upi_id"] = user.get("upi_id")
     payload["upi_updated_at"] = user.get("upi_updated_at")
+    payload["mobile_number"] = user.get("mobile_number")
+    payload["mobile_country_code"] = user.get("mobile_country_code")
+    payload["mobile_verified_at"] = user.get("mobile_verified_at")
     return payload
 
 
@@ -90,6 +97,9 @@ async def register(body: RegisterIn):
         # deliver/verify, so new signups are marked verified up-front and no email is sent.
         "email_verified": not EMAIL_FEATURES_ENABLED,
         "credentials_set": True,
+        "mobile_number": None,
+        "mobile_country_code": None,
+        "mobile_verified_at": None,
         "created_at": now_utc().isoformat(),
     }
     await db.users.insert_one(doc)
@@ -142,6 +152,15 @@ async def update_me(body: UpiProfileUpdate, user=Depends(get_current_user)):
     return _self_profile_payload(updated)
 
 
+@router.patch("/auth/me/mobile")
+async def update_mobile(body: MobileProfileUpdate, user=Depends(get_current_user)):
+    """Replace or remove the authenticated account's international mobile number."""
+    updated = await update_account_mobile(
+        user, body.mobile_number, body.mobile_country_code,
+    )
+    return _self_profile_payload(updated)
+
+
 @router.post("/auth/google")
 async def google_auth(body: GoogleAuthIn):
     # GOOGLE_CLIENT_ID may be a single client ID or a comma-separated list of
@@ -178,6 +197,9 @@ async def google_auth(body: GoogleAuthIn):
             # before the client allows access to protected application screens.
             "email_verified": True,
             "credentials_set": False,
+            "mobile_number": None,
+            "mobile_country_code": None,
+            "mobile_verified_at": None,
             "created_at": now_utc().isoformat(),
         }
         await db.users.insert_one(user)

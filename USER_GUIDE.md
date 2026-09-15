@@ -14,19 +14,41 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
    - **Password** (at least 9 characters), entered twice for confirmation
 3. Tap **Create account**. You are signed in immediately.
 4. Alternatively, choose **Continue with Google**. A new Google user creates a local password once before entering the app.
-5. New accounts are then offered optional **UPI ID** setup. Enter an ID such as `name@bank`, or tap
-   **Skip for now**. If you opened an invite, either choice returns you to that invitation.
+5. New accounts are then offered an optional **mobile number**. Choose a country and enter or paste
+   an international number, then tap **Save and continue** or **Not now**.
+6. New accounts are then offered optional **UPI ID** setup. Enter an ID such as `name@bank`, or tap
+   **Skip for now**. If you opened an invite, every setup step preserves that invitation. New Google
+   users complete the required local password first, then Mobile, then UPI.
 
 ### 1.2 Sign in (next time)
 - Sign in with **Google**, or use your remembered Gmail address and **password**.
 - Tap **Switch** if you want to sign in as a different user.
 - If email delivery is enabled, tap **Forgot password?** to receive a single-use reset link.
+- If you have not saved a mobile number, each explicit sign-in offers the optional mobile step again.
+  **Not now** skips it only for that signed-in session. Reopening the app with a restored session does
+  not interrupt you with the prompt.
 
 ### 1.3 Dark mode & sign out
 - Bottom-tab **Profile** → toggle **Dark mode**.
 - **Sign out** button (door icon) is on the top-right of every screen.
 
-### 1.4 Payment details (UPI)
+### 1.4 Mobile number
+- Open **Profile** from the account avatar, then choose **Mobile number** to add or change it. The
+  country picker searches by country name, ISO code, or dial code; pasting a complete `+` number
+  switches to its country automatically. Saved numbers are normalized internationally.
+- People whose app accounts are linked to the same trip can see the full number in that trip's
+  **Members** tab. It is not shown in public invitations, trip-list cards, PDF/XLSX reports, audit
+  logs, or other exports. Trip admins cannot enter a number for somebody else.
+- Tap a saved number in **Members** to choose **Call** or **Copy number**. Calling depends on the
+  device; the app reports unsupported calling and clipboard failures explicitly.
+- You can remove your number from Profile after confirmation. It disappears from all shared trips;
+  the next explicit sign-in offers setup again. There is no SMS/OTP verification or “unverified”
+  badge in this release.
+- The same number may be used by accounts that do not share a trip. If another linked person in one
+  of your trips already uses it, the whole save/join is rejected and the app names the affected trip
+  and member; your previous profile value remains unchanged.
+
+### 1.5 Payment details (UPI)
 - Open **Profile** from the account avatar, then choose **Payment details** to add or change your
   UPI ID. A saved ID can also be removed after confirmation.
 - Returning sign-ins and restored sessions are not prompted automatically, even when no UPI ID is
@@ -44,7 +66,7 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
 | 💼 **Trips** | All trips you've created or joined, most recently active first |
 | ➕ **Add** | Pick a trip and instantly add a transaction |
 | 📊 **Reports** | One-tap XLSX or PDF download per trip |
-| 👤 **Profile** | Your info, payment details, dark mode toggle, sign out |
+| 👤 **Profile** | Your info, mobile number, payment details, dark mode toggle, sign out |
 
 ---
 
@@ -100,8 +122,9 @@ Settled trips remain tappable and can still be opened normally.
   original invitation and open it again so Android can pass the invitation in.
 - Signed-in desktop and iOS web users go straight to the join preview. Existing trip members land on
   that trip's **Summary**; everyone else continues through the normal identity-aware Join wizard.
-- Sign-in, registration, Google sign-in, and first-time password setup preserve the invitation. The
-  Join wizard skips manual code entry but still performs the identity/approval checks below.
+- Sign-in, registration, Google sign-in, first-time password setup, optional mobile setup, and
+  optional UPI setup preserve the invitation. The Join wizard skips manual code entry but still
+  performs the identity/approval checks below.
 - Build 8 can create secure links once the server rollout flag is enabled, but its installed native
   share sheet still uses the older invite-only wording. The full link + code + Android-download copy
   is live when sharing on web and will reach Android in the next normal APK release.
@@ -161,15 +184,21 @@ A "member" can be **one individual** or **a family group** (the family is split 
 > account onto a member.) Adding, changing, or linking an email **never** affects any balance, split,
 > settlement, payment, or report.
 
+> **Mobile numbers are controlled by the linked app user.** An admin cannot type a number into a
+> manual member or family row. Once that person links their account, their current Profile number can
+> appear here; removing or changing it in Profile updates every trip automatically.
+
 ### 4.2 Edit a member
 - In the **Members** tab tap the **⋮** on the member row → **Edit member & family details**.
 - You can change the name, kind, family members, and each member's email. The **Linked email** field
   appears only for an **individual** — a family has no email of its own, so its members' emails live on
   the member rows instead.
 - On the Members tab a family is shown as a card that lists its members **vertically**, each with its
-  own email (members without one simply show no email) and — for a linked member — an
+  own email and mobile number when present (missing details simply show nothing) and — for a linked member — an
   **Owner / Admin / You / Linked** badge shown next to **that member's name** (never on the family
   header — admin is always held by a *specific person*, never a whole family).
+- A linked standalone person shows the same mobile contact line below their identity. Tap any shown
+  number for the shared **Call / Copy number** action sheet.
 - **When you change the number of family members**, the app will ask:
   - **"Keep original split"** → past expenses keep their old per-person weight (recommended if those people already paid up).
   - **"Re-split with new members"** → past expenses are recomputed with the new family size.
@@ -439,7 +468,7 @@ presence, or per-message seen receipts.
   5. **Payments** — a flat log of every settle-up payment recorded on the trip: **Payer**, **Receiver**,
      **Amount** (trip currency), **Date & Time** (shown in **IST**, UTC+05:30), optional **Remark**,
      and a privacy-safe **Source** label. Recipient-confirmed rows say **UPI — recipient confirmed**;
-     reports never include the UPI ID or payer-entered transaction reference. There is one row per
+     reports never include the UPI ID, mobile numbers, or payer-entered transaction reference. There is one row per
      payment (three partial payments = three rows), with a bold **Total** row. It also includes the
      whole-unit policy/routing metadata and current recommendations when a settlement plan is open.
   6. **Migration Adjustments** *(when present)* — the private per-entity whole-unit adjustment vector,

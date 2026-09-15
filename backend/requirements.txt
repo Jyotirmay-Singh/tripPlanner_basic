@@ -21,6 +21,7 @@ iniconfig==2.3.0
 motor==3.3.1
 openpyxl==3.1.5
 packaging==26.2
+phonenumbers==9.0.15
 pillow==12.2.0
 pluggy==1.6.0
 pyasn1==0.6.3

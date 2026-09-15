@@ -8,7 +8,7 @@ import { useTheme } from './ThemeContext';
 import { SPACING, RADIUS, FONTS } from './theme';
 import T from './T';
 import { useToast } from './ui';
-import { passwordSetupHref, postAuthHref } from './inviteNavigation';
+import { mobileSetupHref, passwordSetupHref, postAuthHref } from './inviteNavigation';
 
 type NitroGoogleSignInModule = typeof import('react-native-nitro-google-signin');
 
@@ -98,9 +98,13 @@ function GoogleSignInInner() {
       try {
         const user = await signInWithGoogle(idToken);
         // A first-time Google user must create a local password before entering the app.
-        router.replace(user.credentials_set === false
-          ? passwordSetupHref(pendingInvitePath)
-          : postAuthHref(pendingInvitePath));
+        router.replace(
+          user.credentials_set === false
+            ? passwordSetupHref(pendingInvitePath)
+            : !user.mobile_number
+              ? mobileSetupHref(pendingInvitePath)
+              : postAuthHref(pendingInvitePath),
+        );
       } catch (error) {
         const message = error instanceof Error && error.message
           ? error.message

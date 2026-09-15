@@ -1,5 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, View, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, Share, Image } from 'react-native';
+import {
+  ActivityIndicator, View, ScrollView, TouchableOpacity, StyleSheet, RefreshControl,
+  Share, Image, Linking, Platform, Pressable,
+} from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { api, getToken, getTripInviteLink, receiptUrl, spendSummary } from '../../../src/api';
@@ -30,6 +34,7 @@ import type { SettlementProjection } from '../../../src/settlementProjection';
 import { formatAccessibleMoney, formatMoney } from '../../../src/format';
 import { formatTripDates } from '../../../src/date';
 import { formatTime12h } from '../../../src/time';
+import { formatMobileForDisplay } from '../../../src/mobileNumber';
 import { categoryDetailPath } from '../../../src/categoryRoute';
 import TripChat from '../../../src/TripChat';
 import { resolveOptimisticSender, unreadBadge } from '../../../src/chat';
@@ -38,15 +43,49 @@ import JoinRequestsPanel from '../../../src/JoinRequestsPanel';
 import InviteLinksPanel from '../../../src/InviteLinksPanel';
 import {
   Card, Button, IconButton, Icon, SegmentedControl, StatCard, ProgressBar,
-  EmptyState, ResponsiveAmountText, SkeletonCard, useToast,
+  ActionSheet, EmptyState, ResponsiveAmountText, SkeletonCard, useToast,
 } from '../../../src/ui';
 
-type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; family_member_ids?: string[] | null; family_member_emails?: (string | null)[] | null; family_member_user_ids?: (string | null)[] | null; user_id?: string | null; email?: string | null };
+type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; family_member_ids?: string[] | null; family_member_emails?: (string | null)[] | null; family_member_user_ids?: (string | null)[] | null; family_member_mobile_numbers?: (string | null)[] | null; user_id?: string | null; email?: string | null; mobile_number?: string | null };
 type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number | null; currency: string; owner_id: string; admin_ids: string[]; user_ids: string[]; members: Member[] };
 type Expense = { id: string; amount: number; currency?: string; original_amount?: string | number | null; original_currency?: string | null; category: string; description?: string; date: string; time?: string | null; created_at?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string; shares?: ExpenseShares };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; settlement_projection?: SettlementProjection; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[]; members?: { id: string; name: string; net: number }[] }[] };
 
 type TabKey = TripTabKey;
+
+type MobileContactLineProps = {
+  number: string;
+  onPress: () => void;
+  testID: string;
+};
+
+function MobileContactLine({ number, onPress, testID }: MobileContactLineProps) {
+  const { colors } = useTheme();
+  const formatted = formatMobileForDisplay(number);
+  return (
+    <Pressable
+      testID={testID}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Mobile ${formatted}`}
+      accessibilityHint="Opens call and copy actions"
+      style={({ pressed, focused }: any) => [
+        styles.contactLine,
+        pressed && { opacity: 0.72 },
+        focused && Platform.OS === 'web' && {
+          outlineWidth: 2,
+          outlineColor: colors.primary,
+          outlineStyle: 'solid',
+          outlineOffset: 2,
+        } as any,
+      ]}
+    >
+      <Icon name="phone" size={15} color={colors.primary} />
+      <T variant="caption" color={colors.primary} numberOfLines={1}>{formatted}</T>
+    </Pressable>
+  );
+}
+
 const TABS: { value: TabKey; label: string }[] = [
   { value: 'summary', label: 'Summary' },
   { value: 'expenses', label: 'Expenses' },
@@ -231,6 +270,11 @@ export default function TripDetail() {
   }>(null);
   const [deleteTripName, setDeleteTripName] = useState('');
   const [sharingInvite, setSharingInvite] = useState(false);
+  const [mobileContact, setMobileContact] = useState<null | {
+    number: string;
+    name: string;
+    testID: string;
+  }>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -336,6 +380,38 @@ export default function TripDetail() {
         catch (err: any) { toast.show(err.message || 'Delete failed', 'error'); }
       },
     });
+  };
+
+  const callMobile = async () => {
+    const contact = mobileContact;
+    setMobileContact(null);
+    if (!contact) return;
+    const url = `tel:${contact.number}`;
+    try {
+      if (!await Linking.canOpenURL(url)) {
+        toast.show('Calling is not supported on this device.', 'error');
+        return;
+      }
+      await Linking.openURL(url);
+    } catch {
+      toast.show('Could not start the call. Try again.', 'error');
+    }
+  };
+
+  const copyMobile = async () => {
+    const contact = mobileContact;
+    setMobileContact(null);
+    if (!contact) return;
+    try {
+      const copied = await Clipboard.setStringAsync(contact.number);
+      if (!copied) {
+        toast.show('Could not copy mobile number. Try again.', 'error');
+        return;
+      }
+      toast.show('Mobile number copied', 'success');
+    } catch {
+      toast.show('Could not copy mobile number. Try again.', 'error');
+    }
   };
 
   if (!trip) {
@@ -801,6 +877,8 @@ export default function TripDetail() {
                   const subNames = familyMemberDisplayNames(m);
                   const subEmails = m.family_member_emails || [];
                   const subUserIds = m.family_member_user_ids || [];
+                  const subMobiles = m.family_member_mobile_numbers || [];
+                  const subIds = m.family_member_ids || [];
                   return (
                     <Card key={m.id}>
                       <View style={styles.rowCard}>
@@ -824,23 +902,53 @@ export default function TripDetail() {
                           // whether it's you; a linked-but-plain member shows "Linked".
                           const uid = subUserIds[i];
                           const subRole = uid ? roleOf(trip, uid) : null;
+                          const phoneTestID = `member-mobile-${subIds[i] || `${m.id}-${i}`}`;
                           return (
-                          <View key={i} testID={`member-${m.id}-sub-${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.md }}>
-                            <T numberOfLines={1} style={{ flexShrink: 1, minWidth: 0 }}>{nm}</T>
-                            {subRole === 'owner' ? <Badge label="Owner" color={colors.primary} /> : null}
-                            {subRole === 'admin' ? <Badge label="Admin" color={colors.success} /> : null}
-                            {uid && uid === user?.id ? (
-                              <Badge label="You" color={colors.textMuted} />
-                            ) : uid && subRole !== 'owner' && subRole !== 'admin' ? (
-                              <Badge label="Linked" color={colors.success} />
-                            ) : null}
-                            {/* Phase 27: an empty email renders as nothing (no placeholder). */}
-                            {subEmails[i] ? (
-                              <T variant="caption" muted numberOfLines={1} style={{ flex: 1, textAlign: 'right', paddingRight: 2 }}>
-                                {subEmails[i]}
-                              </T>
-                            ) : null}
-                          </View>
+                            <View
+                              key={subIds[i] || i}
+                              testID={`member-${m.id}-sub-${i}`}
+                              style={[
+                                styles.familyPerson,
+                                i > 0 && {
+                                  borderTopWidth: StyleSheet.hairlineWidth,
+                                  borderTopColor: colors.border,
+                                },
+                              ]}
+                            >
+                              <View style={styles.personHeading}>
+                                <T numberOfLines={1} style={styles.personName}>{nm}</T>
+                                {subRole === 'owner' ? <Badge label="Owner" color={colors.primary} /> : null}
+                                {subRole === 'admin' ? <Badge label="Admin" color={colors.success} /> : null}
+                                {uid && uid === user?.id ? (
+                                  <Badge label="You" color={colors.textMuted} />
+                                ) : uid && subRole !== 'owner' && subRole !== 'admin' ? (
+                                  <Badge label="Linked" color={colors.success} />
+                                ) : null}
+                              </View>
+                              {subEmails[i] || subMobiles[i] ? (
+                                <View style={styles.contactStack}>
+                                  {subEmails[i] ? (
+                                    <View style={styles.emailLine}>
+                                      <Icon name="mail" size={15} color={colors.textMuted} />
+                                      <T variant="caption" muted numberOfLines={1} style={styles.contactText}>
+                                        {subEmails[i]}
+                                      </T>
+                                    </View>
+                                  ) : null}
+                                  {subMobiles[i] ? (
+                                    <MobileContactLine
+                                      number={subMobiles[i] as string}
+                                      testID={phoneTestID}
+                                      onPress={() => setMobileContact({
+                                        number: subMobiles[i] as string,
+                                        name: nm,
+                                        testID: phoneTestID,
+                                      })}
+                                    />
+                                  ) : null}
+                                </View>
+                              ) : null}
+                            </View>
                           );
                         })}
                       </View>
@@ -849,21 +957,37 @@ export default function TripDetail() {
                 }
 
                 // Individual: unchanged single-row card.
+                const phoneTestID = `member-mobile-${m.id}`;
                 return (
-                  <Card key={m.id} style={styles.rowCard}>
-                    <View style={[styles.memberIcon, { backgroundColor: colors.surfaceMuted }]}>
-                      <Icon name="user" size={18} color={colors.primary} />
-                    </View>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm }}>
-                        <T variant="h4">{displayNames[m.id]}</T>
-                        {badges}
+                  <Card key={m.id}>
+                    <View style={styles.rowCard}>
+                      <View style={[styles.memberIcon, { backgroundColor: colors.surfaceMuted }]}>
+                        <Icon name="user" size={18} color={colors.primary} />
                       </View>
-                      <T variant="caption" muted numberOfLines={1}>
-                        {m.user_id ? 'App user' : 'Individual'}{m.email ? ` · ${m.email}` : ''}
-                      </T>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm }}>
+                          <T variant="h4">{displayNames[m.id]}</T>
+                          {badges}
+                        </View>
+                        <T variant="caption" muted numberOfLines={1}>
+                          {m.user_id ? 'App user' : 'Individual'}{m.email ? ` · ${m.email}` : ''}
+                        </T>
+                      </View>
+                      {manageBtn}
                     </View>
-                    {manageBtn}
+                    {m.mobile_number ? (
+                      <View style={styles.individualContacts}>
+                        <MobileContactLine
+                          number={m.mobile_number}
+                          testID={phoneTestID}
+                          onPress={() => setMobileContact({
+                            number: m.mobile_number as string,
+                            name: displayNames[m.id],
+                            testID: phoneTestID,
+                          })}
+                        />
+                      </View>
+                    ) : null}
                   </Card>
                 );
               })}
@@ -873,6 +997,28 @@ export default function TripDetail() {
       </ScrollView>
 
       <ReceiptViewer uri={viewerUri} visible={!!viewerUri} onClose={() => setViewerUri(null)} />
+
+      <ActionSheet
+        visible={!!mobileContact}
+        onClose={() => setMobileContact(null)}
+        title={mobileContact ? `Contact ${mobileContact.name}` : 'Contact member'}
+        message={mobileContact ? formatMobileForDisplay(mobileContact.number) : undefined}
+        testID="member-mobile-actions"
+        actions={[
+          {
+            label: 'Call',
+            icon: 'call',
+            testID: mobileContact ? `${mobileContact.testID}-call` : 'member-mobile-call',
+            onPress: () => { void callMobile(); },
+          },
+          {
+            label: 'Copy number',
+            icon: 'copy',
+            testID: mobileContact ? `${mobileContact.testID}-copy` : 'member-mobile-copy',
+            onPress: () => { void copyMobile(); },
+          },
+        ]}
+      />
 
       {tripConfirmModal}
     </SafeAreaView>
@@ -931,6 +1077,27 @@ const styles = StyleSheet.create({
   overBudgetRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.xs },
   overBudgetText: { flex: 1, minWidth: 0 },
   rowCard: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+  familyPerson: { paddingVertical: SPACING.sm, gap: SPACING.xs },
+  personHeading: {
+    flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm,
+  },
+  personName: { flexShrink: 1, minWidth: 0 },
+  contactStack: { gap: SPACING.xs },
+  emailLine: {
+    minHeight: 24, flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
+  },
+  contactText: { flex: 1, minWidth: 0 },
+  contactLine: {
+    minHeight: COMPONENT_SIZE.minTouchTarget,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingRight: SPACING.sm,
+    borderRadius: RADIUS.sm,
+  },
+  individualContacts: { marginTop: SPACING.xs, marginLeft: 40 + SPACING.md },
   catDot: { width: 10, height: 10, borderRadius: 5 },
   billThumb: { width: 44, height: 44, borderRadius: RADIUS.md, borderWidth: 1 },
   memberIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },

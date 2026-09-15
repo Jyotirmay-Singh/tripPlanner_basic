@@ -11,7 +11,7 @@ import {
 } from '../../src/validation';
 import GoogleSignInButton from '../../src/GoogleSignInButton';
 import { AuthShell, Input, Button, useToast } from '../../src/ui';
-import { upiSetupHref } from '../../src/inviteNavigation';
+import { mobileSetupHref } from '../../src/inviteNavigation';
 
 export default function Register() {
   const { register, pendingInvitePath } = useAuth();
@@ -58,7 +58,7 @@ export default function Register() {
     setLoading(true);
     try {
       await register(email.trim(), name.trim(), password);
-      router.replace(upiSetupHref(pendingInvitePath));
+      router.replace(mobileSetupHref(pendingInvitePath));
     } catch (e: any) {
       toast.show(e.message || 'Registration failed. Try again.', 'error');
     } finally {

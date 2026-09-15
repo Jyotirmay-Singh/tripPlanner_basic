@@ -20,6 +20,7 @@ from services.chat_realtime import chat_connections
 from services.admin_audit import record_admin_action
 from services.payment_attempts import MEMBER_BLOCKING_PAYMENT_ATTEMPT_STATUSES
 from services.trip_activity import with_trip_activity
+from services.mobile_claims import release_user_claims
 
 router = APIRouter()
 
@@ -229,6 +230,7 @@ async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=D
             {"$pull": {"user_ids": {"$in": list(vanished_uids)},
                        "admin_ids": {"$in": list(vanished_uids)}}},
         )
+        await release_user_claims(trip_id, vanished_uids)
         await chat_connections.disconnect_users(trip_id, vanished_uids)
     t = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     saved = next((m for m in t["members"] if m["id"] == member_id), None)
@@ -307,6 +309,7 @@ async def delete_member(trip_id: str, member_id: str, user=Depends(get_current_u
         trip_id, member_id, _weight_of_member(target),
         user_ids=linked_uids, verify=_verify,
     )
+    await release_user_claims(trip_id, linked_uids)
     await chat_connections.disconnect_users(trip_id, linked_uids)
     await record_admin_action(
         user, "member.deleted", trip=trip, resource_type="member", resource_id=member_id,
@@ -384,6 +387,7 @@ async def delete_family_member(trip_id: str, family_id: str, fm_id: str,
             {"id": trip_id},
             {"$pull": {"user_ids": removed_uid, "admin_ids": removed_uid}},
         )
+        await release_user_claims(trip_id, [removed_uid])
         await chat_connections.disconnect_users(trip_id, [removed_uid])
     t = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     updated = next((m for m in t["members"] if m["id"] == family_id), None)

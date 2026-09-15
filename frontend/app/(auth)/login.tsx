@@ -8,7 +8,7 @@ import T from '../../src/T';
 import { isGmail, GMAIL_ONLY_MESSAGE } from '../../src/validation';
 import GoogleSignInButton, { googleAuthAvailable } from '../../src/GoogleSignInButton';
 import { AuthShell, Card, Input, Button, Icon, useToast } from '../../src/ui';
-import { postAuthHref } from '../../src/inviteNavigation';
+import { mobileSetupHref, postAuthHref } from '../../src/inviteNavigation';
 
 export default function Login() {
   const { signIn, savedEmail, forgetSavedEmail, emailFeaturesEnabled, pendingInvitePath } = useAuth();
@@ -40,8 +40,10 @@ export default function Login() {
     setFieldError(null);
     setLoading(true);
     try {
-      await signIn(email.trim(), password);
-      router.replace(postAuthHref(pendingInvitePath));
+      const authenticated = await signIn(email.trim(), password);
+      router.replace(authenticated.mobile_number
+        ? postAuthHref(pendingInvitePath)
+        : mobileSetupHref(pendingInvitePath));
     } catch (e: any) {
       toast.show(e.message || 'Login failed. Try again.', 'error');
     } finally { setLoading(false); }

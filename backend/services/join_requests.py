@@ -21,6 +21,7 @@ from utils.members import (
     padded_family_member_ids,
 )
 from services.trip_activity import with_trip_activity
+from services.mobile_claims import reserve_linked_mobile, rollback_claim
 
 
 RETRY_COOLDOWN = timedelta(hours=24)
@@ -434,48 +435,77 @@ async def approve_request(request_id: str, admin_user_id: str) -> tuple[dict, di
         }})
         _fail(409, "join_target_taken", "This person is already linked to another account")
 
+    try:
+        reservation = await reserve_linked_mobile(
+            trip,
+            requester,
+            member_id=target["member_id"],
+            family_member_id=target.get("family_member_id"),
+            member_name=target.get("name") or "Trip member",
+        )
+    except HTTPException as exc:
+        if exc.status_code == 409 and isinstance(exc.detail, dict) \
+                and exc.detail.get("code") == "trip_mobile_conflict":
+            # The requester can change/remove their profile number and retry the same approval.
+            await db.join_requests.update_one(
+                {"id": request_id, "status": "approving"},
+                {
+                    "$set": {"status": "pending", "active": True, "updated_at": timestamp},
+                    "$unset": {"decided_by_user_id": ""},
+                },
+            )
+        raise
+
     if target_owned_by_requester:
         result = None  # A previous attempt linked the roster; only finalization remains.
     elif target["kind"] == "individual":
-        result = await db.trips.update_one(
-            {
-                "id": trip["id"],
-                "user_ids": {"$ne": requester["id"]},
-                "members": {"$elemMatch": {
-                    "id": target["member_id"],
-                    "user_id": None,
-                    "email": target.get("email_raw"),
-                }},
-            },
-            with_trip_activity({
-                "$addToSet": {"user_ids": requester["id"]},
-                "$set": {
-                    "members.$.user_id": requester["id"],
-                    "members.$.email": requester_email,
+        try:
+            result = await db.trips.update_one(
+                {
+                    "id": trip["id"],
+                    "user_ids": {"$ne": requester["id"]},
+                    "members": {"$elemMatch": {
+                        "id": target["member_id"],
+                        "user_id": None,
+                        "email": target.get("email_raw"),
+                    }},
                 },
-            }, timestamp),
-        )
+                with_trip_activity({
+                    "$addToSet": {"user_ids": requester["id"]},
+                    "$set": {
+                        "members.$.user_id": requester["id"],
+                        "members.$.email": requester_email,
+                    },
+                }, timestamp),
+            )
+        except Exception:
+            await rollback_claim(reservation)
+            raise
     else:
         index = target["index"]
-        result = await db.trips.update_one(
-            {
-                "id": trip["id"],
-                "user_ids": {"$ne": requester["id"]},
-                "members": {"$elemMatch": {
-                    "id": target["member_id"],
-                    f"family_member_ids.{index}": target["family_member_id"],
-                    f"family_member_user_ids.{index}": None,
-                    f"family_member_emails.{index}": target.get("email_raw"),
-                }},
-            },
-            with_trip_activity({
-                "$addToSet": {"user_ids": requester["id"]},
-                "$set": {
-                    f"members.$.family_member_user_ids.{index}": requester["id"],
-                    f"members.$.family_member_emails.{index}": requester_email,
+        try:
+            result = await db.trips.update_one(
+                {
+                    "id": trip["id"],
+                    "user_ids": {"$ne": requester["id"]},
+                    "members": {"$elemMatch": {
+                        "id": target["member_id"],
+                        f"family_member_ids.{index}": target["family_member_id"],
+                        f"family_member_user_ids.{index}": None,
+                        f"family_member_emails.{index}": target.get("email_raw"),
+                    }},
                 },
-            }, timestamp),
-        )
+                with_trip_activity({
+                    "$addToSet": {"user_ids": requester["id"]},
+                    "$set": {
+                        f"members.$.family_member_user_ids.{index}": requester["id"],
+                        f"members.$.family_member_emails.{index}": requester_email,
+                    },
+                }, timestamp),
+            )
+        except Exception:
+            await rollback_claim(reservation)
+            raise
 
     if result is not None and result.modified_count == 0:
         # Another retry/admin may have completed the exact same roster link between our read and
@@ -497,6 +527,7 @@ async def approve_request(request_id: str, admin_user_id: str) -> tuple[dict, di
             and fresh_target.get("user_id") == document["requester_user_id"]
         )
         if not linked_by_this_request:
+            await rollback_claim(reservation)
             await db.join_requests.update_one({"id": request_id, "status": "approving"}, {"$set": {
                 "status": "obsolete", "active": False, "updated_at": timestamp,
                 "decided_at": timestamp, "rejection_reason": "The roster changed before approval.",

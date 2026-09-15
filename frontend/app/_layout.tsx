@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack, useGlobalSearchParams, useRouter, useSegments } from 'expo-router';
 import { initialWindowMetrics, SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useFonts } from 'expo-font';
@@ -25,10 +25,12 @@ SplashScreen.setOptions({ duration: 240, fade: true });
 
 function Inner() {
   const { colors } = useTheme();
-  const { user, pendingInvitePath, upiOnboardingPending } = useAuth();
+  const { user, pendingInvitePath, mobileOnboardingPending, upiOnboardingPending } = useAuth();
   const router = useRouter();
   const segments = useSegments();
+  const searchParams = useGlobalSearchParams<{ mode?: string | string[] }>();
   const firstSegment = segments[0] as string | undefined;
+  const mode = Array.isArray(searchParams.mode) ? searchParams.mode[0] : searchParams.mode;
 
   // Declarative auth guard: redirect on any session change (logout, token expiry) and fully
   // reset the stack so back-navigation can't reach a signed-out screen. No-op while loading
@@ -42,9 +44,15 @@ function Inner() {
       pendingInvitePath,
       upiOnboardingPending,
       firstSegment === 'set-upi',
+      mobileOnboardingPending,
+      firstSegment === 'set-mobile',
+      firstSegment === 'set-mobile' && mode === 'profile',
     );
     if (target) navResetTo(router, target);
-  }, [user, firstSegment, router, pendingInvitePath, upiOnboardingPending]);
+  }, [
+    user, firstSegment, router, pendingInvitePath,
+    mode, mobileOnboardingPending, upiOnboardingPending,
+  ]);
 
   const headerRight = user ? () => <ProfileAvatarButton /> : undefined;
   return (
@@ -84,6 +92,7 @@ function Inner() {
         <Stack.Screen name="verify-email" options={{ headerShown: false }} />
         <Stack.Screen name="reset-password" options={{ headerShown: false }} />
         <Stack.Screen name="set-credentials" options={{ headerShown: false }} />
+        <Stack.Screen name="set-mobile" options={{ headerShown: false }} />
         <Stack.Screen name="set-upi" options={{ headerShown: false }} />
       </Stack>
     </LogoutProvider>

@@ -243,6 +243,8 @@ def test_trip_creation_initializes_activity_and_list_is_scoped_and_deterministic
     monkeypatch.setattr(trip_routes, "record_money_normalizations", AsyncMock())
     monkeypatch.setattr(trip_routes, "record_admin_action", AsyncMock())
     monkeypatch.setattr(trip_routes, "gen_trip_code", lambda: "ABC123")
+    sync_claim = AsyncMock()
+    monkeypatch.setattr(trip_routes, "sync_mobile_claim", sync_claim)
 
     created = run(trip_routes.create_trip(
         TripIn(name="First"),
@@ -250,6 +252,7 @@ def test_trip_creation_initializes_activity_and_list_is_scoped_and_deterministic
     ))
     assert created["last_activity_at"] == created["created_at"]
     assert datetime.fromisoformat(created["last_activity_at"]).tzinfo == timezone.utc
+    sync_claim.assert_awaited_once()
     trips.rows[0]["last_activity_at"] = "2026-07-01T00:00:00+00:00"
 
     trips.rows.extend([
@@ -333,6 +336,12 @@ def test_direct_claim_is_activity_but_an_idempotent_reclaim_is_not(monkeypatch):
         find_one=AsyncMock(return_value=joined),
     )
     monkeypatch.setattr(trip_routes, "db", SimpleNamespace(trips=trips))
+    reserve_claim = AsyncMock(return_value=SimpleNamespace(
+        before=None, after=None, changed=False,
+    ))
+    sync_claim = AsyncMock()
+    monkeypatch.setattr(trip_routes, "reserve_linked_mobile", reserve_claim)
+    monkeypatch.setattr(trip_routes, "sync_mobile_claim", sync_claim)
     body = SimpleNamespace(member_id="m1", family_member_id=None)
 
     result = run(trip_routes._claim_member(
@@ -341,12 +350,14 @@ def test_direct_claim_is_activity_but_an_idempotent_reclaim_is_not(monkeypatch):
     assert result == joined
     mutation = trips.update_one.await_args.args[1]
     assert mutation["$max"]["last_activity_at"].endswith("+00:00")
+    reserve_claim.assert_awaited_once()
 
     trips.update_one.reset_mock()
     run(trip_routes._claim_member(
         joined, joined["members"], {"id": "u1"}, "ada@gmail.com", body,
     ))
     trips.update_one.assert_not_awaited()
+    sync_claim.assert_awaited_once()
 
 
 def test_member_edit_write_carries_activity_and_repeated_values_skip_the_write(monkeypatch):

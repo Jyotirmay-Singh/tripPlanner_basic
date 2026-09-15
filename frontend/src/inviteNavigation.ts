@@ -35,6 +35,17 @@ export function upiSetupHref(pendingInvitePath?: string | null): Href {
     : '/set-upi') as Href;
 }
 
+export function mobileSetupHref(pendingInvitePath?: string | null): Href {
+  const returnTo = safeInviteReturnTo(pendingInvitePath);
+  return (returnTo
+    ? { pathname: '/set-mobile', params: { returnTo } }
+    : '/set-mobile') as Href;
+}
+
+export function mobileProfileHref(): Href {
+  return '/set-mobile?mode=profile' as Href;
+}
+
 export function upiProfileHref(): Href {
   return '/set-upi?mode=profile' as Href;
 }

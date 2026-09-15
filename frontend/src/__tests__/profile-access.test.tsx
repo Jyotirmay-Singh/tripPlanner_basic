@@ -14,6 +14,7 @@ const mockToastShow = jest.fn();
 const originalPlatformOS = Platform.OS;
 let mockUser: any = {
   id: 'u1', name: 'Ada Traveller', email: 'ada@example.com', upi_id: 'ada@okbank',
+  mobile_number: '+919876543210', mobile_country_code: 'IN',
 };
 
 jest.mock('expo-router', () => ({
@@ -80,6 +81,7 @@ describe('Profile access after removing its visible tab', () => {
     jest.clearAllMocks();
     mockUser = {
       id: 'u1', name: 'Ada Traveller', email: 'ada@example.com', upi_id: 'ada@okbank',
+      mobile_number: '+919876543210', mobile_country_code: 'IN',
     };
     Object.defineProperty(Platform, 'OS', { configurable: true, value: originalPlatformOS });
   });
@@ -107,18 +109,22 @@ describe('Profile access after removing its visible tab', () => {
 
     act(() => { root.findByProps({ testID: 'toggle-dark-mode' }).props.onValueChange(true); });
     act(() => { root.findByProps({ testID: 'profile-change-password' }).props.onPress(); });
+    act(() => { root.findByProps({ testID: 'profile-mobile-number' }).props.onPress(); });
     act(() => { root.findByProps({ testID: 'profile-payment-details' }).props.onPress(); });
     act(() => { root.findByProps({ testID: 'profile-logout' }).props.onPress(); });
 
     expect(mockToggle).toHaveBeenCalledTimes(1);
     expect(mockPush).toHaveBeenCalledWith('/change-password');
+    expect(mockPush).toHaveBeenCalledWith('/set-mobile?mode=profile');
     expect(mockPush).toHaveBeenCalledWith('/set-upi?mode=profile');
+    expect(root.findByProps({ testID: 'profile-mobile-value' }).props.children)
+      .toBe('+91 98765 43210');
     expect(root.findByProps({ testID: 'profile-upi-value' }).props.children).toBe('ada@okbank');
     expect(mockConfirmAndSignOut).toHaveBeenCalledTimes(1);
   });
 
   it('shows the payment-details empty state without prompting automatically', () => {
-    mockUser = { ...mockUser, upi_id: null };
+    mockUser = { ...mockUser, upi_id: null, mobile_number: null, mobile_country_code: null };
     const root = render(<Profile />);
 
     expect(root.findByProps({ testID: 'profile-upi-value' }).props.children)
@@ -126,6 +132,10 @@ describe('Profile access after removing its visible tab', () => {
     expect(root.findByProps({ testID: 'profile-payment-details' }).props.accessibilityLabel)
       .toBe('Payment details, UPI ID not set');
     expect(root.findAllByProps({ testID: 'profile-copy-upi' })).toHaveLength(0);
+    expect(root.findByProps({ testID: 'profile-mobile-value' }).props.children)
+      .toBe('Add mobile number');
+    expect(root.findByProps({ testID: 'profile-mobile-number' }).props.accessibilityLabel)
+      .toBe('Mobile number, not set');
     expect(mockPush).not.toHaveBeenCalled();
   });
 

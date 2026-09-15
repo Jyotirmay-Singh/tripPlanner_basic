@@ -249,7 +249,7 @@ it('signs in with an email and password payload only', async () => {
   });
   await mount();
 
-  await act(async () => latest.signIn('saved@gmail.com', 'password123'));
+  await act(async () => { await latest.signIn('saved@gmail.com', 'password123'); });
 
   expect(apiModule.api).toHaveBeenCalledWith('/auth/login', {
     method: 'POST',
@@ -257,7 +257,47 @@ it('signs in with an email and password payload only', async () => {
     auth: false,
   });
   expect(latest.user).toEqual(user);
+  expect(latest.mobileOnboardingPending).toBe(true);
   expect(latest.upiOnboardingPending).toBe(false);
+
+  act(() => latest.completeMobileOnboarding());
+  expect(latest.mobileOnboardingPending).toBe(false);
+  expect((AsyncStorage.setItem as jest.Mock).mock.calls.map(([key]) => key))
+    .not.toContain('mobile_onboarding_pending');
+});
+
+it('does not offer mobile onboarding after an explicit login with a saved number', async () => {
+  const user = {
+    id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user',
+    mobile_number: '+919876543210', mobile_country_code: 'IN',
+  };
+  (apiModule.api as jest.Mock).mockImplementation((path: string) => {
+    if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
+    if (path === '/auth/login') return Promise.resolve({ access_token: 'jwt', user });
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+
+  await act(async () => { await latest.signIn('saved@gmail.com', 'password123'); });
+
+  expect(latest.mobileOnboardingPending).toBe(false);
+});
+
+it('does not recreate mobile onboarding while restoring a session without a number', async () => {
+  const user = {
+    id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user',
+    mobile_number: null, mobile_country_code: null,
+  };
+  (apiModule.getToken as jest.Mock).mockResolvedValue('jwt');
+  (apiModule.api as jest.Mock).mockImplementation((path: string) => {
+    if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
+    if (path === '/auth/me') return Promise.resolve(user);
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+
+  expect(latest.user).toEqual(user);
+  expect(latest.mobileOnboardingPending).toBe(false);
 });
 
 it('registers without a PIN field', async () => {
@@ -269,7 +309,7 @@ it('registers without a PIN field', async () => {
   });
   await mount();
 
-  await act(async () => latest.register('new@gmail.com', 'New User', 'password123'));
+  await act(async () => { await latest.register('new@gmail.com', 'New User', 'password123'); });
 
   expect(apiModule.api).toHaveBeenCalledWith('/auth/register', {
     method: 'POST',
@@ -277,6 +317,7 @@ it('registers without a PIN field', async () => {
     auth: false,
   });
   expect(latest.user).toEqual(user);
+  expect(latest.mobileOnboardingPending).toBe(true);
   expect(latest.upiOnboardingPending).toBe(true);
   expect((AsyncStorage.setItem as jest.Mock).mock.calls.map(([key]) => key))
     .not.toContain('upi_onboarding_pending');
@@ -295,12 +336,101 @@ it('keeps first-time Google UPI onboarding volatile and clears it explicitly', a
   await mount();
 
   await act(async () => { await latest.signInWithGoogle('google-id-token'); });
+  expect(latest.mobileOnboardingPending).toBe(true);
   expect(latest.upiOnboardingPending).toBe(true);
+
+  act(() => latest.completeMobileOnboarding());
+  expect(latest.mobileOnboardingPending).toBe(false);
 
   act(() => latest.completeUpiOnboarding());
   expect(latest.upiOnboardingPending).toBe(false);
   expect((AsyncStorage.setItem as jest.Mock).mock.calls.map(([key]) => key))
     .not.toContain('upi_onboarding_pending');
+});
+
+it('saves a canonical mobile profile and adopts the server response', async () => {
+  const current = {
+    id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user',
+    mobile_number: null, mobile_country_code: null,
+  };
+  const updated = {
+    ...current,
+    mobile_number: '+919876543210',
+    mobile_country_code: 'IN' as const,
+    mobile_verified_at: null,
+  };
+  (apiModule.getToken as jest.Mock).mockResolvedValue('jwt');
+  (apiModule.api as jest.Mock).mockImplementation((path: string, opts?: { method?: string }) => {
+    if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
+    if (path === '/auth/me/mobile' && opts?.method === 'PATCH') return Promise.resolve(updated);
+    if (path === '/auth/me') return Promise.resolve(current);
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+
+  let result: Awaited<ReturnType<typeof latest.updateMobileNumber>> | undefined;
+  await act(async () => {
+    result = await latest.updateMobileNumber('98765 43210', 'IN');
+  });
+
+  expect(apiModule.api).toHaveBeenCalledWith('/auth/me/mobile', {
+    method: 'PATCH',
+    body: { mobile_number: '+919876543210', mobile_country_code: 'IN' },
+  });
+  expect(result).toEqual(updated);
+  expect(latest.user).toEqual(updated);
+});
+
+it('removal stays skipped for this session but the next explicit login is eligible', async () => {
+  const current = {
+    id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user',
+    mobile_number: '+919876543210', mobile_country_code: 'IN' as const,
+  };
+  const cleared = {
+    ...current, mobile_number: null, mobile_country_code: null, mobile_verified_at: null,
+  };
+  (apiModule.getToken as jest.Mock).mockResolvedValue('jwt');
+  (apiModule.api as jest.Mock).mockImplementation((path: string, opts?: { method?: string }) => {
+    if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
+    if (path === '/auth/me/mobile' && opts?.method === 'PATCH') return Promise.resolve(cleared);
+    if (path === '/auth/login') return Promise.resolve({ access_token: 'new-jwt', user: cleared });
+    if (path === '/auth/me') return Promise.resolve(current);
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+
+  await act(async () => { await latest.updateMobileNumber(null, null); });
+  expect(latest.mobileOnboardingPending).toBe(false);
+  expect(latest.user).toEqual(cleared);
+
+  await act(async () => { await latest.signIn('saved@gmail.com', 'password123'); });
+  expect(latest.mobileOnboardingPending).toBe(true);
+});
+
+it('keeps the prior mobile profile when a trip conflict rejects the save', async () => {
+  const current = {
+    id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user',
+    mobile_number: '+919111111111', mobile_country_code: 'IN' as const,
+  };
+  (apiModule.getToken as jest.Mock).mockResolvedValue('jwt');
+  (apiModule.api as jest.Mock).mockImplementation((path: string, opts?: { method?: string }) => {
+    if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
+    if (path === '/auth/me/mobile' && opts?.method === 'PATCH') {
+      return Promise.reject(new apiModule.ApiError(
+        'This mobile number is already used by Mina in Kerala.',
+        { code: 'http', status: 409, detailCode: 'trip_mobile_conflict' },
+      ));
+    }
+    if (path === '/auth/me') return Promise.resolve(current);
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+
+  await act(async () => {
+    await latest.updateMobileNumber('9876543210', 'IN').catch(() => {});
+  });
+
+  expect(latest.user).toEqual(current);
 });
 
 it('validates, trims, saves, and adopts the server UPI profile response', async () => {

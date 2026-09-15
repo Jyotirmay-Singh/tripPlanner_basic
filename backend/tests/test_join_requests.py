@@ -17,6 +17,17 @@ def run(awaitable):
     return asyncio.run(awaitable)
 
 
+@pytest.fixture(autouse=True)
+def isolate_mobile_claim_collaborator(monkeypatch):
+    """Legacy workflow tests mock join_requests.db; keep the new claims service at that boundary."""
+    monkeypatch.setattr(
+        join_requests,
+        "reserve_linked_mobile",
+        AsyncMock(return_value=SimpleNamespace(before=None, after=None, changed=False)),
+    )
+    monkeypatch.setattr(join_requests, "rollback_claim", AsyncMock())
+
+
 def roster_trip():
     return {
         "id": "trip-1",
@@ -264,6 +275,50 @@ def test_approval_links_a_family_member_and_guards_the_saved_email(monkeypatch):
     assert update["$set"]["members.$.family_member_user_ids.0"] == "requester-1"
     assert update["$set"]["members.$.family_member_emails.0"] == "newdev@gmail.com"
     assert update["$max"]["last_activity_at"].endswith("+00:00")
+
+
+def test_mobile_conflict_returns_request_to_pending_for_retry(monkeypatch):
+    document = request_document()
+    trip = roster_trip()
+    request_collection = SimpleNamespace(
+        find_one_and_update=AsyncMock(return_value=document),
+        update_one=AsyncMock(),
+    )
+    trip_collection = SimpleNamespace(
+        find_one=AsyncMock(return_value=trip),
+        update_one=AsyncMock(),
+    )
+    monkeypatch.setattr(join_requests, "db", SimpleNamespace(
+        join_requests=request_collection,
+        trips=trip_collection,
+        users=SimpleNamespace(find_one=AsyncMock(return_value={
+            "id": "requester-1", "name": "New Dev", "email": "newdev@gmail.com",
+            "mobile_number": "+919876543210",
+        })),
+    ))
+    detail = {
+        "code": "trip_mobile_conflict",
+        "message": "This mobile number is already used by Asha in Coast trip.",
+        "trip_id": "trip-1",
+        "trip_name": "Coast trip",
+        "member_name": "Asha",
+        "retryable": False,
+    }
+    monkeypatch.setattr(
+        join_requests,
+        "reserve_linked_mobile",
+        AsyncMock(side_effect=HTTPException(409, detail=detail)),
+    )
+
+    with pytest.raises(HTTPException) as error:
+        run(join_requests.approve_request("request-1", "admin-1"))
+
+    assert error.value.detail == detail
+    trip_collection.update_one.assert_not_awaited()
+    retry_update = request_collection.update_one.await_args.args[1]
+    assert retry_update["$set"]["status"] == "pending"
+    assert retry_update["$set"]["active"] is True
+    assert retry_update["$unset"] == {"decided_by_user_id": ""}
 
 
 def test_approval_retry_finalizes_a_roster_link_left_in_approving_state(monkeypatch):

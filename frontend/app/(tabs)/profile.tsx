@@ -11,7 +11,8 @@ import T from '../../src/T';
 import TabPageHeader from '../../src/TabPageHeader';
 import { TabScreen, Card, Icon, IconButton, useToast } from '../../src/ui';
 import NotificationSettingsRow from '../../src/NotificationSettingsRow';
-import { upiProfileHref } from '../../src/inviteNavigation';
+import { mobileProfileHref, upiProfileHref } from '../../src/inviteNavigation';
+import { formatMobileForDisplay } from '../../src/mobileNumber';
 
 export default function Profile() {
   const { user, refreshUserProfile } = useAuth();
@@ -72,6 +73,26 @@ export default function Profile() {
       >
         <Icon name="lock" size={20} color={colors.primary} />
         <T style={{ flex: 1 }}>Change password</T>
+        <Icon name="chevron-right" size={18} color={colors.textMuted} />
+      </Card>
+
+      <Card
+        onPress={() => router.push(mobileProfileHref())}
+        testID="profile-mobile-number"
+        accessibilityLabel={`Mobile number, ${
+          user?.mobile_number ? formatMobileForDisplay(user.mobile_number) : 'not set'
+        }`}
+        style={styles.row}
+      >
+        <Icon name="phone" size={20} color={colors.primary} />
+        <View style={styles.paymentCopy}>
+          <T variant="h4">Mobile number</T>
+          <T muted variant="caption" numberOfLines={1} testID="profile-mobile-value">
+            {user?.mobile_number
+              ? formatMobileForDisplay(user.mobile_number)
+              : 'Add mobile number'}
+          </T>
+        </View>
         <Icon name="chevron-right" size={18} color={colors.textMuted} />
       </Card>
 

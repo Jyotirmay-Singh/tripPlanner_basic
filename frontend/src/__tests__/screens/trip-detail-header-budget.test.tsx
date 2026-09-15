@@ -1,13 +1,14 @@
 /* eslint-disable import/first, @typescript-eslint/no-require-imports */
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { Share, StyleSheet } from 'react-native';
+import { Linking, Share, StyleSheet } from 'react-native';
 import { COMPONENT_SIZE, RADIUS, SPACING } from '../../theme';
 
 const mockRouterPush = jest.fn();
 const mockGetTripInviteLink = jest.fn();
 const mockRefreshRuntimeConfig = jest.fn();
 const mockToastShow = jest.fn();
+const mockSetStringAsync = jest.fn().mockResolvedValue(true);
 let mockInviteLinksEnabled = false;
 let mockRole: 'owner' | 'admin' | 'member' | null = null;
 let mockUser: any = { id: 'u1', email: 'member@gmail.com', is_super_admin: false };
@@ -18,6 +19,9 @@ jest.mock('../../api', () => ({
   getToken: jest.fn(),
   receiptUrl: jest.fn(() => 'receipt://x'),
   spendSummary: jest.fn(),
+}));
+jest.mock('expo-clipboard', () => ({
+  setStringAsync: (value: string) => mockSetStringAsync(value),
 }));
 jest.mock('../../AuthContext', () => ({ useAuth: () => ({
   user: mockUser,
@@ -92,6 +96,7 @@ jest.mock('../../ui', () => {
     EmptyState: stub('EmptyState'),
     ResponsiveAmountText: stub('ResponsiveAmountText'),
     SkeletonCard: stub('SkeletonCard'),
+    ActionSheet: stub('ActionSheet'),
     useToast: () => ({ show: mockToastShow }),
   };
 });
@@ -181,6 +186,18 @@ function hostByTestID(root: any, type: string, testID: string) {
   return root.findAllByType(type as any).find((node: any) => node.props.testID === testID);
 }
 
+function hostsByTestID(root: any, testID: string) {
+  return root.findAll(
+    (node: any) => typeof node.type === 'string' && node.props.testID === testID,
+  );
+}
+
+function interactiveByTestID(root: any, testID: string) {
+  return root.findAll(
+    (node: any) => node.props.testID === testID && typeof node.props.onPress === 'function',
+  )[0];
+}
+
 function textContent(node: any): string {
   const children = node?.props?.children;
   if (children == null) return '';
@@ -201,9 +218,117 @@ beforeEach(() => {
   mockRefreshRuntimeConfig.mockReset();
   mockRefreshRuntimeConfig.mockResolvedValue({ inviteLinksEnabled: false });
   mockToastShow.mockReset();
+  mockSetStringAsync.mockReset();
+  mockSetStringAsync.mockResolvedValue(true);
   mockInviteLinksEnabled = false;
   mockRole = null;
   mockUser = { id: 'u1', email: 'member@gmail.com', is_super_admin: false };
+});
+
+describe('Member mobile contacts', () => {
+  const contactMembers = [
+    {
+      ...INDIVIDUAL,
+      mobile_number: '+919876543210',
+      email: 'aditi@gmail.com',
+    },
+    {
+      id: 'manual', name: 'Manual guest', kind: 'individual', family_members: [],
+      user_id: null, mobile_number: null,
+    },
+    {
+      id: 'fam', name: 'Shah family', kind: 'family',
+      family_members: ['Mina', 'Ravi'],
+      family_member_ids: ['fm1', 'fm2'],
+      family_member_emails: ['mina@gmail.com', null],
+      family_member_user_ids: ['u2', null],
+      family_member_mobile_numbers: ['+14155552671', null],
+      user_id: null,
+    },
+  ];
+
+  async function openMembers() {
+    const renderer = await mountTrip({
+      trip: { members: contactMembers, user_ids: ['u1', 'u2'] },
+    });
+    act(() => renderer.root.findByType('SegmentedControl' as any).props.onChange('members'));
+    return renderer;
+  }
+
+  it('renders only populated linked individual and aligned family numbers', async () => {
+    const renderer = await openMembers();
+
+    expect(hostsByTestID(renderer.root, 'member-mobile-m1')).toHaveLength(1);
+    expect(hostsByTestID(renderer.root, 'member-mobile-manual')).toHaveLength(0);
+    expect(hostsByTestID(renderer.root, 'member-mobile-fm1')).toHaveLength(1);
+    expect(hostsByTestID(renderer.root, 'member-mobile-fm2')).toHaveLength(0);
+
+    const familyPerson = renderer.root.findByProps({ testID: 'member-fam-sub-0' });
+    const familyText = familyPerson.findAllByType('T' as any).map(textContent).join(' ');
+    expect(familyText).toContain('mina@gmail.com');
+    expect(familyText).toContain('+1 415 555 2671');
+  });
+
+  it('opens one action sheet and supports calling or copying the canonical number', async () => {
+    const canOpen = jest.spyOn(Linking, 'canOpenURL').mockResolvedValue(true);
+    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
+    const renderer = await openMembers();
+
+    act(() => interactiveByTestID(renderer.root, 'member-mobile-m1').props.onPress());
+    let sheet = renderer.root.findByProps({ testID: 'member-mobile-actions' });
+    expect(sheet.props.visible).toBe(true);
+    expect(sheet.props.title).toBe('Contact Aditi');
+    expect(sheet.props.message).toBe('+91 98765 43210');
+
+    await act(async () => {
+      sheet.props.actions.find((action: any) => action.label === 'Call').onPress();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(canOpen).toHaveBeenCalledWith('tel:+919876543210');
+    expect(open).toHaveBeenCalledWith('tel:+919876543210');
+
+    act(() => interactiveByTestID(renderer.root, 'member-mobile-fm1').props.onPress());
+    sheet = renderer.root.findByProps({ testID: 'member-mobile-actions' });
+    await act(async () => {
+      sheet.props.actions.find((action: any) => action.label === 'Copy number').onPress();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockSetStringAsync).toHaveBeenCalledWith('+14155552671');
+    expect(mockToastShow).toHaveBeenCalledWith('Mobile number copied', 'success');
+
+    canOpen.mockRestore();
+    open.mockRestore();
+  });
+
+  it('gives specific feedback for unsupported calls and clipboard failures', async () => {
+    const canOpen = jest.spyOn(Linking, 'canOpenURL').mockResolvedValue(false);
+    mockSetStringAsync.mockRejectedValueOnce(new Error('clipboard unavailable'));
+    const renderer = await openMembers();
+
+    act(() => interactiveByTestID(renderer.root, 'member-mobile-m1').props.onPress());
+    let sheet = renderer.root.findByProps({ testID: 'member-mobile-actions' });
+    await act(async () => {
+      sheet.props.actions.find((action: any) => action.label === 'Call').onPress();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockToastShow)
+      .toHaveBeenCalledWith('Calling is not supported on this device.', 'error');
+
+    act(() => interactiveByTestID(renderer.root, 'member-mobile-m1').props.onPress());
+    sheet = renderer.root.findByProps({ testID: 'member-mobile-actions' });
+    await act(async () => {
+      sheet.props.actions.find((action: any) => action.label === 'Copy number').onPress();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockToastShow)
+      .toHaveBeenCalledWith('Could not copy mobile number. Try again.', 'error');
+
+    canOpen.mockRestore();
+  });
 });
 
 describe('Trip identity header', () => {

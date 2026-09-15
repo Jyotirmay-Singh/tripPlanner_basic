@@ -34,6 +34,13 @@ from services.trip_activity import (
     ensure_activity_payload,
     with_trip_activity,
 )
+from services.mobile_claims import (
+    enrich_trip_mobile_numbers,
+    release_trip_claims,
+    reserve_linked_mobile,
+    rollback_claim,
+    sync_mobile_claim,
+)
 from utils.money_policy import (
     AmountRoundsToZeroError,
     amount_rounds_to_zero_detail,
@@ -136,6 +143,12 @@ async def create_trip(body: TripIn, user=Depends(get_current_user)):
     }
     await db.trips.insert_one(doc)
     doc.pop("_id", None)
+    try:
+        await sync_mobile_claim(doc, user)
+    except Exception:
+        # The trip has no externally-visible dependent rows yet, so creation can compensate cleanly.
+        await db.trips.delete_one({"id": tid})
+        raise
     await record_money_normalizations(
         [budget_change],
         actor_user_id=user["id"],
@@ -161,7 +174,8 @@ async def list_trips(user=Depends(get_current_user)):
 
 @router.get("/trips/{trip_id}")
 async def get_trip(trip_id: str, user=Depends(get_current_user)):
-    return ensure_activity_payload(ensure_date_range(await _trip_or_404(trip_id, user)))
+    trip = ensure_activity_payload(ensure_date_range(await _trip_or_404(trip_id, user)))
+    return await enrich_trip_mobile_numbers(trip)
 
 
 @router.patch("/trips/{trip_id}")
@@ -237,6 +251,7 @@ async def delete_trip(trip_id: str, user=Depends(get_current_user)):
     await db.chat_messages.delete_many({"trip_id": trip_id})
     await db.chat_reads.delete_many({"trip_id": trip_id})
     await db.chat_counters.delete_many({"trip_id": trip_id})
+    await release_trip_claims(trip_id)
     await chat_connections.disconnect_trip(trip_id)
     await record_admin_action(
         user, "trip.deleted", trip=trip, resource_type="trip", resource_id=trip_id,
@@ -261,27 +276,36 @@ async def _claim_member(trip, members, user, user_email, body):
     if not target:
         raise HTTPException(404, "Member not found")
     if target.get("user_id") == user["id"]:
+        await sync_mobile_claim(trip, user)
         return trip  # idempotent: same account re-claiming its own profile
     if normalize_email(target.get("email")) != user_email:
         raise HTTPException(403, "You can only claim the profile matching your email")
-    # Atomic claim: succeeds only while the row is still unclaimed (closes the TOCTOU race).
-    res = await db.trips.update_one(
-        {
-            "id": trip["id"],
-            "user_ids": {"$ne": user["id"]},
-            "members": {"$elemMatch": {"id": target["id"], "user_id": None}},
-        },
-        with_trip_activity({
-            "$addToSet": {"user_ids": user["id"]},
-            "$set": {"members.$.user_id": user["id"]},
-        }),
+    reservation = await reserve_linked_mobile(
+        trip, user, member_id=target["id"], member_name=target.get("name") or "Trip member",
     )
+    try:
+        # Atomic claim: succeeds only while the row is still unclaimed (closes the TOCTOU race).
+        res = await db.trips.update_one(
+            {
+                "id": trip["id"],
+                "user_ids": {"$ne": user["id"]},
+                "members": {"$elemMatch": {"id": target["id"], "user_id": None}},
+            },
+            with_trip_activity({
+                "$addToSet": {"user_ids": user["id"]},
+                "$set": {"members.$.user_id": user["id"]},
+            }),
+        )
+    except Exception:
+        await rollback_claim(reservation)
+        raise
     if res.modified_count == 0:
         # Lost the race (or already linked): succeed only if it ended up linked to US.
         fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
         cur = next((m for m in fresh.get("members", []) if m["id"] == target["id"]), None)
         if cur and cur.get("user_id") == user["id"]:
             return fresh
+        await rollback_claim(reservation)
         raise HTTPException(409, "This profile is already linked to another account")
     return await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
 
@@ -307,21 +331,34 @@ async def _claim_sub_member(trip, members, user, user_email, body):
     sub_email = emails[idx] if idx < len(emails) else None
     cur_uid = uids[idx] if idx < len(uids) else None
     if cur_uid == user["id"]:
+        await sync_mobile_claim(trip, user)
         return trip  # idempotent: same account re-claiming its own member slot
     if normalize_email(sub_email) != user_email:
         raise HTTPException(403, "You can only claim the member matching your email")
     if cur_uid:
         raise HTTPException(409, "This member is already linked to another account")
-    # Atomic: only while this exact slot is still unclaimed (null or absent). Set just the one index
-    # so a concurrent claim of a DIFFERENT slot in the same family isn't clobbered.
-    res = await db.trips.update_one(
-        {"id": trip["id"], "user_ids": {"$ne": user["id"]}, "members": {"$elemMatch": {
-            "id": family["id"], f"family_member_user_ids.{idx}": None}}},
-        with_trip_activity({
-            "$addToSet": {"user_ids": user["id"]},
-            "$set": {f"members.$.family_member_user_ids.{idx}": user["id"]},
-        }),
+    names = family.get("family_members") or []
+    reservation = await reserve_linked_mobile(
+        trip,
+        user,
+        member_id=family["id"],
+        family_member_id=body.family_member_id,
+        member_name=names[idx] if idx < len(names) else family.get("name") or "Trip member",
     )
+    try:
+        # Atomic: only while this exact slot is still unclaimed (null or absent). Set just the one
+        # index so a concurrent claim of a different slot in the same family is not clobbered.
+        res = await db.trips.update_one(
+            {"id": trip["id"], "user_ids": {"$ne": user["id"]}, "members": {"$elemMatch": {
+                "id": family["id"], f"family_member_user_ids.{idx}": None}}},
+            with_trip_activity({
+                "$addToSet": {"user_ids": user["id"]},
+                "$set": {f"members.$.family_member_user_ids.{idx}": user["id"]},
+            }),
+        )
+    except Exception:
+        await rollback_claim(reservation)
+        raise
     if res.modified_count == 0:
         # Lost the race (or already linked): succeed only if this slot ended up linked to US.
         fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
@@ -329,6 +366,7 @@ async def _claim_sub_member(trip, members, user, user_email, body):
         fu = (fam or {}).get("family_member_user_ids") or []
         if idx < len(fu) and fu[idx] == user["id"]:
             return fresh
+        await rollback_claim(reservation)
         raise HTTPException(409, "This member is already linked to another account")
     return await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
 
@@ -409,20 +447,29 @@ async def _apply_mode(trip, members, user, user_email, body):
         stubs = find_own_stubs(members, user_email)
         stub = stubs[0] if stubs else None
         if stub:
-            result = await db.trips.update_one(
-                {
-                    "id": trip["id"],
-                    "user_ids": {"$ne": user["id"]},
-                    "members": {"$elemMatch": {"id": stub["id"], "user_id": None}},
-                },
-                with_trip_activity({
-                    "$addToSet": {"user_ids": user["id"]},
-                    "$set": {"members.$.user_id": user["id"]},
-                }),
+            reservation = await reserve_linked_mobile(
+                trip, user, member_id=stub["id"],
+                member_name=stub.get("name") or "Trip member",
             )
+            try:
+                result = await db.trips.update_one(
+                    {
+                        "id": trip["id"],
+                        "user_ids": {"$ne": user["id"]},
+                        "members": {"$elemMatch": {"id": stub["id"], "user_id": None}},
+                    },
+                    with_trip_activity({
+                        "$addToSet": {"user_ids": user["id"]},
+                        "$set": {"members.$.user_id": user["id"]},
+                    }),
+                )
+            except Exception:
+                await rollback_claim(reservation)
+                raise
             if result.modified_count == 0:
                 fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
                 if not fresh or user["id"] not in fresh.get("user_ids", []):
+                    await rollback_claim(reservation)
                     raise HTTPException(409, "This profile is already linked to another account")
         else:
             # One-email invariant: a genuine new individual can't reuse an email already in the trip
@@ -436,16 +483,24 @@ async def _apply_mode(trip, members, user, user_email, body):
                 "kind": "individual", "family_members": [],
                 "email": user_email, "user_id": user["id"],
             }
-            result = await db.trips.update_one(
-                {"id": trip["id"], "user_ids": {"$ne": user["id"]}},
-                with_trip_activity({
-                    "$addToSet": {"user_ids": user["id"]},
-                    "$push": {"members": new_member},
-                }),
+            reservation = await reserve_linked_mobile(
+                trip, user, member_id=new_member["id"], member_name=new_member["name"],
             )
+            try:
+                result = await db.trips.update_one(
+                    {"id": trip["id"], "user_ids": {"$ne": user["id"]}},
+                    with_trip_activity({
+                        "$addToSet": {"user_ids": user["id"]},
+                        "$push": {"members": new_member},
+                    }),
+                )
+            except Exception:
+                await rollback_claim(reservation)
+                raise
             if result.modified_count == 0:
                 fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
                 if not fresh or user["id"] not in fresh.get("user_ids", []):
+                    await rollback_claim(reservation)
                     raise HTTPException(409, "The trip changed before you could join")
 
     elif mode == "individual":
@@ -457,16 +512,24 @@ async def _apply_mode(trip, members, user, user_email, body):
             "kind": "individual", "family_members": [],
             "email": user_email, "user_id": user["id"],
         }
-        result = await db.trips.update_one(
-            {"id": trip["id"], "user_ids": {"$ne": user["id"]}},
-            with_trip_activity({
-                "$addToSet": {"user_ids": user["id"]},
-                "$push": {"members": new_member},
-            }),
+        reservation = await reserve_linked_mobile(
+            trip, user, member_id=new_member["id"], member_name=new_member["name"],
         )
+        try:
+            result = await db.trips.update_one(
+                {"id": trip["id"], "user_ids": {"$ne": user["id"]}},
+                with_trip_activity({
+                    "$addToSet": {"user_ids": user["id"]},
+                    "$push": {"members": new_member},
+                }),
+            )
+        except Exception:
+            await rollback_claim(reservation)
+            raise
         if result.modified_count == 0:
             fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
             if not fresh or user["id"] not in fresh.get("user_ids", []):
+                await rollback_claim(reservation)
                 raise HTTPException(409, "The trip changed before you could join")
 
     elif mode == "family":
@@ -500,18 +563,31 @@ async def _apply_mode(trip, members, user, user_email, body):
                 "code": "approval_required",
                 "message": "An owner or admin must approve joining as this family member",
             })
-        # Atomic: only while this exact slot is still unclaimed (null matches null OR missing), so a
-        # concurrent claim of the same slot loses. Never touches the entity user_id/email.
-        res = await db.trips.update_one(
-            {"id": trip["id"], "user_ids": {"$ne": user["id"]}, "members": {"$elemMatch": {
-                "id": target["id"], f"family_member_user_ids.{idx}": None}}},
-            with_trip_activity({
-                "$addToSet": {"user_ids": user["id"]}, "$set": set_fields,
-            }),
+        names = target.get("family_members") or []
+        reservation = await reserve_linked_mobile(
+            trip,
+            user,
+            member_id=target["id"],
+            family_member_id=body.family_member_id,
+            member_name=names[idx] if idx < len(names) else target.get("name") or "Trip member",
         )
+        try:
+            # Atomic: only while this exact slot is still unclaimed (null matches null OR missing),
+            # so a concurrent claim of the same slot loses.
+            res = await db.trips.update_one(
+                {"id": trip["id"], "user_ids": {"$ne": user["id"]}, "members": {"$elemMatch": {
+                    "id": target["id"], f"family_member_user_ids.{idx}": None}}},
+                with_trip_activity({
+                    "$addToSet": {"user_ids": user["id"]}, "$set": set_fields,
+                }),
+            )
+        except Exception:
+            await rollback_claim(reservation)
+            raise
         if res.modified_count == 0:
             fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
             if not fresh or user["id"] not in fresh.get("user_ids", []):
+                await rollback_claim(reservation)
                 raise HTTPException(409, "This member is already linked to another account")
 
     elif mode == "new_family":
@@ -531,24 +607,37 @@ async def _apply_mode(trip, members, user, user_email, body):
         uids = [None] * n
         emails[0] = user_email
         uids[0] = user["id"]
+        family_member_ids = assign_family_member_ids(body.family_members)
         new_member = {
             "id": gen_id(), "name": body.family_name, "kind": "family",
             "family_members": body.family_members,
-            "family_member_ids": assign_family_member_ids(body.family_members),
+            "family_member_ids": family_member_ids,
             "family_member_emails": emails,
             "family_member_user_ids": uids,
             "email": None, "user_id": None,
         }
-        result = await db.trips.update_one(
-            {"id": trip["id"], "user_ids": {"$ne": user["id"]}},
-            with_trip_activity({
-                "$addToSet": {"user_ids": user["id"]},
-                "$push": {"members": new_member},
-            }),
+        reservation = await reserve_linked_mobile(
+            trip,
+            user,
+            member_id=new_member["id"],
+            family_member_id=family_member_ids[0],
+            member_name=body.family_members[0],
         )
+        try:
+            result = await db.trips.update_one(
+                {"id": trip["id"], "user_ids": {"$ne": user["id"]}},
+                with_trip_activity({
+                    "$addToSet": {"user_ids": user["id"]},
+                    "$push": {"members": new_member},
+                }),
+            )
+        except Exception:
+            await rollback_claim(reservation)
+            raise
         if result.modified_count == 0:
             fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
             if not fresh or user["id"] not in fresh.get("user_ids", []):
+                await rollback_claim(reservation)
                 raise HTTPException(409, "The trip changed before you could join")
 
 
@@ -563,6 +652,7 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
     # contract, hardened the same way.
     trip, invite = await resolve_join_credential(body.code, body.invite_token)
     if user["id"] in trip.get("user_ids", []):
+        await sync_mobile_claim(trip, user)
         await cancel_pending_after_join(trip["id"], user["id"])
         return trip  # idempotent — already a member, regardless of action/mode
 
@@ -580,10 +670,22 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
     if body.action == "join_new":
         if body.mode not in ("individual", "new_family"):
             raise HTTPException(400, "join_new mode must be individual or new_family")
-        await _resolve_clean_stub_for_join_new(trip, own_stubs, user_email, body)
-        trip = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})  # fresh after any $pull
-        members = trip.get("members", [])
-        await _apply_mode(trip, members, user, user_email, body)
+        # Hold the number before removing a clean email stub. _apply_mode replaces this provisional
+        # identity with the actual minted member/slot; failures restore the pre-join claim state.
+        provisional = await reserve_linked_mobile(
+            trip,
+            user,
+            member_id=f"pending:{user['id']}",
+            member_name=user.get("name") or "Trip member",
+        )
+        try:
+            await _resolve_clean_stub_for_join_new(trip, own_stubs, user_email, body)
+            trip = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})  # fresh after any $pull
+            members = trip.get("members", [])
+            await _apply_mode(trip, members, user, user_email, body)
+        except Exception:
+            await rollback_claim(provisional)
+            raise
         joined = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
         await cancel_pending_after_join(trip["id"], user["id"])
         await record_invite_use(invite)

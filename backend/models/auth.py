@@ -1,7 +1,8 @@
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, EmailStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, EmailStr, field_validator, model_validator
 
+from utils.mobile_numbers import normalize_mobile_number
 from utils.upi_rules import normalize_upi_id
 
 
@@ -60,3 +61,24 @@ class UpiProfileUpdate(BaseModel):
         if value is None:
             return None
         return normalize_upi_id(value)
+
+
+class MobileProfileUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Both fields are required in the PATCH body. Explicit null for both removes the number.
+    mobile_number: Optional[str]
+    mobile_country_code: Optional[str]
+
+    @model_validator(mode="after")
+    def validate_mobile(self):
+        if (self.mobile_number is None) != (self.mobile_country_code is None):
+            raise ValueError("Mobile number and country are required together")
+        if self.mobile_number is None:
+            return self
+        number, country = normalize_mobile_number(
+            self.mobile_number, self.mobile_country_code or ""
+        )
+        self.mobile_number = number
+        self.mobile_country_code = country
+        return self

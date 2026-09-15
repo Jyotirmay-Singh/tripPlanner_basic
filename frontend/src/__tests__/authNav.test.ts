@@ -67,6 +67,33 @@ describe('authRedirectTarget with isPublicRoute', () => {
     expect(authRedirectTarget(noUpi, false, false, false, invite, true, true)).toBeNull();
   });
 
+  it('enforces password, mobile, then UPI precedence while preserving an invite', () => {
+    const invite = `/invite/${'b'.repeat(43)}`;
+    const unfinished = { ...user, credentials_set: false };
+
+    expect(authRedirectTarget(
+      unfinished, false, false, false, invite, true, false, true, false,
+    )).toEqual({ pathname: '/set-credentials', params: { returnTo: invite } });
+    expect(authRedirectTarget(
+      user, false, false, false, invite, true, false, true, false,
+    )).toEqual({ pathname: '/set-mobile', params: { returnTo: invite } });
+    expect(authRedirectTarget(
+      user, false, false, false, invite, true, false, true, true,
+    )).toBeNull();
+    expect(authRedirectTarget(
+      user, false, false, false, invite, true, false, false, false,
+    )).toEqual({ pathname: '/set-upi', params: { returnTo: invite } });
+  });
+
+  it('allows the Profile mobile editor when onboarding is not pending', () => {
+    expect(authRedirectTarget(
+      user, false, false, false, null, false, false, false, true, true,
+    )).toBeNull();
+    expect(authRedirectTarget(
+      user, false, false, false, null, false, false, false, true, false,
+    )).toBe(DASHBOARD_HREF);
+  });
+
   it('still loads-guards on a public route (undefined session)', () => {
     expect(authRedirectTarget(undefined, false, true)).toBeNull();
   });

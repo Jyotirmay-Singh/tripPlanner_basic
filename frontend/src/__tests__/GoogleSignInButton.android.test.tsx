@@ -92,7 +92,10 @@ describe('Android Credential Manager Google sign-in', () => {
     jest.clearAllMocks();
     mockCheckPlayServices.mockResolvedValue(undefined);
     mockPresentExplicitSignIn.mockResolvedValue(successResponse());
-    mockSignInWithGoogle.mockResolvedValue({ credentials_set: true });
+    mockSignInWithGoogle.mockResolvedValue({
+      credentials_set: true,
+      mobile_number: '+919876543210',
+    });
   });
 
   afterAll(() => {
@@ -130,6 +133,20 @@ describe('Android Credential Manager Google sign-in', () => {
     });
 
     expect(mockReplace).toHaveBeenCalledWith('/set-credentials');
+  });
+
+  it('offers mobile setup to an existing Google user without a saved number', async () => {
+    mockSignInWithGoogle.mockResolvedValueOnce({
+      credentials_set: true,
+      mobile_number: null,
+    });
+    const button = renderButton();
+
+    await act(async () => {
+      await button.props.onPress();
+    });
+
+    expect(mockReplace).toHaveBeenCalledWith('/set-mobile');
   });
 
   it('treats account-picker cancellation as a no-op', async () => {
