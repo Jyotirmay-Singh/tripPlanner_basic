@@ -13,7 +13,6 @@ import TabPageHeader from '../../src/TabPageHeader';
 import {
   BALANCE_COPY,
   groupBalancesByCurrency,
-  netPositionMessage,
   resolveUserTripBalance,
   type CurrencyBalance,
   type TripBalancePayload,
@@ -82,7 +81,6 @@ export default function Dashboard() {
     return () => { loadGeneration.current += 1; };
   }, [load]));
 
-  const positionMessage = netPositionMessage(currencyBalances);
   const tripCount = `${trips.length} trip${trips.length === 1 ? '' : 's'}`;
 
   return (
@@ -105,10 +103,11 @@ export default function Dashboard() {
           <AmountText
             value={currencyBalances[0]?.value ?? 0}
             currency={currencyBalances[0]?.currency}
+            currencyDisplay="code"
             variant="moneyLg"
             signed={(currencyBalances[0]?.units ?? 0) > 0}
             color={colors.primaryText}
-            style={{ marginTop: SPACING.xs }}
+            style={styles.balanceAmount}
           />
         ) : (
           <View style={styles.currencyBalances}>
@@ -117,6 +116,7 @@ export default function Dashboard() {
                 <AmountText
                   value={balance.value}
                   currency={balance.currency}
+                  currencyDisplay="code"
                   signed={balance.units > 0}
                   color={colors.primaryText}
                 />
@@ -125,11 +125,7 @@ export default function Dashboard() {
           </View>
         )}
         <T color={colors.primaryText} style={styles.balanceSubtitle}>
-          {!loaded
-            ? tripCount
-            : balancesAvailable
-              ? `${positionMessage} · ${tripCount}`
-              : `Pull to refresh · ${tripCount}`}
+          {tripCount}
         </T>
       </Card>
 
@@ -174,6 +170,7 @@ export default function Dashboard() {
 }
 
 const styles = StyleSheet.create({
+  balanceAmount: { marginTop: SPACING.xs, textAlign: 'left' },
   balanceMessage: { marginTop: SPACING.sm },
   balanceSubtitle: { opacity: 0.8, marginTop: SPACING.xs },
   currencyBalances: { marginTop: SPACING.sm, gap: SPACING.xs },

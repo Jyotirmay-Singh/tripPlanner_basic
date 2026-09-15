@@ -78,16 +78,30 @@ beforeEach(() => { apiMock.mockReset(); });
 
 describe('Home Net Position', () => {
   it.each([
-    [1250, 'You come out ahead · 1 trip', true],
-    [-800, 'You owe overall · 1 trip', false],
-    [0, 'All settled up · 1 trip', false],
-  ])('matches copy and sign for balance %s', async (balance, copy, signed) => {
+    [1250, true],
+    [-800, false],
+    [0, false],
+  ])('shows only the trip count beneath balance %s', async (balance, signed) => {
     configure([{ id: 't1', currency: 'INR', balance: balance as number }]);
     const renderer = await renderDashboard();
     const amount = renderer.root.findAll((node: any) => node.type === 'AmountText')[0];
-    expect(amount.props).toMatchObject({ value: balance, currency: 'INR', signed });
-    expect(visibleText(renderer)).toContain(copy);
+    expect(amount.props).toMatchObject({
+      value: balance,
+      currency: 'INR',
+      currencyDisplay: 'code',
+      signed,
+    });
+    const copy = visibleText(renderer);
+    expect(copy).toContain('1 trip');
+    expect(copy).not.toMatch(/You come out ahead|You owe overall|All settled up/);
     if (balance === 0) expect(amount.props.signed).toBe(false);
+  });
+
+  it('rounds a non-integral API balance before rendering the hero amount', async () => {
+    configure([{ id: 't1', currency: 'INR', balance: 1250.5 }]);
+    const renderer = await renderDashboard();
+    const amount = renderer.root.findAll((node: any) => node.type === 'AmountText')[0];
+    expect(amount.props.value).toBe(1251);
   });
 
   it('groups unlike currencies instead of adding them and uses mixed-position copy', async () => {
@@ -98,7 +112,10 @@ describe('Home Net Position', () => {
     const renderer = await renderDashboard();
     const amounts = renderer.root.findAll((node: any) => node.type === 'AmountText');
     expect(amounts.map((node: any) => node.props.value)).toEqual([2000, -10]);
-    expect(visibleText(renderer)).toContain('Balances vary by currency · 2 trips');
+    expect(amounts.every((node: any) => node.props.currencyDisplay === 'code')).toBe(true);
+    const copy = visibleText(renderer);
+    expect(copy).toContain('2 trips');
+    expect(copy).not.toContain('Balances vary by currency');
   });
 
   it('contains no redundant You owe / You\'re owed metric cards', async () => {

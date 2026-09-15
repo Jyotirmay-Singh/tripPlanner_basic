@@ -30,6 +30,14 @@ describe('whole-unit money formatting', () => {
     expect(formatMoney(4_125, { currency: 'INR', showCurrency: false })).toBe('4,125');
   });
 
+  it('supports an ISO-code hero treatment while keeping the value integral', () => {
+    expect(formatMoney(4_125.5, {
+      currency: 'INR',
+      currencyDisplay: 'code',
+      signed: true,
+    })).toBe('INR +4,126');
+  });
+
   it.each(CURRENCY_CATALOG)('uses the catalog symbol for $code', ({ code, symbol }) => {
     expect(formatMoney(1_234.5, { currency: code })).toBe(`${symbol}1,235`);
   });

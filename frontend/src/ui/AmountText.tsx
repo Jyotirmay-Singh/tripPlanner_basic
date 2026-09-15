@@ -6,6 +6,8 @@ import { formatAccessibleMoney, formatMoney } from '../format';
 type Props = {
   value: number;
   currency?: string;
+  /** Visible currency treatment. Accessibility labels always use the ISO code. */
+  currencyDisplay?: 'symbol' | 'code';
   signed?: boolean;
   whole?: boolean;
   /** 'money' (24) default, 'moneyLg' (32) for hero balances. */
@@ -23,7 +25,7 @@ type Props = {
  * formatting (complete grouped whole units). Use everywhere an amount appears so columns align.
  */
 export default function AmountText({
-  value, currency, signed, variant = 'money', colorBySign, color, muted, style, testID,
+  value, currency, currencyDisplay, signed, variant = 'money', colorBySign, color, muted, style, testID,
 }: Props) {
   // colorBySign is resolved in the screen (needs theme); callers pass an explicit `color`.
   return (
@@ -35,7 +37,7 @@ export default function AmountText({
       testID={testID}
       accessibilityLabel={formatAccessibleMoney(value, { signed, currency })}
     >
-      {formatMoney(value, { signed, currency })}
+      {formatMoney(value, { signed, currency, currencyDisplay })}
     </T>
   );
 }

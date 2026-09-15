@@ -5,6 +5,7 @@ import { currencyDefinition, roundWholeMoney } from './currencies';
 export type MoneyFormatOptions = {
   signed?: boolean;
   currency?: string;
+  currencyDisplay?: 'symbol' | 'code';
   showCurrency?: boolean;
 };
 
@@ -27,10 +28,12 @@ function groupedWhole(value: number): { sign: string; digits: string } {
 export function formatMoney(value: number, opts: MoneyFormatOptions = {}): string {
   const { sign: negativeSign, digits } = groupedWhole(value);
   const sign = negativeSign || (opts.signed ? '+' : '');
-  const symbol = opts.currency && opts.showCurrency !== false
-    ? currencyDefinition(opts.currency).symbol
-    : '';
-  return `${sign}${symbol}${digits}`;
+  if (!opts.currency || opts.showCurrency === false) return `${sign}${digits}`;
+
+  const currency = currencyDefinition(opts.currency);
+  return opts.currencyDisplay === 'code'
+    ? `${currency.code} ${sign}${digits}`
+    : `${sign}${currency.symbol}${digits}`;
 }
 
 /** Unambiguous spoken/export label using the ISO code rather than a potentially shared symbol. */
