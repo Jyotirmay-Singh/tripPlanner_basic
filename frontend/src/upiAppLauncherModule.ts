@@ -1,4 +1,4 @@
-import { requireOptionalNativeModule } from 'expo-modules-core';
+import { requireOptionalNativeModule } from 'expo';
 
 export type UpiAppId = 'google-pay' | 'phonepe' | 'paytm' | 'bhim';
 

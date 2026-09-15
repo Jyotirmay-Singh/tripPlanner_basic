@@ -4446,7 +4446,7 @@ expo-modules-autolinking@3.0.27:
     require-from-string "^2.0.2"
     resolve-from "^5.0.0"
 
-expo-modules-core@3.0.30, expo-modules-core@~3.0.30:
+expo-modules-core@3.0.30:
   version "3.0.30"
   resolved "https://registry.yarnpkg.com/expo-modules-core/-/expo-modules-core-3.0.30.tgz#ec4e216a33083afb0ddf314615d6d31a741984d6"
   integrity sha512-a6IrpAn/Jbmwxi9L+hMmXKpNqnkUpoF7WHOpn02rVLyax2J0gB1vvCVE5rNydplEnt41Q6WxQwvcOjZaIkcSUg==
