@@ -255,6 +255,7 @@ export default function TripDetail() {
   const [viewerUri, setViewerUri] = useState<string | null>(null);
   // Per-expense "Split details" disclosure state (collapsed by default), keyed by expense id.
   const [expandedShares, setExpandedShares] = useState<Record<string, boolean>>({});
+  const [paymentDetailsExpanded, setPaymentDetailsExpanded] = useState(false);
   const notificationScrollRef = useRef<ScrollView>(null);
   const expensesSectionY = useRef(0);
   const focusedExpenseId = useRef<string | null>(null);
@@ -262,6 +263,10 @@ export default function TripDetail() {
   useEffect(() => {
     focusedExpenseId.current = null;
   }, [notificationExpenseId]);
+
+  useEffect(() => {
+    setPaymentDetailsExpanded(false);
+  }, [id]);
   // One themed confirm dialog drives both trip-delete and per-expense-delete.
   const [confirm, setConfirm] = useState<null | {
     title: string;
@@ -556,8 +561,34 @@ export default function TripDetail() {
           {tripHeader}
 
           {tab === 'summary' && (() => {
-            const myMember = trip.members.find((m) => m.user_id === user?.id);
+            const settlementMembers = balances?.members?.length ? balances.members : trip.members;
+            const directlyLinkedMember = user?.id
+              ? settlementMembers.find((m) => m.user_id === user.id)
+              : undefined;
+            const familyLinkedMember = user?.id
+              ? settlementMembers.find((m) => (
+                  m.kind === 'family' && (m.family_member_user_ids ?? []).includes(user.id)
+                ))
+              : undefined;
+            const myMember = directlyLinkedMember ?? familyLinkedMember;
             const myNet = myMember && balances ? balances.net[myMember.id] || 0 : 0;
+            const settlementDisplayNames = settlementMembers === trip.members
+              ? displayNames
+              : memberDisplayNames(settlementMembers);
+            const settlementMemberById = new Map(settlementMembers.map((member) => [member.id, member]));
+            const settlementLabel = (memberId: string) => {
+              const member = settlementMemberById.get(memberId);
+              const label = displayNames[memberId]
+                ?? settlementDisplayNames[memberId]
+                ?? member?.name
+                ?? memberId;
+              return member?.kind === 'family' ? `${label} (Family)` : label;
+            };
+            const relatedTransfers = myMember && balances
+              ? balances.transfers.filter((transfer) => (
+                  transfer.from_member_id === myMember.id || transfer.to_member_id === myMember.id
+                ))
+              : [];
             const expenseCount = expenses.length;
             // Money returned to the group (sum of negative transactions), shown as a positive figure.
             const refundsTotal = expenses.filter((e) => e.amount < 0).reduce((s, e) => s - e.amount, 0);
@@ -571,26 +602,96 @@ export default function TripDetail() {
               <View style={{ gap: SPACING.md }}>
                 {myMember && (
                   <View style={[styles.youCard, { backgroundColor: colors.surface, borderColor: colors.primary }]}>
-                    <View style={[styles.youBadge, { backgroundColor: colors.primary }]}>
-                      <T color={colors.primaryText} variant="label">You</T>
+                    <View style={styles.youSummary}>
+                      <View style={[styles.youBadge, { backgroundColor: colors.primary }]}>
+                        <T color={colors.primaryText} variant="label">You</T>
+                      </View>
+                      <View style={styles.youIdentity}>
+                        <T variant="h4">{settlementLabel(myMember.id)}</T>
+                        <T variant="caption" muted>
+                          {myMember.kind === 'family'
+                            ? `Your family of ${myMember.family_members.length}: ${familyMemberDisplayNames(myMember).join(', ')}`
+                            : 'Individual member'}
+                        </T>
+                      </View>
+                      <ResponsiveAmountText
+                        value={myNet}
+                        currency={trip.currency}
+                        signed
+                        showCurrency={false}
+                        label="Your balance"
+                        color={myNet < 0 ? colors.danger : myNet > 0 ? colors.success : colors.textMuted}
+                        testID="trip-my-balance"
+                      />
                     </View>
-                    <View style={styles.youIdentity}>
-                      <T variant="h4">{displayNames[myMember.id]}{myMember.kind === 'family' ? ' (Family)' : ''}</T>
-                      <T variant="caption" muted>
-                        {myMember.kind === 'family'
-                          ? `Your family of ${myMember.family_members.length}: ${familyMemberDisplayNames(myMember).join(', ')}`
-                          : 'Individual member'}
-                      </T>
-                    </View>
-                    <ResponsiveAmountText
-                      value={myNet}
-                      currency={trip.currency}
-                      signed
-                      showCurrency={false}
-                      label="Your balance"
-                      color={myNet < 0 ? colors.danger : myNet > 0 ? colors.success : colors.textMuted}
-                      testID="trip-my-balance"
-                    />
+                    {relatedTransfers.length > 0 ? (
+                      <>
+                        <Pressable
+                          testID="trip-payment-details-toggle"
+                          onPress={() => setPaymentDetailsExpanded((expanded) => !expanded)}
+                          accessibilityRole="button"
+                          accessibilityLabel={paymentDetailsExpanded
+                            ? 'Hide payment details'
+                            : 'View payment details'}
+                          accessibilityState={{ expanded: paymentDetailsExpanded }}
+                          style={styles.paymentDetailsToggle}
+                        >
+                          <T color={colors.primary} style={styles.paymentDetailsToggleText}>
+                            {paymentDetailsExpanded ? 'Hide payment details' : 'View payment details'}
+                          </T>
+                          <Icon
+                            name={paymentDetailsExpanded ? 'chevron-down' : 'chevron-right'}
+                            size={18}
+                            color={colors.primary}
+                          />
+                        </Pressable>
+                        {paymentDetailsExpanded ? (
+                          <View
+                            testID="trip-payment-details"
+                            style={[styles.paymentDetails, { borderTopColor: colors.border }]}
+                          >
+                            {relatedTransfers.map((transfer, index) => {
+                              const payer = settlementLabel(transfer.from_member_id);
+                              const receiver = settlementLabel(transfer.to_member_id);
+                              return (
+                                <View
+                                  key={`${transfer.from_member_id}:${transfer.to_member_id}:${index}`}
+                                  testID={`trip-payment-details-transfer-${index}`}
+                                  style={styles.paymentTransferRow}
+                                >
+                                  <T variant="caption" style={styles.paymentTransferSentence}>
+                                    <T
+                                      variant="caption"
+                                      color={colors.danger}
+                                      style={styles.paymentPartyName}
+                                    >
+                                      {payer}
+                                    </T>
+                                    <T variant="caption"> pays </T>
+                                    <T
+                                      variant="caption"
+                                      color={colors.success}
+                                      style={styles.paymentPartyName}
+                                    >
+                                      {receiver}
+                                    </T>
+                                  </T>
+                                  <ResponsiveAmountText
+                                    value={transfer.amount}
+                                    currency={trip.currency}
+                                    showCurrency={false}
+                                    whole={balances?.settlement_projection?.enabled}
+                                    variant="caption"
+                                    label={`${payer} pays ${receiver}`}
+                                    style={styles.paymentTransferAmount}
+                                  />
+                                </View>
+                              );
+                            })}
+                          </View>
+                        ) : null}
+                      </>
+                    ) : null}
                   </View>
                 )}
 
@@ -1108,9 +1209,40 @@ const styles = StyleSheet.create({
   memberIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   transferIcon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   youCard: {
-    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACING.sm,
     padding: SPACING.md, borderRadius: RADIUS.lg, borderWidth: 2,
+  },
+  youSummary: {
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACING.sm,
   },
   youIdentity: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
   youBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: RADIUS.pill },
+  paymentDetailsToggle: {
+    width: '100%',
+    minHeight: COMPONENT_SIZE.minTouchTarget,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
+    marginTop: SPACING.sm,
+  },
+  paymentDetailsToggleText: {
+    flex: 1,
+    minWidth: 0,
+    fontFamily: FONTS.bodyBold,
+  },
+  paymentDetails: {
+    width: '100%',
+    borderTopWidth: 1,
+    paddingTop: SPACING.sm,
+    gap: SPACING.sm,
+  },
+  paymentTransferRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
+  },
+  paymentTransferSentence: { flex: 1, minWidth: 0 },
+  paymentPartyName: { fontFamily: FONTS.bodyBold },
+  paymentTransferAmount: { fontFamily: FONTS.number },
 });

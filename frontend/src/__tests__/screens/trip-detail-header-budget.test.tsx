@@ -2,7 +2,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { Linking, Share, StyleSheet } from 'react-native';
-import { COMPONENT_SIZE, RADIUS, SPACING } from '../../theme';
+import { COMPONENT_SIZE, FONTS, RADIUS, SPACING } from '../../theme';
 
 const mockRouterPush = jest.fn();
 const mockGetTripInviteLink = jest.fn();
@@ -12,6 +12,7 @@ const mockSetStringAsync = jest.fn().mockResolvedValue(true);
 let mockInviteLinksEnabled = false;
 let mockRole: 'owner' | 'admin' | 'member' | null = null;
 let mockUser: any = { id: 'u1', email: 'member@gmail.com', is_super_admin: false };
+let mockSearchParams = { id: 't1' };
 
 jest.mock('../../api', () => ({
   api: jest.fn(),
@@ -42,7 +43,7 @@ jest.mock('../../ThemeContext', () => ({
 jest.mock('expo-router', () => {
   const R = require('react');
   return {
-    useLocalSearchParams: () => ({ id: 't1' }),
+    useLocalSearchParams: () => mockSearchParams,
     useRouter: () => ({ push: mockRouterPush, back: jest.fn() }),
     useFocusEffect: (callback: any) => R.useEffect(() => { callback(); }, []),
   };
@@ -113,10 +114,7 @@ jest.mock('../../permissions', () => ({
   canManageMembers: () => false,
   canDeleteTrip: (_trip: any, _userId: any, isSuperAdmin: boolean) => isSuperAdmin,
 }));
-jest.mock('../../displayNames', () => ({
-  memberDisplayNames: (members: any[]) => Object.fromEntries(members.map((member) => [member.id, member.name])),
-  familyMemberDisplayNames: (member: any) => member.family_members || [],
-}));
+jest.mock('../../displayNames', () => jest.requireActual('../../displayNames'));
 jest.mock('../../bill', () => ({ billLabel: () => 'Bill not attached' }));
 
 import TripDetail from '../../../app/trip/[id]/index';
@@ -153,6 +151,7 @@ type Fixture = {
   trip?: Record<string, unknown>;
   budget?: number | null;
   expenses?: Record<string, unknown>[];
+  balances?: Record<string, unknown>;
 };
 
 const expense = (amount: number, id = `e-${amount}`) => ({
@@ -165,13 +164,16 @@ const expense = (amount: number, id = `e-${amount}`) => ({
 });
 
 async function mountTrip(fixture: Fixture = {}) {
-  const { trip: tripOverrides, expenses = [expense(50_000)] } = fixture;
+  const {
+    trip: tripOverrides, expenses = [expense(50_000)], balances: balanceOverrides,
+  } = fixture;
   const budget = Object.prototype.hasOwnProperty.call(fixture, 'budget')
     ? fixture.budget
     : 100_000;
   const trip = { ...BASE_TRIP, ...tripOverrides, budget };
   const balances = {
     net: { m1: 0 }, transfers: [], members: trip.members, currency: trip.currency, per_person: [],
+    ...balanceOverrides,
   };
   apiMock.mockImplementation((path: string) => {
     if (path === '/trips/t1') return Promise.resolve(trip);
@@ -229,6 +231,177 @@ beforeEach(() => {
   mockInviteLinksEnabled = false;
   mockRole = null;
   mockUser = { id: 'u1', email: 'member@gmail.com', is_super_admin: false };
+  mockSearchParams = { id: 't1' };
+});
+
+describe('Personal balance payment details', () => {
+  const RAHUL_1 = {
+    id: 'rahul-1', name: 'Rahul', kind: 'individual', family_members: [], user_id: 'u2',
+  };
+  const RAHUL_2 = {
+    id: 'rahul-2', name: 'Rahul', kind: 'individual', family_members: [], user_id: 'u3',
+  };
+  const MIRACLE_FAMILY = {
+    id: 'miracle-family', name: 'Miracle', kind: 'family',
+    family_members: ['Mira', 'Cle'], family_member_user_ids: ['u4', null],
+    user_id: null,
+  };
+
+  it('starts collapsed and reveals only the creditor transfers in server order', async () => {
+    const members = [INDIVIDUAL, RAHUL_1, RAHUL_2, MIRACLE_FAMILY];
+    const renderer = await mountTrip({
+      trip: { members, user_ids: ['u1', 'u2', 'u3', 'u4'] },
+      balances: {
+        net: { m1: 1_750, 'rahul-1': -1_325, 'rahul-2': 75, 'miracle-family': -500 },
+        members,
+        transfers: [
+          { from_member_id: 'rahul-1', to_member_id: 'm1', amount: 1_250 },
+          { from_member_id: 'miracle-family', to_member_id: 'm1', amount: 500 },
+          { from_member_id: 'rahul-1', to_member_id: 'rahul-2', amount: 75 },
+        ],
+      },
+    });
+
+    let toggle = interactiveByTestID(renderer.root, 'trip-payment-details-toggle');
+    expect(toggle.props).toEqual(expect.objectContaining({
+      accessibilityLabel: 'View payment details',
+      accessibilityState: { expanded: false },
+    }));
+    expect(StyleSheet.flatten(toggle.props.style)).toEqual(expect.objectContaining({
+      width: '100%', minHeight: COMPONENT_SIZE.minTouchTarget,
+    }));
+    expect(toggle.findAllByType('Icon' as any).at(-1).props.name).toBe('chevron-right');
+    expect(hostByTestID(renderer.root, 'View', 'trip-payment-details')).toBeUndefined();
+
+    act(() => toggle.props.onPress());
+
+    toggle = interactiveByTestID(renderer.root, 'trip-payment-details-toggle');
+    expect(toggle.props.accessibilityLabel).toBe('Hide payment details');
+    expect(toggle.props.accessibilityState).toEqual({ expanded: true });
+    const toggleIcon = toggle.findAllByType('Icon' as any).at(-1);
+    expect(toggleIcon.props.name).toBe('chevron-down');
+
+    const details = hostByTestID(renderer.root, 'View', 'trip-payment-details');
+    const rows = [0, 1].map((index) => (
+      hostByTestID(details, 'View', `trip-payment-details-transfer-${index}`)
+    ));
+    expect(details).toBeTruthy();
+    expect(hostByTestID(details, 'View', 'trip-payment-details-transfer-2')).toBeUndefined();
+    expect(textContent(rows[0])).toBe('Rahul_1 pays Aditi');
+    expect(textContent(rows[1])).toBe('Miracle (Family) pays Aditi');
+    expect(rows.map((row) => row.findByType('ResponsiveAmountText' as any).props.value))
+      .toEqual([1_250, 500]);
+    expect(rows[0].findByType('ResponsiveAmountText' as any).props.style)
+      .toEqual(expect.objectContaining({ fontFamily: FONTS.number }));
+    const sentence = rows[0].findAllByType('T' as any)
+      .find((node: any) => textContent(node) === 'Rahul_1 pays Aditi');
+    expect(sentence?.props.numberOfLines).toBeUndefined();
+    expect(StyleSheet.flatten(sentence?.props.style)).toEqual(expect.objectContaining({
+      flex: 1, minWidth: 0,
+    }));
+    expect(rows[0].findAllByType('T' as any).find((node: any) => textContent(node) === 'Rahul_1')?.props.color)
+      .toBe('#ff8a66');
+    expect(rows[0].findAllByType('T' as any).find((node: any) => textContent(node) === 'Aditi')?.props.color)
+      .toBe('#8fc98f');
+    expect(rows[0].findAll((node: any) => typeof node.props.onPress === 'function'))
+      .toHaveLength(0);
+
+    act(() => toggle.props.onPress());
+    expect(hostByTestID(renderer.root, 'View', 'trip-payment-details')).toBeUndefined();
+    expect(interactiveByTestID(renderer.root, 'trip-payment-details-toggle').props.accessibilityState)
+      .toEqual({ expanded: false });
+  });
+
+  it('shows one authoritative outgoing instruction for a debtor', async () => {
+    const members = [INDIVIDUAL, RAHUL_1];
+    const renderer = await mountTrip({
+      trip: { members, user_ids: ['u1', 'u2'] },
+      balances: {
+        net: { m1: -320, 'rahul-1': 320 }, members,
+        transfers: [{ from_member_id: 'm1', to_member_id: 'rahul-1', amount: 320 }],
+      },
+    });
+
+    expect(hostByTestID(renderer.root, 'ResponsiveAmountText', 'trip-my-balance').props.value)
+      .toBe(-320);
+    act(() => interactiveByTestID(renderer.root, 'trip-payment-details-toggle').props.onPress());
+    const row = hostByTestID(
+      renderer.root, 'View', 'trip-payment-details-transfer-0',
+    );
+    expect(textContent(row)).toBe('Aditi pays Rahul');
+    expect(row.findByType('ResponsiveAmountText' as any).props).toEqual(expect.objectContaining({
+      value: 320, showCurrency: false,
+    }));
+  });
+
+  it('uses the whole family entity for a family-linked user', async () => {
+    mockUser = { id: 'family-user', email: 'family@gmail.com', is_super_admin: false };
+    const family = {
+      id: 'family', name: 'Shah', kind: 'family', user_id: null,
+      family_members: ['Mina', 'Ravi'],
+      family_member_ids: ['mina', 'ravi'],
+      family_member_user_ids: ['family-user', null],
+    };
+    const receiver = {
+      id: 'receiver', name: 'Miracle', kind: 'individual', family_members: [], user_id: 'u2',
+    };
+    const members = [family, receiver];
+    const renderer = await mountTrip({
+      trip: { members, user_ids: ['family-user', 'u2'] },
+      balances: {
+        net: { family: -900, receiver: 900 }, members,
+        per_person: [{
+          member_id: 'family', member_name: 'Shah', kind: 'family', people_count: 2,
+          net_total: -900, net_per_person: -450, family_members: ['Mina', 'Ravi'],
+          members: [{ id: 'mina', name: 'Mina', net: -100 }, { id: 'ravi', name: 'Ravi', net: -800 }],
+        }],
+        transfers: [{ from_member_id: 'family', to_member_id: 'receiver', amount: 900 }],
+      },
+    });
+
+    const balance = hostByTestID(renderer.root, 'ResponsiveAmountText', 'trip-my-balance');
+    expect(balance.props.value).toBe(-900);
+    const personalCard = balance.parent.parent;
+    expect(personalCard.findAllByType('T' as any).map(textContent).join(' '))
+      .toContain('Shah (Family)');
+
+    act(() => interactiveByTestID(renderer.root, 'trip-payment-details-toggle').props.onPress());
+    const row = hostByTestID(renderer.root, 'View', 'trip-payment-details-transfer-0');
+    expect(textContent(row)).toBe('Shah (Family) pays Miracle');
+    expect(row.findByType('ResponsiveAmountText' as any).props.value).toBe(900);
+  });
+
+  it('hides the control when the signed-in entity is settled', async () => {
+    const renderer = await mountTrip({
+      balances: { net: { m1: 0 }, transfers: [] },
+    });
+
+    expect(hostByTestID(renderer.root, 'ResponsiveAmountText', 'trip-my-balance').props.value)
+      .toBe(0);
+    expect(interactiveByTestID(renderer.root, 'trip-payment-details-toggle')).toBeUndefined();
+  });
+
+  it('collapses the disclosure when the trip id changes', async () => {
+    const members = [INDIVIDUAL, RAHUL_1];
+    const renderer = await mountTrip({
+      trip: { members, user_ids: ['u1', 'u2'] },
+      balances: {
+        net: { m1: -20, 'rahul-1': 20 }, members,
+        transfers: [{ from_member_id: 'm1', to_member_id: 'rahul-1', amount: 20 }],
+      },
+    });
+    act(() => interactiveByTestID(renderer.root, 'trip-payment-details-toggle').props.onPress());
+    expect(hostByTestID(renderer.root, 'View', 'trip-payment-details')).toBeTruthy();
+
+    await act(async () => {
+      mockSearchParams = { id: 't2' };
+      renderer.update(<TripDetail />);
+    });
+
+    expect(interactiveByTestID(renderer.root, 'trip-payment-details-toggle').props.accessibilityState)
+      .toEqual({ expanded: false });
+    expect(hostByTestID(renderer.root, 'View', 'trip-payment-details')).toBeUndefined();
+  });
 });
 
 describe('Member mobile contacts', () => {
@@ -546,6 +719,8 @@ describe('Trip identity header', () => {
     expect(strip.findAllByType('T' as any).map(textContent).join(' '))
       .toContain('expenses and balances do not affect your account');
     expect(renderer.root.findAll((node: any) => node.props.testID === 'trip-my-balance'))
+      .toHaveLength(0);
+    expect(renderer.root.findAll((node: any) => node.props.testID === 'trip-payment-details-toggle'))
       .toHaveLength(0);
 
     act(() => hostByTestID(renderer.root, 'IconButton', 'trip-delete').props.onPress());
