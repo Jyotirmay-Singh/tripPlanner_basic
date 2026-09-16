@@ -92,7 +92,10 @@ describe('category detail screen', () => {
     const family = chart.props.summary.entities.find((row: any) => row.entity_id === 'fam');
     expect(chart.props.rowDetail(family, 120)).toBe('83% of payments · 1 transaction');
 
-    expect(host(renderer, 'AmountText').props.value).toBe(90);
+    expect(host(renderer, 'AmountText').props).toMatchObject({
+      value: 90,
+      style: { marginTop: 4, textAlign: 'left' },
+    });
     expect(rows(renderer).map((row: any) => row.props.right.props.value)).toEqual([100, 20, -30]);
     expect(host(renderer, 'StackScreen').props.options.title).toBe('Food');
   });

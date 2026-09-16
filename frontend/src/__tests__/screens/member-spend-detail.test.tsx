@@ -74,7 +74,10 @@ describe('member spending detail screen', () => {
 
     expect(renderer.root.findByType('StackScreen' as any).props.options.title)
       .toBe('Spending details');
-    expect(renderer.root.findByType('AmountText' as any).props.value).toBe(455);
+    expect(renderer.root.findByType('AmountText' as any).props).toMatchObject({
+      value: 455,
+      style: { marginTop: 4, textAlign: 'left' },
+    });
 
     const row = renderer.root.findByType('ListRow' as any);
     expect(row.props.meta).toBeUndefined();

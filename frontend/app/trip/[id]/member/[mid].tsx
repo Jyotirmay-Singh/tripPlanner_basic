@@ -64,7 +64,7 @@ export default function MemberSpendDetail() {
             {name}{isFamily ? ' (Family)' : ''}
           </T>
         </View>
-        <AmountText value={total} currency={trip?.currency} variant="moneyLg" color={colors.primaryText} style={{ marginTop: 4 }} />
+        <AmountText value={total} currency={trip?.currency} variant="moneyLg" color={colors.primaryText} style={{ marginTop: 4, textAlign: 'left' }} />
         <T color={colors.primaryText} style={{ opacity: 0.8, marginTop: 4 }}>
           {pluralize(ordered.length, 'transaction')}
         </T>

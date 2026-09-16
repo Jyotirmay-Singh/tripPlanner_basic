@@ -102,7 +102,7 @@ export default function CategoryDetail() {
               currency={trip?.currency}
               variant="moneyLg"
               color={colors.primaryText}
-              style={{ marginTop: 4 }}
+              style={{ marginTop: 4, textAlign: 'left' }}
             />
             <T color={colors.primaryText} style={{ opacity: 0.8, marginTop: 4 }}>
               {pluralize(breakdown.transactionCount, 'transaction')}
