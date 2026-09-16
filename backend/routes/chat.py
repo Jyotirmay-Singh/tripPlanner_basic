@@ -182,6 +182,7 @@ async def create_chat_message(
         source_id=doc["id"],
         trip_id=trip_id,
         actor_user_id=user["id"],
+        sender_name=doc.get("sender_name"),
         background_tasks=background_tasks,
     )
     await _broadcast(trip, {"type": "message.created", "data": public})

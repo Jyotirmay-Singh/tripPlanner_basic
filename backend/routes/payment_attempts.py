@@ -22,7 +22,7 @@ from services.payment_attempts import (
     PAYMENT_ATTEMPT_LIFETIME,
     expire_payment_attempts,
 )
-from services.push_notifications import enqueue_notification_event
+from services.push_notifications import classify_payment_notification, enqueue_notification_event
 from services.money_audit import record_money_normalizations
 from services.trip_activity import with_trip_activity
 from utils.balances import _compute_balances
@@ -39,6 +39,7 @@ from utils.upi_attempt_permissions import (
 from utils.settlement_gate import decimal_amount, payable_tolerance, validate_new_amount
 from utils.upi_rules import normalize_upi_id
 from utils.money_policy import normalization_change, whole_money
+from utils.display_names import member_display_names
 
 
 router = APIRouter()
@@ -500,7 +501,7 @@ async def _confirm_received_transaction(
     trip_id: str,
     attempt_id: str,
     user: dict,
-) -> tuple[dict, Optional[str]]:
+) -> tuple[dict, Optional[str], Optional[dict]]:
     payment_id = gen_id()
 
     async def callback(session):
@@ -510,7 +511,7 @@ async def _confirm_received_transaction(
         if not attempt:
             raise HTTPException(404, "Payment attempt not found")
         if attempt.get("status") == "settled_recipient_confirmed":
-            return attempt, None
+            return attempt, None, None
         if attempt.get("status") not in {"awaiting_confirmation", "needs_review"}:
             raise _error(409, "invalid_transition", "This payment is not awaiting confirmation")
 
@@ -551,7 +552,7 @@ async def _confirm_received_transaction(
             if not _changed(changed):
                 raise _ConcurrentLedgerChange()
             attempt.update(updates)
-            return attempt, "payment_attempt.not_received"
+            return attempt, "payment_attempt.not_received", None
 
         submitted_posted = posted
         posted, audit_fields = validate_new_amount(trip, posted)
@@ -610,7 +611,17 @@ async def _confirm_received_transaction(
             raise _ConcurrentLedgerChange()
         attempt.update(updates)
         attempt.pop("active_key", None)
-        return attempt, "payment_attempt.confirmed"
+        display_names = member_display_names(trip.get("members", []))
+        notification_metadata = {
+            "payer_name": display_names.get(attempt.get("from_member_id")),
+            "recipient_name": display_names.get(attempt.get("to_member_id")),
+            "amount": payment["amount"],
+            "currency": payment["currency"],
+            "payment_classification": classify_payment_notification(
+                posted, payable, payable_tolerance(trip),
+            ),
+        }
+        return attempt, "payment_attempt.confirmed", notification_metadata
 
     try:
         return await run_required_transaction(callback)
@@ -654,7 +665,9 @@ async def update_payment_attempt_recipient(
         raise HTTPException(403, "Only the recipient or a trip admin can review this payment")
 
     if body.action == "confirm_received":
-        confirmed, event_type = await _confirm_received_transaction(trip_id, attempt_id, user)
+        confirmed, event_type, notification_metadata = await _confirm_received_transaction(
+            trip_id, attempt_id, user,
+        )
         if event_type:
             await _safe_enqueue(
                 event_type=event_type,
@@ -663,6 +676,7 @@ async def update_payment_attempt_recipient(
                 actor_user_id=user["id"],
                 recipient_user_ids_override=[confirmed.get("initiating_payer_user_id")],
                 background_tasks=background_tasks,
+                **(notification_metadata or {}),
             )
         return _response(confirmed)
 

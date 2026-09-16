@@ -99,7 +99,7 @@ async function showRationaleOnce(): Promise<boolean> {
   return new Promise((resolve) => {
     Alert.alert(
       'Stay updated on your trips',
-      'Trip Splitter alerts can show the trip name and activity type. Expense alerts may also show the trip roster name of the person who added it and the expense description or category. Amounts, currencies, email addresses, receipts, message text, and rejection reasons are never included.',
+      'Trip Splitter alerts may appear on your lock screen. They can show the trip name and activity type; a chat sender; an expense creator and description or category; or payment parties, amount, and currency. Payment notes, UPI details, email addresses, receipts, message text, credentials, and rejection reasons are never included.',
       [
         {
           text: 'Not now',

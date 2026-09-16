@@ -150,10 +150,10 @@ describe('Android push notification registration', () => {
       { cancelable: false },
     );
     expect(mockAlert.mock.calls.at(-1)?.[1]).toContain(
-      'Expense alerts may also show the trip roster name of the person who added it and the expense description or category.',
+      'a chat sender; an expense creator and description or category; or payment parties, amount, and currency.',
     );
     expect(mockAlert.mock.calls.at(-1)?.[1]).toContain(
-      'Amounts, currencies, email addresses, receipts, message text, and rejection reasons are never included.',
+      'Payment notes, UPI details, email addresses, receipts, message text, credentials, and rejection reasons are never included.',
     );
     expect(mockStorage.get('push_rationale_seen')).toBe('true');
     expect(mockStorage.get('push_rationale_accepted')).toBe('false');

@@ -18,6 +18,7 @@ from services.money_audit import record_money_normalizations
 from services.ledger_transactions import run_optional_transaction
 from services.trip_activity import touch_trip_activity_safely, with_trip_activity
 from utils.money_policy import normalization_change
+from utils.display_names import member_display_names
 
 router = APIRouter()
 
@@ -96,11 +97,17 @@ async def settle(trip_id: str, body: SettleIn, background_tasks: BackgroundTasks
         resource_id=doc["id"],
         changed_fields=("from_member_id", "to_member_id", "amount", "status"),
     )
+    display_names = member_display_names(trip.get("members", []))
     await enqueue_notification_event(
         event_type="settlement.paid",
         source_id=doc["id"],
         trip_id=trip_id,
         actor_user_id=user["id"],
+        payer_name=display_names.get(doc["from_member_id"]),
+        recipient_name=display_names.get(doc["to_member_id"]),
+        amount=doc["amount"],
+        currency=doc["currency"],
+        payment_classification="settled",
         background_tasks=background_tasks,
     )
     return doc
@@ -207,11 +214,17 @@ async def mark_settlement_paid(trip_id: str, settlement_id: str, body: Settlemen
         user, "settlement.marked_paid", trip=trip, resource_type="settlement",
         resource_id=settlement_id, changed_fields=("status", "paid_at", "marked_paid_by"),
     )
+    display_names = member_display_names(trip.get("members", []))
     await enqueue_notification_event(
         event_type="settlement.paid",
         source_id=settlement_id,
         trip_id=trip_id,
         actor_user_id=user["id"],
+        payer_name=display_names.get(settlement.get("from_member_id")),
+        recipient_name=display_names.get(settlement.get("to_member_id")),
+        amount=settlement.get("amount"),
+        currency=settlement.get("currency") or trip.get("currency", "INR"),
+        payment_classification="settled",
         background_tasks=background_tasks,
     )
     return settlement

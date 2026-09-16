@@ -203,7 +203,11 @@ def test_successful_payment_enqueues_only_after_guard_and_insert(monkeypatch):
     monkeypatch.setattr(payments, "_trip_or_404", AsyncMock(return_value=TRIP))
     monkeypatch.setattr(payments, "can_record_payment", lambda *_args: True)
     monkeypatch.setattr(payments, "_compute_balances", AsyncMock(return_value={
-        "transfers": [{"from_member_id": "m2", "to_member_id": "m1", "amount": 100}],
+        "transfers": [
+            {"from_member_id": "m2", "to_member_id": "m1", "amount": 100},
+            # A different direction/debt must not affect this pair's notification wording.
+            {"from_member_id": "m1", "to_member_id": "m2", "amount": 9999},
+        ],
     }))
     monkeypatch.setattr(payments, "enqueue_notification_event", enqueue)
 
@@ -219,6 +223,43 @@ def test_successful_payment_enqueues_only_after_guard_and_insert(monkeypatch):
     kwargs = enqueue.await_args.kwargs
     assert kwargs["event_type"] == "payment.recorded"
     assert kwargs["source_id"] == result["id"]
+    assert kwargs["payer_name"] == "Two"
+    assert kwargs["recipient_name"] == "One"
+    assert kwargs["amount"] == 25
+    assert kwargs["currency"] == "INR"
+    assert kwargs["payment_classification"] == "partial"
+
+
+def test_full_payment_uses_duplicate_safe_party_names_and_settled_classification(monkeypatch):
+    duplicate_trip = {
+        **TRIP,
+        "members": [
+            {"id": "m1", "kind": "individual", "name": "Ravi", "user_id": "u1"},
+            {"id": "m2", "kind": "individual", "name": "Ravi", "user_id": "u2"},
+        ],
+    }
+    trips = SimpleNamespace(update_one=AsyncMock(return_value=SimpleNamespace(modified_count=1)))
+    payment_collection = SimpleNamespace(insert_one=AsyncMock())
+    enqueue = AsyncMock()
+    monkeypatch.setattr(payments, "db", SimpleNamespace(trips=trips, payments=payment_collection))
+    monkeypatch.setattr(payments, "_trip_or_404", AsyncMock(return_value=duplicate_trip))
+    monkeypatch.setattr(payments, "can_record_payment", lambda *_args: True)
+    monkeypatch.setattr(payments, "_compute_balances", AsyncMock(return_value={
+        "transfers": [{"from_member_id": "m2", "to_member_id": "m1", "amount": 100}],
+    }))
+    monkeypatch.setattr(payments, "enqueue_notification_event", enqueue)
+
+    run(payments.record_payment(
+        "t1",
+        PaymentCreate(from_member_id="m2", to_member_id="m1", amount=100),
+        BackgroundTasks(),
+        user={"id": "u1"},
+    ))
+
+    kwargs = enqueue.await_args.kwargs
+    assert kwargs["payer_name"] == "Ravi_2"
+    assert kwargs["recipient_name"] == "Ravi_1"
+    assert kwargs["payment_classification"] == "settled"
 
 
 def test_pending_settlement_never_enqueues_paid_activity(monkeypatch):
@@ -250,11 +291,21 @@ def test_paid_settlement_paths_enqueue_once_and_idempotent_patch_does_not(monkey
         "t1", SettleIn(from_member_id="m2", to_member_id="m1", amount=25),
         BackgroundTasks(), user={"id": "u1"},
     ))
-    assert enqueue.await_args.kwargs["event_type"] == "settlement.paid"
+    kwargs = enqueue.await_args.kwargs
+    assert kwargs["event_type"] == "settlement.paid"
+    assert kwargs["payer_name"] == "Two"
+    assert kwargs["recipient_name"] == "One"
+    assert kwargs["amount"] == 25
+    assert kwargs["currency"] == "INR"
+    assert kwargs["payment_classification"] == "settled"
 
     enqueue.reset_mock()
     monkeypatch.setattr(balances, "_settlement_mark_paid_or_403", AsyncMock(return_value=(
-        TRIP, {"id": "s1", "trip_id": "t1", "status": "pending"},
+        TRIP, {
+            "id": "s1", "trip_id": "t1", "status": "pending",
+            "from_member_id": "m2", "to_member_id": "m1",
+            "amount": 25.5, "currency": "INR",
+        },
     )))
     run(balances.mark_settlement_paid(
         "t1", "s1", SettlementPatch(status="paid"), BackgroundTasks(), user={"id": "u1"},
@@ -262,6 +313,11 @@ def test_paid_settlement_paths_enqueue_once_and_idempotent_patch_does_not(monkey
     enqueue.assert_awaited_once()
     assert enqueue.await_args.kwargs["event_type"] == "settlement.paid"
     assert enqueue.await_args.kwargs["source_id"] == "s1"
+    assert enqueue.await_args.kwargs["payer_name"] == "Two"
+    assert enqueue.await_args.kwargs["recipient_name"] == "One"
+    assert enqueue.await_args.kwargs["amount"] == 25.5
+    assert enqueue.await_args.kwargs["currency"] == "INR"
+    assert enqueue.await_args.kwargs["payment_classification"] == "settled"
 
     enqueue.reset_mock()
     monkeypatch.setattr(balances, "_settlement_mark_paid_or_403", AsyncMock(return_value=(

@@ -15,9 +15,9 @@ Android devices.
   first-trip requester can receive approval or rejection. Sign-in and foreground synchronization
   retry interrupted, offline, or unavailable attempts.
 - On Android 13+, the first eligible account with undecided permission sees a rationale explaining
-  that alerts identify the trip and activity type, and that expense alerts may also contain the
-  actor's trip-roster name plus the expense description or category. It also discloses the excluded
-  fields. Android's dialog appears only after **Enable notifications** is pressed.
+  that lock-screen alerts may identify the trip, chat sender, expense actor and description/category,
+  or payment parties and amount. It also discloses the excluded fields. Android's dialog appears
+  only after **Enable notifications** is pressed.
 - **Not now** is remembered and suppresses later automatic rationale prompts. Recovery remains
   available from Profile and Android app settings.
 - Revoked or denied permission deactivates the current server registration when the app next
@@ -81,9 +81,9 @@ and `expense.created:<sourceId>` event key without exposing expense content:
    `inserted=true`.
 2. `push.delivery_snapshot` reports one expected recipient and two active Android deliveries.
 3. Expo returns two successful tickets.
-4. Both devices display exactly one **{Owner roster name} added {expense description or category}**
-   notification with the sanitized trip name as its supporting line within two minutes. Verify the
-   exact copy on-device, but keep the values redacted from the test record.
+4. Both devices display exactly one **{Owner roster name} added “{expense description or category}”**
+   notification with the parenthesized sanitized trip name as its supporting line within two
+   minutes. Verify the exact copy on-device, but keep the values redacted from the test record.
 5. The receipt-check cycle reaches two `receipt_ok` statuses; allow up to 20 minutes.
 6. Tapping on each device opens the activity trip's Expenses tab and matching expense. Repeat a
    tap and confirm it does not add another navigation entry.
@@ -91,31 +91,36 @@ and `expense.created:<sourceId>` event key without exposing expense content:
 Do not start the full matrix until the canary passes on both devices. Fix only the first failing
 boundary, then repeat the canary.
 
-## Seven-event positive matrix
+## Rich-activity and workflow positive matrix
 
 Allow two minutes for display and 20 minutes for a terminal Expo receipt. Run one event at a time.
 
 | Event | Receiver state | Eligible audience | Exact title / supporting line | Tap destination |
 | --- | --- | --- | --- | --- |
-| Expense created | Foreground | Member's two active devices, not Owner | `{actor trip-roster name} added {description, or category when blank}` / trip name | Activity trip Expenses tab and matching expense |
-| Chat message created | Background | Member's two active devices, not Owner | `New group message` / trip name | Activity trip Chat tab and matching message |
-| Payment recorded | Swiped away, not force-stopped | Member's two active devices, not Owner | `Payment recorded` / trip name | Activity trip Settle Up and matching payment |
-| Settlement marked paid | Background | Member's two active devices, not Owner | `Settlement marked paid` / trip name | Activity trip Settle Up and matching settlement |
+| Expense created | Foreground | Member's two active devices, not Owner | `{actor trip-roster name} added “{description, or category when blank}”` / `(trip name)` | Activity trip Expenses tab and matching expense |
+| Chat message created | Background | Member's two active devices, not Owner | `Message from {snapshotted sender trip-roster name}` / `(trip name)` | Activity trip Chat tab and matching message |
+| Partial payment recorded | Swiped away, not force-stopped | Member's two active devices, not recorder | `{payer} partly paid {symbol}{grouped amount} to {receiver}` / `(trip name)` | Activity trip Settle Up and matching payment |
+| Full payment recorded | Background | Member's two active devices, not recorder | `{payer} settled {symbol}{grouped amount} to {receiver}` / `(trip name)` | Activity trip Settle Up and matching payment |
+| Settlement marked paid | Background | Member's two active devices, not recorder | `{payer} settled {symbol}{grouped amount} to {receiver}` / `(trip name)` | Activity trip Settle Up and matching settlement |
+| UPI payment confirmed | Background | Initiating payer only, not confirming reviewer | `{payer} partly paid …` or `{payer} settled …` using the posted trip amount / `(trip name)` | Activity trip Settle Up and matching payment attempt |
+| UPI confirmation requested / not received / review closed | Background | Existing workflow-specific audience | Existing generic workflow title / trip name | Activity trip Settle Up and matching payment attempt |
 | Join request created | One owner/admin device foreground and one background | Current owner/admin devices only, not Requester or non-admins | `Join request received` / trip name | Members request view and matching request |
 | First-trip request rejected | Background | Zero-trip Requester's active devices | `Join request declined` / trip name | Request status and locally authorized admin reason |
 | First-trip request approved | Swiped away, not force-stopped | Zero-trip Requester's active devices | `Join request approved` / trip name | Newly joined trip summary |
 
 For every positive case require:
 
-- the exact action-first title, sanitized trip-name supporting line, one notification per eligible
-  active installation, and sound/banner appropriate to the device state;
-- no amount, currency, email address, receipt data, payer/split data, rejection reason, or chat text
-  in notification copy; `expense.created` additionally allows only the actor's sanitized
-  trip-roster name and sanitized description/category, while the trip name remains the only
-  user-authored text allowed for every other event;
+- the exact action-first title and supporting line, one notification per eligible active
+  installation, and sound/banner appropriate to the device state;
+- only the allowlisted rich fields for the event: snapshotted sender name for chat; actor plus
+  description/category for expense; or duplicate-safe payer/receiver names, canonical amount, and
+  one of the 26 app currency symbols for completed payment activity. Payment notes, UPI IDs and
+  references, emails, receipt data, credentials/tokens, rejection reasons, and chat text must never
+  appear in notification copy;
 - a white monochrome **TS** status icon and the configured mint notification accent;
 - `payloadVersion=1`, the exact `eventKey`, `eventType`, `tripId`, `sourceId`, target, and exactly one
-  matching typed source key: `expenseId`, `messageId`, `paymentId`, `settlementId`, or `requestId`;
+  matching typed source key: `expenseId`, `messageId`, `paymentId`, `settlementId`,
+  `paymentAttemptId`, or `requestId`;
 - correct authorized warm and cold-start navigation; repeated taps must not duplicate navigation;
 - expected enqueue, recipient count, device count, ticket status, final receipt status, and measured
   sender-to-display latency on both devices.

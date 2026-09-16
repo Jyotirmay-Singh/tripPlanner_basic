@@ -1,5 +1,6 @@
 import asyncio
 from datetime import timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 from uuid import UUID
@@ -14,6 +15,7 @@ from models.push import PushDeviceUpsert
 from routes import push
 from services import push_notifications as notifications
 from utils.common import now_utc
+from utils.currency_rules import SUPPORTED_CURRENCIES
 
 
 VALID_TOKEN = "ExpoPushToken[abcdefghijklmnopqrstuv]"
@@ -242,7 +244,12 @@ def test_payload_is_private_versioned_and_contains_typed_routing_data(
     message = notifications.build_expo_message(event, {"token": VALID_TOKEN})
 
     assert message["title"] == title
-    assert message["body"] == "Weekend in Goa"
+    expected_body = (
+        "(Weekend in Goa)"
+        if event_type in notifications._RICH_CONTEXT_EVENT_TYPES
+        else "Weekend in Goa"
+    )
+    assert message["body"] == expected_body
     assert message["channelId"] == "trip_activity"
     assert message["priority"] == "high"
     assert message["data"] == {
@@ -278,8 +285,8 @@ def test_expense_payload_has_rich_copy_and_unchanged_routing_data():
 
     message = notifications.build_expo_message(event, {"token": VALID_TOKEN})
 
-    assert message["title"] == "Ravi Kumar added Beach dinner"
-    assert message["body"] == "Weekend in Goa"
+    assert message["title"] == "Ravi Kumar added “Beach dinner”"
+    assert message["body"] == "(Weekend in Goa)"
     assert message["data"] == {
         "payloadVersion": 1,
         "eventKey": f"expense.created:{SOURCE_ID}",
@@ -293,6 +300,161 @@ def test_expense_payload_has_rich_copy_and_unchanged_routing_data():
     assert "INR" not in str(message)
     assert "private@example.com" not in str(message)
     assert "private-receipt" not in str(message)
+
+
+@pytest.mark.parametrize(
+    ("event_type", "metadata", "expected_title"),
+    [
+        (
+            "chat.message.created",
+            {"sender_name": "  Ravi\n "},
+            "Message from Ravi",
+        ),
+        (
+            "payment.recorded",
+            {
+                "payer_name": " Ravi ",
+                "recipient_name": " Priya\n ",
+                "amount": "500",
+                "currency": "INR",
+                "payment_classification": "partial",
+            },
+            "Ravi partly paid ₹500 to Priya",
+        ),
+        (
+            "settlement.paid",
+            {
+                "payer_name": "Ravi",
+                "recipient_name": "Priya",
+                "amount": "1200",
+                "currency": "INR",
+                "payment_classification": "settled",
+            },
+            "Ravi settled ₹1,200 to Priya",
+        ),
+        (
+            "payment_attempt.confirmed",
+            {
+                "payer_name": "Ravi",
+                "recipient_name": "Priya",
+                "amount": "500",
+                "currency": "INR",
+                "payment_classification": "partial",
+            },
+            "Ravi partly paid ₹500 to Priya",
+        ),
+    ],
+)
+def test_rich_activity_templates_are_exact(event_type, metadata, expected_title):
+    event = {
+        "event_key": f"{event_type}:{SOURCE_ID}",
+        "event_type": event_type,
+        "source_id": SOURCE_ID,
+        "trip_id": TRIP_ID,
+        "trip_name": "  Goa\n Weekend ",
+        **metadata,
+    }
+
+    message = notifications.build_expo_message(event, {"token": VALID_TOKEN})
+
+    assert message["title"] == expected_title
+    assert message["body"] == "(Goa Weekend)"
+    assert not message["title"].endswith(".")
+    assert not message["body"].endswith(".")
+
+
+@pytest.mark.parametrize(("currency", "symbol"), notifications.CURRENCY_SYMBOLS.items())
+def test_payment_copy_supports_every_app_currency_symbol(currency, symbol):
+    event = {
+        "event_key": f"payment.recorded:{SOURCE_ID}",
+        "event_type": "payment.recorded",
+        "source_id": SOURCE_ID,
+        "trip_id": TRIP_ID,
+        "trip_name": "Currency trip",
+        "payer_name": "Ravi",
+        "recipient_name": "Priya",
+        "amount": "1234567",
+        "currency": currency,
+        "payment_classification": "partial",
+    }
+
+    title = notifications.build_expo_message(event, {"token": VALID_TOKEN})["title"]
+
+    assert title == f"Ravi partly paid {symbol}1,234,567 to Priya"
+
+
+def test_notification_currency_map_covers_all_26_supported_app_currencies():
+    assert tuple(notifications.CURRENCY_SYMBOLS) == SUPPORTED_CURRENCIES
+    assert len(notifications.CURRENCY_SYMBOLS) == 26
+
+
+def test_money_formatting_groups_and_preserves_exact_legacy_decimal_evidence():
+    assert notifications.canonical_notification_amount(Decimal("001200.500")) == "1200.500"
+    assert notifications.format_notification_money(Decimal("1200.500"), "usd") == "$1,200.500"
+
+
+@pytest.mark.parametrize(
+    ("amount", "payable", "tolerance", "expected"),
+    [
+        ("499", "500", "0", "partial"),
+        ("500", "500", "0", "settled"),
+        ("499.50", "500", "0.50", "settled"),
+        ("499.49", "500", "0.50", "partial"),
+    ],
+)
+def test_payment_classification_uses_only_the_pair_payable_boundary(
+    amount, payable, tolerance, expected,
+):
+    assert notifications.classify_payment_notification(amount, payable, tolerance) == expected
+
+
+@pytest.mark.parametrize(
+    ("event_type", "generic_title"),
+    [
+        ("chat.message.created", "New group message"),
+        ("expense.created", "Expense added"),
+        ("payment.recorded", "Payment recorded"),
+        ("settlement.paid", "Settlement marked paid"),
+        ("payment_attempt.confirmed", "UPI payment confirmed"),
+    ],
+)
+def test_old_queued_activity_without_rich_metadata_keeps_generic_title(
+    event_type, generic_title,
+):
+    event = {
+        "event_key": f"{event_type}:{SOURCE_ID}",
+        "event_type": event_type,
+        "source_id": SOURCE_ID,
+        "trip_id": TRIP_ID,
+        "trip_name": "Goa Weekend",
+    }
+
+    message = notifications.build_expo_message(event, {"token": VALID_TOKEN})
+
+    assert message["title"] == generic_title
+    assert message["body"] == "(Goa Weekend)"
+
+
+def test_incomplete_upi_and_join_workflow_copy_remains_unchanged():
+    cases = [
+        ("payment_attempt.confirmation_requested", "Confirm a UPI payment"),
+        ("payment_attempt.not_received", "UPI payment needs review"),
+        ("payment_attempt.review_closed", "UPI payment review closed"),
+        ("join.request.created", "Join request received"),
+        ("join.request.approved", "Join request approved"),
+        ("join.request.rejected", "Join request declined"),
+    ]
+    for event_type, title in cases:
+        event = {
+            "event_key": f"{event_type}:{SOURCE_ID}",
+            "event_type": event_type,
+            "source_id": SOURCE_ID,
+            "trip_id": TRIP_ID,
+            "trip_name": "Goa Weekend",
+        }
+        message = notifications.build_expo_message(event, {"token": VALID_TOKEN})
+        assert message["title"] == title
+        assert message["body"] == "Goa Weekend"
 
 
 def test_trip_name_is_single_line_bounded_and_has_a_generic_fallback():
@@ -314,7 +476,7 @@ def test_trip_name_is_single_line_bounded_and_has_a_generic_fallback():
     }
     message = notifications.build_expo_message(event, {"token": VALID_TOKEN})
     assert message["title"] == "Expense added"
-    assert message["body"] == "One of your trips"
+    assert message["body"] == "(One of your trips)"
 
     event["actor_name"] = "Ravi"
     assert notifications.build_expo_message(event, {"token": VALID_TOKEN})["title"] \
@@ -426,6 +588,128 @@ def test_expense_enqueue_bounds_snapshotted_display_labels(monkeypatch):
     assert stored["expense_heading"].endswith("…")
 
 
+def test_chat_and_payment_enqueue_store_only_sanitized_rich_metadata(monkeypatch):
+    outbox = SimpleNamespace(insert_one=AsyncMock())
+    monkeypatch.setattr(notifications, "PUSH_NOTIFICATIONS_ENABLED", True)
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(notification_outbox=outbox))
+
+    run(notifications.enqueue_notification_event(
+        event_type="chat.message.created",
+        source_id="m1",
+        trip_id="t1",
+        actor_user_id="u1",
+        sender_name="  Ravi\n Kumar  ",
+        actor_name="not allowed for chat",
+        expense_heading="not allowed for chat",
+        payer_name="not allowed for chat",
+        amount="999",
+        currency="USD",
+        payment_classification="settled",
+    ))
+    chat_event = outbox.insert_one.await_args.args[0]
+    assert chat_event["sender_name"] == "Ravi Kumar"
+    assert "actor_name" not in chat_event
+    assert "expense_heading" not in chat_event
+    assert "payer_name" not in chat_event
+    assert "amount" not in chat_event
+    assert "currency" not in chat_event
+
+    run(notifications.enqueue_notification_event(
+        event_type="payment.recorded",
+        source_id="p1",
+        trip_id="t1",
+        actor_user_id="u1",
+        sender_name="not allowed for payment",
+        actor_name="not allowed for payment",
+        expense_heading="not allowed for payment",
+        payer_name="  Ravi\n ",
+        recipient_name=" Priya\t Singh ",
+        amount=Decimal("001200.500"),
+        currency=" usd ",
+        payment_classification="partial",
+    ))
+    payment_event = outbox.insert_one.await_args.args[0]
+    assert payment_event["payer_name"] == "Ravi"
+    assert payment_event["recipient_name"] == "Priya Singh"
+    assert payment_event["amount"] == "1200.500"
+    assert payment_event["currency"] == "USD"
+    assert payment_event["payment_classification"] == "partial"
+    assert "sender_name" not in payment_event
+    assert "actor_name" not in payment_event
+    assert "expense_heading" not in payment_event
+    assert "note" not in payment_event
+    assert "email" not in payment_event
+    assert "receipt" not in payment_event
+    assert "credentials" not in payment_event
+    assert "token" not in payment_event
+
+
+def test_sender_and_payment_party_snapshots_are_bounded(monkeypatch):
+    outbox = SimpleNamespace(insert_one=AsyncMock())
+    monkeypatch.setattr(notifications, "PUSH_NOTIFICATIONS_ENABLED", True)
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(notification_outbox=outbox))
+
+    run(notifications.enqueue_notification_event(
+        event_type="chat.message.created",
+        source_id="m1",
+        trip_id="t1",
+        actor_user_id="u1",
+        sender_name="S" * 100,
+    ))
+    chat_event = outbox.insert_one.await_args.args[0]
+    assert len(chat_event["sender_name"]) == notifications.ACTOR_NAME_MAX_LENGTH
+    assert chat_event["sender_name"].endswith("…")
+
+    run(notifications.enqueue_notification_event(
+        event_type="payment.recorded",
+        source_id="p1",
+        trip_id="t1",
+        actor_user_id="u1",
+        payer_name="P" * 100,
+        recipient_name="R" * 100,
+        amount=1,
+        currency="INR",
+        payment_classification="partial",
+    ))
+    payment_event = outbox.insert_one.await_args.args[0]
+    assert len(payment_event["payer_name"]) == notifications.PARTY_NAME_MAX_LENGTH
+    assert payment_event["payer_name"].endswith("…")
+    assert len(payment_event["recipient_name"]) == notifications.PARTY_NAME_MAX_LENGTH
+    assert payment_event["recipient_name"].endswith("…")
+
+
+def test_rich_payment_payload_excludes_notes_contacts_receipts_and_credentials():
+    event = {
+        "event_key": f"payment.recorded:{SOURCE_ID}",
+        "event_type": "payment.recorded",
+        "source_id": SOURCE_ID,
+        "trip_id": TRIP_ID,
+        "trip_name": "Goa Weekend",
+        "payer_name": "Ravi",
+        "recipient_name": "Priya",
+        "amount": "500",
+        "currency": "INR",
+        "payment_classification": "partial",
+        "note": "secret note",
+        "email": "private@example.com",
+        "receipt": "receipt bytes",
+        "transaction_reference": "UTR-PRIVATE",
+        "upi_id": "private@upi",
+        "credential": "super-secret",
+        "chat_text": "private message",
+    }
+
+    message = notifications.build_expo_message(event, {"token": VALID_TOKEN})
+    rendered = str({key: value for key, value in message.items() if key != "to"})
+
+    assert message["title"] == "Ravi partly paid ₹500 to Priya"
+    for private_value in (
+        "secret note", "private@example.com", "receipt bytes", "UTR-PRIVATE",
+        "private@upi", "super-secret", "private message", VALID_TOKEN,
+    ):
+        assert private_value not in rendered
+
+
 def test_join_event_stores_only_the_explicit_private_audience(monkeypatch):
     outbox = SimpleNamespace(insert_one=AsyncMock())
     monkeypatch.setattr(notifications, "PUSH_NOTIFICATIONS_ENABLED", True)
@@ -439,6 +723,12 @@ def test_join_event_stores_only_the_explicit_private_audience(monkeypatch):
         recipient_user_ids_override=["admin-1", "requester", "admin-1", "admin-2"],
         actor_name="Should not be stored",
         expense_heading="Should not be stored",
+        sender_name="Should not be stored",
+        payer_name="Should not be stored",
+        recipient_name="Should not be stored",
+        amount="100",
+        currency="INR",
+        payment_classification="settled",
     ))
 
     assert inserted is True
@@ -449,6 +739,12 @@ def test_join_event_stores_only_the_explicit_private_audience(monkeypatch):
     assert "target_email" not in document
     assert "actor_name" not in document
     assert "expense_heading" not in document
+    assert "sender_name" not in document
+    assert "payer_name" not in document
+    assert "recipient_name" not in document
+    assert "amount" not in document
+    assert "currency" not in document
+    assert "payment_classification" not in document
 
 
 def test_disabled_feature_does_not_accumulate_old_outbox_events(monkeypatch):

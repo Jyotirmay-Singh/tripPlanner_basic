@@ -2,13 +2,15 @@
 
 Business writes only enqueue an idempotent event. A best-effort FastAPI background task sends it
 immediately, while the single-process dispatcher reclaims due or interrupted work from MongoDB.
-Expense-created events may snapshot compact actor and description/category labels. No amount,
-currency, email, receipt, chat text, or push token is copied into notification copy or logs.
+Rich activity events may snapshot compact display labels plus canonical payment amount/currency
+metadata. Chat text, payment notes, email, receipt, credential, and push-token material is never
+copied into notification copy or logs.
 """
 
 import asyncio
 import re
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
 import httpx
@@ -30,7 +32,32 @@ PUSH_CHANNEL_ID = "trip_activity"
 TRIP_NAME_MAX_LENGTH = 60
 ACTOR_NAME_MAX_LENGTH = 60
 EXPENSE_HEADING_MAX_LENGTH = 80
+PARTY_NAME_MAX_LENGTH = 60
+NOTIFICATION_AMOUNT_MAX_LENGTH = 80
 TRIP_NAME_FALLBACK = "One of your trips"
+
+# Keep this presentation-only map aligned with frontend/src/currencies.ts. The ISO code and exact
+# decimal text are snapshotted in the outbox; formatting is deterministic and locale-independent.
+CURRENCY_SYMBOLS = {
+    "INR": "₹", "USD": "$", "EUR": "€", "GBP": "£", "AED": "د.إ", "JPY": "¥",
+    "SGD": "S$", "AUD": "A$", "CAD": "C$", "CHF": "CHF", "CNY": "¥", "HKD": "HK$",
+    "NZD": "NZ$", "SAR": "﷼", "QAR": "ر.ق", "KWD": "د.ك", "BHD": "د.ب",
+    "OMR": "ر.ع.", "THB": "฿", "MYR": "RM", "IDR": "Rp", "KRW": "₩",
+    "TRY": "₺", "ZAR": "R", "LKR": "Rs", "NPR": "रू",
+}
+PAYMENT_CLASSIFICATIONS = frozenset(("partial", "settled"))
+_RICH_CONTEXT_EVENT_TYPES = frozenset((
+    "chat.message.created",
+    "expense.created",
+    "payment.recorded",
+    "settlement.paid",
+    "payment_attempt.confirmed",
+))
+_PAYMENT_EVENT_TYPES = frozenset((
+    "payment.recorded",
+    "settlement.paid",
+    "payment_attempt.confirmed",
+))
 
 # This map is the notification contract. Callers provide an event type and source id; routing,
 # lock-screen copy, and the type-specific payload key are derived here so they cannot drift apart.
@@ -146,19 +173,92 @@ def notification_trip_name(value: Any) -> Optional[str]:
     return notification_label(value, TRIP_NAME_MAX_LENGTH)
 
 
+def canonical_notification_amount(value: Any) -> Optional[str]:
+    """Return bounded exact decimal text, preserving legacy fractional evidence when present."""
+    if isinstance(value, bool):
+        return None
+    try:
+        if hasattr(value, "to_decimal"):
+            value = value.to_decimal()
+        parsed = value if isinstance(value, Decimal) else Decimal(str(value).strip())
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if not parsed.is_finite() or parsed <= 0:
+        return None
+    canonical = format(parsed, "f")
+    return canonical if len(canonical) <= NOTIFICATION_AMOUNT_MAX_LENGTH else None
+
+
+def canonical_notification_currency(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    code = value.strip().upper()
+    return code if code in CURRENCY_SYMBOLS else None
+
+
+def format_notification_money(amount: Any, currency: Any) -> Optional[str]:
+    """Format a canonical major-unit amount with grouping and the app's currency symbol."""
+    canonical_amount = canonical_notification_amount(amount)
+    canonical_currency = canonical_notification_currency(currency)
+    if canonical_amount is None or canonical_currency is None:
+        return None
+    grouped = format(Decimal(canonical_amount), ",f")
+    return f"{CURRENCY_SYMBOLS[canonical_currency]}{grouped}"
+
+
+def classify_payment_notification(amount: Any, payable: Any, tolerance: Any) -> Optional[str]:
+    """Classify one payment only against its pre-payment payer-to-recipient payable."""
+    try:
+        paid = Decimal(str(amount))
+        due = Decimal(str(payable))
+        allowed_tolerance = Decimal(str(tolerance))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if not all(value.is_finite() for value in (paid, due, allowed_tolerance)):
+        return None
+    if paid <= 0 or due <= 0 or allowed_tolerance < 0:
+        return None
+    return "settled" if paid + allowed_tolerance >= due else "partial"
+
+
+def _notification_body(event: dict) -> str:
+    trip_name = notification_trip_name(event.get("trip_name")) or TRIP_NAME_FALLBACK
+    if event.get("event_type") in _RICH_CONTEXT_EVENT_TYPES:
+        return f"({trip_name})"
+    return trip_name
+
+
 def build_expo_message(event: dict, delivery: dict) -> dict:
     """Build an allowlisted payload with an action title and compact trip context."""
     definition = _EVENT_DEFINITIONS.get(event.get("event_type"))
     if not definition:
         raise ValueError("unsupported notification event type")
     title = definition["title"]
-    if event.get("event_type") == "expense.created":
+    event_type = event.get("event_type")
+    if event_type == "chat.message.created":
+        sender_name = notification_label(event.get("sender_name"), ACTOR_NAME_MAX_LENGTH)
+        if sender_name:
+            title = f"Message from {sender_name}"
+    elif event_type == "expense.created":
         actor_name = notification_label(event.get("actor_name"), ACTOR_NAME_MAX_LENGTH)
         expense_heading = notification_label(
             event.get("expense_heading"), EXPENSE_HEADING_MAX_LENGTH,
         )
         if actor_name and expense_heading:
-            title = f"{actor_name} added {expense_heading}"
+            title = f"{actor_name} added “{expense_heading}”"
+    elif event_type in _PAYMENT_EVENT_TYPES:
+        payer_name = notification_label(event.get("payer_name"), PARTY_NAME_MAX_LENGTH)
+        recipient_name = notification_label(event.get("recipient_name"), PARTY_NAME_MAX_LENGTH)
+        money = format_notification_money(event.get("amount"), event.get("currency"))
+        classification = event.get("payment_classification")
+        if (
+            payer_name and recipient_name and money
+            and classification in PAYMENT_CLASSIFICATIONS
+        ):
+            if classification == "partial":
+                title = f"{payer_name} partly paid {money} to {recipient_name}"
+            else:
+                title = f"{payer_name} settled {money} to {recipient_name}"
     source_id = event["source_id"]
     data = {
         "payloadVersion": 1,
@@ -172,7 +272,7 @@ def build_expo_message(event: dict, delivery: dict) -> dict:
     return {
         "to": delivery["token"],
         "title": title,
-        "body": notification_trip_name(event.get("trip_name")) or TRIP_NAME_FALLBACK,
+        "body": _notification_body(event),
         "sound": "default",
         "channelId": PUSH_CHANNEL_ID,
         "priority": "high",
@@ -187,8 +287,14 @@ async def enqueue_notification_event(
     trip_id: str,
     actor_user_id: str,
     recipient_user_ids_override: Optional[list[str]] = None,
+    sender_name: Optional[str] = None,
     actor_name: Optional[str] = None,
     expense_heading: Optional[str] = None,
+    payer_name: Optional[str] = None,
+    recipient_name: Optional[str] = None,
+    amount: Any = None,
+    currency: Optional[str] = None,
+    payment_classification: Optional[str] = None,
     background_tasks: Any = None,
 ) -> bool:
     """Persist one idempotent event without ever failing the completed business operation."""
@@ -238,7 +344,11 @@ async def enqueue_notification_event(
         "updated_at": timestamp,
         "completed_at": None,
     }
-    if event_type == "expense.created":
+    if event_type == "chat.message.created":
+        clean_sender_name = notification_label(sender_name, ACTOR_NAME_MAX_LENGTH)
+        if clean_sender_name:
+            document["sender_name"] = clean_sender_name
+    elif event_type == "expense.created":
         clean_actor_name = notification_label(actor_name, ACTOR_NAME_MAX_LENGTH)
         clean_expense_heading = notification_label(
             expense_heading, EXPENSE_HEADING_MAX_LENGTH,
@@ -247,6 +357,26 @@ async def enqueue_notification_event(
             document["actor_name"] = clean_actor_name
         if clean_expense_heading:
             document["expense_heading"] = clean_expense_heading
+    elif event_type in _PAYMENT_EVENT_TYPES:
+        clean_payer_name = notification_label(payer_name, PARTY_NAME_MAX_LENGTH)
+        clean_recipient_name = notification_label(recipient_name, PARTY_NAME_MAX_LENGTH)
+        clean_amount = canonical_notification_amount(amount)
+        clean_currency = canonical_notification_currency(currency)
+        clean_classification = (
+            payment_classification
+            if payment_classification in PAYMENT_CLASSIFICATIONS
+            else None
+        )
+        if clean_payer_name:
+            document["payer_name"] = clean_payer_name
+        if clean_recipient_name:
+            document["recipient_name"] = clean_recipient_name
+        if clean_amount:
+            document["amount"] = clean_amount
+        if clean_currency:
+            document["currency"] = clean_currency
+        if clean_classification:
+            document["payment_classification"] = clean_classification
     inserted = False
     for attempt in range(1, 4):
         try:

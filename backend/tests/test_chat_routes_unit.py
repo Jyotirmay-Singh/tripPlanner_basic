@@ -70,6 +70,7 @@ def test_create_persists_before_broadcast_and_snapshots_sender(monkeypatch):
         source_id=stored["id"],
         trip_id="t1",
         actor_user_id="u1",
+        sender_name="Owner",
         background_tasks=background,
     )
     assert broadcast.await_count == 1

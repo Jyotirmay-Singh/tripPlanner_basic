@@ -329,6 +329,10 @@ across standalone individuals, family entries, and joined app users.
 11. Tap **Save transaction**.
 12. If the running total now exceeds the trip budget, a warning dialog asks you to **Cancel** or **Save anyway**.
 
+On Android, other eligible trip members may see **{your trip name} added “{description}”** on
+their lock screen; when the description is blank, the category is used instead. The notification
+does not include the expense amount, split, receipt, or any account contact details.
+
 ### 5.2 Edit or delete a transaction
 - The **Expenses** tab lists transactions **newest first**, ordered by each transaction's own **date and time**. A transaction with a time sorts by that time; one with only a date sorts by when it was added, so a freshly added expense appears at the top.
 - **Expenses** tab → tap any transaction → opens the **Edit Transaction** screen with the same form pre-filled.
@@ -386,6 +390,10 @@ The screen labels the route **Minimum payment plan** when bounded exact optimiza
   person in that family can confirm it. Everyone else can still see the recommendations and history.
 - On confirm, every balance is recomputed from the ledger. The remaining amount may shrink, disappear,
   or be routed to a different receiver; a recorded payment itself never changes or disappears.
+- Android activity notifications identify the payer, receiver, trip-currency amount, and whether
+  this payment only **partly paid** the current payer → receiver payable or **settled** it. That
+  classification uses the payable immediately before this payment; unrelated trip debts do not
+  change the wording.
 
 **Paying through an external UPI app**
 - The account linked to the suggested payer can tap **Pay via UPI**. Choose a linked recipient who
@@ -423,10 +431,13 @@ The screen labels the route **Minimum payment plan** when bounded exact optimiza
   keeps both the actual INR amount reported outside Trip Splitter and the capped trip-currency ledger
   amount visible.
 - Only the selected UPI owner is notified when confirmation is requested; only the initiating payer
-  is notified of confirmation, non-receipt, or review closure. Tapping one of these notifications
-  opens the matching activity in **Settle Up**. Other authorized recipient-family accounts and trip
-  reviewers can use the persisted in-app list. Administrators may inspect a recipient's current UPI
-  details for an active recommendation, but only a linked payer account can start the handoff.
+  is notified of confirmation, non-receipt, or review closure. A successful confirmation uses the
+  same payer, receiver, trip-currency amount, and **partly paid**/**settled** wording as a manual
+  payment. Confirmation requests, non-receipt alerts, and review-closure alerts retain their generic
+  workflow wording. Tapping one of these notifications opens the matching activity in **Settle Up**.
+  Other authorized recipient-family accounts and trip reviewers can use the persisted in-app list.
+  Administrators may inspect a recipient's current UPI details for an active recommendation, but only
+  a linked payer account can start the handoff.
 
 **Payment history**
 - Payment history is chronological and separate from the live route, so recomputation never makes an
@@ -472,9 +483,15 @@ claims the profile.
   sender label remains understandable to the people who still have access.
 
 On Android, a new message can also produce a push notification for other signed-in trip members.
-The notification identifies the trip but never includes the sender or message text; tapping it
+The notification identifies the sender and trip but never includes the message text; tapping it
 opens the matching trip's Chat tab. Chat v1 does not include images, reactions, typing/online
 presence, or per-message seen receipts.
+
+Android may show activity notifications on the lock screen. Depending on the activity, this can
+expose the trip name, chat sender, expense creator and description/category, or payment parties and
+amount. Payment notes, UPI references/IDs, chat text, emails, receipts, credentials, and tokens are
+never included in notification copy. Use Android's lock-screen notification-privacy setting if you
+do not want these activity details visible while the phone is locked.
 
 ---
 

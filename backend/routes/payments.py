@@ -29,7 +29,7 @@ from utils.settlement_gate import (
     payable_tolerance,
     validate_new_amount,
 )
-from services.push_notifications import enqueue_notification_event
+from services.push_notifications import classify_payment_notification, enqueue_notification_event
 from services.admin_audit import record_admin_action
 from services.money_audit import record_money_normalizations
 from services.ledger_transactions import (
@@ -43,6 +43,7 @@ from services.trip_activity import (
     with_trip_activity,
 )
 from utils.money_policy import normalization_change, whole_money
+from utils.display_names import member_display_names
 
 router = APIRouter()
 
@@ -449,11 +450,17 @@ async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: Ba
         user, "payment.created", trip=trip, resource_type="payment", resource_id=doc["id"],
         changed_fields=("from_member_id", "to_member_id", "amount", "note"),
     )
+    display_names = member_display_names(trip.get("members", []))
     await enqueue_notification_event(
         event_type="payment.recorded",
         source_id=doc["id"],
         trip_id=trip_id,
         actor_user_id=user["id"],
+        payer_name=display_names.get(body.from_member_id),
+        recipient_name=display_names.get(body.to_member_id),
+        amount=doc["amount"],
+        currency=doc["currency"],
+        payment_classification=classify_payment_notification(amount, payable, tolerance),
         background_tasks=background_tasks,
     )
     return doc

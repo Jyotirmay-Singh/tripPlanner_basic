@@ -616,13 +616,13 @@ def test_unrelated_user_cannot_review_and_list_visibility_is_scoped(monkeypatch)
     assert outsider_rows == []
 
 
-@pytest.mark.parametrize("payable, expected_status, expected_posted", [
-    (50, "settled_recipient_confirmed", 25.0),
-    (10, "settled_recipient_confirmed", 10.0),
-    (0, "needs_review", None),
+@pytest.mark.parametrize("payable, expected_status, expected_posted, expected_classification", [
+    (50, "settled_recipient_confirmed", 25.0, "partial"),
+    (10, "settled_recipient_confirmed", 10.0, "settled"),
+    (0, "needs_review", None, None),
 ])
 def test_confirmation_uses_latest_payable_and_posts_once(
-    payable, expected_status, expected_posted, monkeypatch,
+    payable, expected_status, expected_posted, expected_classification, monkeypatch,
 ):
     fake_db = install_attempt_route(
         monkeypatch,
@@ -658,6 +658,49 @@ def test_confirmation_uses_latest_payable_and_posts_once(
         assert "upi_id_snapshot" not in payment
         assert "transaction_reference" not in payment
         assert "active_key" not in fake_db.payment_attempts.rows[0]
+
+    notification = attempt_routes.enqueue_notification_event.await_args.kwargs
+    if expected_classification is None:
+        assert notification["event_type"] == "payment_attempt.not_received"
+        assert "payer_name" not in notification
+        assert "recipient_name" not in notification
+        assert "amount" not in notification
+        assert "currency" not in notification
+        assert "payment_classification" not in notification
+    else:
+        assert notification["event_type"] == "payment_attempt.confirmed"
+        assert notification["payer_name"] == "Payer Family"
+        assert notification["recipient_name"] == "Recipient Family"
+        assert notification["amount"] == expected_posted
+        assert notification["currency"] == "INR"
+        assert notification["payment_classification"] == expected_classification
+
+
+def test_confirmed_upi_notification_uses_duplicate_safe_payment_parties(monkeypatch):
+    duplicate_trip = deepcopy(TRIP)
+    duplicate_trip["members"][0]["name"] = "Ravi"
+    duplicate_trip["members"][1]["name"] = "Ravi"
+    install_attempt_route(
+        monkeypatch,
+        attempts=[attempt("awaiting_confirmation")],
+        trip=duplicate_trip,
+        transfers=[{
+            "from_member_id": "payer", "to_member_id": "recipient", "amount": 25,
+        }],
+    )
+
+    run(attempt_routes.update_payment_attempt_recipient(
+        "trip-1",
+        "attempt-1",
+        PaymentAttemptRecipientPatch(action="confirm_received"),
+        BackgroundTasks(),
+        user={"id": "recipient-user"},
+    ))
+
+    notification = attempt_routes.enqueue_notification_event.await_args.kwargs
+    assert notification["payer_name"] == "Ravi_1"
+    assert notification["recipient_name"] == "Ravi_2"
+    assert notification["payment_classification"] == "settled"
 
 
 def test_concurrent_and_repeated_confirmation_insert_one_linked_payment(monkeypatch):
