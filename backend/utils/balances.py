@@ -8,7 +8,6 @@ from database import db
 from services.member_breakdown import family_member_breakdown
 from services.settlement_engine import (
     SettlementLedgerError,
-    apply_migration_adjustments,
     build_precise_net,
     build_settlement_projection,
     joint_round,
@@ -53,10 +52,12 @@ async def _compute_balances(
     ) if adjustment_collection is not None else None
 
     try:
-        precise_net = build_precise_net(members, expenses, settlements, payments)
-        precise_net = apply_migration_adjustments(
-            precise_net,
-            (migration_adjustment or {}).get("vector"),
+        precise_net = build_precise_net(
+            members,
+            expenses,
+            settlements,
+            payments,
+            migration_adjustments=(migration_adjustment or {}).get("vector"),
         )
 
         # Keep the legacy numeric ``net`` response shape while jointly projecting every currency to

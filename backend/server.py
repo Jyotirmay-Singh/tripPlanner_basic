@@ -13,7 +13,7 @@ from utils.members import demote_family_entity_email
 from utils.email_rules import is_allowed_email
 from utils.security import hash_secret
 from utils.emailer import sender_mode_summary
-from routes import auth, trips, join_requests, invites, members, expenses, balances, reports, meta, receipts, spend, payments, payment_attempts, chat, push, exchange_rates, admin
+from routes import auth, trips, join_requests, invites, members, expenses, balances, reports, meta, receipts, spend, payments, payment_attempts, chat, push, exchange_rates, admin, departure
 from services.push_notifications import start_push_dispatcher, stop_push_dispatcher
 from services.exchange_rates import start_exchange_rate_client, stop_exchange_rate_client
 from services.invites import retire_legacy_invites
@@ -278,7 +278,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Trip Splitter", lifespan=lifespan)
 api = APIRouter(prefix="/api")
 
-for module in (auth, trips, join_requests, invites, members, expenses, balances, reports, meta, receipts, spend, payments, payment_attempts, chat, push, exchange_rates, admin):
+for module in (auth, departure, trips, join_requests, invites, members, expenses, balances, reports, meta, receipts, spend, payments, payment_attempts, chat, push, exchange_rates, admin):
     api.include_router(module.router)
 
 

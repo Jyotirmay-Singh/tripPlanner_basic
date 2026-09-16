@@ -137,6 +137,9 @@ async def create_settlement(trip_id: str, body: SettlementCreate, user=Depends(g
            "recorded_by": user["id"],
            "note": body.note,
            **audit_fields}
+
+    # Pending suggestions do not affect the authoritative balance or trip activity. The existing
+    # paid transition claims the trip version atomically before the row begins affecting balances.
     await db.settlements.insert_one(doc)
     doc.pop("_id", None)
     await record_money_normalizations(

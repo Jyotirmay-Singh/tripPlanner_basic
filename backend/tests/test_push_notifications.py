@@ -558,6 +558,33 @@ def test_delivery_snapshot_uses_current_membership_and_active_android_devices(mo
     assert persisted["trip_name"] == "Weekend in Goa"
 
 
+def test_delivery_snapshot_tolerates_privacy_scrubbed_actor(monkeypatch):
+    timestamp = now_utc()
+    event = {
+        "event_key": "expense.created:e1",
+        "event_type": "expense.created",
+        "source_id": "e1",
+        "trip_id": "t1",
+        # Account deletion deliberately unsets actor_user_id before pending delivery resumes.
+        "delivery_snapshot_at": None,
+    }
+    trips = SimpleNamespace(find_one=AsyncMock(return_value={
+        "name": "Coast",
+        "user_ids": ["remaining-1", "remaining-2"],
+    }))
+    devices = SimpleNamespace(find=Mock(return_value=FakeCursor([])))
+    outbox = SimpleNamespace(update_one=AsyncMock())
+    monkeypatch.setattr(notifications, "db", SimpleNamespace(
+        trips=trips, push_devices=devices, notification_outbox=outbox,
+    ))
+
+    assert run(notifications._prepare_deliveries(event, timestamp)) is True
+    assert devices.find.call_args.args[0]["user_id"]["$in"] == [
+        "remaining-1", "remaining-2",
+    ]
+    assert event["deliveries"] == []
+
+
 def test_delivery_snapshot_honors_explicit_request_recipient_outside_trip_membership(monkeypatch):
     timestamp = now_utc()
     event = {

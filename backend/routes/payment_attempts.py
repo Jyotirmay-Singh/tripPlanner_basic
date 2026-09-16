@@ -15,6 +15,7 @@ from services.exchange_rates import decimal_value
 from services.ledger_transactions import (
     TransactionUnavailableError,
     is_retryable_transaction_error,
+    run_optional_transaction,
     run_required_transaction,
 )
 from services.payment_attempts import (
@@ -357,8 +358,28 @@ async def create_payment_attempt(
         "updated_at": timestamp.isoformat(),
         "expires_at": timestamp + PAYMENT_ATTEMPT_LIFETIME,
     }
-    try:
+    async def transactional_write(session):
+        guard = await db.trips.update_one(
+            {"id": trip_id, "version": trip.get("version", 0)},
+            {"$inc": {"version": 1}},
+            session=session,
+        )
+        if not _changed(guard):
+            raise _error(
+                409,
+                "payable_changed",
+                "The trip changed while this payment was starting; review the latest payable",
+                retryable=True,
+            )
+        await db.payment_attempts.insert_one(document, session=session)
+
+    async def standalone_write():
         await db.payment_attempts.insert_one(document)
+
+    try:
+        # Coordinate attempt creation with account/membership departure through the trip version.
+        # On transaction-capable deployments, neither side can commit a dangling active reference.
+        await run_optional_transaction(transactional_write, standalone_write)
     except DuplicateKeyError:
         duplicate = await db.payment_attempts.find_one(
             {"$or": [{"quote_id": body.quote_id}, {"active_key": key}]}, {"_id": 0}

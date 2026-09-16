@@ -25,6 +25,59 @@ export type PublicTripInvite = {
   trip_name: string;
 };
 
+export type TripDeletionAction = 'keep' | 'leave' | 'dissolve_family';
+
+export type DepartureBlocker = {
+  code: string;
+  message: string;
+  resolution: 'settle_up' | 'resolve_payment' | 'delete_trip_first' | 'review_membership'
+    | 'keep_family' | 'none' | string;
+  actions: string[];
+};
+
+export type DepartureIdentity = {
+  type: 'individual' | 'family_member';
+  member_id: string;
+  member_name: string;
+  family_id?: string | null;
+  family_name?: string | null;
+  family_member_id?: string | null;
+};
+
+export type OwnershipOutcome = {
+  is_owner: boolean;
+  transfer_required: boolean;
+  successor: { user_id: string; name: string } | null;
+  requires_trip_deletion: boolean;
+};
+
+export type TripDeletionImpact = {
+  trip_id: string;
+  trip_name: string;
+  currency: string;
+  identity: DepartureIdentity | null;
+  position: string | null;
+  family_position: string | null;
+  unsettled_family_members: { id: string; name: string; position: string }[];
+  settled: boolean;
+  leave_eligible: boolean;
+  dissolve_family_eligible: boolean;
+  requires_family_dissolution: boolean;
+  available_actions: TripDeletionAction[];
+  default_action: 'keep';
+  active_payment_blocker: boolean;
+  ownership: OwnershipOutcome;
+  blockers: DepartureBlocker[];
+};
+
+export type AccountDeletionImpact = {
+  account_deletion_allowed: boolean;
+  blockers: DepartureBlocker[];
+  trips: TripDeletionImpact[];
+  defaults: { trip_action: 'keep' };
+  privacy: { deleted: string[]; retained: string[] };
+};
+
 export type AdminTripSummary = {
   id: string;
   name: string;
@@ -330,6 +383,33 @@ export function previewJoin<T = any>(credential: string | JoinCredential): Promi
 
 export function joinTrip<T = any>(body: Record<string, unknown>): Promise<T> {
   return api<T>('/trips/join', { method: 'POST', body });
+}
+
+export function getAccountDeletionImpact(): Promise<AccountDeletionImpact> {
+  return api<AccountDeletionImpact>('/auth/me/deletion-impact');
+}
+
+export function deleteAccount(body: {
+  confirmation: 'DELETE';
+  acknowledge_unsettled: boolean;
+  trip_actions: { trip_id: string; action: TripDeletionAction }[];
+}): Promise<{ ok: true; kept_trip_ids: string[]; departed_trip_ids: string[] }> {
+  return api('/auth/me', { method: 'DELETE', body });
+}
+
+export function getMembershipLeaveImpact(tripId: string): Promise<TripDeletionImpact> {
+  return api<TripDeletionImpact>(
+    `/trips/${encodeURIComponent(tripId)}/membership/leave-impact`,
+  );
+}
+
+export function leaveTripMembership(
+  tripId: string,
+  dissolveFamily: boolean,
+): Promise<{ ok: true; trip_id: string; action: 'leave' | 'dissolve_family' }> {
+  return api(`/trips/${encodeURIComponent(tripId)}/membership`, {
+    method: 'DELETE', body: { dissolve_family: dissolveFamily },
+  });
 }
 
 export function requestExistingPerson(body: Record<string, unknown>): Promise<JoinRequestView> {

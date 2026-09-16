@@ -12,6 +12,7 @@ from services.chat import resolve_chat_sender
 from services.push_notifications import enqueue_notification_event
 from services.admin_audit import record_admin_action
 from services.money_audit import record_money_normalizations
+from services.ledger_transactions import run_optional_transaction
 from services.exchange_rates import ExchangeRateError, decimal_value, error_detail
 from services.expense_conversion import (
     convert_create_body,
@@ -28,7 +29,7 @@ from utils.money_policy import (
     whole_money,
 )
 from utils.permissions import is_super_admin
-from services.trip_activity import activity_timestamp, touch_trip_activity_safely
+from services.trip_activity import activity_timestamp, touch_trip_activity_safely, with_trip_activity
 
 router = APIRouter()
 
@@ -41,6 +42,27 @@ def _write_changed(result) -> bool:
 def _delete_changed(result) -> bool:
     count = getattr(result, "deleted_count", None)
     return count != 0 if isinstance(count, int) else True
+
+
+def _trip_changed() -> HTTPException:
+    return HTTPException(409, detail={
+        "code": "eligibility_changed",
+        "message": "The trip changed while this transaction was being saved. Refresh and try again.",
+        "retryable": True,
+    })
+
+
+async def _claim_trip_version(trip: dict, timestamp: str, session) -> None:
+    query = {"id": trip["id"]}
+    if "version" in trip:
+        query["version"] = trip.get("version", 0)
+    result = await db.trips.update_one(
+        query,
+        with_trip_activity({"$inc": {"version": 1}}, timestamp),
+        session=session,
+    )
+    if getattr(result, "matched_count", 1) == 0:
+        raise _trip_changed()
 
 
 def _conversion_http_error(exc: Exception):
@@ -235,9 +257,18 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
     }
     doc.update(converted["metadata"])
     doc["conversion_history"] = [converted["history"]]
-    await db.expenses.insert_one(doc)
+    async def transactional_write(session):
+        # Claim the same trip row used by self-service departure before inserting the child row.
+        # Whichever transaction loses the race aborts without leaving a partial expense.
+        await _claim_trip_version(trip, created_at, session)
+        await db.expenses.insert_one(doc, session=session)
+
+    async def standalone_write():
+        await db.expenses.insert_one(doc)
+        await touch_trip_activity_safely(db, trip_id, timestamp=created_at)
+
+    await run_optional_transaction(transactional_write, standalone_write)
     doc.pop("_id", None)
-    await touch_trip_activity_safely(db, trip_id, timestamp=created_at)
     await record_money_normalizations(
         converted.get("normalizations", []),
         actor_user_id=user["id"],
@@ -544,7 +575,28 @@ async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
     mutation = {"$set": updates}
     if history is not None:
         mutation["$push"] = {"conversion_history": history}
-    result = await db.expenses.update_one(query, mutation)
+    activity_at = activity_timestamp()
+    trip_version = trip.get("version", 0)
+
+    async def transactional_write(session):
+        result = await db.expenses.update_one(query, mutation, session=session)
+        if conversion_write and getattr(result, "matched_count", 1) == 0:
+            _conversion_conflict()
+        if not _write_changed(result):
+            return result
+        trip_snapshot = {**trip, "version": trip_version}
+        await _claim_trip_version(trip_snapshot, activity_at, session)
+        return result
+
+    async def standalone_write():
+        result = await db.expenses.update_one(query, mutation)
+        if conversion_write and getattr(result, "matched_count", 1) == 0:
+            _conversion_conflict()
+        if _write_changed(result):
+            await touch_trip_activity_safely(db, trip_id, timestamp=activity_at)
+        return result
+
+    result = await run_optional_transaction(transactional_write, standalone_write)
     if conversion_write and getattr(result, "matched_count", 1) == 0:
         _conversion_conflict()
     changed = _write_changed(result)
@@ -552,7 +604,6 @@ async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
         {"id": expense_id, "trip_id": trip_id}, {"_id": 0}
     )
     if changed:
-        await touch_trip_activity_safely(db, trip_id)
         await record_money_normalizations(
             normalizations,
             actor_user_id=user["id"],
@@ -612,10 +663,27 @@ async def reconvert_expense(trip_id: str, expense_id: str, body: ReconvertIn,
         "amount": converted["amount"], "currency": trip_currency,
         "custom_amounts": converted["custom_amounts"], **converted["metadata"],
     }
-    result = await db.expenses.update_one(
-        _conversion_write_filter(trip_id, expense_id, expense, current_version),
-        {"$set": updates, "$push": {"conversion_history": converted["history"]}},
-    )
+    query = _conversion_write_filter(trip_id, expense_id, expense, current_version)
+    mutation = {"$set": updates, "$push": {"conversion_history": converted["history"]}}
+    activity_at = activity_timestamp()
+
+    async def transactional_write(session):
+        result = await db.expenses.update_one(query, mutation, session=session)
+        if getattr(result, "matched_count", 1) == 0:
+            _conversion_conflict()
+        if _write_changed(result):
+            await _claim_trip_version(trip, activity_at, session)
+        return result
+
+    async def standalone_write():
+        result = await db.expenses.update_one(query, mutation)
+        if getattr(result, "matched_count", 1) == 0:
+            _conversion_conflict()
+        if _write_changed(result):
+            await touch_trip_activity_safely(db, trip_id, timestamp=activity_at)
+        return result
+
+    result = await run_optional_transaction(transactional_write, standalone_write)
     if getattr(result, "matched_count", 1) == 0:
         _conversion_conflict()
     changed = _write_changed(result)
@@ -623,7 +691,6 @@ async def reconvert_expense(trip_id: str, expense_id: str, body: ReconvertIn,
         {"id": expense_id, "trip_id": trip_id}, {"_id": 0}
     )
     if changed:
-        await touch_trip_activity_safely(db, trip_id)
         await record_money_normalizations(
             converted.get("normalizations", []),
             actor_user_id=user["id"],
@@ -645,11 +712,27 @@ async def reconvert_expense(trip_id: str, expense_id: str, body: ReconvertIn,
 async def delete_expense(trip_id: str, expense_id: str, user=Depends(get_current_user)):
     # Step 10: only the expense creator or a trip admin may delete (404 if missing, 403 otherwise).
     trip, _expense = await _expense_modify_or_403(trip_id, expense_id, user)
-    # Step 22: clean up any GridFS receipt so we never leave orphaned receipts.files/.chunks.
-    await delete_receipts_for_expense(expense_id)
-    result = await db.expenses.delete_one({"id": expense_id, "trip_id": trip_id})
+    activity_at = activity_timestamp()
+
+    async def transactional_write(session):
+        result = await db.expenses.delete_one(
+            {"id": expense_id, "trip_id": trip_id}, session=session,
+        )
+        if _delete_changed(result):
+            await _claim_trip_version(trip, activity_at, session)
+        return result
+
+    async def standalone_write():
+        result = await db.expenses.delete_one({"id": expense_id, "trip_id": trip_id})
+        if _delete_changed(result):
+            await touch_trip_activity_safely(db, trip_id, timestamp=activity_at)
+        return result
+
+    result = await run_optional_transaction(transactional_write, standalone_write)
     if _delete_changed(result):
-        await touch_trip_activity_safely(db, trip_id)
+        # GridFS cleanup follows the committed domain delete. A failed membership race therefore
+        # cannot strip a receipt from an expense that still exists.
+        await delete_receipts_for_expense(expense_id)
         await record_admin_action(
             user, "expense.deleted", trip=trip, resource_type="expense", resource_id=expense_id,
         )

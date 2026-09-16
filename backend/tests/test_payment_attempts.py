@@ -360,6 +360,28 @@ def test_creation_persists_exact_immutable_snapshot_before_handoff(monkeypatch):
     assert fake_db.payment_attempts.insert_calls == 1
 
 
+def test_creation_stale_trip_version_rejects_without_inserting_attempt(monkeypatch):
+    fake_db = install_attempt_route(monkeypatch)
+    stale_trip = deepcopy(TRIP)
+    fake_db.trips.rows[0]["version"] = stale_trip["version"] + 1
+    monkeypatch.setattr(attempt_routes, "_trip_or_404", AsyncMock(return_value=stale_trip))
+
+    async def transactional(callback, _fallback):
+        return await callback("session")
+
+    monkeypatch.setattr(attempt_routes, "run_optional_transaction", transactional)
+
+    with pytest.raises(HTTPException) as conflict:
+        run(attempt_routes.create_payment_attempt(
+            "trip-1", create_body(), user={"id": "payer-user", "name": "Payer account"},
+        ))
+
+    assert conflict.value.status_code == 409
+    assert conflict.value.detail["code"] == "payable_changed"
+    assert fake_db.payment_attempts.rows == []
+    assert fake_db.trips.rows[0]["version"] == 5
+
+
 def test_creation_revalidates_quote_pair_payable_recipient_and_upi(monkeypatch):
     expired = quote(expires_at=now_utc() - timedelta(seconds=1))
     install_attempt_route(monkeypatch, quotes=[expired])

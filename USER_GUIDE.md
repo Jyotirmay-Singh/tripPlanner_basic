@@ -56,6 +56,26 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
 - Trip Splitter validates the address format but does not verify that you own it. Trip Splitter
   never requests your UPI PIN, bank password, or a QR upload.
 
+### 1.6 Delete your account
+- Open **Profile → Delete account**. The review keeps every trip by default and shows your signed
+  position separately in each trip's own currency. Family cards also show the family total and any
+  family-member rows that are not settled.
+- For each trip, choose **Keep**, or—only when eligible—**Leave** or **Dissolve family**. An active
+  UPI payment must be resolved first. If you own a trip, the review names the linked account that
+  will become owner; when no successor exists, delete that trip through its separate trip-deletion
+  flow before deleting the account.
+- Keeping an unsettled trip is allowed only after checking the warning. The final account action
+  also requires typing uppercase **DELETE** exactly and confirming once more.
+- Account deletion permanently removes the login, password, Gmail, mobile and UPI profile, devices,
+  tokens, pending join requests, live roster links, and copied personal delivery/account references.
+  Kept trips retain their names, member names and stable IDs, transactions, balances, payments, and
+  reports. Your retained chat text appears under **Deleted user**. Terminal payment history drops
+  UPI snapshots and live account references while keeping amounts, statuses, dates, and transaction
+  references.
+- Registering the same Gmail later creates a completely new account. It does not restore access to
+  retained trips or reconnect an old member row; use the normal invitation and approval flow to
+  reclaim an identity.
+
 ---
 
 ## 2. Bottom-Tab Navigation
@@ -66,7 +86,7 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
 | 💼 **Trips** | All trips you've created or joined, most recently active first |
 | ➕ **Add** | Pick a trip and instantly add a transaction |
 | 📊 **Reports** | One-tap XLSX or PDF download per trip |
-| 👤 **Profile** | Your info, mobile number, payment details, dark mode toggle, sign out |
+| 👤 **Profile** | Your info, mobile number, payment details, dark mode, account deletion, sign out |
 
 ---
 
@@ -159,6 +179,8 @@ Settled trips remain tappable and can still be opened normally.
   - **Settle Up** — show who owes whom
   - **✏️ pencil** — edit trip name, dates, and budget; the official currency remains locked
   - **🗑 trash** — delete the trip (owner only; removes all expenses and chat history)
+- Trip deletion shows the normalized lowercase trip name. Type that lowercase value exactly;
+  surrounding spaces are ignored, but uppercase variants are not accepted.
 
 ---
 
@@ -238,6 +260,25 @@ across standalone individuals, family entries, and joined app users.
   join and link it.
 - Admins can add and change members and expenses. **Make owner** hands over ownership (you stay an
   admin). None of this affects any balance — roles are about permissions, not money.
+
+### 4.6 Leave a trip yourself
+- Open the trip's **Members** tab and use the quiet **Your membership** card. It shows the exact
+  identity linked to your account, settlement state, signed position, and any ownership transfer.
+- A standalone member can leave only when their precise ledger position is exactly zero. A family
+  member can leave only when the family total is exactly zero **and every family-member row is
+  settled**. A value that merely rounds to zero is not enough, and an unresolved UPI payment blocks
+  departure.
+- Leaving a multi-person family removes only your aligned name, stable person ID, email, account
+  link, and contact claim. If you are the family's only linked app user, you may leave while keeping
+  the other non-app people, or explicitly dissolve the whole settled family. Dissolution is hidden
+  while another linked app user remains; if you are also the family's only person, dissolution is
+  the only departure choice.
+- If you own the trip, ownership transfers first to the earliest remaining live linked admin, then
+  to the earliest remaining linked app user in roster order. If neither exists, use the separate
+  trip-deletion flow first.
+- Historical money remains conserved: old transactions, balances, payments, and reports are kept
+  with frozen attribution. Within that trip, your chat becomes **Deleted user** and personal
+  account/UPI references are removed. After success, the app returns to Trips.
 
 ---
 

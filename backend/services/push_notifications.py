@@ -424,10 +424,11 @@ async def _prepare_deliveries(event: dict, timestamp: datetime) -> bool:
         return False
 
     explicit_recipients = event.get("recipient_user_ids")
+    actor_user_id = event.get("actor_user_id")
     recipients = (
-        [uid for uid in explicit_recipients if uid and uid != event["actor_user_id"]]
+        [uid for uid in explicit_recipients if uid and uid != actor_user_id]
         if isinstance(explicit_recipients, list)
-        else recipient_user_ids(trip, event["actor_user_id"])
+        else recipient_user_ids(trip, actor_user_id or "")
     )
     devices: list[dict] = []
     if recipients:

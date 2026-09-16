@@ -41,6 +41,8 @@ import { resolveOptimisticSender, unreadBadge } from '../../../src/chat';
 import { useTripChat } from '../../../src/useTripChat';
 import JoinRequestsPanel from '../../../src/JoinRequestsPanel';
 import InviteLinksPanel from '../../../src/InviteLinksPanel';
+import MembershipCard from '../../../src/MembershipCard';
+import { normalizedTripDeletionName } from '../../../src/departure';
 import {
   Card, Button, IconButton, Icon, SegmentedControl, StatCard, ProgressBar,
   ActionSheet, EmptyState, ResponsiveAmountText, SkeletonCard, useToast,
@@ -426,6 +428,7 @@ export default function TripDetail() {
 
   // Derived, disambiguated display labels (rules a/b/c). Stored names/IDs are untouched.
   const displayNames = memberDisplayNames(trip.members);
+  const expectedDeleteTripName = normalizedTripDeletionName(trip.name);
   // Signed totals: a negative transaction (money back) nets the total down.
   const totalSpent = expenses.reduce((s, e) => s + e.amount, 0);
   // Trip-level "Settled" badge signal — reuses the SAME empty-transfers value the settle-up screen
@@ -501,8 +504,8 @@ export default function TripDetail() {
       textInput={confirm?.requiresTripName ? {
         value: deleteTripName,
         onChangeText: setDeleteTripName,
-        label: `Type “${trip.name}” to confirm`,
-        placeholder: trip.name,
+        label: `Type “${expectedDeleteTripName}” to confirm`,
+        placeholder: expectedDeleteTripName,
         testID: 'trip-delete-name',
       } : undefined}
       onRequestClose={() => { setConfirm(null); setDeleteTripName(''); }}
@@ -514,7 +517,8 @@ export default function TripDetail() {
         {
           label: 'Delete', variant: 'destructive', onPress: () => confirm?.onYes(),
           testID: confirm?.yesId,
-          disabled: !!confirm?.requiresTripName && deleteTripName !== trip.name,
+          disabled: !!confirm?.requiresTripName
+            && deleteTripName.trim() !== expectedDeleteTripName,
         },
       ]}
     />
@@ -835,6 +839,7 @@ export default function TripDetail() {
 
           {tab === 'members' && (
             <View style={{ gap: SPACING.sm }}>
+              <MembershipCard tripId={trip.id} />
               {canCreateSecureInvite ? (
                 <InviteLinksPanel
                   tripId={trip.id}

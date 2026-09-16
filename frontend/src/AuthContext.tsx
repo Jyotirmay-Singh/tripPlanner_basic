@@ -59,6 +59,7 @@ type Ctx = {
   updateUpiId: (upiId: string | null) => Promise<User>;
   completeUpiOnboarding: () => void;
   signOut: (clearSavedEmail?: boolean) => Promise<void>;
+  finalizeAccountDeletion: () => Promise<void>;
   forgetSavedEmail: () => Promise<void>;
   refresh: () => Promise<void>;
   rememberInvite: (path: string) => Promise<void>;
@@ -280,6 +281,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
+  const finalizeAccountDeletion = async () => {
+    // The server has already removed the device registration and invalidated the account. Clear
+    // every local identity/navigation hint before exposing Login; a later registration is new.
+    await Promise.allSettled([
+      setToken(null),
+      AsyncStorage.removeItem(SAVED_EMAIL_KEY),
+      AsyncStorage.removeItem(PENDING_INVITE_KEY),
+    ]);
+    setSavedEmail(null);
+    setPendingInvitePath(null);
+    setMobileOnboardingPending(false);
+    setUpiOnboardingPending(false);
+    setUser(null);
+  };
+
   const forgetSavedEmail = async () => {
     await AsyncStorage.removeItem(SAVED_EMAIL_KEY);
     setSavedEmail(null);
@@ -308,6 +324,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       updateUpiId,
       completeUpiOnboarding,
       signOut,
+      finalizeAccountDeletion,
       forgetSavedEmail,
       refresh,
       rememberInvite,

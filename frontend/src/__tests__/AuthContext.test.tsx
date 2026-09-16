@@ -108,6 +108,29 @@ it('persists and clears a pending invite path', async () => {
   expect(latest.pendingInvitePath).toBeNull();
 });
 
+it('clears every local identity hint after server-confirmed account deletion', async () => {
+  const user = { id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user' };
+  (apiModule.getToken as jest.Mock).mockResolvedValue('jwt');
+  (apiModule.api as jest.Mock).mockImplementation((path: string) => {
+    if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
+    if (path === '/auth/me') return Promise.resolve(user);
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+  await act(async () => latest.rememberInvite(`/invite/${'b'.repeat(43)}`));
+
+  await act(async () => latest.finalizeAccountDeletion());
+
+  expect(apiModule.setToken).toHaveBeenCalledWith(null);
+  expect(AsyncStorage.removeItem).toHaveBeenCalledWith('last_login_email');
+  expect(AsyncStorage.removeItem).toHaveBeenCalledWith('pending_invite_path_v1');
+  expect(latest.user).toBeNull();
+  expect(latest.savedEmail).toBeNull();
+  expect(latest.pendingInvitePath).toBeNull();
+  expect(latest.mobileOnboardingPending).toBe(false);
+  expect(latest.upiOnboardingPending).toBe(false);
+});
+
 it('identifies a successful old-server config response as unsupported', async () => {
   (apiModule.api as jest.Mock).mockResolvedValue({ email_features_enabled: true });
   await mount();

@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
 import { Platform, Pressable, View, StyleSheet, Switch } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { useAuth } from '../../src/AuthContext';
 import { useTheme } from '../../src/ThemeContext';
 import { useLogout } from '../../src/useLogout';
@@ -136,6 +136,20 @@ export default function Profile() {
       </Card>
 
       <NotificationSettingsRow />
+
+      <Card
+        onPress={() => router.push('/delete-account' as Href)}
+        testID="profile-delete-account"
+        accessibilityLabel="Delete account"
+        style={styles.row}
+      >
+        <Icon name="trash" size={20} color={colors.danger} />
+        <View style={styles.paymentCopy}>
+          <T color={colors.danger} style={{ fontWeight: '700' }}>Delete account</T>
+          <T muted variant="caption">Review trips and permanently remove your login</T>
+        </View>
+        <Icon name="chevron-right" size={18} color={colors.textMuted} />
+      </Card>
 
       <Card onPress={confirmAndSignOut} testID="profile-logout" accessibilityLabel="Sign out" style={styles.row}>
         <Icon name="logout" size={20} color={colors.danger} />

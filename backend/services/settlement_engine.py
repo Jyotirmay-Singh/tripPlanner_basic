@@ -154,10 +154,15 @@ def _expense_weights(expense: dict, split_ids: list[str], members_by_id: Mapping
     return weights
 
 
-def _person_to_entity(members: Iterable[dict]) -> dict[str, str]:
+def _person_to_entity(
+    members: Iterable[dict],
+    historical_snapshots: Mapping[str, str] | None = None,
+) -> dict[str, str]:
     mapping: dict[str, str] = {}
+    entity_ids: set[str] = set()
     for member in members:
         entity_id = str(member["id"])
+        entity_ids.add(entity_id)
         if member.get("kind") == "family":
             for person_id in _family_roster(member):
                 if person_id in mapping:
@@ -165,6 +170,22 @@ def _person_to_entity(members: Iterable[dict]) -> dict[str, str]:
                 mapping[person_id] = entity_id
         else:
             mapping[entity_id] = entity_id
+    # A departing family person is removed from the visible parallel roster arrays. EXACT expense
+    # rows keep their stable person key, so departure snapshots only the person->family roll-up on
+    # that expense. This preserves the canonical entity ledger without retaining an account link or
+    # a visible family-person slot.
+    for raw_person_id, raw_entity_id in (historical_snapshots or {}).items():
+        person_id = str(raw_person_id)
+        entity_id = str(raw_entity_id)
+        if entity_id not in entity_ids:
+            continue
+        existing = mapping.get(person_id)
+        if existing is not None and existing != entity_id:
+            raise SettlementLedgerError(
+                f"Historical family member ID '{person_id}' has conflicting owners",
+                code="duplicate_member",
+            )
+        mapping[person_id] = entity_id
     return mapping
 
 
@@ -175,7 +196,10 @@ def _exact_entity_shares(expense: dict, members: list[dict], amount: int) -> dic
             f"Exact expense '{expense.get('id', '?')}' has no allocations",
             code="invalid_exact_split",
         )
-    owner_by_person = _person_to_entity(members)
+    owner_by_person = _person_to_entity(
+        members,
+        expense.get("family_member_entity_snapshots") or {},
+    )
     shares: dict[str, int] = {}
     unknown_people: list[tuple[str, object]] = []
     for person_id, raw_amount in custom_amounts.items():
@@ -238,11 +262,6 @@ def expense_entity_shares_scaled(expense: dict, members: Iterable[dict]) -> tupl
     payer_id = str(expense.get("paid_by_member_id", ""))
     if not members_by_id:
         return amount, payer_id, {}
-    if payer_id not in members_by_id:
-        raise SettlementLedgerError(
-            f"Expense '{expense_id}' references unknown payer '{payer_id}'",
-            code="unknown_member",
-        )
     raw_split_ids = expense.get("split_member_ids") or list(members_by_id)
     selected_ids = {str(member_id) for member_id in raw_split_ids}
     split_ids = [str(member["id"]) for member in member_list if str(member["id"]) in selected_ids]
@@ -299,8 +318,14 @@ def build_precise_net(
     expenses: Iterable[dict],
     settlements: Iterable[dict] = (),
     payments: Iterable[dict] = (),
+    migration_adjustments: Mapping[str, object] | None = None,
 ) -> dict[str, int]:
-    """Build the canonical signed net vector in 12-decimal scaled integers."""
+    """Build the canonical signed net vector in 12-decimal scaled integers.
+
+    Migration adjustments are applied before historical-member validation. This lets a removed,
+    settled entity replay a legacy base position that is canceled by its immutable migration entry,
+    while still rejecting any genuinely unresolved historical balance.
+    """
 
     member_list = list(members)
     members_by_id = {str(member["id"]): member for member in member_list}
@@ -334,6 +359,11 @@ def build_precise_net(
     for payment in payments:
         apply_overlay(payment, "payment")
 
+    if migration_adjustments:
+        scaled_adjustments = _scaled_migration_adjustments(migration_adjustments)
+        for member_id, value in scaled_adjustments.items():
+            net[member_id] = net.get(member_id, 0) + value
+
     current_member_ids = set(members_by_id)
     unresolved_historical = {
         member_id: value
@@ -360,6 +390,22 @@ def build_precise_net(
     return net
 
 
+def _scaled_migration_adjustments(
+    adjustment_vector: Mapping[str, object] | None,
+) -> dict[str, int]:
+    scaled = {
+        str(member_id): to_scaled(value, field=f"migration adjustment for '{member_id}'")
+        for member_id, value in (adjustment_vector or {}).items()
+    }
+    imbalance = sum(scaled.values())
+    if imbalance:
+        raise SettlementLedgerError(
+            f"Migration adjustment is out of balance by {scaled_string(imbalance)}",
+            code="invalid_migration_adjustment",
+        )
+    return scaled
+
+
 def apply_migration_adjustments(
     net: Mapping[str, int],
     adjustment_vector: Mapping[str, object] | None,
@@ -374,16 +420,7 @@ def apply_migration_adjustments(
             f"Migration adjustment references unknown member(s): {', '.join(unknown)}",
             code="invalid_migration_adjustment",
         )
-    scaled_adjustments = {
-        str(member_id): to_scaled(value, field=f"migration adjustment for '{member_id}'")
-        for member_id, value in vector.items()
-    }
-    imbalance = sum(scaled_adjustments.values())
-    if imbalance:
-        raise SettlementLedgerError(
-            f"Migration adjustment is out of balance by {scaled_string(imbalance)}",
-            code="invalid_migration_adjustment",
-        )
+    scaled_adjustments = _scaled_migration_adjustments(vector)
     for member_id, value in scaled_adjustments.items():
         result[member_id] += value
     if sum(result.values()):

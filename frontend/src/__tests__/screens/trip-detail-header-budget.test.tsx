@@ -65,6 +65,12 @@ jest.mock('../../DonutChart', () => {
 });
 jest.mock('../../SpendBarChart', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../ReceiptViewer', () => ({ __esModule: true, default: () => null }));
+jest.mock('../../MembershipCard', () => {
+  const R = require('react');
+  return { __esModule: true, default: (props: any) => R.createElement('MembershipCard', {
+    ...props, testID: 'trip-membership-card-stub',
+  }) };
+});
 jest.mock('../../ConfirmModal', () => {
   const R = require('react');
   return { __esModule: true, default: (props: any) => R.createElement('ConfirmModal', props) };
@@ -258,6 +264,8 @@ describe('Member mobile contacts', () => {
   it('renders only populated linked individual and aligned family numbers', async () => {
     const renderer = await openMembers();
 
+    expect(renderer.root.findByProps({ testID: 'trip-membership-card-stub' }).props.tripId)
+      .toBe('t1');
     expect(hostsByTestID(renderer.root, 'member-mobile-m1')).toHaveLength(1);
     expect(hostsByTestID(renderer.root, 'member-mobile-manual')).toHaveLength(0);
     expect(hostsByTestID(renderer.root, 'member-mobile-fm1')).toHaveLength(1);
@@ -518,7 +526,7 @@ describe('Trip identity header', () => {
     expect(safeArea.props.edges).toEqual(['bottom', 'left', 'right']);
   });
 
-  it('labels non-member admin maintenance and requires the exact trip name before deletion', async () => {
+  it('labels admin maintenance and requires the trimmed lowercase trip name', async () => {
     mockUser = {
       id: 'application-admin',
       email: 'jyotirmaysingh03@gmail.com',
@@ -544,12 +552,17 @@ describe('Trip identity header', () => {
     let modal = renderer.root.findByType('ConfirmModal' as any);
     expect(modal.props.textInput).toEqual(expect.objectContaining({
       value: '',
-      label: 'Type “Lakshadweep” to confirm',
+      label: 'Type “lakshadweep” to confirm',
+      placeholder: 'lakshadweep',
       testID: 'trip-delete-name',
     }));
     expect(modal.props.actions[1].disabled).toBe(true);
 
     act(() => modal.props.textInput.onChangeText('Lakshadweep'));
+    modal = renderer.root.findByType('ConfirmModal' as any);
+    expect(modal.props.actions[1].disabled).toBe(true);
+
+    act(() => modal.props.textInput.onChangeText('  lakshadweep  '));
     modal = renderer.root.findByType('ConfirmModal' as any);
     expect(modal.props.actions[1].disabled).toBe(false);
   });
