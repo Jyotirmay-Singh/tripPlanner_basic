@@ -246,7 +246,9 @@ export default function AddExpense() {
       return { ...s, [famId]: next };
     });
   const displayNames = memberDisplayNames(trip.members);
-  const parsedAmount = Number.isFinite(parseAmount(amount)) ? parseAmount(amount) : 0;
+  const enteredAmount = parseAmount(amount);
+  const hasAllocationPreview = Number.isFinite(enteredAmount) && enteredAmount !== 0;
+  const parsedAmount = hasAllocationPreview ? enteredAmount : 0;
   const exactRec = reconcile(exactRows, parsedAmount, expenseCurrency);
   const isForeign = expenseCurrency !== trip.currency;
   const currencyBlocked = isForeign && multiCurrencyCapability !== 'enabled';
@@ -442,9 +444,9 @@ export default function AddExpense() {
                   const rosterNames = isFamily ? familyMemberDisplayNames(m) : [];
                   const excluded = familyExcluded[m.id] || [];
                   const includedCount = roster.filter((rid) => !excluded.includes(rid)).length;
-                  const familyAllocations = isFamily && active && includedCount > 0
+                  const familyAllocations = isFamily && active && includedCount > 0 && hasAllocationPreview
                     ? familyMemberAllocations(
-                      parseFloat(amount), trip.members, splitSel, weightOverrides, m.id,
+                      parsedAmount, trip.members, splitSel, weightOverrides, m.id,
                       splitMode, familyExcluded, paidBy,
                     )
                     : {};
@@ -482,11 +484,11 @@ export default function AddExpense() {
                           </View>
                           {includedCount === 0 ? (
                             <T variant="caption" color={colors.danger}>At least one member must take part.</T>
-                          ) : (
+                          ) : familyAllocationLabel ? (
                             <T variant="caption" muted testID={`ae-fam-preview-${m.id}`}>
                               {familyAllocationLabel}{excluded.length ? ' (excluded owe 0)' : ''}
                             </T>
-                          )}
+                          ) : null}
                         </View>
                       )}
                     </View>
