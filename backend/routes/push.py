@@ -114,7 +114,7 @@ async def register_push_device(
 )
 async def unregister_push_device(
     installation_id: UUID,
-    reason: Literal["logout", "permission_denied"] = "logout",
+    reason: Literal["logout", "permission_denied", "user_disabled"] = "logout",
     user=Depends(get_current_user),
 ):
     """Idempotently disable only the caller's registration for this installation."""

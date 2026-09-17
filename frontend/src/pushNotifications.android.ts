@@ -6,6 +6,7 @@ import { Alert, Linking, Platform } from 'react-native';
 
 import { api } from './api';
 import type {
+  PushNotificationSettingsSnapshot,
   PushPermissionState,
   PushSyncOptions,
   PushUnregisterReason,
@@ -13,11 +14,13 @@ import type {
 
 
 const INSTALLATION_ID_KEY = 'push_installation_id';
+const NOTIFICATIONS_ENABLED_KEY = 'push_notifications_enabled';
 const RATIONALE_SEEN_KEY = 'push_rationale_seen';
 const RATIONALE_ACCEPTED_KEY = 'push_rationale_accepted';
 const CHANNEL_ID = 'trip_activity';
 
 let currentSync: Promise<PushPermissionState> | null = null;
+let currentSettingsChange: Promise<PushNotificationSettingsSnapshot> | null = null;
 
 
 if (Platform.OS === 'android') {
@@ -55,6 +58,51 @@ function permissionState(status: Notifications.NotificationPermissionsStatus): P
   if (status.granted || status.status === Notifications.PermissionStatus.GRANTED) return 'granted';
   if (status.status === Notifications.PermissionStatus.DENIED) return 'denied';
   return 'undetermined';
+}
+
+
+function unavailableSettings(
+  userPreference: boolean | null = null,
+): PushNotificationSettingsSnapshot {
+  return {
+    userPreference,
+    permission: 'unavailable',
+    canAskAgain: false,
+    enabled: false,
+  };
+}
+
+
+function settingsSnapshot(
+  userPreference: boolean | null,
+  permissions: Notifications.NotificationPermissionsStatus,
+): PushNotificationSettingsSnapshot {
+  const permission = permissionState(permissions);
+  return {
+    userPreference,
+    permission,
+    canAskAgain: permissions.canAskAgain === true,
+    enabled: userPreference !== false && permission === 'granted',
+  };
+}
+
+
+async function notificationPreference(): Promise<boolean | null> {
+  const stored = await AsyncStorage.getItem(NOTIFICATIONS_ENABLED_KEY);
+  if (stored === 'true') return true;
+  if (stored === 'false') return false;
+  return null;
+}
+
+
+async function settingsForPreference(
+  userPreference: boolean | null,
+): Promise<PushNotificationSettingsSnapshot> {
+  try {
+    return settingsSnapshot(userPreference, await Notifications.getPermissionsAsync());
+  } catch {
+    return unavailableSettings(userPreference);
+  }
 }
 
 
@@ -162,12 +210,23 @@ async function registerGrantedInstallation(): Promise<PushPermissionState> {
 async function performSync(options: PushSyncOptions): Promise<PushPermissionState> {
   if (Platform.OS !== 'android') return 'unavailable';
   try {
+    const userPreference = await notificationPreference();
+    if (userPreference === false) {
+      // Persisted intent wins over the OS permission. Retrying this best-effort DELETE on every
+      // eligible foreground sync repairs an offline disable without ever prompting Android.
+      await unregisterCurrentPushInstallation('user_disabled');
+      return getPushPermissionState();
+    }
     if (!(await hasPushEligibility())) return getPushPermissionState();
     await ensureChannel();
 
     let permissions = await Notifications.getPermissionsAsync();
     let state = permissionState(permissions);
-    if (state === 'undetermined' && options.allowPermissionPrompt !== false) {
+    if (
+      userPreference === null
+      && state === 'undetermined'
+      && options.allowPermissionPrompt !== false
+    ) {
       const accepted = await showRationaleOnce();
       if (accepted) {
         permissions = await Notifications.requestPermissionsAsync();
@@ -194,9 +253,80 @@ export function syncPushRegistrationIfEligible(
   options: PushSyncOptions = {},
 ): Promise<PushPermissionState> {
   if (!currentSync) {
-    currentSync = performSync(options).finally(() => { currentSync = null; });
+    const pendingSettingsChange = currentSettingsChange;
+    const sync = pendingSettingsChange
+      ? pendingSettingsChange.then(() => performSync(options))
+      : performSync(options);
+    currentSync = sync.finally(() => { currentSync = null; });
   }
   return currentSync;
+}
+
+
+async function performSettingsChange(
+  enabled: boolean,
+): Promise<PushNotificationSettingsSnapshot> {
+  if (Platform.OS !== 'android') return unavailableSettings();
+  // Capture only work that predates this action. A foreground sync started after the switch action
+  // waits for currentSettingsChange instead, avoiding both registration races and circular waits.
+  const pendingSync = currentSync;
+
+  try {
+    // Save intent before any network/native work. If a startup sync is already in flight, waiting
+    // for it below and applying this action last prevents a stale registration from winning.
+    await AsyncStorage.setItem(NOTIFICATIONS_ENABLED_KEY, enabled ? 'true' : 'false');
+  } catch {
+    pushDiagnostic('preference_update_unavailable');
+    return unavailableSettings();
+  }
+
+  if (!enabled) {
+    // Deactivate immediately, then repeat after any older startup sync. The second idempotent
+    // DELETE guarantees an already-running registration cannot win the race with this opt-out.
+    await unregisterCurrentPushInstallation('user_disabled');
+    if (pendingSync) {
+      await pendingSync;
+      await unregisterCurrentPushInstallation('user_disabled');
+    }
+    return settingsForPreference(false);
+  }
+
+  if (pendingSync) await pendingSync;
+
+  let permissions: Notifications.NotificationPermissionsStatus;
+  try {
+    await ensureChannel();
+    permissions = await Notifications.getPermissionsAsync();
+    if (permissionState(permissions) !== 'granted' && permissions.canAskAgain === true) {
+      // The switch is explicit user intent, so it deliberately bypasses the optional first-run
+      // privacy rationale (including a previously saved "Not now" choice).
+      permissions = await Notifications.requestPermissionsAsync();
+    }
+  } catch {
+    pushDiagnostic('settings_update_unavailable');
+    return unavailableSettings(true);
+  }
+
+  const snapshot = settingsSnapshot(true, permissions);
+  if (snapshot.permission === 'denied') {
+    await unregisterCurrentPushInstallation('permission_denied');
+    return snapshot;
+  }
+  if (snapshot.permission !== 'granted') return snapshot;
+
+  await registerGrantedInstallation();
+  return snapshot;
+}
+
+
+export function setPushNotificationsEnabled(
+  enabled: boolean,
+): Promise<PushNotificationSettingsSnapshot> {
+  if (!currentSettingsChange) {
+    currentSettingsChange = performSettingsChange(enabled)
+      .finally(() => { currentSettingsChange = null; });
+  }
+  return currentSettingsChange;
 }
 
 
@@ -207,11 +337,12 @@ export async function unregisterCurrentPushInstallation(
   try {
     const id = await installationId(false);
     if (!id) return;
-    const suffix = reason === 'permission_denied' ? '?reason=permission_denied' : '';
+    const suffix = reason === 'logout' ? '' : `?reason=${encodeURIComponent(reason)}`;
     await api(`/push/devices/${id}${suffix}`, { method: 'DELETE' });
     pushDiagnostic('registration_deactivated');
   } catch {
-    // Logout must always complete. The next authenticated token upsert reassigns this installation.
+    // Logout and local preference changes must always complete. Foreground synchronization retries
+    // a persisted opt-out, and a later authenticated token upsert safely reassigns an installation.
     pushDiagnostic('registration_deactivation_unavailable');
   }
 }
@@ -223,6 +354,20 @@ export async function getPushPermissionState(): Promise<PushPermissionState> {
     return permissionState(await Notifications.getPermissionsAsync());
   } catch {
     return 'unavailable';
+  }
+}
+
+
+export async function getPushNotificationSettings(): Promise<PushNotificationSettingsSnapshot> {
+  if (Platform.OS !== 'android') return unavailableSettings();
+  try {
+    const [userPreference, permissions] = await Promise.all([
+      notificationPreference(),
+      Notifications.getPermissionsAsync(),
+    ]);
+    return settingsSnapshot(userPreference, permissions);
+  } catch {
+    return unavailableSettings();
   }
 }
 

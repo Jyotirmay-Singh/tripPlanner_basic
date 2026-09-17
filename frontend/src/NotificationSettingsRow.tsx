@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Alert, AppState, Platform, Switch, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 
@@ -7,35 +7,47 @@ import { RADIUS, SPACING } from './theme';
 import T from './T';
 import { Card, Icon } from './ui';
 import {
-  getPushPermissionState,
+  getPushNotificationSettings,
   openPushNotificationSettings,
+  setPushNotificationsEnabled,
 } from './pushNotifications';
-import type { PushPermissionState } from './pushNotificationTypes';
+import type { PushNotificationSettingsSnapshot } from './pushNotificationTypes';
 
 
-type DisplayState = PushPermissionState | 'loading';
+const UNAVAILABLE_SETTINGS: PushNotificationSettingsSnapshot = {
+  userPreference: null,
+  permission: 'unavailable',
+  canAskAgain: false,
+  enabled: false,
+};
 
 
 export default function NotificationSettingsRow() {
   const { colors } = useTheme();
   const isAndroid = Platform.OS === 'android';
-  const [permission, setPermission] = useState<DisplayState>(
-    isAndroid ? 'loading' : 'unavailable',
+  const [settings, setSettings] = useState<PushNotificationSettingsSnapshot | null>(
+    isAndroid ? null : UNAVAILABLE_SETTINGS,
   );
   const [busy, setBusy] = useState(false);
+  const actionInFlight = useRef(false);
 
   useFocusEffect(useCallback(() => {
     if (!isAndroid) return undefined;
     let active = true;
 
-    const refreshPermission = async () => {
-      const nextPermission = await getPushPermissionState();
-      if (active) setPermission(nextPermission);
+    const refreshSettings = async () => {
+      let nextSettings = UNAVAILABLE_SETTINGS;
+      try {
+        nextSettings = await getPushNotificationSettings();
+      } catch {
+        // Keep the row present but non-interactive if native state cannot be read.
+      }
+      if (active) setSettings(nextSettings);
     };
 
-    void refreshPermission();
+    void refreshSettings();
     const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') void refreshPermission();
+      if (nextState === 'active') void refreshSettings();
     });
 
     return () => {
@@ -44,56 +56,83 @@ export default function NotificationSettingsRow() {
     };
   }, [isAndroid]));
 
-  const enabled = permission === 'granted';
-  const available = isAndroid && permission !== 'loading' && permission !== 'unavailable';
-  const status = permission === 'loading'
-    ? 'Checking\u2026'
-    : permission === 'unavailable'
-      ? 'Not available'
-      : enabled
-        ? 'Enabled'
-        : 'Disabled';
+  const openSettings = useCallback(async () => {
+    if (actionInFlight.current) return;
+    actionInFlight.current = true;
+    setBusy(true);
+    try {
+      await openPushNotificationSettings();
+    } catch {
+      Alert.alert(
+        'Unable to open settings',
+        'Open Android Settings, select Trip Splitter, then choose Notifications.',
+      );
+    } finally {
+      actionInFlight.current = false;
+      setBusy(false);
+    }
+  }, []);
 
-  const confirmSettingsChange = () => {
-    if (!available || busy) return;
-    const action = enabled ? 'Disable' : 'Enable';
-    const direction = enabled ? 'off' : 'on';
-
+  const showBlockedHelp = useCallback(() => {
     Alert.alert(
-      `${action} notifications?`,
-      `Android manages this permission. Open Trip Splitter's app settings and turn Notifications ${direction}.`,
+      'Notifications blocked by Android',
+      'Go to Settings > Apps > Trip Splitter > Notifications, then turn on Allow notifications.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Open settings',
-          onPress: async () => {
-            if (busy) return;
-            setBusy(true);
-            try {
-              await openPushNotificationSettings();
-            } catch {
-              Alert.alert(
-                'Unable to open settings',
-                'Open Android Settings, select Trip Splitter, then choose Notifications.',
-              );
-            } finally {
-              setBusy(false);
-            }
-          },
+          onPress: openSettings,
         },
       ],
     );
-  };
+  }, [openSettings]);
 
-  const accessibilityLabel = enabled
-    ? 'Notifications enabled. Open Android settings to disable.'
-    : 'Notifications disabled. Open Android settings to enable.';
+  const enabled = settings?.enabled === true;
+  const available = isAndroid && settings !== null && settings.permission !== 'unavailable';
+  const blocked = settings?.userPreference !== false
+    && settings?.permission === 'denied'
+    && !settings.canAskAgain;
+  const status = settings === null
+    ? 'Checking notification status\u2026'
+    : settings.permission === 'unavailable'
+      ? 'Notifications are unavailable on this device.'
+      : enabled
+        ? 'Trip activity and join request updates are on.'
+        : blocked
+          ? 'Blocked by Android. Tap the switch for help.'
+          : 'Turn on updates for trip activity and join requests.';
+
+  const changeEnabled = useCallback(async (nextEnabled: boolean) => {
+    if (!available || actionInFlight.current) return;
+    actionInFlight.current = true;
+    setBusy(true);
+    let shouldShowBlockedHelp = false;
+    try {
+      const nextSettings = await setPushNotificationsEnabled(nextEnabled);
+      setSettings(nextSettings);
+      shouldShowBlockedHelp = nextEnabled
+        && nextSettings.permission === 'denied'
+        && !nextSettings.canAskAgain;
+    } catch {
+      setSettings(UNAVAILABLE_SETTINGS);
+    } finally {
+      actionInFlight.current = false;
+      setBusy(false);
+    }
+    if (shouldShowBlockedHelp) showBlockedHelp();
+  }, [available, showBlockedHelp]);
+
+  const accessibilityHint = !available
+    ? status
+    : enabled
+      ? 'Turns off trip activity and join request updates on this device.'
+      : blocked
+        ? 'Shows help for allowing notifications in Android settings.'
+        : 'Requests permission and turns on trip activity and join request updates.';
 
   return (
     <Card
-      onPress={available ? confirmSettingsChange : undefined}
       testID="profile-notification-settings"
-      accessibilityLabel={available ? accessibilityLabel : undefined}
       style={{
         flexDirection: 'row',
         alignItems: 'center',
@@ -111,8 +150,9 @@ export default function NotificationSettingsRow() {
         testID="profile-notification-switch"
         value={enabled}
         disabled={!available || busy}
-        pointerEvents="none"
-        accessible={false}
+        onValueChange={changeEnabled}
+        accessibilityLabel="Trip notifications"
+        accessibilityHint={accessibilityHint}
         trackColor={{ false: colors.border, true: colors.primary }}
         thumbColor={colors.surface}
       />

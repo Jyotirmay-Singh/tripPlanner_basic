@@ -63,11 +63,11 @@ describe('InviteLinksPanel', () => {
     mockSetString.mockResolvedValue(undefined);
   });
 
-  it('shows one URL and lets an admin copy, share, and reset it', async () => {
+  it('keeps the URL hidden and lets an admin copy, share, and reset it', async () => {
     const { renderer, onShare } = await mount();
 
     expect(mockGet).toHaveBeenCalledWith('trip-1');
-    expect(renderer.root.findByProps({ testID: 'trip-invite-link-url' }).props.children).toBe(url);
+    expect(renderer.root.findAllByProps({ testID: 'trip-invite-link-url' })).toHaveLength(0);
 
     await act(async () => {
       renderer.root.findByProps({ testID: 'invite-copy-link' }).props.onPress();
@@ -91,15 +91,22 @@ describe('InviteLinksPanel', () => {
     });
 
     expect(mockReset).toHaveBeenCalledWith('trip-1');
-    expect(renderer.root.findByProps({ testID: 'trip-invite-link-url' }).props.children)
-      .toBe(replacementUrl);
     expect(mockToastShow).toHaveBeenCalledWith('New trip link ready.', 'success');
+
+    await act(async () => {
+      renderer.root.findByProps({ testID: 'invite-copy-link' }).props.onPress();
+      await Promise.resolve();
+    });
+    expect(mockSetString).toHaveBeenLastCalledWith(replacementUrl);
 
     const visibleText = renderer.root.findAllByType('T' as any)
       .map((node: any) => node.props.children)
       .flat()
       .filter((value: any) => typeof value === 'string')
       .join(' ');
+    expect(visibleText).not.toContain(url);
+    expect(visibleText).not.toContain(replacementUrl);
+    expect(visibleText).not.toContain('Share this link with people joining the trip.');
     expect(visibleText).not.toMatch(/Revoked|Expired|Expires|Created by|successful use/i);
   });
 
@@ -123,6 +130,7 @@ describe('InviteLinksPanel', () => {
       await Promise.resolve();
     });
 
-    expect(renderer.root.findByProps({ testID: 'trip-invite-link-url' }).props.children).toBe(url);
+    expect(renderer.root.findByProps({ testID: 'invite-copy-link' })).toBeTruthy();
+    expect(renderer.root.findAllByProps({ testID: 'trip-invite-link-url' })).toHaveLength(0);
   });
 });

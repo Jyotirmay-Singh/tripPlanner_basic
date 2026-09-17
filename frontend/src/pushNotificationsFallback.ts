@@ -1,4 +1,5 @@
 import type {
+  PushNotificationSettingsSnapshot,
   PushPermissionState,
   PushSyncOptions,
   PushUnregisterReason,
@@ -19,6 +20,21 @@ export async function unregisterCurrentPushInstallation(
 
 export async function getPushPermissionState(): Promise<PushPermissionState> {
   return 'unavailable';
+}
+
+export async function getPushNotificationSettings(): Promise<PushNotificationSettingsSnapshot> {
+  return {
+    userPreference: null,
+    permission: 'unavailable',
+    canAskAgain: false,
+    enabled: false,
+  };
+}
+
+export async function setPushNotificationsEnabled(
+  _enabled: boolean,
+): Promise<PushNotificationSettingsSnapshot> {
+  return getPushNotificationSettings();
 }
 
 export async function openPushNotificationSettings(): Promise<void> {}

@@ -11,7 +11,7 @@ import ConfirmModal from './ConfirmModal';
 import T from './T';
 import { useTheme } from './ThemeContext';
 import { Button, Card, useToast } from './ui';
-import { FONTS, RADIUS, SPACING } from './theme';
+import { SPACING } from './theme';
 
 
 type Props = {
@@ -82,38 +82,14 @@ export default function InviteLinksPanel({ tripId, canReset, onShare }: Props) {
   return (
     <>
       <Card testID="trip-invite-link" style={styles.panel}>
-        <View style={styles.heading}>
-          <T variant="h3">Trip invite link</T>
-          <T variant="caption" muted>
-            Share this link with people joining the trip.
-          </T>
-        </View>
+        <T variant="h3">Trip invite link</T>
 
-        {loading ? (
-          <View
-            testID="trip-invite-link-loading"
-            style={[styles.linkBox, { backgroundColor: colors.surfaceMuted }]}
-          >
-            <T variant="caption" muted>Loading trip link…</T>
-          </View>
-        ) : error ? (
+        {loading ? null : error ? (
           <View testID="trip-invite-link-error" style={styles.errorState}>
             <T variant="caption" color={colors.danger}>{error}</T>
             <Button label="Try again" variant="ghost" size="sm" onPress={() => { void load(); }} />
           </View>
         ) : invite ? (
-          <>
-            <View style={[styles.linkBox, { backgroundColor: colors.surfaceMuted }]}>
-              <T
-                selectable
-                variant="caption"
-                testID="trip-invite-link-url"
-                style={styles.linkText}
-              >
-                {invite.url}
-              </T>
-            </View>
-
             <View style={styles.actions}>
               <View style={styles.action}>
                 <Button
@@ -136,7 +112,6 @@ export default function InviteLinksPanel({ tripId, canReset, onShare }: Props) {
                 />
               </View>
             </View>
-          </>
         ) : null}
 
         {canReset && invite && !loading ? (
@@ -169,15 +144,6 @@ export default function InviteLinksPanel({ tripId, canReset, onShare }: Props) {
 
 const styles = StyleSheet.create({
   panel: { gap: SPACING.md },
-  heading: { gap: SPACING.xs },
-  linkBox: {
-    minHeight: 54,
-    borderRadius: RADIUS.md,
-    justifyContent: 'center',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-  },
-  linkText: { fontFamily: FONTS.bodyMedium },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
   action: { flexGrow: 1, flexBasis: 140, minWidth: 0 },
   resetAction: { alignItems: 'flex-end', marginTop: -SPACING.xs },

@@ -2,7 +2,8 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 
-const mockGetPermissionState = jest.fn();
+const mockGetSettings = jest.fn();
+const mockSetEnabled = jest.fn();
 const mockOpenSettings = jest.fn();
 const mockAlert = jest.fn();
 const mockRemoveAppStateListener = jest.fn();
@@ -28,8 +29,9 @@ jest.mock('expo-router', () => ({
 }));
 
 jest.mock('../pushNotifications', () => ({
-  getPushPermissionState: mockGetPermissionState,
+  getPushNotificationSettings: mockGetSettings,
   openPushNotificationSettings: mockOpenSettings,
+  setPushNotificationsEnabled: mockSetEnabled,
 }));
 
 jest.mock('../ThemeContext', () => ({
@@ -59,6 +61,23 @@ jest.mock('../ui', () => {
 const { Platform } = require('react-native');
 const NotificationSettingsRow = require('../NotificationSettingsRow').default;
 
+type Settings = {
+  userPreference: boolean | null;
+  permission: 'granted' | 'denied' | 'undetermined' | 'unavailable';
+  canAskAgain: boolean;
+  enabled: boolean;
+};
+
+function settings(overrides: Partial<Settings> = {}): Settings {
+  return {
+    userPreference: null,
+    permission: 'undetermined',
+    canAskAgain: true,
+    enabled: false,
+    ...overrides,
+  };
+}
+
 async function renderRow() {
   let renderer: any;
   await act(async () => {
@@ -71,6 +90,10 @@ async function renderRow() {
 
 function statuses(renderer: any) {
   return renderer.root.findAllByType('T' as any).map((node: any) => node.props.children);
+}
+
+function notificationSwitch(renderer: any) {
+  return renderer.root.findByProps({ testID: 'profile-notification-switch' });
 }
 
 function alertButton(label: string) {
@@ -88,7 +111,13 @@ describe('Profile notification settings row', () => {
     jest.clearAllMocks();
     (Platform as any).OS = 'android';
     mockAppStateHandler = undefined;
-    mockGetPermissionState.mockResolvedValue('undetermined');
+    mockGetSettings.mockResolvedValue(settings());
+    mockSetEnabled.mockImplementation(async (enabled: boolean) => settings({
+      userPreference: enabled,
+      permission: 'granted',
+      canAskAgain: true,
+      enabled,
+    }));
     mockOpenSettings.mockResolvedValue(undefined);
     mockAddAppStateListener.mockImplementation(
       (_event: string, handler: (state: string) => void) => {
@@ -99,123 +128,178 @@ describe('Profile notification settings row', () => {
   });
 
   it.each([
-    ['granted', 'Enabled', true, 'Notifications enabled. Open Android settings to disable.'],
-    ['denied', 'Disabled', false, 'Notifications disabled. Open Android settings to enable.'],
-    ['undetermined', 'Disabled', false, 'Notifications disabled. Open Android settings to enable.'],
-  ])('always shows the Android row when permission is %s', async (
-    permission, status, enabled, accessibilityLabel,
+    [
+      settings({ permission: 'granted', enabled: true }),
+      'Trip activity and join request updates are on.',
+      true,
+    ],
+    [
+      settings({ userPreference: false, permission: 'granted' }),
+      'Turn on updates for trip activity and join requests.',
+      false,
+    ],
+    [
+      settings({ userPreference: true, permission: 'denied', canAskAgain: true }),
+      'Turn on updates for trip activity and join requests.',
+      false,
+    ],
+    [
+      settings({ userPreference: true, permission: 'denied', canAskAgain: false }),
+      'Blocked by Android. Tap the switch for help.',
+      false,
+    ],
+  ])('shows the state-specific Android copy and a functional switch', async (
+    snapshot, status, enabled,
   ) => {
-    mockGetPermissionState.mockResolvedValue(permission);
+    mockGetSettings.mockResolvedValue(snapshot);
     const renderer = await renderRow();
     const row = renderer.root.findByProps({ testID: 'profile-notification-settings' });
-    const notificationSwitch = renderer.root.findByProps({ testID: 'profile-notification-switch' });
+    const toggle = notificationSwitch(renderer);
 
     expect(statuses(renderer)).toEqual(expect.arrayContaining(['Notifications', status]));
-    expect(notificationSwitch.props.value).toBe(enabled);
-    expect(notificationSwitch.props.disabled).toBe(false);
-    expect(notificationSwitch.props.pointerEvents).toBe('none');
-    expect(row.props.accessibilityLabel).toBe(accessibilityLabel);
-    expect(row.props.onPress).toEqual(expect.any(Function));
+    expect(toggle.props.value).toBe(enabled);
+    expect(toggle.props.disabled).toBe(false);
+    expect(toggle.props.onValueChange).toEqual(expect.any(Function));
+    expect(toggle.props.pointerEvents).toBeUndefined();
+    expect(toggle.props.accessibilityLabel).toBe('Trip notifications');
+    expect(toggle.props.accessibilityHint).toEqual(expect.any(String));
+    expect(row.props.onPress).toBeUndefined();
   });
 
-  it('keeps the row visible and disabled while Android permission is loading', () => {
-    mockGetPermissionState.mockReturnValue(new Promise(() => {}));
+  it('keeps the row visible and disabled while Android state is loading', () => {
+    mockGetSettings.mockReturnValue(new Promise(() => {}));
     let renderer: any;
     act(() => { renderer = TestRenderer.create(<NotificationSettingsRow />); });
-    const row = renderer.root.findByProps({ testID: 'profile-notification-settings' });
-    const notificationSwitch = renderer.root.findByProps({ testID: 'profile-notification-switch' });
 
-    expect(statuses(renderer)).toContain('Checking\u2026');
-    expect(notificationSwitch.props.disabled).toBe(true);
-    expect(row.props.onPress).toBeUndefined();
+    expect(statuses(renderer)).toContain('Checking notification status\u2026');
+    expect(notificationSwitch(renderer).props.disabled).toBe(true);
 
     act(() => { renderer.unmount(); });
   });
 
-  it('shows a disabled, non-interactive row when Android state is unavailable', async () => {
-    mockGetPermissionState.mockResolvedValue('unavailable');
+  it('shows a clear, non-interactive unavailable state', async () => {
+    mockGetSettings.mockResolvedValue(settings({
+      permission: 'unavailable', canAskAgain: false,
+    }));
     const renderer = await renderRow();
-    const row = renderer.root.findByProps({ testID: 'profile-notification-settings' });
-    const notificationSwitch = renderer.root.findByProps({ testID: 'profile-notification-switch' });
 
-    expect(statuses(renderer)).toContain('Not available');
-    expect(notificationSwitch.props.value).toBe(false);
-    expect(notificationSwitch.props.disabled).toBe(true);
-    expect(row.props.onPress).toBeUndefined();
+    expect(statuses(renderer)).toContain('Notifications are unavailable on this device.');
+    expect(notificationSwitch(renderer).props.value).toBe(false);
+    expect(notificationSwitch(renderer).props.disabled).toBe(true);
   });
 
-  it.each(['web', 'ios'])('shows Not available without native work on %s', async (platform) => {
+  it.each(['web', 'ios'])('stays unavailable without native work on %s', async (platform) => {
     (Platform as any).OS = platform;
     const renderer = await renderRow();
-    const row = renderer.root.findByProps({ testID: 'profile-notification-settings' });
-    const notificationSwitch = renderer.root.findByProps({ testID: 'profile-notification-switch' });
 
-    expect(statuses(renderer)).toContain('Not available');
-    expect(notificationSwitch.props.disabled).toBe(true);
-    expect(row.props.onPress).toBeUndefined();
-    expect(mockGetPermissionState).not.toHaveBeenCalled();
+    expect(statuses(renderer)).toContain('Notifications are unavailable on this device.');
+    expect(notificationSwitch(renderer).props.disabled).toBe(true);
+    expect(mockGetSettings).not.toHaveBeenCalled();
     expect(mockAddAppStateListener).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['granted', 'Disable notifications?', 'turn Notifications off.'],
-    ['denied', 'Enable notifications?', 'turn Notifications on.'],
-    ['undetermined', 'Enable notifications?', 'turn Notifications on.'],
-  ])('confirms before opening settings from %s state', async (permission, title, message) => {
-    mockGetPermissionState.mockResolvedValue(permission);
+  it('enables in-app without opening Android settings when permission is granted', async () => {
     const renderer = await renderRow();
-    const row = renderer.root.findByProps({ testID: 'profile-notification-settings' });
 
-    act(() => { row.props.onPress(); });
+    await act(async () => { await notificationSwitch(renderer).props.onValueChange(true); });
+
+    expect(mockSetEnabled).toHaveBeenCalledWith(true);
+    expect(mockOpenSettings).not.toHaveBeenCalled();
+    expect(mockAlert).not.toHaveBeenCalled();
+    expect(notificationSwitch(renderer).props.value).toBe(true);
+    expect(statuses(renderer)).toContain('Trip activity and join request updates are on.');
+  });
+
+  it('turns off directly without confirmation or Android settings', async () => {
+    mockGetSettings.mockResolvedValue(settings({ permission: 'granted', enabled: true }));
+    mockSetEnabled.mockResolvedValue(settings({
+      userPreference: false, permission: 'granted', enabled: false,
+    }));
+    const renderer = await renderRow();
+
+    await act(async () => { await notificationSwitch(renderer).props.onValueChange(false); });
+
+    expect(mockSetEnabled).toHaveBeenCalledWith(false);
+    expect(mockAlert).not.toHaveBeenCalled();
+    expect(mockOpenSettings).not.toHaveBeenCalled();
+    expect(notificationSwitch(renderer).props.value).toBe(false);
+  });
+
+  it('does not offer Settings after a denial Android says can be requested again', async () => {
+    mockSetEnabled.mockResolvedValue(settings({
+      userPreference: true, permission: 'denied', canAskAgain: true,
+    }));
+    const renderer = await renderRow();
+
+    await act(async () => { await notificationSwitch(renderer).props.onValueChange(true); });
+
+    expect(mockAlert).not.toHaveBeenCalled();
+    expect(statuses(renderer)).toContain('Turn on updates for trip activity and join requests.');
+  });
+
+  it('offers Android Settings only when permission requests are permanently blocked', async () => {
+    mockSetEnabled.mockResolvedValue(settings({
+      userPreference: true, permission: 'denied', canAskAgain: false,
+    }));
+    const renderer = await renderRow();
+
+    await act(async () => { await notificationSwitch(renderer).props.onValueChange(true); });
 
     expect(mockAlert).toHaveBeenCalledWith(
-      title,
-      expect.stringContaining(message),
+      'Notifications blocked by Android',
+      'Go to Settings > Apps > Trip Splitter > Notifications, then turn on Allow notifications.',
       expect.any(Array),
     );
     expect(mockOpenSettings).not.toHaveBeenCalled();
 
     await act(async () => { await alertButton('Open settings').onPress?.(); });
-
     expect(mockOpenSettings).toHaveBeenCalledTimes(1);
   });
 
-  it('does not open settings when the confirmation is cancelled', async () => {
+  it('leaves Settings closed when blocked-permission help is cancelled', async () => {
+    mockSetEnabled.mockResolvedValue(settings({
+      userPreference: true, permission: 'denied', canAskAgain: false,
+    }));
     const renderer = await renderRow();
-    const row = renderer.root.findByProps({ testID: 'profile-notification-settings' });
+    await act(async () => { await notificationSwitch(renderer).props.onValueChange(true); });
 
-    act(() => { row.props.onPress(); });
     act(() => { alertButton('Cancel').onPress?.(); });
 
     expect(mockOpenSettings).not.toHaveBeenCalled();
   });
 
-  it('ignores repeated presses while settings are opening', async () => {
-    let finish!: () => void;
-    mockOpenSettings.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+  it('deduplicates switch actions and disables the control while busy', async () => {
+    let finish!: (snapshot: Settings) => void;
+    mockSetEnabled.mockImplementationOnce(() => new Promise<Settings>((resolve) => { finish = resolve; }));
     const renderer = await renderRow();
-    const initialRow = renderer.root.findByProps({ testID: 'profile-notification-settings' });
-    act(() => { initialRow.props.onPress(); });
+    const initialToggle = notificationSwitch(renderer);
+    let firstChange!: Promise<void>;
 
-    let openPromise!: Promise<void>;
-    act(() => { openPromise = alertButton('Open settings').onPress?.() as Promise<void>; });
-    const busyRow = renderer.root.findByProps({ testID: 'profile-notification-settings' });
-    const busySwitch = renderer.root.findByProps({ testID: 'profile-notification-switch' });
-    act(() => { busyRow.props.onPress(); });
+    act(() => {
+      firstChange = initialToggle.props.onValueChange(true);
+      void initialToggle.props.onValueChange(true);
+    });
 
-    expect(mockOpenSettings).toHaveBeenCalledTimes(1);
-    expect(mockAlert).toHaveBeenCalledTimes(1);
-    expect(busyRow.props.style.opacity).toBe(0.65);
-    expect(busySwitch.props.disabled).toBe(true);
+    expect(mockSetEnabled).toHaveBeenCalledTimes(1);
+    expect(notificationSwitch(renderer).props.disabled).toBe(true);
+    expect(renderer.root.findByProps({ testID: 'profile-notification-settings' }).props.style.opacity)
+      .toBe(0.65);
 
-    finish();
-    await act(async () => { await openPromise; });
+    finish(settings({ userPreference: true, permission: 'granted', enabled: true }));
+    await act(async () => { await firstChange; });
+    expect(notificationSwitch(renderer).props.disabled).toBe(false);
   });
 
-  it('refreshes the switch when the app returns from Android settings', async () => {
-    mockGetPermissionState.mockResolvedValueOnce('denied').mockResolvedValueOnce('granted');
+  it('refreshes the switch after returning from Android settings', async () => {
+    mockGetSettings
+      .mockResolvedValueOnce(settings({
+        userPreference: true, permission: 'denied', canAskAgain: false,
+      }))
+      .mockResolvedValueOnce(settings({
+        userPreference: true, permission: 'granted', enabled: true,
+      }));
     const renderer = await renderRow();
-    expect(renderer.root.findByProps({ testID: 'profile-notification-switch' }).props.value).toBe(false);
+    expect(notificationSwitch(renderer).props.value).toBe(false);
 
     await act(async () => {
       mockAppStateHandler?.('active');
@@ -223,26 +307,28 @@ describe('Profile notification settings row', () => {
       await Promise.resolve();
     });
 
-    expect(renderer.root.findByProps({ testID: 'profile-notification-switch' }).props.value).toBe(true);
-    expect(statuses(renderer)).toContain('Enabled');
+    expect(notificationSwitch(renderer).props.value).toBe(true);
+    expect(statuses(renderer)).toContain('Trip activity and join request updates are on.');
   });
 
   it('ignores non-active AppState changes and removes its listener on cleanup', async () => {
     const renderer = await renderRow();
-    mockGetPermissionState.mockClear();
+    mockGetSettings.mockClear();
 
     act(() => { mockAppStateHandler?.('background'); });
-    expect(mockGetPermissionState).not.toHaveBeenCalled();
+    expect(mockGetSettings).not.toHaveBeenCalled();
 
     act(() => { renderer.unmount(); });
     expect(mockRemoveAppStateListener).toHaveBeenCalledTimes(1);
   });
 
   it('explains how to recover if Android settings cannot be opened', async () => {
+    mockSetEnabled.mockResolvedValue(settings({
+      userPreference: true, permission: 'denied', canAskAgain: false,
+    }));
     mockOpenSettings.mockRejectedValueOnce(new Error('unavailable'));
     const renderer = await renderRow();
-    const row = renderer.root.findByProps({ testID: 'profile-notification-settings' });
-    act(() => { row.props.onPress(); });
+    await act(async () => { await notificationSwitch(renderer).props.onValueChange(true); });
 
     await act(async () => { await alertButton('Open settings').onPress?.(); });
 

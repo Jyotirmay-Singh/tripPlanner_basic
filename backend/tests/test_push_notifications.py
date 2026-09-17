@@ -157,18 +157,35 @@ def test_unregister_is_idempotent_and_scoped_to_current_user(monkeypatch):
     assert devices.update_one.await_args.args[1]["$set"]["disabled_reason"] == "logout"
 
 
-def test_unregister_records_permission_revocation_without_exposing_token(monkeypatch, caplog):
+@pytest.mark.parametrize("reason", ["permission_denied", "user_disabled"])
+def test_unregister_records_disable_reason_without_exposing_token(monkeypatch, caplog, reason):
     devices = SimpleNamespace(update_one=AsyncMock())
     monkeypatch.setattr(push, "db", SimpleNamespace(push_devices=devices))
     installation_id = UUID("12345678-1234-5678-9234-567812345678")
 
     response = run(push.unregister_push_device(
-        installation_id, reason="permission_denied", user={"id": "u1"},
+        installation_id, reason=reason, user={"id": "u1"},
     ))
 
     assert response.status_code == 204
-    assert devices.update_one.await_args.args[1]["$set"]["disabled_reason"] == "permission_denied"
+    assert devices.update_one.await_args.args[1]["$set"]["disabled_reason"] == reason
     assert VALID_TOKEN not in caplog.text
+
+
+def test_unregister_http_contract_accepts_user_disabled(monkeypatch):
+    devices = SimpleNamespace(update_one=AsyncMock())
+    monkeypatch.setattr(push, "db", SimpleNamespace(push_devices=devices))
+    app = FastAPI()
+    app.dependency_overrides[push.get_current_user] = lambda: {"id": "u1"}
+    app.include_router(push.router, prefix="/api")
+
+    response = TestClient(app).delete(
+        "/api/push/devices/12345678-1234-5678-9234-567812345678",
+        params={"reason": "user_disabled"},
+    )
+
+    assert response.status_code == 204
+    assert devices.update_one.await_args.args[1]["$set"]["disabled_reason"] == "user_disabled"
 
 
 def test_recipient_resolution_excludes_actor_and_duplicates():
