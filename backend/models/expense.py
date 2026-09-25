@@ -1,5 +1,6 @@
 from decimal import Decimal
 from typing import Dict, List, Optional, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, field_validator, model_validator
 
@@ -8,6 +9,22 @@ from utils.currency_rules import normalize_currency
 from models.exchange_rate import ConversionRequest, finite_decimal
 
 SplitMode = Literal["PER_CAPITA", "PER_FAMILY", "EXACT"]
+
+
+class ExpenseRosterMember(BaseModel):
+    id: str
+    kind: Literal["individual", "family"]
+    family_member_ids: List[str] = []
+
+
+class ExpenseRosterPrecondition(BaseModel):
+    currency: str
+    members: List[ExpenseRosterMember]
+
+    @field_validator("currency")
+    @classmethod
+    def _check_currency(cls, value):
+        return normalize_currency(value)
 
 
 def _validate_amount(v):
@@ -52,6 +69,8 @@ class ExpenseIn(BaseModel):
     original_custom_amounts: Optional[Dict[str, Decimal]] = None
     receipt_id: Optional[str] = None  # GridFS receipt id (Step 22); set via the upload endpoint
     receipt_base64: Optional[str] = None  # legacy/read-only inline receipt (superseded by receipt_id)
+    client_mutation_id: Optional[UUID] = None
+    expected_roster: Optional[ExpenseRosterPrecondition] = None
 
     @field_validator("time")
     @classmethod
@@ -98,6 +117,8 @@ class ExpenseIn(BaseModel):
             raise ValueError("amount or original_amount is required")
         if self.amount is not None and self.original_amount is not None:
             raise ValueError("Use original_amount for converted expenses; do not also send amount")
+        if self.client_mutation_id and (not self.expected_roster or not self.split_member_ids):
+            raise ValueError("client_mutation_id requires expected_roster and explicit split_member_ids")
         return self
 
 

@@ -296,8 +296,9 @@ async def enqueue_notification_event(
     currency: Optional[str] = None,
     payment_classification: Optional[str] = None,
     background_tasks: Any = None,
+    session=None,
 ) -> bool:
-    """Persist one idempotent event without ever failing the completed business operation."""
+    """Persist one event; session-bound inserts fail atomically with the business operation."""
     stable_event_key = notification_event_key(event_type, source_id)
     if not PUSH_NOTIFICATIONS_ENABLED:
         logger.info(
@@ -377,6 +378,10 @@ async def enqueue_notification_event(
             document["currency"] = clean_currency
         if clean_classification:
             document["payment_classification"] = clean_classification
+    if session is not None:
+        await db.notification_outbox.insert_one(document, session=session)
+        return True
+
     inserted = False
     for attempt in range(1, 4):
         try:

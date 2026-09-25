@@ -20,6 +20,7 @@ from services.invites import retire_legacy_invites
 from services.payment_attempts import start_payment_attempt_sweeper, stop_payment_attempt_sweeper
 from services.trip_activity import backfill_trip_activity
 from services.mobile_claims import reconcile_mobile_claims
+from services.expense_idempotency import verify_expense_transactions
 
 
 # ---------- Startup / Shutdown ----------
@@ -97,6 +98,11 @@ async def lifespan(app: FastAPI):
     # links are signed capabilities and do not create collection rows.
     await db.trip_invites.create_index("audit_expires_at", expireAfterSeconds=0)
     await db.expenses.create_index([("trip_id", 1), ("created_at", -1)])
+    await db.expense_mutation_receipts.create_index(
+        [("actor_user_id", 1), ("operation", 1), ("client_mutation_id", 1)],
+        unique=True,
+        name="unique_expense_mutation",
+    )
     await db.exchange_rates.create_index([
         ("provider", 1), ("source_currency", 1), ("target_currency", 1), ("effective_date", 1)
     ], unique=True)
@@ -259,6 +265,7 @@ async def lifespan(app: FastAPI):
     # Rebuild the claim projection after all legacy family/account migrations have completed.
     # The pass is idempotent and is also the crash-recovery path for standalone MongoDB writes.
     await reconcile_mobile_claims()
+    await verify_expense_transactions()
 
     # one-time, secret-free summary of how outbound email behaves in this process
     logger.info(sender_mode_summary())

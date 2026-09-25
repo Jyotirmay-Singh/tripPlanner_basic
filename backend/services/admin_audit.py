@@ -18,8 +18,10 @@ async def record_admin_action(
     resource_type: str = "trip",
     resource_id: Optional[str] = None,
     changed_fields: Optional[Iterable[str]] = None,
+    event_id: Optional[str] = None,
+    session=None,
 ) -> None:
-    """Best-effort append after a successful privileged mutation.
+    """Best-effort append after a mutation, or strict insert within its transaction.
 
     Values and request bodies are deliberately excluded.  The log records enough context to
     identify the intervention without copying financial notes, chat text, receipt data, or tokens.
@@ -29,7 +31,7 @@ async def record_admin_action(
     resolved_trip_id = trip_id or (trip or {}).get("id")
     resolved_trip_name = trip_name or (trip or {}).get("name")
     document = {
-        "id": gen_id(),
+        "id": event_id or gen_id(),
         "actor_user_id": user["id"],
         "actor_email": user["email"],
         "action": action,
@@ -41,8 +43,11 @@ async def record_admin_action(
         "created_at": now_utc().isoformat(),
     }
     try:
-        await db.admin_audit_logs.insert_one(document)
+        options = {"session": session} if session is not None else {}
+        await db.admin_audit_logs.insert_one(document, **options)
     except Exception:
+        if session is not None:
+            raise
         # The domain mutation has already committed.  Never turn a successful write into a retryable
         # 500 (which could duplicate money movement); surface the audit outage to operators instead.
         logger.exception(

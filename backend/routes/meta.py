@@ -9,6 +9,7 @@ from config import (
     MULTI_CURRENCY_EXPENSES_ENABLED,
 )
 from utils.money_policy import money_policy_config
+from services.expense_idempotency import expense_protocol_ready
 
 router = APIRouter()
 CHAT_PROTOCOL_VERSION = 1
@@ -39,6 +40,7 @@ async def get_config():
         "whole_unit_settlements_enabled": True,
         "money_policy": money_policy_config(),
         "chat_protocol_version": CHAT_PROTOCOL_VERSION,
+        "expense_create_protocol_version": 1 if expense_protocol_ready() else 0,
     }
 
 

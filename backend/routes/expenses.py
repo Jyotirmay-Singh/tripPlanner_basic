@@ -1,4 +1,5 @@
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
+from pymongo.errors import DuplicateKeyError
 
 from config import CATEGORIES, MULTI_CURRENCY_EXPENSES_ENABLED
 from database import db
@@ -9,10 +10,18 @@ from utils.deps import get_current_user, _trip_or_404, _expense_modify_or_403
 from services.receipts import delete_receipts_for_expense
 from services.expense_shares import expense_share_breakdown
 from services.chat import resolve_chat_sender
-from services.push_notifications import enqueue_notification_event
+from services.push_notifications import (
+    dispatch_outbox_event, enqueue_notification_event, notification_event_key,
+)
 from services.admin_audit import record_admin_action
 from services.money_audit import record_money_normalizations
-from services.ledger_transactions import run_optional_transaction
+from services.ledger_transactions import (
+    TransactionUnavailableError, run_optional_transaction, run_required_transaction,
+)
+from services.expense_idempotency import (
+    disable_expense_protocol, expense_protocol_ready, intent_fingerprint, receipt_key,
+    replay_or_conflict, verify_roster,
+)
 from services.exchange_rates import ExchangeRateError, decimal_value, error_detail
 from services.expense_conversion import (
     convert_create_body,
@@ -133,14 +142,16 @@ def _conversion_write_filter(trip_id: str, expense_id: str, expense: dict,
     return query
 
 
-async def _trip_spend(trip_id: str, *, excluding_expense_id: str | None = None) -> float:
+async def _trip_spend(trip_id: str, *, excluding_expense_id: str | None = None,
+                      session=None) -> float:
     match = {"trip_id": trip_id}
     if excluding_expense_id:
         match["id"] = {"$ne": excluding_expense_id}
+    options = {"session": session} if session is not None else {}
     rows = await db.expenses.aggregate([
         {"$match": match},
         {"$group": {"_id": None, "sum": {"$sum": "$amount"}}},
-    ]).to_list(1)
+    ], **options).to_list(1)
     return float(rows[0]["sum"]) if rows else 0.0
 
 
@@ -195,12 +206,101 @@ def _clean_family_participants(raw, split_mode, split_ids, members):
     return clean or None
 
 
+async def _create_retryable_expense(trip_id, body, user, doc, converted, force,
+                                    fingerprint, background_tasks):
+    mutation_id = str(body.client_mutation_id)
+    key = receipt_key(user["id"], mutation_id)
+    response_expense = serialize_bson(doc)
+
+    async def transactional_write(session):
+        live_trip = await db.trips.find_one({"id": trip_id}, {"_id": 0}, session=session)
+        if live_trip is None:
+            raise HTTPException(404, "Trip not found")
+        if not is_super_admin(user) and user["id"] not in live_trip.get("user_ids", []):
+            raise HTTPException(403, "Not a member of this trip")
+        verify_roster(live_trip, body)
+
+        current = await _trip_spend(trip_id, session=session) if live_trip.get("budget") is not None else 0.0
+        budget_warning = _budget_warning_details(live_trip, current, converted["amount"])
+        if budget_warning and not force:
+            return {"requires_confirmation": True, **budget_warning}
+
+        response = {
+            "expense": response_expense,
+            "warning": budget_warning["warning"] if budget_warning else None,
+        }
+        await db.expense_mutation_receipts.insert_one({
+            **key,
+            "trip_id": trip_id,
+            "fingerprint": fingerprint,
+            "resource_id": doc["id"],
+            "response": response,
+            "created_at": doc["created_at"],
+        }, session=session)
+        await _claim_trip_version(live_trip, doc["created_at"], session)
+        await db.expenses.insert_one(doc, session=session)
+        await record_money_normalizations(
+            converted.get("normalizations", []),
+            actor_user_id=user["id"], trip_id=trip_id,
+            resource_type="expense", resource_id=doc["id"], session=session,
+        )
+        await record_admin_action(
+            user, "expense.created", trip=live_trip, resource_type="expense",
+            resource_id=doc["id"],
+            changed_fields=(
+                "amount", "currency", "category", "description", "date", "time",
+                "paid_by_member_id", "split_member_ids", "split_mode",
+            ),
+            event_id=f"expense.created:{doc['id']}", session=session,
+        )
+        actor = resolve_chat_sender(live_trip, user["id"])
+        actor_name = actor.get("sender_name") if actor else None
+        if not actor_name and is_super_admin(user):
+            actor_name = "Application Admin"
+        await enqueue_notification_event(
+            event_type="expense.created", source_id=doc["id"], trip_id=trip_id,
+            actor_user_id=user["id"], actor_name=actor_name,
+            expense_heading=(body.description or "").strip() or body.category,
+            session=session,
+        )
+        return response
+
+    try:
+        result = await run_required_transaction(transactional_write)
+    except TransactionUnavailableError as exc:
+        disable_expense_protocol()
+        raise HTTPException(503, detail={"code": "expense_retry_unavailable"}) from exc
+    except DuplicateKeyError:
+        receipt = await db.expense_mutation_receipts.find_one(key)
+        if receipt is None:
+            raise
+        return replay_or_conflict(receipt, trip_id, fingerprint)
+
+    if "expense" in result:
+        background_tasks.add_task(
+            dispatch_outbox_event, notification_event_key("expense.created", doc["id"]),
+        )
+    return result
+
+
 # ---------- Expenses ----------
 @router.post("/trips/{trip_id}/expenses")
 async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: BackgroundTasks,
                       force: bool = False,
                       user=Depends(get_current_user)):
+    fingerprint = None
+    if body.client_mutation_id is not None:
+        fingerprint = intent_fingerprint(body)
+        key = receipt_key(user["id"], str(body.client_mutation_id))
+        receipt = await db.expense_mutation_receipts.find_one(key)
+        if receipt is not None:
+            return replay_or_conflict(receipt, trip_id, fingerprint)
+        if not expense_protocol_ready():
+            raise HTTPException(503, detail={"code": "expense_retry_unavailable"})
+
     trip = await _trip_or_404(trip_id, user)
+    if fingerprint is not None:
+        verify_roster(trip, body)
     trip_currency = trip.get("currency", "INR")
     source_currency = body.original_currency or body.currency or trip_currency
     if source_currency != trip_currency and not MULTI_CURRENCY_EXPENSES_ENABLED:
@@ -257,6 +357,11 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
     }
     doc.update(converted["metadata"])
     doc["conversion_history"] = [converted["history"]]
+    if fingerprint is not None:
+        return await _create_retryable_expense(
+            trip_id, body, user, doc, converted, force, fingerprint, background_tasks,
+        )
+
     async def transactional_write(session):
         # Claim the same trip row used by self-service departure before inserting the child row.
         # Whichever transaction loses the race aborts without leaving a partial expense.
