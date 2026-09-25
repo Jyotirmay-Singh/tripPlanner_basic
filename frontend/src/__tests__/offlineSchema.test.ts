@@ -15,6 +15,7 @@ it('rolls back a failed migration and succeeds on retry', async () => {
           if (sql.includes('PRAGMA user_version = 2')) pendingVersion = 2;
           if (sql.includes('PRAGMA user_version = 3')) pendingVersion = 3;
           if (sql.includes('PRAGMA user_version = 4')) pendingVersion = 4;
+          if (sql.includes('PRAGMA user_version = 5')) pendingVersion = 5;
         },
       });
       version = pendingVersion;
@@ -24,7 +25,7 @@ it('rolls back a failed migration and succeeds on retry', async () => {
   expect(version).toBe(0);
   failCreate = false;
   await migrateOfflineSchema(db);
-  expect(version).toBe(4);
+  expect(version).toBe(5);
 });
 
 it('upgrades an existing v1 store without recreating its account or outbox tables', async () => {
@@ -44,6 +45,7 @@ it('upgrades an existing v1 store without recreating its account or outbox table
         if (sql.includes('PRAGMA user_version = 2')) pendingVersion = 2;
         if (sql.includes('PRAGMA user_version = 3')) pendingVersion = 3;
         if (sql.includes('PRAGMA user_version = 4')) pendingVersion = 4;
+        if (sql.includes('PRAGMA user_version = 5')) pendingVersion = 5;
       } });
       version = pendingVersion;
     },
@@ -52,7 +54,7 @@ it('upgrades an existing v1 store without recreating its account or outbox table
   expect(version).toBe(1);
   failUpgrade = false;
   await migrateOfflineSchema(db);
-  expect(version).toBe(4);
+  expect(version).toBe(5);
   expect(statements.join('\n')).not.toContain('CREATE TABLE outbox');
 });
 
@@ -66,11 +68,13 @@ it('adds the payment capability to an existing v3 account without changing queue
       await task({ execAsync: async (sql) => {
         statements.push(sql);
         if (sql.includes('PRAGMA user_version = 4')) version = 4;
+        if (sql.includes('PRAGMA user_version = 5')) version = 5;
       } });
     },
   };
   await migrateOfflineSchema(db);
-  expect(version).toBe(4);
+  expect(version).toBe(5);
   expect(statements.join('\n')).toContain('ADD COLUMN payment_protocol_version');
-  expect(statements.join('\n')).not.toContain('outbox');
+  expect(statements.join('\n')).toContain('ADD COLUMN synced_at');
+  expect(statements.join('\n')).not.toContain('CREATE TABLE outbox');
 });

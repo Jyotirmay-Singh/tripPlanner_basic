@@ -260,6 +260,8 @@ it('shows a pending expense once across remounts without adding it to confirmed 
       renderer.root.findByType('SegmentedControl' as any).props.onChange('expenses');
     });
     expect(hostsByTestID(renderer.root, 'pending-expense-item-uuid-pending')).toHaveLength(1);
+    expect(hostByTestID(renderer.root, 'Card', 'pending-expense-item-uuid-pending')
+      .props.accessibilityLabel).toContain('Pending sync. Saved on this device');
     expect(hostsByTestID(renderer.root, 'pending-expense-status-uuid-pending')).toHaveLength(1);
     expect(hostsByTestID(renderer.root, 'expense-item-e-500')).toHaveLength(1);
     await act(async () => { renderer.unmount(); });

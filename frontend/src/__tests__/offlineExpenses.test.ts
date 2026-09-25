@@ -70,6 +70,8 @@ it('does not claim a failed write, but recognizes a matching row after an uncert
   const item = makeExpenseOutboxItem('account-1', trip, base, uuid);
   store.enqueueOutbox.mockRejectedValue(new Error('disk full'));
   await expect(captureExpense(item)).rejects.toThrow('disk full');
+  store.listOutbox.mockResolvedValueOnce([{ ...item, operation: 'manual_payment_create' }]);
+  await expect(captureExpense(item)).rejects.toThrow('disk full');
   store.listOutbox.mockResolvedValue([item]);
   await expect(captureExpense(item)).resolves.toBeUndefined();
   expect(store.enqueueOutbox).toHaveBeenCalledWith(item);
@@ -92,6 +94,7 @@ it('shows each unsynced UUID once and omits a known confirmed canonical ID', asy
       { ...item, clientMutationId: 'uuid-2', canonicalResourceId: 'confirmed-1' },
       { ...item, clientMutationId: 'uuid-3', state: 'synced' },
       { ...item, clientMutationId: 'uuid-4', tripId: 'other-trip' },
+      { ...item, clientMutationId: 'uuid-5', accountId: 'other-account' },
     ]);
     const pending = await listPendingExpenses('account-1', 'trip-1', ['confirmed-1']);
     expect(pending.map((row) => row.clientMutationId)).toEqual([uuid]);

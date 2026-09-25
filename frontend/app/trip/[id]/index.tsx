@@ -829,6 +829,7 @@ export default function TripDetail() {
                   <Card key={item.clientMutationId}
                     onPress={() => router.push(
                       `/trip/${id}/pending-expense?mutationId=${encodeURIComponent(item.clientMutationId)}` as Href)}
+                    accessibilityLabel={`Pending transaction. ${status}. Saved on this device; confirmed totals unchanged.`}
                     testID={`pending-expense-item-${item.clientMutationId}`}>
                     <View style={styles.rowCard}>
                       <View style={[styles.catDot,

@@ -233,14 +233,14 @@ it('commits expense and payment UUIDs durably and retains them after a cold modu
   SQLite.openDatabaseAsync.mockResolvedValue(db);
   db.getFirstAsync.mockImplementation(async (sql: string) => {
     if (sql === 'PRAGMA cipher_version') return { cipher_version: '4.6.0' };
-    if (sql === 'PRAGMA user_version') return { user_version: 4 };
+    if (sql === 'PRAGMA user_version') return { user_version: 5 };
     return { count: 0 };
   });
   const restored = require('../offlineStore.android').offlineStore;
   restored.setActiveAccount('account-a');
   expect(await restored.listOutbox('account-a')).toEqual([
-    { ...item, budgetApproved: false, reviewContext: null },
-    { ...payment, budgetApproved: false, reviewContext: null },
+    { ...item, budgetApproved: false, reviewContext: null, syncedAt: null },
+    { ...payment, budgetApproved: false, reviewContext: null, syncedAt: null },
   ]);
   restored.setActiveAccount('account-b');
   await expect(restored.listOutbox('account-a')).rejects.toMatchObject({ code: 'account_mismatch' });
@@ -257,16 +257,17 @@ it('persists acknowledgement and review decisions with state checks in one trans
     precondition_json: '{}', queued_at: 123, state: 'sending', attempt_count: 1,
     next_retry_at: null, last_safe_error_code: null, canonical_resource_id: null,
     acknowledged_response_json: null, budget_approved: 0, review_context_json: null,
+    synced_at: null,
   };
   db.withExclusiveTransactionAsync.mockImplementation(async (task: any) => {
     await task({
       getFirstAsync: async (_sql: string, accountId: string, mutationId: string) =>
         accountId === 'account-a' && mutationId === id ? row : null,
       runAsync: async (_sql: string, ...args: unknown[]) => {
-        if (row.state !== args[10]) return { changes: 0 };
+        if (row.state !== args[11]) return { changes: 0 };
         [row.state, row.attempt_count, row.next_retry_at, row.last_safe_error_code,
           row.canonical_resource_id, row.acknowledged_response_json, row.budget_approved,
-          row.review_context_json] = args.slice(0, 8);
+          row.review_context_json, row.synced_at] = args.slice(0, 9);
         return { changes: 1 };
       },
     });

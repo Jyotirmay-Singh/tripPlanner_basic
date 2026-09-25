@@ -31,5 +31,6 @@ export const offlineStore: OfflineStore = {
   discardReviewExpense: async () => { throw new OfflineStoreError('unsupported'); },
   discardReviewPayment: async () => { throw new OfflineStoreError('unsupported'); },
   pendingCount: async () => 0,
+  pruneRetainedData: async () => {},
   purgeAccount: async () => {},
 };

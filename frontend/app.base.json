@@ -19,6 +19,7 @@
     },
     "android": {
       "package": "com.tripsplitter.app",
+      "allowBackup": false,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",

@@ -52,6 +52,7 @@ function fixture(items: StoredOutboxItem[] = [expense()]) {
       meta: { lastSuccessfulRefreshAt: number | null }) => {
       syncMeta.set(`${accountId}:${tripId}`, meta.lastSuccessfulRefreshAt ?? 0);
     }),
+    pruneRetainedData: jest.fn(async () => {}),
   } as unknown as jest.Mocked<OfflineStore>;
   const serverExpenses = new Map<string, { id: string; tripId: string }>();
   const serverPayments = new Map<string, { id: string; tripId: string }>();
@@ -110,8 +111,20 @@ it('replays a committed expense after a lost response and reconciles exactly one
     .toBe(f.post.mock.calls[1][1].body!.client_mutation_id);
   expect(f.serverExpenses.size).toBe(1);
   expect(f.rows.get(expenseId)).toMatchObject({ state: 'synced',
-    canonicalResourceId: `server-${expenseId}` });
+    canonicalResourceId: `server-${expenseId}`, syncedAt: now });
   expect(f.syncMeta.get('account-a:trip-a')).toBe(now);
+  f.coordinator.setAccount(null);
+});
+
+it('keeps delivery running when retention maintenance fails and runs it once per session', async () => {
+  const f = fixture();
+  f.store.pruneRetainedData.mockRejectedValueOnce(new Error('disk full'));
+  f.coordinator.setAccount('account-a');
+  await f.coordinator.waitForIdle();
+  expect(f.rows.get(expenseId)?.state).toBe('synced');
+  f.coordinator.wake('account-a');
+  await f.coordinator.waitForIdle();
+  expect(f.store.pruneRetainedData).toHaveBeenCalledTimes(1);
   f.coordinator.setAccount(null);
 });
 
@@ -172,6 +185,22 @@ it('coalesces reconnects and delivers an expense before its payment while anothe
   expect(paths).toContain('/trips/trip-b/expenses');
   expect(maximum).toBe(1);
   expect([...f.rows.values()].every((row) => row.state === 'synced')).toBe(true);
+  f.coordinator.setAccount(null);
+});
+
+it('drains a large queue in bounded passes without dropping or duplicating UUIDs', async () => {
+  const items = Array.from({ length: 125 }, (_, index) =>
+    expense(`8f40feef-60ae-458d-bcba-${String(index).padStart(12, '0')}`, 'trip-a', now + index));
+  const f = fixture(items);
+  f.coordinator.setAccount('account-a');
+  await f.coordinator.waitForIdle();
+  expect(f.post).toHaveBeenCalledTimes(100);
+  expect([...f.rows.values()].filter((row) => row.state === 'queued')).toHaveLength(25);
+  f.coordinator.wake('account-a');
+  await f.coordinator.waitForIdle();
+  expect(f.post).toHaveBeenCalledTimes(125);
+  expect([...f.rows.values()].every((row) => row.state === 'synced')).toBe(true);
+  expect(f.serverExpenses.size).toBe(125);
   f.coordinator.setAccount(null);
 });
 

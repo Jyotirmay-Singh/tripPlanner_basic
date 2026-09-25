@@ -31,6 +31,7 @@ const RETRY_BASE_MS = 5_000;
 const RETRY_CAP_MS = 5 * 60_000;
 const RETRY_AFTER_CAP_MS = 60 * 60_000;
 const CAPABILITY_RETRY_MS = 60_000;
+const MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_DEPS: Dependencies = {
   store: offlineStore,
   request: api,
@@ -95,6 +96,7 @@ export class SyncCoordinator {
   private onAuthRequired: (() => void) | null = null;
   private authBlocked = false;
   private forced = new Set<string>();
+  private lastMaintenanceAt = 0;
   private listeners = new Set<(event: SyncEvent) => void>();
 
   constructor(deps: Partial<Dependencies> = {}) {
@@ -123,6 +125,7 @@ export class SyncCoordinator {
       this.timer = null;
       this.accountId = accountId;
       this.authBlocked = false;
+      this.lastMaintenanceAt = 0;
     }
     this.onAuthRequired = onAuthRequired ?? null;
     if (accountId) this.wake(accountId);
@@ -205,6 +208,15 @@ export class SyncCoordinator {
     const claims = token ? sessionClaims(token) : null;
     if (!this.stillActive(accountId, generation) || !token || !claims
       || claims.userId !== accountId || claims.expiresAt <= this.deps.now()) return;
+
+    const maintenanceAt = this.deps.now();
+    if (maintenanceAt - this.lastMaintenanceAt >= MAINTENANCE_INTERVAL_MS) {
+      this.lastMaintenanceAt = maintenanceAt;
+      try { await this.deps.store.pruneRetainedData(accountId, maintenanceAt); } catch {
+        // Maintenance must not block delivery. Retry at the next interval.
+      }
+      if (!this.stillActive(accountId, generation)) return;
+    }
 
     const rows = await this.deps.store.listOutbox(accountId);
     for (const item of rows.filter((row) => row.state === 'sending')) {
@@ -352,7 +364,7 @@ export class SyncCoordinator {
         lastSuccessfulRefreshAt: result.fetchedAt ?? this.deps.now(), lastErrorClass: null,
       });
       await this.update(item, ['awaiting_reconcile'], { state: 'synced',
-        nextRetryAt: null, lastSafeErrorCode: null });
+        syncedAt: this.deps.now(), nextRetryAt: null, lastSafeErrorCode: null });
     } catch {
       if (this.stillActive(item.accountId, generation)) {
         await this.retryLater(item, item.attemptCount + 1, 'reconciliation_pending');

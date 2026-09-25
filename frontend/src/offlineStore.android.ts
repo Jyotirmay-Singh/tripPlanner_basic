@@ -3,6 +3,7 @@ import { File } from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
 import * as SQLite from 'expo-sqlite';
 import { migrateOfflineSchema } from './offlineSchema';
+import { pruneOfflineData } from './offlineRetention';
 import {
   OfflineStoreError, safeSnapshotJson, sanitizedIdentity,
   type CachedIdentityRecord, type OfflineStore,
@@ -76,6 +77,7 @@ type OutboxRow = {
   last_safe_error_code: string | null; canonical_resource_id: string | null;
   acknowledged_response_json: string | null;
   budget_approved: number; review_context_json: string | null;
+  synced_at: number | null;
 };
 
 function outboxItem(row: OutboxRow): StoredOutboxItem {
@@ -94,6 +96,7 @@ function outboxItem(row: OutboxRow): StoredOutboxItem {
     canonicalResourceId: row.canonical_resource_id,
     acknowledgedResponse: row.acknowledged_response_json
       ? JSON.parse(row.acknowledged_response_json) : null,
+    syncedAt: row.synced_at ?? null,
     budgetApproved: row.budget_approved === 1,
     reviewContext: row.review_context_json ? JSON.parse(row.review_context_json) : null,
   };
@@ -404,13 +407,14 @@ export const offlineStore: OfflineStore = {
       const changed = await tx.runAsync(
         `UPDATE outbox SET state = ?, attempt_count = ?, next_retry_at = ?,
           last_safe_error_code = ?, canonical_resource_id = ?, acknowledged_response_json = ?,
-          budget_approved = ?, review_context_json = ?
+          budget_approved = ?, review_context_json = ?, synced_at = ?
          WHERE account_id = ? AND client_mutation_id = ? AND state = ?`,
         next.state, next.attemptCount, next.nextRetryAt, next.lastSafeErrorCode,
         next.canonicalResourceId,
         response === undefined ? row.acknowledged_response_json : response,
         next.budgetApproved ? 1 : 0,
         context === undefined ? row.review_context_json : context,
+        next.syncedAt ?? null,
         accountId, mutationId, row.state,
       );
       assertAccount(accountId);
@@ -554,6 +558,17 @@ export const offlineStore: OfflineStore = {
     );
     assertAccount(accountId);
     return row?.count ?? 0;
+  },
+
+  async pruneRetainedData(accountId, now) {
+    assertAccount(accountId);
+    const db = await database();
+    assertAccount(accountId);
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      assertAccount(accountId);
+      await pruneOfflineData(tx, accountId, now);
+      assertAccount(accountId);
+    });
   },
 
   async purgeAccount(accountId) {

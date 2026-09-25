@@ -178,6 +178,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         verifiedAt,
         tokenExpiresAt: claims.expiresAt,
       });
+      // Expire confirmed cache opportunistically after a verified sign-in. Cleanup failure
+      // must not undo a successfully saved identity or interrupt the online session.
+      void offlineStore.pruneRetainedData(profile.id, verifiedAt).catch(() => {});
       if (generation === authGeneration.current) setOfflineStorageError(null);
     } catch {
       // Online authentication remains usable. An unreadable local store is never reset here.

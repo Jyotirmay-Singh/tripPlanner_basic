@@ -41,12 +41,13 @@ export type StoredOutboxItem = {
   lastSafeErrorCode: string | null;
   canonicalResourceId: string | null;
   acknowledgedResponse: unknown | null;
+  syncedAt?: number | null;
   budgetApproved?: boolean;
   reviewContext?: unknown | null;
 };
 export type OutboxUpdate = Partial<Pick<StoredOutboxItem,
   'state' | 'attemptCount' | 'nextRetryAt' | 'lastSafeErrorCode' | 'canonicalResourceId'
-  | 'acknowledgedResponse' | 'budgetApproved' | 'reviewContext'>>;
+  | 'acknowledgedResponse' | 'budgetApproved' | 'reviewContext' | 'syncedAt'>>;
 export type SyncMeta = {
   lastSuccessfulRefreshAt: number | null;
   lastErrorClass: string | null;
@@ -79,6 +80,7 @@ export interface OfflineStore {
   discardReviewExpense(accountId: string, mutationId: string): Promise<void>;
   discardReviewPayment(accountId: string, mutationId: string): Promise<void>;
   pendingCount(accountId: string): Promise<number>;
+  pruneRetainedData(accountId: string, now: number): Promise<void>;
   purgeAccount(accountId: string): Promise<void>;
 }
 

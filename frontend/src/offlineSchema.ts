@@ -1,4 +1,4 @@
-export const OFFLINE_SCHEMA_VERSION = 4;
+export const OFFLINE_SCHEMA_VERSION = 5;
 
 type MigrationTransaction = {
   execAsync(sql: string): Promise<void>;
@@ -84,6 +84,11 @@ const FOURTH_SCHEMA = `
 ALTER TABLE account_meta ADD COLUMN payment_protocol_version INTEGER NOT NULL DEFAULT 0;
 `;
 
+const FIFTH_SCHEMA = `
+ALTER TABLE outbox ADD COLUMN synced_at INTEGER;
+CREATE INDEX outbox_account_synced_at ON outbox(account_id, state, synced_at);
+`;
+
 export async function migrateOfflineSchema(db: MigrationDatabase): Promise<void> {
   const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
   const version = row?.user_version ?? 0;
@@ -113,6 +118,15 @@ export async function migrateOfflineSchema(db: MigrationDatabase): Promise<void>
     await db.withExclusiveTransactionAsync(async (tx) => {
       await tx.execAsync(FOURTH_SCHEMA);
       await tx.execAsync('PRAGMA user_version = 4');
+    });
+  }
+  if (version < 5) {
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      await tx.execAsync(FIFTH_SCHEMA);
+      // Existing confirmed rows receive a full retention window after the upgrade.
+      await tx.execAsync(`UPDATE outbox SET synced_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+        WHERE state = 'synced' AND synced_at IS NULL`);
+      await tx.execAsync('PRAGMA user_version = 5');
     });
   }
 }

@@ -36,11 +36,18 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
   in airplane mode. Dashboard, Trips, and the Add picker can show their saved lists. Each saved view
   shows when it was last synced; amounts and payment suggestions are the last server-confirmed values.
   If a view was never saved completely, it says unavailable instead of showing a zero balance or an
-  empty history. Reconnect and open that view to refresh it.
+  empty history. Reconnect and open that view to refresh it. Saved confirmed copies can be removed
+  after 30 days. A trip copy needed for an unresolved local action is retained. Reopen the trip
+  online to refresh its copy.
 - The saved Add Expense form lets you review the roster and split preview offline. Transactions,
-  refunds, receipts, and manual payments cannot be saved offline in this update; keep a separate note
+  refunds, receipts, and manual payments **cannot yet be saved offline**: Android offline capture
+  remains disabled pending device and transaction-backed server verification. Keep a separate note
   until you can reconnect. Settle Up can show saved payment history, but UPI attempt activity and all
   payment actions require a connection. Web and iOS still require a connection for trip data.
+- Android automatic backup is disabled for this app's local financial cache. If a test build has
+  pending actions, avoid uninstalling the app or clearing its storage before they sync. Uninstall,
+  storage clearing, or an unrecoverable encryption-key loss can remove those unsynced actions. If
+  the app says saved data cannot be read, keep the installation and ask for support before resetting it.
 
 ### 1.3 Dark mode & sign out
 - Bottom-tab **Profile** → toggle **Dark mode**.

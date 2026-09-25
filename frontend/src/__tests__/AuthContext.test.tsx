@@ -28,6 +28,7 @@ jest.mock('../offlineStore', () => ({
     setActiveAccount: jest.fn(),
     getIdentity: jest.fn(),
     saveIdentity: jest.fn(),
+    pruneRetainedData: jest.fn(),
     setExpenseProtocolVersion: jest.fn(),
     setPaymentProtocolVersion: jest.fn(),
     pendingCount: jest.fn(),
@@ -76,6 +77,7 @@ beforeEach(() => {
   jest.resetAllMocks();
   (offlineStore.setExpenseProtocolVersion as jest.Mock).mockResolvedValue(undefined);
   (offlineStore.setPaymentProtocolVersion as jest.Mock).mockResolvedValue(undefined);
+  (offlineStore.pruneRetainedData as jest.Mock).mockResolvedValue(undefined);
   identities.clear();
   activeAccount = null;
   (NetInfo.addEventListener as jest.Mock).mockImplementation(() => jest.fn());
@@ -171,6 +173,21 @@ it('remembers both create protocols for the authenticated account after a verifi
   await act(async () => { await latest.refreshRuntimeConfig(); });
   expect(offlineStore.setExpenseProtocolVersion).toHaveBeenCalledWith('u1', 1);
   expect(offlineStore.setPaymentProtocolVersion).toHaveBeenCalledWith('u1', 1);
+});
+
+it('keeps a verified offline identity usable when optional retention cleanup fails', async () => {
+  const user = { id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user' };
+  (apiModule.getToken as jest.Mock).mockResolvedValue(token('u1', Date.now() + 3_600_000));
+  (apiModule.api as jest.Mock).mockImplementation((path: string) => {
+    if (path === '/meta/config') return Promise.resolve({});
+    if (path === '/auth/me') return Promise.resolve(user);
+    return Promise.reject(new Error('unexpected path'));
+  });
+  (offlineStore.pruneRetainedData as jest.Mock).mockRejectedValueOnce(new Error('disk full'));
+  await mount();
+  expect(identities.has('u1')).toBe(true);
+  expect(latest.offlineStorageError).toBeNull();
+  expect(offlineStore.pruneRetainedData).toHaveBeenCalledWith('u1', expect.any(Number));
 });
 
 it('clears every local identity hint after server-confirmed account deletion', async () => {

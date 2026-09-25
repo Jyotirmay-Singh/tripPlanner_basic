@@ -87,6 +87,7 @@ export async function captureExpense(item: PendingExpense, reviewId?: string): P
     const rows = await offlineStore.listOutbox(item.accountId).catch(() => []);
     const saved = rows.some((row) => row.clientMutationId === item.clientMutationId
       && row.accountId === item.accountId && row.tripId === item.tripId
+      && row.operation === item.operation
       && JSON.stringify(row.payload) === JSON.stringify(item.payload));
     if (!saved) throw error;
   }
@@ -101,7 +102,8 @@ export async function listPendingExpenses(
   const seen = new Set<string>();
   const rows = await offlineStore.listOutbox(accountId);
   return rows.filter((row): row is PendingExpense => {
-    if (row.tripId !== tripId || row.operation !== 'expense_create' || row.state === 'synced'
+    if (row.accountId !== accountId || row.tripId !== tripId
+      || row.operation !== 'expense_create' || row.state === 'synced'
       || (row.canonicalResourceId && confirmed.has(row.canonicalResourceId))
       || seen.has(row.clientMutationId)) return false;
     seen.add(row.clientMutationId);
