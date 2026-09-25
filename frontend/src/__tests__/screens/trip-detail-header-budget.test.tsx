@@ -9,6 +9,7 @@ const mockGetTripInviteLink = jest.fn();
 const mockRefreshRuntimeConfig = jest.fn();
 const mockToastShow = jest.fn();
 const mockSetStringAsync = jest.fn().mockResolvedValue(true);
+const mockListPendingExpenses = jest.fn().mockResolvedValue([]);
 let mockInviteLinksEnabled = false;
 let mockRole: 'owner' | 'admin' | 'member' | null = null;
 let mockUser: any = { id: 'u1', email: 'member@gmail.com', is_super_admin: false };
@@ -23,6 +24,9 @@ jest.mock('../../api', () => ({
 }));
 jest.mock('expo-clipboard', () => ({
   setStringAsync: (value: string) => mockSetStringAsync(value),
+}));
+jest.mock('../../offlineExpenses', () => ({
+  listPendingExpenses: (...args: any[]) => mockListPendingExpenses(...args),
 }));
 jest.mock('../../AuthContext', () => ({ useAuth: () => ({
   user: mockUser,
@@ -230,10 +234,34 @@ beforeEach(() => {
   mockToastShow.mockReset();
   mockSetStringAsync.mockReset();
   mockSetStringAsync.mockResolvedValue(true);
+  mockListPendingExpenses.mockReset();
+  mockListPendingExpenses.mockResolvedValue([]);
   mockInviteLinksEnabled = false;
   mockRole = null;
   mockUser = { id: 'u1', email: 'member@gmail.com', is_super_admin: false };
   mockSearchParams = { id: 't1' };
+});
+
+it('shows a pending expense once across remounts without adding it to confirmed totals', async () => {
+  const pending = {
+    clientMutationId: 'uuid-pending', accountId: 'u1', tripId: 't1', operation: 'expense_create',
+    state: 'queued', queuedAt: 100, canonicalResourceId: null,
+    payload: { amount: -200, currency: 'INR', description: 'Refund pending', category: 'Food',
+      date: '25-09-26', paid_by_member_id: 'm1', split_member_ids: ['m1'] },
+  };
+  mockListPendingExpenses.mockResolvedValue([pending]);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const renderer = await mountTrip({ expenses: [expense(500)] });
+    expect(textContent(hostByTestID(renderer.root, 'T', 'trip-budget-used-spent'))).toContain('500');
+    expect(hostsByTestID(renderer.root, 'trip-pending-summary')).toHaveLength(1);
+    await act(async () => {
+      renderer.root.findByType('SegmentedControl' as any).props.onChange('expenses');
+    });
+    expect(hostsByTestID(renderer.root, 'pending-expense-item-uuid-pending')).toHaveLength(1);
+    expect(hostsByTestID(renderer.root, 'pending-expense-status-uuid-pending')).toHaveLength(1);
+    expect(hostsByTestID(renderer.root, 'expense-item-e-500')).toHaveLength(1);
+    await act(async () => { renderer.unmount(); });
+  }
 });
 
 describe('Personal balance payment details', () => {

@@ -118,6 +118,28 @@ export const offlineStore: OfflineStore = {
     );
   },
 
+  async getExpenseProtocolVersion(accountId) {
+    assertAccount(accountId);
+    const db = await database();
+    assertAccount(accountId);
+    const row = await db.getFirstAsync<{ offline_protocol_version: number }>(
+      'SELECT offline_protocol_version FROM account_meta WHERE account_id = ?', accountId,
+    );
+    assertAccount(accountId);
+    return row?.offline_protocol_version ?? 0;
+  },
+
+  async setExpenseProtocolVersion(accountId, version) {
+    assertAccount(accountId);
+    if (version !== 0 && version !== 1) throw new Error('Unsupported expense protocol version');
+    const db = await database();
+    assertAccount(accountId);
+    await db.runAsync(
+      'UPDATE account_meta SET offline_protocol_version = ? WHERE account_id = ?',
+      version, accountId,
+    );
+  },
+
   async getTripSnapshot(accountId, tripId) {
     assertAccount(accountId);
     const db = await database();
@@ -278,16 +300,31 @@ export const offlineStore: OfflineStore = {
     const precondition = safeSnapshotJson(item.precondition);
     const db = await database();
     assertAccount(item.accountId);
-    await db.runAsync(
-      `INSERT INTO outbox (client_mutation_id, account_id, trip_id, operation,
-         payload_json, precondition_json, queued_at, state, attempt_count, next_retry_at,
-         last_safe_error_code, canonical_resource_id, acknowledged_response_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      item.clientMutationId, item.accountId, item.tripId, item.operation, payload, precondition,
-      item.queuedAt, item.state, item.attemptCount, item.nextRetryAt, item.lastSafeErrorCode,
-      item.canonicalResourceId,
-      item.acknowledgedResponse === null ? null : safeSnapshotJson(item.acknowledgedResponse),
-    );
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      assertAccount(item.accountId);
+      const existing = await tx.getFirstAsync<OutboxRow>(
+        'SELECT * FROM outbox WHERE client_mutation_id = ?', item.clientMutationId,
+      );
+      if (existing) {
+        if (existing.account_id !== item.accountId || existing.trip_id !== item.tripId
+          || existing.operation !== item.operation || existing.payload_json !== payload
+          || existing.precondition_json !== precondition) {
+          throw new Error('This save ID already belongs to another expense');
+        }
+        return;
+      }
+      await tx.runAsync(
+        `INSERT INTO outbox (client_mutation_id, account_id, trip_id, operation,
+           payload_json, precondition_json, queued_at, state, attempt_count, next_retry_at,
+           last_safe_error_code, canonical_resource_id, acknowledged_response_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        item.clientMutationId, item.accountId, item.tripId, item.operation, payload, precondition,
+        item.queuedAt, item.state, item.attemptCount, item.nextRetryAt, item.lastSafeErrorCode,
+        item.canonicalResourceId,
+        item.acknowledgedResponse === null ? null : safeSnapshotJson(item.acknowledgedResponse),
+      );
+      assertAccount(item.accountId);
+    });
   },
 
   async listOutbox(accountId) {
@@ -315,6 +352,53 @@ export const offlineStore: OfflineStore = {
       acknowledgedResponse: row.acknowledged_response_json
         ? JSON.parse(row.acknowledged_response_json) : null,
     }));
+  },
+
+  async replaceReviewExpense(accountId, oldMutationId, item) {
+    assertAccount(accountId);
+    if (item.accountId !== accountId || item.operation !== 'expense_create'
+      || item.clientMutationId === oldMutationId) throw new Error('Invalid reviewed expense');
+    const payload = safeSnapshotJson(item.payload);
+    const precondition = safeSnapshotJson(item.precondition);
+    const db = await database();
+    assertAccount(accountId);
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      const old = await tx.getFirstAsync<OutboxRow>(
+        'SELECT * FROM outbox WHERE client_mutation_id = ? AND account_id = ?',
+        oldMutationId, accountId,
+      );
+      if (!old || old.operation !== 'expense_create' || old.state !== 'needs_review'
+        || old.trip_id !== item.tripId) throw new Error('Expense is no longer ready for review');
+      await tx.runAsync(
+        `INSERT INTO outbox (client_mutation_id, account_id, trip_id, operation,
+           payload_json, precondition_json, queued_at, state, attempt_count, next_retry_at,
+           last_safe_error_code, canonical_resource_id, acknowledged_response_json)
+         VALUES (?, ?, ?, 'expense_create', ?, ?, ?, 'queued', 0, NULL, NULL, NULL, NULL)`,
+        item.clientMutationId, accountId, item.tripId, payload, precondition, item.queuedAt,
+      );
+      await tx.runAsync(
+        'DELETE FROM outbox WHERE client_mutation_id = ? AND account_id = ? AND state = ?',
+        oldMutationId, accountId, 'needs_review',
+      );
+      assertAccount(accountId);
+    });
+  },
+
+  async discardReviewExpense(accountId, mutationId) {
+    assertAccount(accountId);
+    const db = await database();
+    assertAccount(accountId);
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      const row = await tx.getFirstAsync<OutboxRow>(
+        'SELECT * FROM outbox WHERE client_mutation_id = ? AND account_id = ?', mutationId, accountId,
+      );
+      if (!row || row.operation !== 'expense_create' || row.state !== 'needs_review') {
+        throw new Error('Expense is no longer ready for review');
+      }
+      await tx.runAsync('DELETE FROM outbox WHERE client_mutation_id = ? AND account_id = ?',
+        mutationId, accountId);
+      assertAccount(accountId);
+    });
   },
 
   async pendingCount(accountId) {

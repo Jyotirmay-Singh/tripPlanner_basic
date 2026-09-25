@@ -8,6 +8,8 @@ export const offlineStore: OfflineStore = {
   setActiveAccount: () => {},
   getIdentity: async () => null,
   saveIdentity: async () => {},
+  getExpenseProtocolVersion: async () => 0,
+  setExpenseProtocolVersion: async () => { throw new OfflineStoreError('unsupported'); },
   getTripSnapshot: async () => null,
   putTripSnapshot: async () => { throw new OfflineStoreError('unsupported'); },
   getTripReadBundle: async () => null,
@@ -19,6 +21,8 @@ export const offlineStore: OfflineStore = {
   putReadSnapshot: async () => { throw new OfflineStoreError('unsupported'); },
   enqueueOutbox: async () => { throw new OfflineStoreError('unsupported'); },
   listOutbox: async () => [],
+  replaceReviewExpense: async () => { throw new OfflineStoreError('unsupported'); },
+  discardReviewExpense: async () => { throw new OfflineStoreError('unsupported'); },
   pendingCount: async () => 0,
   purgeAccount: async () => {},
 };

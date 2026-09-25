@@ -122,6 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       invite_links_enabled?: boolean;
       chat_protocol_version?: number;
       multi_currency_expenses_enabled?: boolean;
+      expense_create_protocol_version?: number;
       }>('/meta/config', { auth: false });
       const linksEnabled = config?.invite_links_enabled === true;
       const currencyCapability = config?.multi_currency_expenses_enabled === true
@@ -131,6 +132,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setInviteLinksEnabled(linksEnabled);
       setMultiCurrencyCapability(currencyCapability);
       setChatCapability(config?.chat_protocol_version === 1 ? 'supported' : 'unsupported');
+      const expenseCreateProtocolVersion = config?.expense_create_protocol_version === 1 ? 1 : 0;
+      if (user?.id) {
+        await offlineStore.setExpenseProtocolVersion(user.id, expenseCreateProtocolVersion)
+          .catch(() => {});
+      }
       return { inviteLinksEnabled: linksEnabled, multiCurrencyCapability: currencyCapability };
     } catch (error) {
       // A temporary config outage must not downgrade a capability that was already confirmed.
@@ -140,7 +146,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       );
       throw error;
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     void refreshRuntimeConfig().catch(() => {});

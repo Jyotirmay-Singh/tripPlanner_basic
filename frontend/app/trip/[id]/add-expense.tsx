@@ -7,6 +7,9 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { api, uploadReceipt } from '../../../src/api';
 import { loadTripReadBundle, type CompleteTrip, type ReadResult } from '../../../src/offlineReads';
+import { offlineStore } from '../../../src/offlineStore';
+import { captureExpense, expenseCaptureActive, makeExpenseOutboxItem,
+  type ExpenseCreatePayload, type PendingExpense } from '../../../src/offlineExpenses';
 import OfflineReadStatus from '../../../src/OfflineReadStatus';
 import type { ExchangeRateQuote } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
@@ -27,7 +30,7 @@ import {
 } from '../../../src/currencies';
 import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
-import { formatDDMMYYYY, partsFromLocalDate, ddmmyyyyToDDMMYY, toISO } from '../../../src/date';
+import { formatDDMMYYYY, partsFromLocalDate, ddmmyyyyToDDMMYY, ddmmyyToDDMMYYYY, toISO } from '../../../src/date';
 import {
   FormScreen, Screen, Card, Button, Input, Pill, Icon, ActionSheet, SkeletonCard, EmptyState, useToast,
   CurrencyPicker, DateField, TimeField, ExchangeRatePanel,
@@ -38,7 +41,7 @@ type Member = { id: string; name: string; kind: string; family_members: string[]
 type Trip = { id: string; name: string; currency: string; members: Member[] };
 
 export default function AddExpense() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, reviewId } = useLocalSearchParams<{ id: string; reviewId?: string }>();
   const { colors } = useTheme();
   const {
     user, sessionMode,
@@ -80,6 +83,11 @@ export default function AddExpense() {
   const [receiptAsset, setReceiptAsset] = useState<{ uri: string; mimeType?: string; fileName?: string } | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const draftRef = useRef<string | null>(null);
+  const [reviewItem, setReviewItem] = useState<PendingExpense | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [receiptWarn, setReceiptWarn] = useState(false);
   const [sourceSheet, setSourceSheet] = useState(false);
   const [budgetWarn, setBudgetWarn] = useState<string | null>(null);
   const [approvedConversion, setApprovedConversion] = useState<ApprovedConversion | null>(null);
@@ -98,18 +106,19 @@ export default function AddExpense() {
   useEffect(() => {
     if (!user?.id || !id) return;
     let active = true;
-    const scope = `${user.id}:${id}`;
+    const scope = `${user.id}:${id}:${reviewId || ''}`;
     const newScope = formScope.current !== scope;
     if (newScope) {
       formScope.current = scope;
       setTrip(null);
       setAmount(''); setDesc(''); setReceiptAsset(null);
       setPaidBy(null); setSplitSel([]); setExactRows([]);
+      setReviewItem(null); setReviewError(null); draftRef.current = null;
     }
     void loadTripReadBundle<Trip, { amount: number }, unknown, unknown, unknown>(
       user.id, id, sessionMode === 'offline',
     )
-      .then((result) => {
+      .then(async (result) => {
         if (!active) return;
         setReadAccountId(user.id);
         setRead(result);
@@ -121,6 +130,56 @@ export default function AddExpense() {
         setSplitSel((current) => newScope || !current.length ? t.members.map((m) => m.id) : current);
         setExactRows((current) => newScope || !current.length ? buildExactRows(t.members) : current);
         setTripNetSpend(result.data.expenses.reduce((sum, expense) => sum + expense.amount, 0));
+        if (reviewId && newScope) {
+          try {
+            const row = (await offlineStore.listOutbox(user.id)).find((item) =>
+              item.clientMutationId === reviewId && item.tripId === id
+              && item.operation === 'expense_create' && item.state === 'needs_review') as PendingExpense | undefined;
+            if (!active) return;
+            if (!row) { setReviewError('This pending expense is no longer ready for review.'); return; }
+            setReviewItem(row);
+            const payload = row.payload;
+            setExpenseCurrency(String(payload.currency ?? payload.original_currency ?? t.currency));
+            setAmount(String(payload.amount ?? payload.original_amount ?? ''));
+            setDesc(String(payload.description ?? ''));
+            setCat(String(payload.category ?? 'Food'));
+            setDateDisplay(ddmmyyToDDMMYYYY(String(payload.date ?? '')));
+            setTime(String(payload.time ?? ''));
+            setPaidBy(payload.paid_by_member_id);
+            setSplitMode(payload.split_mode);
+            const expected = payload.expected_roster;
+            const currentIds = new Set(t.members.map((member) => member.id));
+            const rosterMatches = Array.isArray(payload.split_member_ids)
+              && payload.split_member_ids.every((memberId) => currentIds.has(memberId))
+              && currentIds.has(payload.paid_by_member_id)
+              && !!expected && typeof expected === 'object'
+              && JSON.stringify((expected as { members?: unknown }).members) === JSON.stringify(
+                [...new Set([...payload.split_member_ids, payload.paid_by_member_id])]
+                  .sort().map((memberId) => {
+                    const member = t.members.find((candidate) => candidate.id === memberId)!;
+                    return { id: memberId, kind: member.kind,
+                      family_member_ids: member.kind === 'family' ? familyMemberIds(member) : [] };
+                  }),
+              );
+            if (!rosterMatches) {
+              setReviewError('Trip participants changed. Choose the payer and split again before saving.');
+              setSplitSel([]);
+              setExactRows(buildExactRows(t.members));
+              setFamilyExcluded({});
+            } else {
+              setSplitSel(payload.split_member_ids);
+              const custom = payload.custom_amounts ?? payload.original_custom_amounts;
+              setExactRows(buildExactRows(t.members,
+                custom && typeof custom === 'object' ? custom as Record<string, number> : null));
+              const participants = payload.family_participants as Record<string, string[]> | null;
+              setFamilyExcluded(Object.fromEntries(t.members.filter((member) => member.kind === 'family')
+                .map((member) => [member.id, familyMemberIds(member).filter((personId) =>
+                  participants?.[member.id] && !participants[member.id].includes(personId))])));
+            }
+          } catch {
+            if (active) setReviewError('Pending expense could not be read on this device.');
+          }
+        }
       })
       .catch(() => {
         if (active) {
@@ -130,9 +189,10 @@ export default function AddExpense() {
         }
       });
     return () => { active = false; };
-  }, [id, user?.id, sessionMode]);
+  }, [id, reviewId, user?.id, sessionMode]);
 
   const offlineView = sessionMode === 'offline' || read?.source === 'cache';
+  const localCapture = expenseCaptureActive() && expenseCurrency === trip?.currency;
 
   const applyAsset = (r: ImagePicker.ImagePickerResult) => {
     if (!r.canceled && r.assets[0]?.uri) {
@@ -156,16 +216,22 @@ export default function AddExpense() {
   };
 
   const chooseReceiptSource = () => {
-    if (offlineView) return;
+    if (offlineView || localCapture) return;
     // Web has no camera flow here; go straight to file picker. Native shows a themed action sheet.
     if (Platform.OS === 'web') { pickFromLibrary(); return; }
     setSourceSheet(true);
   };
 
-  const submit = async (force = false) => {
-    if (offlineView) return toast.show('Connect to save this transaction.', 'error');
+  const submit = async (force = false, withoutReceipt = false) => {
+    if (savingRef.current) return;
+    if (offlineView && !localCapture) return toast.show(
+      expenseCurrency !== trip?.currency
+        ? 'Foreign-currency conversion needs internet.' : 'Connect to save this transaction.', 'error');
     if (!trip || !paidBy) return;
     const isForeign = expenseCurrency !== trip.currency;
+    if (reviewId && !reviewItem) return toast.show('This pending expense is unavailable.', 'error');
+    if (reviewId && !localCapture) return toast.show('Connect to review this pending expense.', 'error');
+    if (localCapture && receiptAsset && !withoutReceipt) { setReceiptWarn(true); return; }
     if (isForeign && multiCurrencyCapability !== 'enabled') {
       const message = multiCurrencyCapability === 'disabled'
         ? 'Foreign-currency expenses are disabled by the server rollout setting.'
@@ -192,6 +258,7 @@ export default function AddExpense() {
     if (isForeign && !approvedConversion) {
       return toast.show('Review and approve the conversion before saving.', 'error');
     }
+    savingRef.current = true;
     setSaving(true);
     try {
       const amountFields = createExpenseAmountFields({
@@ -201,7 +268,7 @@ export default function AddExpense() {
         tripCurrency: trip.currency,
         approvedConversion: approvedConversion?.request,
       });
-      let body: any;
+      let body: ExpenseCreatePayload;
       if (splitMode === 'EXACT') {
         // Phase 22 hard rule (mirror of the backend 422): amounts must add up to the total.
         if (!reconcile(exactRows, a, expenseCurrency).isValid) {
@@ -209,10 +276,12 @@ export default function AddExpense() {
           return toast.show('Assigned amounts must add up to the total.', 'error');
         }
         const shares = resolveEntityShares(exactRows, expenseCurrency);
+        const selectedExact = [...new Set(exactRows.filter((row) => row.included && row.amount != null)
+          .map((row) => row.entityId))];
         body = {
           ...amountFields, category: cat, description: desc, date, time: time || null,
           paid_by_member_id: paidBy,
-          split_member_ids: Object.keys(shares),
+          split_member_ids: localCapture ? selectedExact : Object.keys(shares),
           split_mode: 'EXACT',
           weight_snapshots: null,
           family_participants: null,
@@ -222,6 +291,9 @@ export default function AddExpense() {
             ? undefined : rowsToCustomAmounts(exactRows),
         };
       } else {
+        if (localCapture && splitSel.length === 0) {
+          return toast.show('Choose at least one participant.', 'error');
+        }
         const allSelected = trip.members.length > 0 && splitSel.length === trip.members.length;
         // At least one member of every ticked family must take part (both split modes).
         for (const sid of splitSel) {
@@ -238,11 +310,23 @@ export default function AddExpense() {
         body = {
           ...amountFields, category: cat, description: desc, date, time: time || null,
           paid_by_member_id: paidBy,
-          split_member_ids: allSelected ? [] : splitSel,
+          split_member_ids: localCapture ? [...splitSel] : allSelected ? [] : splitSel,
           split_mode: splitMode,
           weight_snapshots: null,
           family_participants: buildFamilyParticipants(trip.members, splitSel, splitMode, familyExcluded),
         };
+      }
+      if (localCapture) {
+        const item = makeExpenseOutboxItem(user!.id, trip, body, draftRef.current || undefined);
+        draftRef.current = item.clientMutationId;
+        await captureExpense(item, reviewId || undefined);
+        toast.show('Saved on this device. Pending sync.', 'success');
+        if (reviewId) {
+          router.replace({ pathname: '/trip/[id]', params: { id, tab: 'expenses' } });
+        } else {
+          router.back();
+        }
+        return;
       }
       const qs = force ? '?force=true' : '';
       const res = await api<any>(`/trips/${id}/expenses${qs}`, { method: 'POST', body });
@@ -259,8 +343,14 @@ export default function AddExpense() {
         }
       }
       router.back();
-    } catch (e: any) { toast.show(e.message || 'Could not save', 'error'); }
-    finally { setSaving(false); }
+    } catch (e: any) {
+      toast.show(localCapture
+        ? e?.message?.startsWith('Expense sync is unavailable')
+          ? `${e.message} Nothing was saved on this device.`
+          : 'Not saved on this device. Your form is still here; please try again.'
+        : e.message || 'Could not save', 'error');
+    }
+    finally { savingRef.current = false; setSaving(false); }
   };
 
   if (!trip) {
@@ -297,12 +387,18 @@ export default function AddExpense() {
     <>
       <FormScreen>
           <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
-            <T variant="h1">New transaction</T>
+            <T variant="h1">{reviewId ? 'Review transaction' : 'New transaction'}</T>
             {read ? <OfflineReadStatus result={read} /> : null}
+            {reviewError ? <T variant="caption" color={colors.warning} testID="ae-review-note">{reviewError}</T> : null}
             {offlineView ? (
               <T variant="caption" muted testID="ae-offline-note">
-                You can review this saved roster and split preview. Connect to save a transaction;
-                entries on this form are not saved on this device. Receipts require a connection.
+                {localCapture
+                  ? 'This transaction will be saved on this device as Pending sync. Confirmed totals stay unchanged. Receipts can be attached after sync. Foreign-currency conversion needs internet.'
+                  : 'You can review this saved roster and split preview. Connect to save a transaction; entries on this form are not saved on this device. Receipts require a connection.'}
+              </T>
+            ) : localCapture ? (
+              <T variant="caption" muted testID="ae-pending-note">
+                This transaction will be Pending sync until the server confirms it. Receipts can be attached after sync.
               </T>
             ) : null}
 
@@ -313,6 +409,11 @@ export default function AddExpense() {
               onChange={(value) => { setExpenseCurrency(value); setAmountError(null); }}
               helper={`Official trip currency: ${trip.currency}`}
             />
+            {offlineView && isForeign ? (
+              <T variant="caption" color={colors.warning} testID="ae-foreign-offline">
+                Foreign-currency conversion needs internet. Use {trip.currency} or reconnect.
+              </T>
+            ) : null}
             {currencyBlocked ? (
               <View
                 testID="ae-currency-blocked"
@@ -419,7 +520,7 @@ export default function AddExpense() {
             {multiCurrencyCapability === 'enabled' || !isForeign ? (
               <ExchangeRatePanel
                 testID="ae-exchange-rate"
-                enabled={multiCurrencyExpensesEnabled}
+                enabled={multiCurrencyExpensesEnabled && !offlineView}
                 amount={amount}
                 sourceCurrency={expenseCurrency}
                 targetCurrency={trip.currency}
@@ -551,6 +652,9 @@ export default function AddExpense() {
             {/* Receipt */}
             <View>
               <T variant="label" muted style={{ marginBottom: SPACING.xs }}>Receipt (optional)</T>
+              {localCapture ? <T variant="caption" muted testID="ae-receipt-after-sync">
+                Attach a receipt after this transaction syncs.
+              </T> : null}
               {receiptAsset ? (
                 <View>
                   <TouchableOpacity testID="receipt-view" activeOpacity={0.85} onPress={() => setViewerOpen(true)} accessibilityLabel="View receipt">
@@ -561,7 +665,7 @@ export default function AddExpense() {
                   </TouchableOpacity>
                 </View>
               ) : (
-                <TouchableOpacity testID="ae-receipt" onPress={chooseReceiptSource} disabled={offlineView}
+                <TouchableOpacity testID="ae-receipt" onPress={chooseReceiptSource} disabled={offlineView || localCapture}
                   style={[styles.receiptBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} accessibilityRole="button" accessibilityLabel="Attach receipt image">
                   <Icon name="image-plus" size={18} color={colors.primary} />
                   <T color={colors.primary} style={{ fontWeight: '700' }}>Attach image</T>
@@ -571,7 +675,7 @@ export default function AddExpense() {
 
             <ReceiptViewer uri={receiptAsset?.uri ?? null} visible={viewerOpen} onClose={() => setViewerOpen(false)} />
 
-            <Button label="Save transaction" icon="check" onPress={() => submit(false)} loading={saving} disabled={offlineView || !!amountPrecisionIssue || currencyBlocked || conversionPending || (splitMode === 'EXACT' && !exactRec.isValid)} fullWidth size="lg" testID="ae-submit" style={{ marginTop: SPACING.sm }} />
+            <Button label={localCapture ? 'Save on device' : 'Save transaction'} icon="check" onPress={() => submit(false)} loading={saving} disabled={(offlineView && !localCapture) || (!!reviewId && !localCapture) || !!amountPrecisionIssue || currencyBlocked || conversionPending || (splitMode === 'EXACT' && !exactRec.isValid)} fullWidth size="lg" testID="ae-submit" style={{ marginTop: SPACING.sm }} />
           </View>
       </FormScreen>
 
@@ -585,6 +689,18 @@ export default function AddExpense() {
         ]}
       />
 
+      <ConfirmModal
+        visible={receiptWarn}
+        title="Receipt after sync"
+        message="This image is not saved with the pending transaction. Save without a receipt, then attach it after sync?"
+        onRequestClose={() => setReceiptWarn(false)}
+        actions={[
+          { label: 'Keep editing', variant: 'cancel', onPress: () => setReceiptWarn(false) },
+          { label: 'Save without receipt', variant: 'primary', onPress: () => {
+            setReceiptWarn(false); void submit(false, true);
+          } },
+        ]}
+      />
       <ConfirmModal
         visible={!!budgetWarn}
         title="Budget warning"

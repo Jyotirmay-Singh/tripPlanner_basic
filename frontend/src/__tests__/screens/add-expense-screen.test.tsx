@@ -4,6 +4,12 @@ import TestRenderer, { act } from 'react-test-renderer';
 
 const mockRefreshRuntimeConfig = jest.fn().mockResolvedValue(undefined);
 const mockToastShow = jest.fn();
+const mockRouterBack = jest.fn();
+const mockRouterReplace = jest.fn();
+const mockCaptureExpense = jest.fn();
+const mockExpenseCaptureActive = jest.fn(() => false);
+const mockListOutbox = jest.fn();
+let mockSearchParams: { id: string; reviewId?: string } = { id: 't1' };
 
 jest.mock('../../api', () => ({
   api: jest.fn(),
@@ -28,8 +34,16 @@ jest.mock('../../ThemeContext', () => ({
   }),
 }));
 jest.mock('expo-router', () => ({
-  useLocalSearchParams: () => ({ id: 't1' }),
-  useRouter: () => ({ back: jest.fn(), push: jest.fn() }),
+  useLocalSearchParams: () => mockSearchParams,
+  useRouter: () => ({ back: mockRouterBack, replace: mockRouterReplace, push: jest.fn() }),
+}));
+jest.mock('../../offlineStore', () => ({ offlineStore: {
+  listOutbox: (...args: any[]) => mockListOutbox(...args),
+} }));
+jest.mock('../../offlineExpenses', () => ({
+  ...jest.requireActual('../../offlineExpenses'),
+  expenseCaptureActive: () => mockExpenseCaptureActive(),
+  captureExpense: (...args: any[]) => mockCaptureExpense(...args),
 }));
 jest.mock('expo-image-picker', () => ({
   requestMediaLibraryPermissionsAsync: jest.fn(),
@@ -49,7 +63,10 @@ jest.mock('../../SplitModeSelector', () => {
     splitPreviewLabel: () => 'Split preview',
   };
 });
-jest.mock('../../ExactSplitEditor', () => ({ __esModule: true, default: () => null }));
+jest.mock('../../ExactSplitEditor', () => {
+  const R = require('react');
+  return { __esModule: true, default: (props: any) => R.createElement('ExactSplitEditor', props) };
+});
 jest.mock('../../ReceiptViewer', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../ConfirmModal', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../ui', () => {
@@ -93,6 +110,10 @@ const FAMILY_TRIP = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockExpenseCaptureActive.mockReturnValue(false);
+  mockCaptureExpense.mockResolvedValue(undefined);
+  mockListOutbox.mockResolvedValue([]);
+  mockSearchParams = { id: 't1' };
   apiMock.mockImplementation((path: string) => {
     if (path === '/trips/t1') return Promise.resolve(FAMILY_TRIP);
     if (path === '/trips/t1/expenses') return Promise.resolve([]);
@@ -149,4 +170,98 @@ it('opens a saved roster in airplane mode without claiming the form can save', a
   } finally {
     loader.mockRestore();
   }
+});
+
+it('queues a selected family participant for a refund and ignores a duplicate tap', async () => {
+  mockExpenseCaptureActive.mockReturnValue(true);
+  let complete!: () => void;
+  mockCaptureExpense.mockImplementation(() => new Promise<void>((resolve) => { complete = resolve; }));
+  const renderer = await mountScreen();
+  await act(async () => {
+    renderer.root.findByProps({ testID: 'ae-amount' }).props.onChangeText('-90');
+    renderer.root.findByType('SplitModeSelector' as any).props.onChange('PER_FAMILY');
+    renderer.root.findByProps({ testID: 'ae-fammem-family-1-1' }).props.onPress();
+  });
+  const save = renderer.root.findByProps({ testID: 'ae-submit' });
+  await act(async () => { save.props.onPress(); save.props.onPress(); await Promise.resolve(); });
+  expect(mockCaptureExpense).toHaveBeenCalledTimes(1);
+  const item = mockCaptureExpense.mock.calls[0][0];
+  expect(item.payload).toMatchObject({
+    original_amount: '-90', original_currency: 'INR', split_mode: 'PER_FAMILY',
+    split_member_ids: ['family-1'], family_participants: { 'family-1': ['person-1'] },
+  });
+  expect(item.payload.expected_roster.members[0].family_member_ids).toEqual(['person-1', 'person-2']);
+  await act(async () => { complete(); });
+  expect(mockRouterBack).toHaveBeenCalledTimes(1);
+});
+
+it('keeps the form and does not claim success when device storage fails', async () => {
+  mockExpenseCaptureActive.mockReturnValue(true);
+  mockCaptureExpense.mockRejectedValue(new Error('disk full'));
+  const renderer = await mountScreen();
+  await act(async () => { renderer.root.findByProps({ testID: 'ae-amount' }).props.onChangeText('90'); });
+  await act(async () => { renderer.root.findByProps({ testID: 'ae-submit' }).props.onPress(); });
+  expect(mockRouterBack).not.toHaveBeenCalled();
+  expect(renderer.root.findByProps({ testID: 'ae-amount' }).props.value).toBe('90');
+  expect(mockToastShow).toHaveBeenCalledWith(
+    'Not saved on this device. Your form is still here; please try again.', 'error');
+  expect(mockToastShow).not.toHaveBeenCalledWith('Saved on this device. Pending sync.', 'success');
+  const firstUuid = mockCaptureExpense.mock.calls[0][0].clientMutationId;
+  mockCaptureExpense.mockResolvedValue(undefined);
+  await act(async () => { renderer.root.findByProps({ testID: 'ae-submit' }).props.onPress(); });
+  expect(mockCaptureExpense.mock.calls[1][0].clientMutationId).toBe(firstUuid);
+  expect(mockRouterBack).toHaveBeenCalledTimes(1);
+});
+
+it('captures exact person allocations without expanding to everyone', async () => {
+  mockExpenseCaptureActive.mockReturnValue(true);
+  const renderer = await mountScreen();
+  await act(async () => {
+    renderer.root.findByProps({ testID: 'ae-amount' }).props.onChangeText('-90');
+    renderer.root.findByType('SplitModeSelector' as any).props.onChange('EXACT');
+  });
+  await act(async () => {
+    renderer.root.findByType('ExactSplitEditor' as any).props.onChange([
+      { memberId: 'person-1', entityId: 'family-1', included: true, amount: 90 },
+      { memberId: 'person-2', entityId: 'family-1', included: false, amount: null },
+    ]);
+  });
+  await act(async () => { renderer.root.findByProps({ testID: 'ae-submit' }).props.onPress(); });
+  expect(mockCaptureExpense).toHaveBeenCalledTimes(1);
+  expect(mockCaptureExpense.mock.calls[0][0].payload).toMatchObject({
+    split_mode: 'EXACT', split_member_ids: ['family-1'],
+    original_custom_amounts: { 'person-1': 90 }, original_amount: '-90',
+  });
+});
+
+it('rehydrates a rejected family refund and atomically requeues its edited intent', async () => {
+  mockExpenseCaptureActive.mockReturnValue(true);
+  mockSearchParams = { id: 't1', reviewId: 'old-uuid' };
+  mockListOutbox.mockResolvedValue([{
+    clientMutationId: 'old-uuid', tripId: 't1', operation: 'expense_create',
+    state: 'needs_review', payload: {
+      original_amount: '-90', original_currency: 'INR', category: 'Food',
+      description: 'Family refund', date: '25-09-26', time: null,
+      paid_by_member_id: 'family-1', split_member_ids: ['family-1'],
+      split_mode: 'PER_FAMILY', family_participants: { 'family-1': ['person-1'] },
+      expected_roster: { currency: 'INR', members: [
+        { id: 'family-1', kind: 'family', family_member_ids: ['person-1', 'person-2'] },
+      ] },
+    },
+  }]);
+  const renderer = await mountScreen();
+  expect(renderer.root.findByProps({ testID: 'ae-amount' }).props.value).toBe('-90');
+  expect(renderer.root.findByType('SplitModeSelector' as any).props.value).toBe('PER_FAMILY');
+  await act(async () => { renderer.root.findByProps({ testID: 'ae-amount' }).props.onChangeText('-80'); });
+  await act(async () => { renderer.root.findByProps({ testID: 'ae-submit' }).props.onPress(); });
+  expect(mockCaptureExpense).toHaveBeenCalledTimes(1);
+  expect(mockCaptureExpense.mock.calls[0][1]).toBe('old-uuid');
+  expect(mockCaptureExpense.mock.calls[0][0].clientMutationId).not.toBe('old-uuid');
+  expect(mockCaptureExpense.mock.calls[0][0].payload).toMatchObject({
+    original_amount: '-80', split_member_ids: ['family-1'],
+    family_participants: { 'family-1': ['person-1'] },
+  });
+  expect(mockRouterReplace).toHaveBeenCalledWith({
+    pathname: '/trip/[id]', params: { id: 't1', tab: 'expenses' },
+  });
 });

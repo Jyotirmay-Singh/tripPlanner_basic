@@ -47,7 +47,7 @@ function environment(options: {
       if (sql.includes('FROM account_meta')) return identities.get(accountId ?? '') ?? null;
       return { count: 0 };
     }),
-    getAllAsync: jest.fn(async () => [] as { kind: string; payload_json: string; fetched_at: number }[]),
+    getAllAsync: jest.fn(async (_sql: string) => [] as { kind: string; payload_json: string; fetched_at: number }[]),
     runAsync: jest.fn(async (sql: string, accountId: string, profileJson: string,
       verifiedAt: number, expiresAt: number) => {
       if (sql.includes('INSERT INTO account_meta')) {
@@ -149,4 +149,115 @@ it('replaces all five trip reads atomically and retains the old set after a fail
     payload: original, fetchedAt: 10,
   });
   expect(db.runAsync).toHaveBeenCalledTimes(1); // Identity only; bundle writes use the transaction.
+});
+
+it('commits one expense UUID durably, rejects changed intent, and retains it after a cold module restart', async () => {
+  const { offlineStore, db, secrets } = environment();
+  offlineStore.setActiveAccount('account-a');
+  await offlineStore.saveIdentity(identity);
+  const rows = new Map<string, Record<string, unknown>>();
+  let failInsert = false;
+  db.withExclusiveTransactionAsync.mockImplementation(async (task: any) => {
+    const staged: (() => void)[] = [];
+    await task({
+      getFirstAsync: async (_sql: string, id: string) => rows.get(id) ?? null,
+      runAsync: async (sql: string, ...args: unknown[]) => {
+        if (sql.includes('INSERT INTO outbox')) {
+          if (failInsert) throw new Error('disk full');
+          staged.push(() => rows.set(args[0] as string, {
+            client_mutation_id: args[0], account_id: args[1], trip_id: args[2],
+            operation: args[3], payload_json: args[4], precondition_json: args[5],
+            queued_at: args[6], state: args[7], attempt_count: args[8],
+            next_retry_at: args[9], last_safe_error_code: args[10],
+            canonical_resource_id: args[11], acknowledged_response_json: args[12],
+          }));
+        }
+      },
+    });
+    staged.forEach((write) => write());
+  });
+  db.getAllAsync.mockImplementation(async (sql: string) =>
+    (sql.includes('FROM outbox') ? [...rows.values()] : []) as any);
+  const item = {
+    clientMutationId: '7fa30d5e-b4f6-4cb3-b45a-27b4119d0101',
+    accountId: 'account-a', tripId: 'trip-1', operation: 'expense_create' as const,
+    payload: { amount: -20, currency: 'INR', split_member_ids: ['member-1'] },
+    precondition: { currency: 'INR', members: [{ id: 'member-1' }] },
+    queuedAt: 123, state: 'queued' as const, attemptCount: 0, nextRetryAt: null,
+    lastSafeErrorCode: null, canonicalResourceId: null, acknowledgedResponse: null,
+  };
+  failInsert = true;
+  await expect(offlineStore.enqueueOutbox(item)).rejects.toThrow('disk full');
+  expect(rows.size).toBe(0);
+  failInsert = false;
+  await offlineStore.enqueueOutbox(item);
+  await offlineStore.enqueueOutbox(item);
+  expect(rows.size).toBe(1);
+  await expect(offlineStore.enqueueOutbox({ ...item, payload: { amount: -30 } }))
+    .rejects.toThrow('another expense');
+
+  jest.resetModules();
+  const { File } = require('expo-file-system');
+  const SecureStore = require('expo-secure-store');
+  const SQLite = require('expo-sqlite');
+  File.mockImplementation(() => ({ exists: true }));
+  SecureStore.getItemAsync.mockImplementation(async (key: string) => secrets.get(key) ?? null);
+  SQLite.openDatabaseAsync.mockResolvedValue(db);
+  db.getFirstAsync.mockImplementation(async (sql: string) => {
+    if (sql === 'PRAGMA cipher_version') return { cipher_version: '4.6.0' };
+    if (sql === 'PRAGMA user_version') return { user_version: 2 };
+    return { count: 0 };
+  });
+  const restored = require('../offlineStore.android').offlineStore;
+  restored.setActiveAccount('account-a');
+  expect(await restored.listOutbox('account-a')).toEqual([item]);
+  restored.setActiveAccount('account-b');
+  await expect(restored.listOutbox('account-a')).rejects.toMatchObject({ code: 'account_mismatch' });
+});
+
+it('keeps a rejected intent if edit storage fails and replaces or discards it only by explicit action', async () => {
+  const { offlineStore, db } = environment();
+  offlineStore.setActiveAccount('account-a');
+  await offlineStore.saveIdentity(identity);
+  const oldId = 'old-id';
+  const rows = new Map<string, Record<string, unknown>>([[oldId, {
+    client_mutation_id: oldId, account_id: 'account-a', trip_id: 'trip-1',
+    operation: 'expense_create', state: 'needs_review',
+  }]]);
+  let failInsert = true;
+  db.withExclusiveTransactionAsync.mockImplementation(async (task: any) => {
+    const staged: (() => void)[] = [];
+    await task({
+      getFirstAsync: async (_sql: string, id: string) => rows.get(id) ?? null,
+      runAsync: async (sql: string, ...args: unknown[]) => {
+        if (sql.includes('INSERT INTO outbox')) {
+          if (failInsert) throw new Error('disk full');
+          staged.push(() => rows.set(args[0] as string, {
+            client_mutation_id: args[0], account_id: args[1], trip_id: args[2],
+            operation: 'expense_create', state: 'queued',
+          }));
+        } else if (sql.includes('DELETE FROM outbox')) {
+          staged.push(() => rows.delete(args[0] as string));
+        }
+      },
+    });
+    staged.forEach((write) => write());
+  });
+  const updated = {
+    clientMutationId: 'new-id', accountId: 'account-a', tripId: 'trip-1',
+    operation: 'expense_create' as const, payload: { amount: 25 }, precondition: {},
+    queuedAt: 123, state: 'queued' as const, attemptCount: 0, nextRetryAt: null,
+    lastSafeErrorCode: null, canonicalResourceId: null, acknowledgedResponse: null,
+  };
+  await expect(offlineStore.replaceReviewExpense('account-a', oldId, updated))
+    .rejects.toThrow('disk full');
+  expect([...rows.keys()]).toEqual([oldId]);
+  failInsert = false;
+  await offlineStore.replaceReviewExpense('account-a', oldId, updated);
+  expect([...rows.keys()]).toEqual(['new-id']);
+  await expect(offlineStore.discardReviewExpense('account-a', 'new-id'))
+    .rejects.toThrow('no longer ready');
+  rows.get('new-id')!.state = 'needs_review';
+  await offlineStore.discardReviewExpense('account-a', 'new-id');
+  expect(rows.size).toBe(0);
 });

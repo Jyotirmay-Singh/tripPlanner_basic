@@ -9,6 +9,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo
 import { api, getToken, getTripInviteLink, receiptUrl } from '../../../src/api';
 import { loadTripReadBundle, type CompleteTrip, type ReadResult } from '../../../src/offlineReads';
 import OfflineReadStatus from '../../../src/OfflineReadStatus';
+import { listPendingExpenses, type PendingExpense } from '../../../src/offlineExpenses';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, CONTENT_MAX_WIDTH, COMPONENT_SIZE, FONTS } from '../../../src/theme';
@@ -246,6 +247,8 @@ export default function TripDetail() {
   const toast = useToast();
   const [storedTrip, setTrip] = useState<Trip | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [storedPendingExpenses, setPendingExpenses] = useState<PendingExpense[]>([]);
+  const [pendingReadError, setPendingReadError] = useState(false);
   const [balances, setBalances] = useState<Balances | null>(null);
   const [spend, setSpend] = useState<SpendSummary | null>(null);
   const [storedRead, setRead] = useState<ReadResult<CompleteTrip<Trip, Expense, Balances, SpendSummary, unknown>> | null>(null);
@@ -254,6 +257,7 @@ export default function TripDetail() {
   const loadGeneration = useRef(0);
   const trip = readAccountId === user?.id ? storedTrip : null;
   const read = readAccountId === user?.id ? storedRead : null;
+  const pendingExpenses = readAccountId === user?.id ? storedPendingExpenses : [];
   const [tab, setTab] = useState<TabKey>(() => tripTabFromParam(tabParam));
 
   // Handles both a cold notification launch and a tap while this trip screen is already mounted.
@@ -312,6 +316,16 @@ export default function TripDetail() {
         if (generation === loadGeneration.current) setToken(currentToken);
       } else {
         setTrip(null); setExpenses([]); setBalances(null); setSpend(null); setToken(null);
+      }
+      try {
+        const pending = await listPendingExpenses(user.id, id,
+          result.data?.expenses.map((expense) => expense.id) ?? []);
+        if (generation === loadGeneration.current) {
+          setPendingExpenses(pending);
+          setPendingReadError(false);
+        }
+      } catch {
+        if (generation === loadGeneration.current) setPendingReadError(true);
       }
     } catch (error: any) {
       if (generation === loadGeneration.current) {
@@ -501,6 +515,14 @@ export default function TripDetail() {
       />
 
       {read ? <OfflineReadStatus result={read} /> : null}
+      {pendingExpenses.length > 0 ? (
+        <T variant="caption" muted testID="trip-pending-summary">
+          {pendingExpenses.length} Pending sync · confirmed totals exclude pending transactions.
+        </T>
+      ) : null}
+      {pendingReadError ? <T variant="caption" color={colors.warning} testID="trip-pending-read-error">
+        Pending transactions could not be read on this device.
+      </T> : null}
       {offlineView ? (
         <T variant="caption" muted testID="trip-online-actions-note">
           Saved trip view. Changes and receipt images require a connection.
@@ -788,7 +810,36 @@ export default function TripDetail() {
               style={{ gap: SPACING.sm }}
               onLayout={(event) => { expensesSectionY.current = event.nativeEvent.layout.y; }}
             >
-              {expenses.length === 0 ? (
+              {pendingExpenses.map((item) => {
+                const payload = item.payload;
+                const amount = Number(payload.amount ?? payload.original_amount ?? 0);
+                const status = item.state === 'needs_review' ? 'Needs review · Pending sync' : 'Pending sync';
+                return (
+                  <Card key={item.clientMutationId}
+                    onPress={() => router.push(
+                      `/trip/${id}/pending-expense?mutationId=${encodeURIComponent(item.clientMutationId)}` as Href)}
+                    testID={`pending-expense-item-${item.clientMutationId}`}>
+                    <View style={styles.rowCard}>
+                      <View style={[styles.catDot,
+                        { backgroundColor: amount < 0 ? colors.success : colors.warning }]} />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <T variant="h4" numberOfLines={1}>
+                          {String(payload.description || payload.category)}
+                        </T>
+                        <T variant="caption" muted>
+                          {String(payload.date)} · {String(payload.category)} · by {displayNames[payload.paid_by_member_id] || '?'}
+                        </T>
+                        <T variant="caption" color={colors.warning}
+                          accessibilityLabel={`${status}. Saved on this device; not included in confirmed totals.`}
+                          testID={`pending-expense-status-${item.clientMutationId}`}>{status}</T>
+                      </View>
+                      <ResponsiveAmountText value={amount} currency={trip.currency} showCurrency={false}
+                        label="Pending transaction amount" color={amount < 0 ? colors.success : colors.textMain} />
+                    </View>
+                  </Card>
+                );
+              })}
+              {expenses.length === 0 && pendingExpenses.length === 0 ? (
                 <EmptyState icon="receipt" title="No transactions yet" body="Add an expense (or a negative amount for money back) to start tracking this trip." ctaLabel="Add transaction" ctaIcon="plus" onCta={() => router.push(`/trip/${id}/add-expense`)} testID="expenses-empty" />
               ) : sortExpensesDesc(expenses).map((e) => (
                 <View

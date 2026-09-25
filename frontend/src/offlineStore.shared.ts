@@ -47,6 +47,8 @@ export interface OfflineStore {
   setActiveAccount(accountId: string | null): void;
   getIdentity(accountId: string): Promise<CachedIdentityRecord | null>;
   saveIdentity(record: CachedIdentityRecord): Promise<void>;
+  getExpenseProtocolVersion(accountId: string): Promise<number>;
+  setExpenseProtocolVersion(accountId: string, version: number): Promise<void>;
   getTripSnapshot(accountId: string, tripId: string): Promise<Snapshot | null>;
   putTripSnapshot(accountId: string, tripId: string, snapshot: Snapshot): Promise<void>;
   getTripReadBundle(accountId: string, tripId: string): Promise<Snapshot | null>;
@@ -58,6 +60,8 @@ export interface OfflineStore {
   putReadSnapshot(accountId: string, tripId: string, kind: ReadKind, snapshot: Snapshot): Promise<void>;
   enqueueOutbox(item: StoredOutboxItem): Promise<void>;
   listOutbox(accountId: string): Promise<StoredOutboxItem[]>;
+  replaceReviewExpense(accountId: string, oldMutationId: string, item: StoredOutboxItem): Promise<void>;
+  discardReviewExpense(accountId: string, mutationId: string): Promise<void>;
   pendingCount(accountId: string): Promise<number>;
   purgeAccount(accountId: string): Promise<void>;
 }

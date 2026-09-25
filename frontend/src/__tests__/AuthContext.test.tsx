@@ -28,6 +28,7 @@ jest.mock('../offlineStore', () => ({
     setActiveAccount: jest.fn(),
     getIdentity: jest.fn(),
     saveIdentity: jest.fn(),
+    setExpenseProtocolVersion: jest.fn(),
     pendingCount: jest.fn(),
     purgeAccount: jest.fn(),
   },
@@ -72,6 +73,7 @@ async function mount(): Promise<void> {
 
 beforeEach(() => {
   jest.resetAllMocks();
+  (offlineStore.setExpenseProtocolVersion as jest.Mock).mockResolvedValue(undefined);
   identities.clear();
   activeAccount = null;
   (NetInfo.addEventListener as jest.Mock).mockImplementation(() => jest.fn());
@@ -151,6 +153,19 @@ it('persists and clears a pending invite path', async () => {
   await act(async () => latest.clearPendingInvite());
   expect(AsyncStorage.removeItem).toHaveBeenCalledWith('pending_invite_path_v1');
   expect(latest.pendingInvitePath).toBeNull();
+});
+
+it('remembers the expense protocol for the authenticated account after a verified config read', async () => {
+  const user = { id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user' };
+  (apiModule.getToken as jest.Mock).mockResolvedValue(token('u1', Date.now() + 3_600_000));
+  (apiModule.api as jest.Mock).mockImplementation((path: string) => {
+    if (path === '/meta/config') return Promise.resolve({ expense_create_protocol_version: 1 });
+    if (path === '/auth/me') return Promise.resolve(user);
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+  await act(async () => { await latest.refreshRuntimeConfig(); });
+  expect(offlineStore.setExpenseProtocolVersion).toHaveBeenCalledWith('u1', 1);
 });
 
 it('clears every local identity hint after server-confirmed account deletion', async () => {
