@@ -15,7 +15,8 @@ import { mobileProfileHref, upiProfileHref } from '../../src/inviteNavigation';
 import { formatMobileForDisplay } from '../../src/mobileNumber';
 
 export default function Profile() {
-  const { user, refreshUserProfile } = useAuth();
+  const { user, refreshUserProfile, sessionMode, offlineStorageError } = useAuth();
+  const offline = sessionMode === 'offline';
   const { colors, mode, toggle } = useTheme();
   const { confirmAndSignOut } = useLogout();
   const { show: showToast } = useToast();
@@ -43,6 +44,14 @@ export default function Profile() {
     <TabScreen>
       <TabPageHeader title="Profile" />
 
+      {offline || offlineStorageError ? (
+        <Card testID="profile-offline-notice">
+          <T muted>{offline
+            ? 'Offline session. Account settings and payment details need a connection.'
+            : offlineStorageError}</T>
+        </Card>
+      ) : null}
+
       <Card style={styles.row}>
         <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
           <T color={colors.primaryText} variant="h2">{initials(user?.name) || '?'}</T>
@@ -66,7 +75,7 @@ export default function Profile() {
       </Card>
 
       <Card
-        onPress={() => router.push('/change-password')}
+        onPress={offline ? undefined : () => router.push('/change-password')}
         testID="profile-change-password"
         accessibilityLabel="Change password"
         style={styles.row}
@@ -77,10 +86,11 @@ export default function Profile() {
       </Card>
 
       <Card
-        onPress={() => router.push(mobileProfileHref())}
+        onPress={offline ? undefined : () => router.push(mobileProfileHref())}
         testID="profile-mobile-number"
         accessibilityLabel={`Mobile number, ${
-          user?.mobile_number ? formatMobileForDisplay(user.mobile_number) : 'not set'
+          offline ? 'unavailable offline'
+            : user?.mobile_number ? formatMobileForDisplay(user.mobile_number) : 'not set'
         }`}
         style={styles.row}
       >
@@ -88,7 +98,7 @@ export default function Profile() {
         <View style={styles.paymentCopy}>
           <T variant="h4">Mobile number</T>
           <T muted variant="caption" numberOfLines={1} testID="profile-mobile-value">
-            {user?.mobile_number
+            {offline ? 'Unavailable offline' : user?.mobile_number
               ? formatMobileForDisplay(user.mobile_number)
               : 'Add mobile number'}
           </T>
@@ -99,9 +109,10 @@ export default function Profile() {
       <Card padding="none" style={styles.paymentRow}>
         <Pressable
           onPress={() => router.push(upiProfileHref())}
+          disabled={offline}
           testID="profile-payment-details"
           accessibilityRole="button"
-          accessibilityLabel={`Payment details, ${user?.upi_id || 'UPI ID not set'}`}
+          accessibilityLabel={`Payment details, ${offline ? 'unavailable offline' : user?.upi_id || 'UPI ID not set'}`}
           style={({ pressed, focused }: any) => [
             styles.paymentLink,
             pressed && styles.pressed,
@@ -117,12 +128,12 @@ export default function Profile() {
           <View style={styles.paymentCopy}>
             <T variant="h4">Payment details</T>
             <T muted variant="caption" numberOfLines={1} testID="profile-upi-value">
-              {user?.upi_id || 'UPI ID not set'}
+              {offline ? 'Unavailable offline' : user?.upi_id || 'UPI ID not set'}
             </T>
           </View>
           <Icon name="chevron-right" size={18} color={colors.textMuted} />
         </Pressable>
-        {user?.upi_id ? (
+        {!offline && user?.upi_id ? (
           <IconButton
             name="copy"
             onPress={copyUpiId}
@@ -138,7 +149,7 @@ export default function Profile() {
       <NotificationSettingsRow />
 
       <Card
-        onPress={() => router.push('/delete-account' as Href)}
+        onPress={offline ? undefined : () => router.push('/delete-account' as Href)}
         testID="profile-delete-account"
         accessibilityLabel="Delete account"
         style={styles.row}

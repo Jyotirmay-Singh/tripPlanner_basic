@@ -220,7 +220,11 @@ export default function DeleteAccountScreen() {
           action: actions[trip.trip_id] ?? 'keep',
         })),
       });
-      await finalizeAccountDeletion();
+      try {
+        await finalizeAccountDeletion();
+      } catch {
+        toast.show('Account deleted. Local cleanup will retry when storage is available.', 'error');
+      }
       navResetTo(router, AUTH_LOGIN_HREF);
     } catch (reason: any) {
       setFinalVisible(false);

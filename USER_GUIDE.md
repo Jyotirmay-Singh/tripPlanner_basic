@@ -27,10 +27,18 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
 - If you have not saved a mobile number, each explicit sign-in offers the optional mobile step again.
   **Not now** skips it only for that signed-in session. Reopening the app with a restored session does
   not interrupt you with the prompt.
+- In Android builds that include this storage update, an account verified online can restore its
+  identity during a temporary server outage while its existing token is valid (up to 30 days from
+  sign-in). The update moves an existing Android token into secure device storage without requiring
+  a new login. If this is the first launch after updating, or the token has expired, connect to the
+  server to finish restoring or sign in. Trip lists and financial data still need a connection in
+  this session; offline trip viewing and expense capture are coming in later updates.
 
 ### 1.3 Dark mode & sign out
 - Bottom-tab **Profile** → toggle **Dark mode**.
-- **Sign out** button (door icon) is on the top-right of every screen.
+- Choose **Sign out** in Profile. If this device has pending actions, the confirmation warns that
+  they stay on this device for the same account and cannot sync until it signs in again. Switching
+  accounts does not expose those actions to the new account.
 
 ### 1.4 Mobile number
 - Open **Profile** from the account avatar, then choose **Mobile number** to add or change it. The

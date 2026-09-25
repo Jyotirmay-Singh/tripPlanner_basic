@@ -56,6 +56,25 @@ it('preserves HTTP status and classifies an actual fetch rejection as network fa
   });
 });
 
+it('reports an authenticated 401 so the active session can be locked', async () => {
+  process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+  jest.resetModules();
+  const storage = require('@react-native-async-storage/async-storage').default;
+  storage.getItem.mockResolvedValue('active-jwt');
+  const { api, subscribeUnauthorized } = require('../api');
+  const onUnauthorized = jest.fn();
+  const unsubscribe = subscribeUnauthorized(onUnauthorized);
+  jest.spyOn(globalThis, 'fetch').mockResolvedValue({
+    ok: false, status: 401, text: () => Promise.resolve('{}'),
+  } as Response);
+  await expect(api('/trips')).rejects.toMatchObject({ code: 'http', status: 401 });
+  await expect(api('/auth/login', { auth: false })).rejects.toMatchObject({ status: 401 });
+  expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  expect(onUnauthorized).toHaveBeenCalledWith('active-jwt');
+  unsubscribe();
+  storage.getItem.mockResolvedValue(null);
+});
+
 it('surfaces structured backend conversion details', async () => {
   process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
   jest.resetModules();

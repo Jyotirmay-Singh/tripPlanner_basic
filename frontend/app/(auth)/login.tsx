@@ -11,7 +11,10 @@ import { AuthShell, Card, Input, Button, Icon, useToast } from '../../src/ui';
 import { mobileSetupHref, postAuthHref } from '../../src/inviteNavigation';
 
 export default function Login() {
-  const { signIn, savedEmail, forgetSavedEmail, emailFeaturesEnabled, pendingInvitePath } = useAuth();
+  const {
+    signIn, savedEmail, forgetSavedEmail, emailFeaturesEnabled, pendingInvitePath,
+    sessionNotice, offlineStorageError,
+  } = useAuth();
   const { colors } = useTheme();
   const router = useRouter();
   const toast = useToast();
@@ -58,6 +61,11 @@ export default function Login() {
 
   return (
     <AuthShell brandImage={require('../../assets/images/wordmark.png')} title={savedEmail ? 'Welcome back' : 'Sign in'} subtitle="Use your email and password to continue.">
+      {sessionNotice || offlineStorageError ? (
+        <Card testID="login-session-notice">
+          <T>{sessionNotice || offlineStorageError}</T>
+        </Card>
+      ) : null}
       {savedEmail ? (
         <Card style={styles.savedRow}>
           <Icon name="user-round" size={26} color={colors.primary} />

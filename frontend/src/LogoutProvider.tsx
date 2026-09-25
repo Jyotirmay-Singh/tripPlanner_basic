@@ -14,16 +14,26 @@ type LogoutCtx = { confirmAndSignOut: () => void };
 export const LogoutContext = createContext<LogoutCtx>({ confirmAndSignOut: () => {} });
 
 export function LogoutProvider({ children }: { children: React.ReactNode }) {
-  const { signOut } = useAuth();
+  const { signOut, pendingActionCount } = useAuth();
   const router = useRouter();
   const [visible, setVisible] = useState(false);
+  const [pendingCount, setPendingCount] = useState<number | null>(0);
+  const [signOutFailed, setSignOutFailed] = useState(false);
 
-  const confirmAndSignOut = useCallback(() => setVisible(true), []);
+  const confirmAndSignOut = useCallback(() => {
+    setSignOutFailed(false);
+    setPendingCount(null);
+    setVisible(true);
+    void pendingActionCount().then(setPendingCount).catch(() => setPendingCount(null));
+  }, [pendingActionCount]);
 
   const doSignOut = useCallback(() => {
     setVisible(false);
     // signOut() keeps the saved email (clearSavedEmail defaults to false) for faster sign-in.
-    performSignOut(signOut, () => navResetTo(router, AUTH_LOGIN_HREF));
+    void performSignOut(signOut, () => navResetTo(router, AUTH_LOGIN_HREF)).catch(() => {
+      setSignOutFailed(true);
+      setVisible(true);
+    });
   }, [signOut, router]);
 
   return (
@@ -32,7 +42,13 @@ export function LogoutProvider({ children }: { children: React.ReactNode }) {
       <ConfirmModal
         visible={visible}
         title="Sign out?"
-        message="You'll need your password or Google account to sign back in."
+        message={signOutFailed
+          ? 'Could not sign out. Try again when device storage is available.'
+          : pendingCount === null
+          ? 'Pending actions could not be checked. Any saved actions stay on this device for the same account. You will need to sign in again.'
+          : pendingCount > 0
+            ? `${pendingCount} pending action${pendingCount === 1 ? '' : 's'} will stay on this device and will not sync until the same account signs in again.`
+            : "You'll need your password or Google account to sign back in."}
         onRequestClose={() => setVisible(false)}
         testID="logout-confirm"
         actions={[

@@ -94,7 +94,9 @@
       ],
       "@react-native-community/datetimepicker",
       "expo-web-browser",
-      "expo-font"
+      "expo-font",
+      ["expo-sqlite", { "android": { "useSQLCipher": true } }],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

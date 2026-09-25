@@ -18,15 +18,42 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
     getItem: jest.fn(),
     setItem: jest.fn(),
     removeItem: jest.fn(),
+    getAllKeys: jest.fn(),
+    multiRemove: jest.fn(),
   },
 }));
 
+jest.mock('../offlineStore', () => ({
+  offlineStore: {
+    setActiveAccount: jest.fn(),
+    getIdentity: jest.fn(),
+    saveIdentity: jest.fn(),
+    pendingCount: jest.fn(),
+    purgeAccount: jest.fn(),
+  },
+  purgeAccountChatOutbox: jest.fn(),
+}));
+jest.mock('@react-native-community/netinfo', () => ({
+  __esModule: true,
+  default: { addEventListener: jest.fn(() => jest.fn()) },
+}));
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import * as apiModule from '../api';
 import { AuthProvider, useAuth } from '../AuthContext';
+import { offlineStore, purgeAccountChatOutbox } from '../offlineStore';
+import type { CachedIdentityRecord } from '../offlineStore.shared';
 
 let latest: ReturnType<typeof useAuth>;
 let renderer: ReactTestRenderer | null = null;
+let activeAccount: string | null = null;
+const identities = new Map<string, CachedIdentityRecord>();
+
+function token(userId: string, expiresAt: number): string {
+  return `header.${Buffer.from(JSON.stringify({ sub: userId, exp: Math.floor(expiresAt / 1000) }))
+    .toString('base64url')}.signature`;
+}
 
 function Consumer() {
   latest = useAuth();
@@ -44,6 +71,9 @@ async function mount(): Promise<void> {
 
 beforeEach(() => {
   jest.resetAllMocks();
+  identities.clear();
+  activeAccount = null;
+  (NetInfo.addEventListener as jest.Mock).mockImplementation(() => jest.fn());
   jest.spyOn(console, 'error').mockImplementation(() => {});
   (apiModule.getToken as jest.Mock).mockResolvedValue(null);
   (apiModule.setToken as jest.Mock).mockResolvedValue(undefined);
@@ -52,6 +82,20 @@ beforeEach(() => {
   ));
   (AsyncStorage.setItem as jest.Mock).mockResolvedValue(undefined);
   (AsyncStorage.removeItem as jest.Mock).mockResolvedValue(undefined);
+  (AsyncStorage.getAllKeys as jest.Mock).mockResolvedValue([]);
+  (AsyncStorage.multiRemove as jest.Mock).mockResolvedValue(undefined);
+  (offlineStore.setActiveAccount as jest.Mock).mockImplementation((id) => { activeAccount = id; });
+  (offlineStore.getIdentity as jest.Mock).mockImplementation(async (id) => {
+    if (id !== activeAccount) throw new Error('account mismatch');
+    return identities.get(id) ?? null;
+  });
+  (offlineStore.saveIdentity as jest.Mock).mockImplementation(async (record) => {
+    if (record.profile.id !== activeAccount) throw new Error('account mismatch');
+    identities.set(record.profile.id, record);
+  });
+  (offlineStore.pendingCount as jest.Mock).mockResolvedValue(0);
+  (offlineStore.purgeAccount as jest.Mock).mockImplementation(async (id) => { identities.delete(id); });
+  (purgeAccountChatOutbox as jest.Mock).mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -122,6 +166,7 @@ it('clears every local identity hint after server-confirmed account deletion', a
   await act(async () => latest.finalizeAccountDeletion());
 
   expect(apiModule.setToken).toHaveBeenCalledWith(null);
+  expect(offlineStore.purgeAccount).toHaveBeenCalledWith('u1');
   expect(AsyncStorage.removeItem).toHaveBeenCalledWith('last_login_email');
   expect(AsyncStorage.removeItem).toHaveBeenCalledWith('pending_invite_path_v1');
   expect(latest.user).toBeNull();
@@ -130,6 +175,125 @@ it('clears every local identity hint after server-confirmed account deletion', a
   expect(latest.mobileOnboardingPending).toBe(false);
   expect(latest.upiOnboardingPending).toBe(false);
 });
+
+it('restores a sanitized verified identity after process restart and network failure', async () => {
+  const jwt = token('u1', Date.now() + 10 * 24 * 60 * 60 * 1000);
+  const current = {
+    id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user',
+    credentials_set: true, mobile_number: '+919876543210', upi_id: 'ravi@upi',
+  };
+  (apiModule.getToken as jest.Mock).mockResolvedValue(jwt);
+  (apiModule.api as jest.Mock).mockImplementation((path: string) => path === '/auth/me'
+    ? Promise.resolve(current) : Promise.resolve({}));
+  await mount();
+  expect(identities.get('u1')?.profile).not.toHaveProperty('upi_id');
+  expect(identities.get('u1')?.profile).not.toHaveProperty('mobile_number');
+  act(() => renderer?.unmount());
+  renderer = null;
+
+  (apiModule.api as jest.Mock).mockRejectedValue(
+    new apiModule.ApiError('offline', { code: 'network' }),
+  );
+  await mount();
+  expect(latest.user).toEqual(identities.get('u1')?.profile);
+  expect(latest.sessionMode).toBe('offline');
+  expect(apiModule.setToken).not.toHaveBeenCalledWith(null);
+});
+
+it('retains a token but requires online restoration when no identity was cached', async () => {
+  (apiModule.getToken as jest.Mock).mockResolvedValue(token('u1', Date.now() + 86_400_000));
+  (apiModule.api as jest.Mock).mockRejectedValue(
+    new apiModule.ApiError('offline', { code: 'timeout' }),
+  );
+  await mount();
+  expect(latest.user).toBeNull();
+  expect(latest.sessionMode).toBe('online_required');
+  expect(latest.sessionNotice).toMatch(/connect/i);
+  expect(apiModule.setToken).not.toHaveBeenCalledWith(null);
+});
+
+it('locks cached identity on a confirmed 401 without deleting local rows', async () => {
+  const jwt = token('u1', Date.now() + 86_400_000);
+  identities.set('u1', {
+    profile: { id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user' },
+    verifiedAt: Date.now() - 1000, tokenExpiresAt: sessionExpiration(jwt),
+  });
+  (apiModule.getToken as jest.Mock).mockResolvedValue(jwt);
+  (apiModule.api as jest.Mock).mockRejectedValue(
+    new apiModule.ApiError('expired', { code: 'http', status: 401 }),
+  );
+  await mount();
+  expect(latest.user).toBeNull();
+  expect(apiModule.setToken).toHaveBeenCalledWith(null);
+  expect(identities.has('u1')).toBe(true);
+  expect(offlineStore.purgeAccount).not.toHaveBeenCalled();
+});
+
+it('keeps account A cached rows hidden when account B signs in', async () => {
+  const first = { id: 'u1', email: 'a@gmail.com', name: 'A', role: 'user' };
+  const second = { id: 'u2', email: 'b@gmail.com', name: 'B', role: 'user' };
+  (apiModule.api as jest.Mock).mockImplementation((path: string) => {
+    if (path === '/meta/config') return Promise.resolve({});
+    if (path === '/auth/login') return Promise.resolve({
+      access_token: token('u2', Date.now() + 86_400_000), user: second,
+    });
+    return Promise.reject(new Error('unexpected request'));
+  });
+  await mount();
+  identities.set('u1', {
+    profile: first, verifiedAt: Date.now(), tokenExpiresAt: Date.now() + 86_400_000,
+  });
+  await act(async () => { await latest.signIn(second.email, 'password123'); });
+  expect(latest.user?.id).toBe('u2');
+  expect(activeAccount).toBe('u2');
+  await expect(offlineStore.getIdentity('u1')).rejects.toThrow('account mismatch');
+  expect(identities.has('u1')).toBe(true);
+});
+
+it('ignores an old account profile response after switching accounts', async () => {
+  const first = { id: 'u1', email: 'a@gmail.com', name: 'A', role: 'user' };
+  const second = { id: 'u2', email: 'b@gmail.com', name: 'B', role: 'user' };
+  let finishProfile!: (value: typeof first) => void;
+  (apiModule.api as jest.Mock).mockImplementation((path: string, options?: { body?: { email: string } }) => {
+    if (path === '/meta/config') return Promise.resolve({});
+    if (path === '/auth/login') {
+      const selected = options?.body?.email === first.email ? first : second;
+      return Promise.resolve({ access_token: token(selected.id, Date.now() + 86_400_000), user: selected });
+    }
+    if (path === '/auth/me') return new Promise((resolve) => { finishProfile = resolve; });
+    return Promise.reject(new Error('unexpected request'));
+  });
+  await mount();
+  await act(async () => { await latest.signIn(first.email, 'password123'); });
+  let oldRefresh!: Promise<void>;
+  act(() => { oldRefresh = latest.refreshUserProfile(); });
+  await act(async () => { await latest.signIn(second.email, 'password123'); });
+  await act(async () => { finishProfile(first); await oldRefresh; });
+  expect(latest.user?.id).toBe('u2');
+  expect(activeAccount).toBe('u2');
+});
+
+it('locks the session and retains a cleanup marker if confirmed deletion cannot purge local data', async () => {
+  const current = { id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user' };
+  (apiModule.getToken as jest.Mock).mockResolvedValue(token('u1', Date.now() + 86_400_000));
+  (apiModule.api as jest.Mock).mockImplementation((path: string) => path === '/auth/me'
+    ? Promise.resolve(current) : Promise.resolve({}));
+  await mount();
+  (offlineStore.purgeAccount as jest.Mock).mockRejectedValueOnce(new Error('disk unavailable'));
+
+  await act(async () => { await latest.finalizeAccountDeletion().catch(() => {}); });
+
+  expect(latest.user).toBeNull();
+  expect(AsyncStorage.setItem).toHaveBeenCalledWith(
+    'pending_deleted_account_local_purge_v1', 'u1',
+  );
+  expect(AsyncStorage.removeItem).not.toHaveBeenCalledWith('pending_deleted_account_local_purge_v1');
+  expect(latest.sessionNotice).toMatch(/account deleted/i);
+});
+
+function sessionExpiration(jwt: string): number {
+  return JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString()).exp * 1000;
+}
 
 it('identifies a successful old-server config response as unsupported', async () => {
   (apiModule.api as jest.Mock).mockResolvedValue({ email_features_enabled: true });
@@ -218,7 +382,7 @@ it('refreshes the cached profile with the latest successful server response', as
 
   await act(async () => { await latest.refreshUserProfile(); });
 
-  expect(apiModule.api).toHaveBeenLastCalledWith('/auth/me');
+  expect(apiModule.api).toHaveBeenLastCalledWith('/auth/me', { timeoutMs: 10_000 });
   expect(latest.user).toEqual(updated);
 });
 
@@ -226,7 +390,7 @@ it('retains the cached profile when a focused profile refresh has a network fail
   const current = {
     id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user', upi_id: 'cached@upi',
   };
-  (apiModule.getToken as jest.Mock).mockResolvedValue('jwt');
+  (apiModule.getToken as jest.Mock).mockResolvedValue(token('u1', Date.now() + 86_400_000));
   (apiModule.api as jest.Mock).mockImplementation((path: string) => {
     if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
     if (path === '/auth/me') return Promise.resolve(current);
@@ -311,7 +475,7 @@ it('does not recreate mobile onboarding while restoring a session without a numb
     id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user',
     mobile_number: null, mobile_country_code: null,
   };
-  (apiModule.getToken as jest.Mock).mockResolvedValue('jwt');
+  (apiModule.getToken as jest.Mock).mockResolvedValue(token('u1', Date.now() + 86_400_000));
   (apiModule.api as jest.Mock).mockImplementation((path: string) => {
     if (path === '/meta/config') return Promise.resolve({ chat_protocol_version: 1 });
     if (path === '/auth/me') return Promise.resolve(user);

@@ -1,5 +1,5 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import { getStoredToken, setStoredToken } from './tokenStorage';
 import type { SpendSummary } from './spend';
 import type {
   Payment,
@@ -15,7 +15,12 @@ import type { ChatMessage, ChatPage, ChatUnread } from './chat';
 import type { JoinCredential, JoinRequestView } from './joinIdentity';
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL?.trim().replace(/\/$/, '');
-const TOKEN_KEY = 'auth_token';
+const unauthorizedListeners = new Set<(token: string) => void>();
+
+export function subscribeUnauthorized(listener: (token: string) => void): () => void {
+  unauthorizedListeners.add(listener);
+  return () => { unauthorizedListeners.delete(listener); };
+}
 
 export type ApiErrorCode = 'configuration' | 'network' | 'timeout' | 'aborted' | 'http';
 
@@ -175,12 +180,11 @@ function backendBase(): string {
 }
 
 export async function getToken(): Promise<string | null> {
-  return AsyncStorage.getItem(TOKEN_KEY);
+  return getStoredToken();
 }
 
 export async function setToken(t: string | null) {
-  if (t) await AsyncStorage.setItem(TOKEN_KEY, t);
-  else await AsyncStorage.removeItem(TOKEN_KEY);
+  await setStoredToken(t);
 }
 
 function formatDetail(d: any): string {
@@ -198,9 +202,10 @@ export async function api<T = any>(
 ): Promise<T> {
   const { method = 'GET', body, auth = true, timeoutMs, signal } = opts;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  let requestToken: string | null = null;
   if (auth) {
-    const t = await getToken();
-    if (t) headers['Authorization'] = `Bearer ${t}`;
+    requestToken = await getToken();
+    if (requestToken) headers['Authorization'] = `Bearer ${requestToken}`;
   }
   const base = backendBase();
   const controller = timeoutMs ? new AbortController() : null;
@@ -236,6 +241,11 @@ export async function api<T = any>(
   let data: any = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (!res.ok) {
+    if (res.status === 401 && requestToken && path !== '/auth/me') {
+      for (const listener of unauthorizedListeners) {
+        try { listener(requestToken); } catch { /* Preserve the original HTTP error. */ }
+      }
+    }
     const msg = formatDetail(data?.detail ?? data);
     const detail = data?.detail;
     throw new ApiError(msg, {
