@@ -1,8 +1,9 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { api } from '../../src/api';
 import { useAuth } from '../../src/AuthContext';
+import { loadDashboardOverview, type DashboardOverview, type ReadResult } from '../../src/offlineReads';
+import OfflineReadStatus from '../../src/OfflineReadStatus';
 import { useTheme } from '../../src/ThemeContext';
 import { SPACING, RADIUS } from '../../src/theme';
 import T from '../../src/T';
@@ -13,9 +14,7 @@ import TabPageHeader from '../../src/TabPageHeader';
 import {
   BALANCE_COPY,
   groupBalancesByCurrency,
-  resolveUserTripBalance,
   type CurrencyBalance,
-  type TripBalancePayload,
 } from '../../src/tripBalance';
 import {
   TabScreen, Card, Button, ListRow, EmptyState, AmountText, SkeletonCard,
@@ -25,69 +24,51 @@ type Member = { id: string; name: string; kind: 'individual' | 'family'; family_
 type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number; currency: string; members: Member[]; last_activity_at: string };
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, sessionMode } = useAuth();
   const { colors } = useTheme();
   const router = useRouter();
-  const [trips, setTrips] = useState<Trip[]>([]);
+  const [storedRead, setStoredRead] = useState<{
+    accountId: string; result: ReadResult<DashboardOverview<Trip>>;
+  } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [currencyBalances, setCurrencyBalances] = useState<CurrencyBalance[]>([]);
-  const [balancesAvailable, setBalancesAvailable] = useState(false);
   const loadGeneration = useRef(0);
 
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
     setRefreshing(true);
     try {
-      const list = await api<Trip[]>('/trips');
-      const results = await Promise.allSettled(
-        list.map((trip) => api<TripBalancePayload>(`/trips/${trip.id}/balances`)),
-      );
-      const rows: { currency: string; balance: number }[] = [];
-      let complete = true;
-
-      results.forEach((result, index) => {
-        if (result.status === 'rejected') {
-          complete = false;
-          return;
-        }
-        const balance = resolveUserTripBalance(result.value, user?.id);
-        if (balance == null) {
-          complete = false;
-          return;
-        }
-        rows.push({
-          currency: result.value.currency || list[index].currency,
-          balance,
-        });
-      });
-
-      if (generation !== loadGeneration.current) return;
-      setTrips(list);
-      if (complete) setCurrencyBalances(groupBalancesByCurrency(rows));
-      setBalancesAvailable(complete);
-    } catch {
-      if (generation === loadGeneration.current) setBalancesAvailable(false);
+      if (user?.id) {
+        const result = await loadDashboardOverview<Trip>(user.id, sessionMode === 'offline');
+        if (generation === loadGeneration.current) setStoredRead({ accountId: user.id, result });
+      }
     } finally {
       if (generation === loadGeneration.current) {
         setRefreshing(false);
         setLoaded(true);
       }
     }
-  }, [user?.id]);
+  }, [user?.id, sessionMode]);
 
   useFocusEffect(useCallback(() => {
     void load();
     return () => { loadGeneration.current += 1; };
   }, [load]));
 
+  const read = storedRead && storedRead.accountId === user?.id ? storedRead.result : null;
+  const trips = read?.data?.trips ?? [];
+  const rows = read?.data?.balances ? Object.values(read.data.balances) : null;
+  const currencyBalances: CurrencyBalance[] = rows ? groupBalancesByCurrency(rows) : [];
+  const balancesAvailable = rows !== null;
   const tripCount = `${trips.length} trip${trips.length === 1 ? '' : 's'}`;
+  const offlineView = sessionMode === 'offline' || read?.source === 'cache';
 
   return (
     <TabScreen refreshing={refreshing} onRefresh={load}>
       <TabPageHeader title="Dashboard" />
 
       <UnverifiedBanner />
+      {read ? <OfflineReadStatus result={read} /> : null}
 
       <Card variant="primary" padding="lg" radius={RADIUS.xl}>
         <T variant="label" color={colors.primaryText} style={{ opacity: 0.85 }}>Net position</T>
@@ -125,16 +106,16 @@ export default function Dashboard() {
           </View>
         )}
         <T color={colors.primaryText} style={styles.balanceSubtitle}>
-          {tripCount}
+          {read?.data ? tripCount : loaded ? 'Trip count unavailable' : 'Loading trips…'}
         </T>
       </Card>
 
       <View style={styles.actions}>
         <View style={styles.actionButton}>
-          <Button label="New Trip" icon="plus" onPress={() => router.push('/create-trip')} fullWidth testID="dash-new-trip" />
+          <Button label="New Trip" icon="plus" onPress={() => router.push('/create-trip')} disabled={offlineView} fullWidth testID="dash-new-trip" />
         </View>
         <View style={styles.actionButton}>
-          <Button label="Join Trip" icon="users" variant="secondary" onPress={() => router.push('/join-trip')} fullWidth testID="dash-join-trip" />
+          <Button label="Join Trip" icon="users" variant="secondary" onPress={() => router.push('/join-trip')} disabled={offlineView} fullWidth testID="dash-join-trip" />
         </View>
       </View>
 
@@ -142,14 +123,19 @@ export default function Dashboard() {
 
       {!loaded ? (
         <SkeletonCard count={3} />
+      ) : !read?.data ? (
+        <EmptyState icon="alert" title="Trips unavailable offline"
+          body={read?.error || 'Open your trips online to save a copy on this device.'}
+          testID="dash-unavailable" />
       ) : trips.length === 0 ? (
         <EmptyState
           icon="ship"
-          title="No trips yet"
-          body="Create your first trip and start splitting expenses with your crew."
-          ctaLabel="Create a trip"
-          ctaIcon="plus"
-          onCta={() => router.push('/create-trip')}
+          title={offlineView ? 'No trips in saved list' : 'No trips yet'}
+          body={offlineView ? 'Connect to refresh your trip list.'
+            : 'Create your first trip and start splitting expenses with your crew.'}
+          ctaLabel={offlineView ? undefined : 'Create a trip'}
+          ctaIcon={offlineView ? undefined : 'plus'}
+          onCta={offlineView ? undefined : () => router.push('/create-trip')}
           testID="dash-empty"
         />
       ) : (

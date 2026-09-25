@@ -11,6 +11,7 @@ jest.mock('../../api', () => ({
 }));
 jest.mock('../../AuthContext', () => ({
   useAuth: () => ({
+    user: { id: 'u1' },
     multiCurrencyCapability: 'enabled',
     multiCurrencyExpensesEnabled: true,
     refreshRuntimeConfig: mockRefreshRuntimeConfig,
@@ -95,6 +96,9 @@ beforeEach(() => {
   apiMock.mockImplementation((path: string) => {
     if (path === '/trips/t1') return Promise.resolve(FAMILY_TRIP);
     if (path === '/trips/t1/expenses') return Promise.resolve([]);
+    if (path === '/trips/t1/balances') return Promise.resolve({ net: {}, transfers: [], members: FAMILY_TRIP.members, currency: 'INR' });
+    if (path === '/trips/t1/spend-summary') return Promise.resolve({ total: 0, count: 0, entities: [] });
+    if (path === '/trips/t1/payments') return Promise.resolve([]);
     return Promise.reject(new Error(`Unexpected API path: ${path}`));
   });
 });
@@ -127,4 +131,22 @@ it('keeps a family-trip form stable for blank or incomplete amounts and previews
     : String(preview.props.children);
   expect(previewText).toContain('Asha ₹5');
   expect(previewText).toContain('Vik ₹5');
+});
+
+it('opens a saved roster in airplane mode without claiming the form can save', async () => {
+  const reads = require('../../offlineReads');
+  const loader = jest.spyOn(reads, 'loadTripReadBundle').mockResolvedValue({
+    data: { trip: FAMILY_TRIP, expenses: [], balances: { net: {}, transfers: [] },
+      spend: { total: 0, count: 0, entities: [] }, payments: [] },
+    source: 'cache', fetchedAt: 1_700_000_000_000,
+  });
+  try {
+    const renderer = await mountScreen();
+    expect(renderer.root.findByProps({ testID: 'ae-amount' })).toBeTruthy();
+    expect(renderer.root.findByProps({ testID: 'ae-submit' }).props.disabled).toBe(true);
+    expect(renderer.root.findByProps({ testID: 'ae-receipt' }).props.disabled).toBe(true);
+    expect(renderer.root.findByProps({ testID: 'ae-offline-note' })).toBeTruthy();
+  } finally {
+    loader.mockRestore();
+  }
 });

@@ -179,6 +179,8 @@ async function mountTrip(fixture: Fixture = {}) {
     if (path === '/trips/t1') return Promise.resolve(trip);
     if (path === '/trips/t1/expenses') return Promise.resolve(expenses);
     if (path === '/trips/t1/balances') return Promise.resolve(balances);
+    if (path === '/trips/t1/spend-summary') return Promise.resolve({ total: 0, count: 0, entities: [] });
+    if (path === '/trips/t1/payments') return Promise.resolve([]);
     return Promise.resolve({});
   });
   spendSummaryMock.mockResolvedValue({ total: 0, count: 0, entities: [] });

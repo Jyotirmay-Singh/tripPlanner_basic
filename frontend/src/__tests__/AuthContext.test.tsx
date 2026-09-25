@@ -31,8 +31,8 @@ jest.mock('../offlineStore', () => ({
     pendingCount: jest.fn(),
     purgeAccount: jest.fn(),
   },
-  purgeAccountChatOutbox: jest.fn(),
 }));
+jest.mock('../chatOutboxCleanup', () => ({ purgeAccountChatOutbox: jest.fn() }));
 jest.mock('@react-native-community/netinfo', () => ({
   __esModule: true,
   default: { addEventListener: jest.fn(() => jest.fn()) },
@@ -42,7 +42,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import * as apiModule from '../api';
 import { AuthProvider, useAuth } from '../AuthContext';
-import { offlineStore, purgeAccountChatOutbox } from '../offlineStore';
+import { offlineStore } from '../offlineStore';
+import { purgeAccountChatOutbox } from '../chatOutboxCleanup';
 import type { CachedIdentityRecord } from '../offlineStore.shared';
 
 let latest: ReturnType<typeof useAuth>;

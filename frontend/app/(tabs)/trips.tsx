@@ -1,8 +1,9 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { api } from '../../src/api';
 import { useAuth } from '../../src/AuthContext';
+import { loadDashboardOverview, type DashboardOverview, type ReadResult } from '../../src/offlineReads';
+import OfflineReadStatus from '../../src/OfflineReadStatus';
 import { useTheme } from '../../src/ThemeContext';
 import { COMPONENT_SIZE, SPACING } from '../../src/theme';
 import T from '../../src/T';
@@ -12,9 +13,7 @@ import { formatMoney } from '../../src/format';
 import TabPageHeader from '../../src/TabPageHeader';
 import TripListCard from '../../src/TripListCard';
 import {
-  resolveUserTripBalance,
   tripBalanceState,
-  type TripBalancePayload,
   type TripBalanceState,
 } from '../../src/tripBalance';
 import { TabScreen, Card, Button, EmptyState, SkeletonCard, Icon, IconButton } from '../../src/ui';
@@ -42,11 +41,12 @@ function tripMeta(trip: Trip): string {
 }
 
 export default function Trips() {
-  const { user } = useAuth();
+  const { user, sessionMode } = useAuth();
   const { colors } = useTheme();
   const router = useRouter();
-  const [trips, setTrips] = useState<Trip[]>([]);
-  const [balanceMap, setBalanceMap] = useState<Record<string, TripBalanceState>>({});
+  const [storedRead, setStoredRead] = useState<{
+    accountId: string; result: ReadResult<DashboardOverview<Trip>>;
+  } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const loadGeneration = useRef(0);
@@ -55,39 +55,32 @@ export default function Trips() {
     const generation = ++loadGeneration.current;
     setRefreshing(true);
     try {
-      const list = await api<Trip[]>('/trips');
-      const results = await Promise.allSettled(
-        list.map((trip) => api<TripBalancePayload>(`/trips/${trip.id}/balances`)),
-      );
-      const nextBalances: Record<string, TripBalanceState> = {};
-
-      results.forEach((result, index) => {
-        const tripId = list[index].id;
-        nextBalances[tripId] = result.status === 'fulfilled'
-          ? tripBalanceState(
-            resolveUserTripBalance(result.value, user?.id),
-            result.value.currency || list[index].currency,
-          )
-          : UNAVAILABLE_BALANCE;
-      });
-
-      if (generation !== loadGeneration.current) return;
-      setTrips(list);
-      setBalanceMap(nextBalances);
-    } catch {
-      // Preserve the last complete list; pull-to-refresh can retry a transient failure.
+      if (user?.id) {
+        const result = await loadDashboardOverview<Trip>(user.id, sessionMode === 'offline');
+        if (generation === loadGeneration.current) setStoredRead({ accountId: user.id, result });
+      }
     } finally {
       if (generation === loadGeneration.current) {
         setRefreshing(false);
         setLoaded(true);
       }
     }
-  }, [user?.id]);
+  }, [user?.id, sessionMode]);
 
   useFocusEffect(useCallback(() => {
     void load();
     return () => { loadGeneration.current += 1; };
   }, [load]));
+
+  const read = storedRead && storedRead.accountId === user?.id ? storedRead.result : null;
+  const trips = read?.data?.trips ?? [];
+  const offlineView = sessionMode === 'offline' || read?.source === 'cache';
+  const balanceMap: Record<string, TripBalanceState> = {};
+  for (const trip of trips) {
+    const row = read?.data?.balances?.[trip.id];
+    balanceMap[trip.id] = row
+      ? tripBalanceState(row.balance, row.currency || trip.currency) : UNAVAILABLE_BALANCE;
+  }
 
   return (
     <TabScreen refreshing={refreshing} onRefresh={load}>
@@ -99,6 +92,7 @@ export default function Trips() {
             icon="plus"
             size="sm"
             onPress={() => router.push('/create-trip')}
+            disabled={offlineView}
             accessibilityLabel="Create new trip"
             testID="trips-new-btn"
             style={styles.headerAction}
@@ -109,6 +103,7 @@ export default function Trips() {
             name="plus"
             variant="primary"
             onPress={() => router.push('/create-trip')}
+            disabled={offlineView}
             accessibilityLabel="Create new trip"
             testID="trips-new-btn-compact"
             touchSize={COMPONENT_SIZE.minTouchTarget}
@@ -116,21 +111,27 @@ export default function Trips() {
         )}
       />
 
-      <Card onPress={() => router.push('/join-trip')} testID="trips-join-btn" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm }}>
+      {read ? <OfflineReadStatus result={read} /> : null}
+      <Card onPress={offlineView ? undefined : () => router.push('/join-trip')} testID="trips-join-btn" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm }}>
         <Icon name="key" size={18} color={colors.primary} />
         <T color={colors.primary} style={{ fontWeight: '700' }}>Join a trip with code</T>
       </Card>
 
       {!loaded ? (
         <SkeletonCard count={4} />
+      ) : !read?.data ? (
+        <EmptyState icon="alert" title="Trips unavailable offline"
+          body={read?.error || 'Open your trips online to save a copy on this device.'}
+          testID="trips-unavailable" />
       ) : trips.length === 0 ? (
         <EmptyState
           icon="briefcase"
-          title="No trips yet"
-          body="Start a new trip or join one with a code your friend shares."
-          ctaLabel="Create a trip"
-          ctaIcon="plus"
-          onCta={() => router.push('/create-trip')}
+          title={offlineView ? 'No trips in saved list' : 'No trips yet'}
+          body={offlineView ? 'Connect to refresh your trip list.'
+            : 'Start a new trip or join one with a code your friend shares.'}
+          ctaLabel={offlineView ? undefined : 'Create a trip'}
+          ctaIcon={offlineView ? undefined : 'plus'}
+          onCta={offlineView ? undefined : () => router.push('/create-trip')}
           testID="trips-empty"
         />
       ) : (

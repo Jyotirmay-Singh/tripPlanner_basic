@@ -1,4 +1,4 @@
-export const OFFLINE_SCHEMA_VERSION = 1;
+export const OFFLINE_SCHEMA_VERSION = 2;
 
 type MigrationTransaction = {
   execAsync(sql: string): Promise<void>;
@@ -64,6 +64,17 @@ CREATE TABLE sync_meta (
 );
 `;
 
+const SECOND_SCHEMA = `
+CREATE TABLE account_read_snapshots (
+  account_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('trip_list', 'dashboard_overview')),
+  payload_json TEXT NOT NULL,
+  fetched_at INTEGER NOT NULL,
+  PRIMARY KEY (account_id, kind),
+  FOREIGN KEY (account_id) REFERENCES account_meta(account_id) ON DELETE CASCADE
+);
+`;
+
 export async function migrateOfflineSchema(db: MigrationDatabase): Promise<void> {
   const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
   const version = row?.user_version ?? 0;
@@ -71,8 +82,16 @@ export async function migrateOfflineSchema(db: MigrationDatabase): Promise<void>
     throw new Error(`Unsupported offline schema version ${version}`);
   }
   if (version === OFFLINE_SCHEMA_VERSION) return;
-  await db.withExclusiveTransactionAsync(async (tx) => {
-    await tx.execAsync(FIRST_SCHEMA);
-    await tx.execAsync(`PRAGMA user_version = ${OFFLINE_SCHEMA_VERSION}`);
-  });
+  if (version < 1) {
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      await tx.execAsync(FIRST_SCHEMA);
+      await tx.execAsync('PRAGMA user_version = 1');
+    });
+  }
+  if (version < 2) {
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      await tx.execAsync(SECOND_SCHEMA);
+      await tx.execAsync('PRAGMA user_version = 2');
+    });
+  }
 }

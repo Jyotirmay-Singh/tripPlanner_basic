@@ -47,6 +47,7 @@ function environment(options: {
       if (sql.includes('FROM account_meta')) return identities.get(accountId ?? '') ?? null;
       return { count: 0 };
     }),
+    getAllAsync: jest.fn(async () => [] as { kind: string; payload_json: string; fetched_at: number }[]),
     runAsync: jest.fn(async (sql: string, accountId: string, profileJson: string,
       verifiedAt: number, expiresAt: number) => {
       if (sql.includes('INSERT INTO account_meta')) {
@@ -101,4 +102,51 @@ it('refuses to use a plaintext SQLite runtime', async () => {
     code: 'encryption_unavailable',
   });
   expect(db.closeAsync).toHaveBeenCalled();
+});
+
+it('replaces all five trip reads atomically and retains the old set after a failed write', async () => {
+  const { offlineStore, db } = environment();
+  offlineStore.setActiveAccount('account-a');
+  await offlineStore.saveIdentity(identity);
+  let tripRow: { payload_json: string; fetched_at: number } | null = null;
+  const readRows = new Map<string, { kind: string; payload_json: string; fetched_at: number }>();
+  let failPayments = false;
+  db.withExclusiveTransactionAsync.mockImplementation(async (task: any) => {
+    const staged: (() => void)[] = [];
+    await task({
+      runAsync: async (sql: string, ...args: unknown[]) => {
+        if (sql.includes('INSERT INTO trip_snapshots')) {
+          staged.push(() => { tripRow = { payload_json: args[2] as string, fetched_at: args[3] as number }; });
+        } else if (sql.includes('INSERT INTO read_snapshots')) {
+          if (args[2] === 'payments' && failPayments) throw new Error('disk full');
+          staged.push(() => { readRows.set(args[2] as string, {
+            kind: args[2] as string, payload_json: args[3] as string,
+            fetched_at: args[4] as number,
+          }); });
+        }
+      },
+    });
+    staged.forEach((write) => write());
+  });
+  db.getFirstAsync.mockImplementation(async (sql: string) =>
+    sql.includes('FROM trip_snapshots') ? tripRow as any : null);
+  db.getAllAsync.mockImplementation(async () => [...readRows.values()]);
+  const original = { trip: { name: 'Coast' }, expenses: [{ amount: 100 }],
+    balances: { net: { a: 100 } }, spend: { total: 100 }, payments: [] };
+  await offlineStore.putTripReadBundle('account-a', 'trip-1', { payload: original, fetchedAt: 10 });
+  expect(await offlineStore.getTripReadBundle('account-a', 'trip-1')).toEqual({
+    payload: original, fetchedAt: 10,
+  });
+  offlineStore.setActiveAccount('account-b');
+  await expect(offlineStore.getTripReadBundle('account-a', 'trip-1'))
+    .rejects.toMatchObject({ code: 'account_mismatch' });
+  offlineStore.setActiveAccount('account-a');
+  failPayments = true;
+  await expect(offlineStore.putTripReadBundle('account-a', 'trip-1', {
+    payload: { ...original, expenses: [{ amount: 900 }] }, fetchedAt: 20,
+  })).rejects.toThrow('disk full');
+  expect(await offlineStore.getTripReadBundle('account-a', 'trip-1')).toEqual({
+    payload: original, fetchedAt: 10,
+  });
+  expect(db.runAsync).toHaveBeenCalledTimes(1); // Identity only; bundle writes use the transaction.
 });

@@ -7,6 +7,7 @@ import {
   OfflineStoreError, safeSnapshotJson, sanitizedIdentity,
   type CachedIdentityRecord, type OfflineStore,
   type OutboxOperation, type OutboxState, type ReadKind, type Snapshot, type StoredOutboxItem,
+  type TripReadBundle,
 } from './offlineStore.shared';
 
 const DB_NAME = 'trip_offline_v1.db';
@@ -142,6 +143,109 @@ export const offlineStore: OfflineStore = {
     );
   },
 
+  async getTripReadBundle(accountId, tripId) {
+    assertAccount(accountId);
+    const db = await database();
+    assertAccount(accountId);
+    const trip = await db.getFirstAsync<SnapshotRow>(
+      'SELECT payload_json, fetched_at FROM trip_snapshots WHERE account_id = ? AND trip_id = ?',
+      accountId, tripId,
+    );
+    const rows = await db.getAllAsync<SnapshotRow & { kind: ReadKind }>(
+      'SELECT kind, payload_json, fetched_at FROM read_snapshots WHERE account_id = ? AND trip_id = ?',
+      accountId, tripId,
+    );
+    assertAccount(accountId);
+    if (!trip || rows.length !== 4 || rows.some((row) => row.fetched_at !== trip.fetched_at)) {
+      return null;
+    }
+    try {
+      const payload: Partial<TripReadBundle> = { trip: JSON.parse(trip.payload_json) };
+      for (const row of rows) payload[row.kind] = JSON.parse(row.payload_json);
+      if (payload.expenses === undefined || payload.balances === undefined
+        || payload.spend === undefined || payload.payments === undefined) return null;
+      return { payload: payload as TripReadBundle, fetchedAt: trip.fetched_at };
+    } catch {
+      throw new OfflineStoreError('unreadable');
+    }
+  },
+
+  async putTripReadBundle(accountId, tripId, snapshot) {
+    assertAccount(accountId);
+    const bundle = snapshot.payload as TripReadBundle;
+    const tripJson = safeSnapshotJson(bundle.trip);
+    const rows: { kind: ReadKind; json: string }[] = [
+      { kind: 'expenses', json: safeSnapshotJson(bundle.expenses) },
+      { kind: 'balances', json: safeSnapshotJson(bundle.balances) },
+      { kind: 'spend', json: safeSnapshotJson(bundle.spend) },
+      { kind: 'payments', json: safeSnapshotJson(bundle.payments) },
+    ];
+    const db = await database();
+    assertAccount(accountId);
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      assertAccount(accountId);
+      await tx.runAsync(
+        `INSERT INTO trip_snapshots (account_id, trip_id, payload_json, fetched_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(account_id, trip_id) DO UPDATE SET payload_json=excluded.payload_json,
+           fetched_at=excluded.fetched_at`,
+        accountId, tripId, tripJson, snapshot.fetchedAt,
+      );
+      for (const row of rows) {
+        await tx.runAsync(
+          `INSERT INTO read_snapshots (account_id, trip_id, kind, payload_json, fetched_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(account_id, trip_id, kind) DO UPDATE SET payload_json=excluded.payload_json,
+             fetched_at=excluded.fetched_at`,
+          accountId, tripId, row.kind, row.json, snapshot.fetchedAt,
+        );
+      }
+      assertAccount(accountId);
+    });
+  },
+
+  async removeTripReadData(accountId, tripId) {
+    assertAccount(accountId);
+    const db = await database();
+    assertAccount(accountId);
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      assertAccount(accountId);
+      await tx.runAsync('DELETE FROM read_snapshots WHERE account_id = ? AND trip_id = ?', accountId, tripId);
+      await tx.runAsync('DELETE FROM trip_snapshots WHERE account_id = ? AND trip_id = ?', accountId, tripId);
+    });
+  },
+
+  async getAccountReadSnapshot(accountId, kind) {
+    assertAccount(accountId);
+    const db = await database();
+    assertAccount(accountId);
+    const row = await db.getFirstAsync<SnapshotRow>(
+      'SELECT payload_json, fetched_at FROM account_read_snapshots WHERE account_id = ? AND kind = ?',
+      accountId, kind,
+    );
+    assertAccount(accountId);
+    if (!row) return null;
+    try {
+      return { payload: JSON.parse(row.payload_json), fetchedAt: row.fetched_at };
+    } catch {
+      throw new OfflineStoreError('unreadable');
+    }
+  },
+
+  async putAccountReadSnapshot(accountId, kind, snapshot) {
+    assertAccount(accountId);
+    const payload = safeSnapshotJson(snapshot.payload);
+    const db = await database();
+    assertAccount(accountId);
+    await db.runAsync(
+      `INSERT INTO account_read_snapshots (account_id, kind, payload_json, fetched_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(account_id, kind) DO UPDATE SET payload_json=excluded.payload_json,
+         fetched_at=excluded.fetched_at`,
+      accountId, kind, payload, snapshot.fetchedAt,
+    );
+  },
+
   async getReadSnapshot(accountId, tripId, kind: ReadKind) {
     assertAccount(accountId);
     const db = await database();
@@ -232,5 +336,3 @@ export const offlineStore: OfflineStore = {
     await db.runAsync('DELETE FROM account_meta WHERE account_id = ?', accountId);
   },
 };
-
-export { purgeAccountChatOutbox } from './chatOutboxCleanup';

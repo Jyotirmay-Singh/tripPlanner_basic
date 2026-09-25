@@ -15,7 +15,15 @@ export type CachedIdentityRecord = {
 };
 
 export type ReadKind = 'expenses' | 'balances' | 'spend' | 'payments';
+export type AccountReadKind = 'trip_list' | 'dashboard_overview';
 export type Snapshot = { payload: unknown; fetchedAt: number };
+export type TripReadBundle = {
+  trip: unknown;
+  expenses: unknown;
+  balances: unknown;
+  spend: unknown;
+  payments: unknown;
+};
 export type OutboxState =
   | 'queued' | 'sending' | 'awaiting_reconcile' | 'synced' | 'needs_review' | 'paused_auth';
 export type OutboxOperation = 'expense_create' | 'manual_payment_create';
@@ -41,6 +49,11 @@ export interface OfflineStore {
   saveIdentity(record: CachedIdentityRecord): Promise<void>;
   getTripSnapshot(accountId: string, tripId: string): Promise<Snapshot | null>;
   putTripSnapshot(accountId: string, tripId: string, snapshot: Snapshot): Promise<void>;
+  getTripReadBundle(accountId: string, tripId: string): Promise<Snapshot | null>;
+  putTripReadBundle(accountId: string, tripId: string, snapshot: Snapshot): Promise<void>;
+  removeTripReadData(accountId: string, tripId: string): Promise<void>;
+  getAccountReadSnapshot(accountId: string, kind: AccountReadKind): Promise<Snapshot | null>;
+  putAccountReadSnapshot(accountId: string, kind: AccountReadKind, snapshot: Snapshot): Promise<void>;
   getReadSnapshot(accountId: string, tripId: string, kind: ReadKind): Promise<Snapshot | null>;
   putReadSnapshot(accountId: string, tripId: string, kind: ReadKind, snapshot: Snapshot): Promise<void>;
   enqueueOutbox(item: StoredOutboxItem): Promise<void>;

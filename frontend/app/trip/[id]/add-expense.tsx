@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, TouchableOpacity, StyleSheet, ScrollView,
   Image, Platform,
@@ -6,6 +6,8 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { api, uploadReceipt } from '../../../src/api';
+import { loadTripReadBundle, type CompleteTrip, type ReadResult } from '../../../src/offlineReads';
+import OfflineReadStatus from '../../../src/OfflineReadStatus';
 import type { ExchangeRateQuote } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
@@ -27,7 +29,7 @@ import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { formatDDMMYYYY, partsFromLocalDate, ddmmyyyyToDDMMYY, toISO } from '../../../src/date';
 import {
-  FormScreen, Screen, Card, Button, Input, Pill, Icon, ActionSheet, SkeletonCard, useToast,
+  FormScreen, Screen, Card, Button, Input, Pill, Icon, ActionSheet, SkeletonCard, EmptyState, useToast,
   CurrencyPicker, DateField, TimeField, ExchangeRatePanel,
 } from '../../../src/ui';
 import type { ApprovedConversion } from '../../../src/ui';
@@ -39,13 +41,19 @@ export default function AddExpense() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { colors } = useTheme();
   const {
+    user, sessionMode,
     multiCurrencyCapability,
     multiCurrencyExpensesEnabled,
     refreshRuntimeConfig,
   } = useAuth();
   const router = useRouter();
   const toast = useToast();
-  const [trip, setTrip] = useState<Trip | null>(null);
+  const [storedTrip, setTrip] = useState<Trip | null>(null);
+  const [storedRead, setRead] = useState<ReadResult<CompleteTrip<Trip, { amount: number }, unknown, unknown, unknown>> | null>(null);
+  const [readAccountId, setReadAccountId] = useState<string | null>(null);
+  const formScope = useRef<string | null>(null);
+  const trip = readAccountId === user?.id ? storedTrip : null;
+  const read = readAccountId === user?.id ? storedRead : null;
   const [expenseCurrency, setExpenseCurrency] = useState('INR');
   const [amount, setAmount] = useState('');
   const [amountError, setAmountError] = useState<string | null>(null);
@@ -69,7 +77,6 @@ export default function AddExpense() {
   const [familyExcluded, setFamilyExcluded] = useState<Record<string, string[]>>({});
   // Phase 22 — EXACT: person-level rows (seeded once from the roster; the editor owns display state).
   const [exactRows, setExactRows] = useState<ExactRow[]>([]);
-  const [allInited, setAllInited] = useState(false);
   const [receiptAsset, setReceiptAsset] = useState<{ uri: string; mimeType?: string; fileName?: string } | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -89,21 +96,43 @@ export default function AddExpense() {
   }, [refreshRuntimeConfig]);
 
   useEffect(() => {
-    api<Trip>(`/trips/${id}`).then((t) => {
-      setTrip(t);
-      setExpenseCurrency(t.currency || 'INR');
-      if (t.members.length && !paidBy) setPaidBy(t.members[0].id);
-      if (!allInited) {
-        setSplitSel(t.members.map((m) => m.id));
-        setExactRows(buildExactRows(t.members));
-        setAllInited(true);
-      }
-    }).catch((e) => toast.show(e.message || 'Could not load trip', 'error'));
-    api<{ amount: number }[]>(`/trips/${id}/expenses`)
-      .then((es) => setTripNetSpend(es.reduce((s, e) => s + e.amount, 0)))
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+    if (!user?.id || !id) return;
+    let active = true;
+    const scope = `${user.id}:${id}`;
+    const newScope = formScope.current !== scope;
+    if (newScope) {
+      formScope.current = scope;
+      setTrip(null);
+      setAmount(''); setDesc(''); setReceiptAsset(null);
+      setPaidBy(null); setSplitSel([]); setExactRows([]);
+    }
+    void loadTripReadBundle<Trip, { amount: number }, unknown, unknown, unknown>(
+      user.id, id, sessionMode === 'offline',
+    )
+      .then((result) => {
+        if (!active) return;
+        setReadAccountId(user.id);
+        setRead(result);
+        if (!result.data) { setTrip(null); return; }
+        const t = result.data.trip;
+        setTrip(t);
+        if (newScope) setExpenseCurrency(t.currency || 'INR');
+        setPaidBy((current) => newScope ? t.members[0]?.id ?? null : current ?? t.members[0]?.id ?? null);
+        setSplitSel((current) => newScope || !current.length ? t.members.map((m) => m.id) : current);
+        setExactRows((current) => newScope || !current.length ? buildExactRows(t.members) : current);
+        setTripNetSpend(result.data.expenses.reduce((sum, expense) => sum + expense.amount, 0));
+      })
+      .catch(() => {
+        if (active) {
+          setReadAccountId(user.id);
+          setRead({ data: null, source: 'unavailable', fetchedAt: null,
+            error: 'This trip is unavailable.' });
+        }
+      });
+    return () => { active = false; };
+  }, [id, user?.id, sessionMode]);
+
+  const offlineView = sessionMode === 'offline' || read?.source === 'cache';
 
   const applyAsset = (r: ImagePicker.ImagePickerResult) => {
     if (!r.canceled && r.assets[0]?.uri) {
@@ -127,12 +156,14 @@ export default function AddExpense() {
   };
 
   const chooseReceiptSource = () => {
+    if (offlineView) return;
     // Web has no camera flow here; go straight to file picker. Native shows a themed action sheet.
     if (Platform.OS === 'web') { pickFromLibrary(); return; }
     setSourceSheet(true);
   };
 
   const submit = async (force = false) => {
+    if (offlineView) return toast.show('Connect to save this transaction.', 'error');
     if (!trip || !paidBy) return;
     const isForeign = expenseCurrency !== trip.currency;
     if (isForeign && multiCurrencyCapability !== 'enabled') {
@@ -234,7 +265,13 @@ export default function AddExpense() {
 
   if (!trip) {
     return (
-      <Screen edges={['left', 'right', 'bottom']}><SkeletonCard count={4} /></Screen>
+      <Screen edges={['left', 'right', 'bottom']}>
+        {read?.source === 'unavailable' ? (
+          <EmptyState icon="alert" title="Expense form unavailable offline"
+            body={read.error || 'Open this trip online to save its roster on this device.'}
+            testID="ae-unavailable" />
+        ) : <SkeletonCard count={4} />}
+      </Screen>
     );
   }
 
@@ -261,6 +298,13 @@ export default function AddExpense() {
       <FormScreen>
           <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
             <T variant="h1">New transaction</T>
+            {read ? <OfflineReadStatus result={read} /> : null}
+            {offlineView ? (
+              <T variant="caption" muted testID="ae-offline-note">
+                You can review this saved roster and split preview. Connect to save a transaction;
+                entries on this form are not saved on this device. Receipts require a connection.
+              </T>
+            ) : null}
 
             <CurrencyPicker
               testID="ae-currency"
@@ -517,7 +561,7 @@ export default function AddExpense() {
                   </TouchableOpacity>
                 </View>
               ) : (
-                <TouchableOpacity testID="ae-receipt" onPress={chooseReceiptSource}
+                <TouchableOpacity testID="ae-receipt" onPress={chooseReceiptSource} disabled={offlineView}
                   style={[styles.receiptBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} accessibilityRole="button" accessibilityLabel="Attach receipt image">
                   <Icon name="image-plus" size={18} color={colors.primary} />
                   <T color={colors.primary} style={{ fontWeight: '700' }}>Attach image</T>
@@ -527,7 +571,7 @@ export default function AddExpense() {
 
             <ReceiptViewer uri={receiptAsset?.uri ?? null} visible={viewerOpen} onClose={() => setViewerOpen(false)} />
 
-            <Button label="Save transaction" icon="check" onPress={() => submit(false)} loading={saving} disabled={!!amountPrecisionIssue || currencyBlocked || conversionPending || (splitMode === 'EXACT' && !exactRec.isValid)} fullWidth size="lg" testID="ae-submit" style={{ marginTop: SPACING.sm }} />
+            <Button label="Save transaction" icon="check" onPress={() => submit(false)} loading={saving} disabled={offlineView || !!amountPrecisionIssue || currencyBlocked || conversionPending || (splitMode === 'EXACT' && !exactRec.isValid)} fullWidth size="lg" testID="ae-submit" style={{ marginTop: SPACING.sm }} />
           </View>
       </FormScreen>
 

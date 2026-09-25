@@ -6,7 +6,9 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { api, getToken, getTripInviteLink, receiptUrl, spendSummary } from '../../../src/api';
+import { api, getToken, getTripInviteLink, receiptUrl } from '../../../src/api';
+import { loadTripReadBundle, type CompleteTrip, type ReadResult } from '../../../src/offlineReads';
+import OfflineReadStatus from '../../../src/OfflineReadStatus';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, CONTENT_MAX_WIDTH, COMPONENT_SIZE, FONTS } from '../../../src/theme';
@@ -101,10 +103,12 @@ type TripIdentityHeaderProps = {
   onShare: () => void;
   sharing?: boolean;
   secureInvite?: boolean;
+  shareDisabled?: boolean;
 };
 
 /** Identity-only hero. Financial context belongs to BudgetUsageCard in the Summary tab. */
-function TripIdentityHeader({ trip, onShare, sharing = false, secureInvite = false }: TripIdentityHeaderProps) {
+function TripIdentityHeader({ trip, onShare, sharing = false, secureInvite = false,
+  shareDisabled = false }: TripIdentityHeaderProps) {
   const { colors } = useTheme();
 
   return (
@@ -117,7 +121,7 @@ function TripIdentityHeader({ trip, onShare, sharing = false, secureInvite = fal
           <TouchableOpacity
             testID="trip-share"
             onPress={onShare}
-            disabled={sharing}
+            disabled={sharing || shareDisabled}
             accessibilityRole="button"
             accessibilityLabel={secureInvite
               ? `Share secure invitation to ${trip.name}`
@@ -236,15 +240,20 @@ export default function TripDetail() {
   }>();
   const { colors, mode } = useTheme();
   const {
-    user, chatCapability, handleAuthenticationRequired, inviteLinksEnabled, refreshRuntimeConfig,
+    user, sessionMode, chatCapability, handleAuthenticationRequired, inviteLinksEnabled, refreshRuntimeConfig,
   } = useAuth();
   const router = useRouter();
   const toast = useToast();
-  const [trip, setTrip] = useState<Trip | null>(null);
+  const [storedTrip, setTrip] = useState<Trip | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [balances, setBalances] = useState<Balances | null>(null);
   const [spend, setSpend] = useState<SpendSummary | null>(null);
+  const [storedRead, setRead] = useState<ReadResult<CompleteTrip<Trip, Expense, Balances, SpendSummary, unknown>> | null>(null);
+  const [readAccountId, setReadAccountId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const loadGeneration = useRef(0);
+  const trip = readAccountId === user?.id ? storedTrip : null;
+  const read = readAccountId === user?.id ? storedRead : null;
   const [tab, setTab] = useState<TabKey>(() => tripTabFromParam(tabParam));
 
   // Handles both a cold notification launch and a tap while this trip screen is already mounted.
@@ -284,22 +293,44 @@ export default function TripDetail() {
   }>(null);
 
   const load = useCallback(async () => {
-    if (!id) return;
+    if (!id || !user?.id) return;
+    const generation = ++loadGeneration.current;
     setRefreshing(true);
     try {
-      const [t, e, b, s, tok] = await Promise.all([
-        api<Trip>(`/trips/${id}`),
-        api<Expense[]>(`/trips/${id}/expenses`),
-        api<Balances>(`/trips/${id}/balances`),
-        spendSummary(id),
-        getToken(),
-      ]);
-      setTrip(t); setExpenses(e); setBalances(b); setSpend(s); setToken(tok);
-    } catch (err: any) { toast.show(err.message || 'Could not load this trip', 'error'); }
-    setRefreshing(false);
-  }, [id, toast]);
+      const result = await loadTripReadBundle<Trip, Expense, Balances, SpendSummary, unknown>(
+        user.id, id, sessionMode === 'offline',
+      );
+      if (generation !== loadGeneration.current) return;
+      setReadAccountId(user.id);
+      setRead(result);
+      if (result.data) {
+        setTrip(result.data.trip);
+        setExpenses(result.data.expenses);
+        setBalances(result.data.balances);
+        setSpend(result.data.spend);
+        const currentToken = result.source === 'live' ? await getToken().catch(() => null) : null;
+        if (generation === loadGeneration.current) setToken(currentToken);
+      } else {
+        setTrip(null); setExpenses([]); setBalances(null); setSpend(null); setToken(null);
+      }
+    } catch (error: any) {
+      if (generation === loadGeneration.current) {
+        setReadAccountId(user.id);
+        setRead({ data: null, source: 'unavailable', fetchedAt: null,
+          error: error?.message || 'This trip is unavailable.' });
+        setTrip(null);
+      }
+    } finally {
+      if (generation === loadGeneration.current) setRefreshing(false);
+    }
+  }, [id, user?.id, sessionMode]);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    void load();
+    return () => { loadGeneration.current += 1; };
+  }, [load]));
+
+  const offlineView = sessionMode === 'offline' || read?.source === 'cache';
 
   const isApplicationAdmin = user?.is_super_admin === true;
   const optimisticSender = isApplicationAdmin
@@ -315,7 +346,7 @@ export default function TripDetail() {
   });
 
   const canCreateSecureInvite = !!trip
-    && canShareSecureInvite(trip, user?.id, inviteLinksEnabled, isApplicationAdmin);
+    && !offlineView && canShareSecureInvite(trip, user?.id, inviteLinksEnabled, isApplicationAdmin);
 
   const shareCode = async (knownInviteUrl?: string) => {
     if (!trip) return;
@@ -425,7 +456,11 @@ export default function TripDetail() {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom', 'left', 'right']}>
         <View style={{ padding: SPACING.lg, gap: SPACING.md }}>
-          <SkeletonCard count={4} />
+          {read?.source === 'unavailable' ? (
+            <EmptyState icon="alert" title="Trip unavailable offline"
+              body={read.error || 'Open this trip online to save a copy on this device.'}
+              ctaLabel="Try again" onCta={load} testID="trip-unavailable" />
+          ) : <SkeletonCard count={4} />}
         </View>
       </SafeAreaView>
     );
@@ -462,7 +497,15 @@ export default function TripDetail() {
         onShare={shareCode}
         sharing={sharingInvite}
         secureInvite={canCreateSecureInvite}
+        shareDisabled={offlineView}
       />
+
+      {read ? <OfflineReadStatus result={read} /> : null}
+      {offlineView ? (
+        <T variant="caption" muted testID="trip-online-actions-note">
+          Saved trip view. Changes and receipt images require a connection.
+        </T>
+      ) : null}
 
       {isApplicationAdmin ? (
         <Card variant="muted" testID="trip-privileged-mode">
@@ -489,10 +532,10 @@ export default function TripDetail() {
         <View style={styles.actionButton}>
           <Button label="Settle Up" icon="arrow-left-right" variant="secondary" onPress={() => router.push(`/trip/${id}/settle-up`)} fullWidth testID="trip-settle-up" style={styles.actionButtonControl} />
         </View>
-        {meCanEditSettings && (
+        {meCanEditSettings && !offlineView && (
           <IconButton name="pencil" variant="surface" onPress={() => router.push(`/trip/${id}/edit`)} accessibilityLabel="Edit trip" testID="trip-edit" size={18} touchSize={COMPONENT_SIZE.minTouchTarget} />
         )}
-        {meCanDeleteTrip && (
+        {meCanDeleteTrip && !offlineView && (
           <IconButton name="trash" variant="surface" color={colors.danger} onPress={onDelete} accessibilityLabel="Delete trip" testID="trip-delete" size={18} touchSize={COMPONENT_SIZE.minTouchTarget} />
         )}
       </View>
@@ -718,7 +761,7 @@ export default function TripDetail() {
                       centerValue={formatMoney(totalSpent, { currency: trip.currency })}
                       centerLabel="TOTAL"
                       centerAccessibilityLabel={`Total spent, ${formatAccessibleMoney(totalSpent, { currency: trip.currency })}`}
-                      onSlicePress={(s) => router.push(categoryDetailPath(id as string, s.key) as Href)}
+                      onSlicePress={offlineView ? undefined : (s) => router.push(categoryDetailPath(id as string, s.key) as Href)}
                     />
                   </Card>
                 )}
@@ -729,7 +772,7 @@ export default function TripDetail() {
                       summary={spend}
                       displayNames={displayNames}
                       currency={trip.currency}
-                      onBarPress={(b) => router.push({
+                      onBarPress={offlineView ? undefined : (b) => router.push({
                         pathname: '/trip/[id]/member/[mid]',
                         params: { id: id as string, mid: b.entity_id },
                       })}
@@ -759,7 +802,7 @@ export default function TripDetail() {
                     }));
                   }}
                 >
-                <Card onPress={() => router.push({ pathname: '/trip/[id]/edit-expense', params: { id: id as string, eid: e.id } })}
+                <Card onPress={offlineView ? undefined : () => router.push({ pathname: '/trip/[id]/edit-expense', params: { id: id as string, eid: e.id } })}
                   style={e.id === notificationExpenseId
                     ? { borderColor: colors.primary, borderWidth: 2 }
                     : undefined}
@@ -772,11 +815,11 @@ export default function TripDetail() {
                         {e.date}{e.time ? ` · ${formatTime12h(e.time)}` : ''} · {e.category} · by {displayNames[e.paid_by_member_id] || '?'}
                       </T>
                       {e.has_receipt ? (
-                        token ? (
+                        token && !offlineView ? (
                           <TouchableOpacity testID={`expense-bill-${e.id}`} onPress={() => setViewerUri(receiptUrl(id as string, e.id, token))} style={{ marginTop: 6 }} accessibilityLabel="View bill">
                             <Image source={{ uri: receiptUrl(id as string, e.id, token) }} style={[styles.billThumb, { borderColor: colors.border }]} />
                           </TouchableOpacity>
-                        ) : null
+                        ) : <T variant="caption" muted>Receipt available online</T>
                       ) : (
                         <T variant="caption" color={colors.textMuted} style={{ marginTop: 4 }}>{billLabel(e)}</T>
                       )}
@@ -797,7 +840,7 @@ export default function TripDetail() {
                       </T>
                     ) : null}
                     </View>
-                    {canModifyExpense(e, user?.id, trip, isApplicationAdmin) && (
+                    {!offlineView && canModifyExpense(e, user?.id, trip, isApplicationAdmin) && (
                       <IconButton name="trash" onPress={() => deleteExpense(e)} accessibilityLabel="Delete transaction" testID={`expense-del-${e.id}`} size={18} color={colors.danger} />
                     )}
                   </View>
@@ -940,7 +983,12 @@ export default function TripDetail() {
 
           {tab === 'members' && (
             <View style={{ gap: SPACING.sm }}>
-              <MembershipCard tripId={trip.id} />
+              {offlineView ? (
+                <T variant="caption" muted testID="members-contacts-unavailable">
+                  Saved roster. Contact details are available when connected.
+                </T>
+              ) : null}
+              {!offlineView ? <MembershipCard tripId={trip.id} /> : null}
               {canCreateSecureInvite ? (
                 <InviteLinksPanel
                   tripId={trip.id}
@@ -948,10 +996,10 @@ export default function TripDetail() {
                   onShare={shareCode}
                 />
               ) : null}
-              {meCanManageMembers ? (
+              {meCanManageMembers && !offlineView ? (
                 <JoinRequestsPanel tripId={trip.id} onRosterChanged={load} />
               ) : null}
-              {meCanManageMembers ? (
+              {meCanManageMembers && !offlineView ? (
                 <Card onPress={() => router.push(`/trip/${id}/add-member`)} testID="trip-add-member"
                   style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm }}>
                   <Icon name="plus" size={18} color={colors.primary} />
@@ -959,12 +1007,13 @@ export default function TripDetail() {
                 </Card>
               ) : (
                 <T testID="members-readonly-note" variant="caption" muted style={{ paddingHorizontal: SPACING.xs }}>
-                  Only trip admins can add or change members.
+                  {offlineView ? 'Member changes require a connection.'
+                    : 'Only trip admins can add or change members.'}
                 </T>
               )}
               {trip.members.map((m) => {
                 const role = memberRole(m);
-                const manageBtn = meCanManageMembers ? (
+                const manageBtn = meCanManageMembers && !offlineView ? (
                   <IconButton name="more-vertical" onPress={() => router.push({ pathname: '/trip/[id]/manage-member', params: { id: id as string, mid: m.id } })}
                     accessibilityLabel={`Manage ${displayNames[m.id]}`} testID={`member-manage-${m.id}`} size={20} color={colors.primary} />
                 ) : null;

@@ -77,6 +77,15 @@ function visibleText(renderer: any): string {
 beforeEach(() => { apiMock.mockReset(); });
 
 describe('Home Net Position', () => {
+  it('does not turn a missing offline copy into zero trips or a zero balance', async () => {
+    apiMock.mockRejectedValue(new Error('offline'));
+    const renderer = await renderDashboard();
+    expect(visibleText(renderer)).toContain('Balance unavailable');
+    expect(visibleText(renderer)).toContain('Trip count unavailable');
+    expect(renderer.root.findAll((node: any) => node.props?.testID === 'dash-unavailable').length)
+      .toBeGreaterThan(0);
+  });
+
   it.each([
     [1250, true],
     [-800, false],

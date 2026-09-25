@@ -12,14 +12,14 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import {
-  api,
   deletePayment,
   editPayment,
   listPaymentAttempts,
-  listPayments,
   recordPayment,
   updatePaymentAttemptRecipient,
 } from '../../../src/api';
+import { loadTripReadBundle, type CompleteTrip, type ReadResult } from '../../../src/offlineReads';
+import OfflineReadStatus from '../../../src/OfflineReadStatus';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS } from '../../../src/theme';
@@ -104,15 +104,24 @@ export default function SettleUp() {
     paymentId: notificationPaymentId,
     paymentAttemptId: notificationPaymentAttemptId,
   } = params;
-  const { user } = useAuth();
+  const { user, sessionMode } = useAuth();
   const { colors } = useTheme();
   const toast = useToast();
-  const [bal, setBal] = useState<Balances | null>(null);
-  const [payments, setPayments] = useState<Payment[] | null>(null);
-  const [attempts, setAttempts] = useState<PaymentAttempt[] | null>(null);
-  const [trip, setTrip] = useState<Trip | null>(null);
+  const [storedBal, setBal] = useState<Balances | null>(null);
+  const [storedPayments, setPayments] = useState<Payment[] | null>(null);
+  const [storedAttempts, setAttempts] = useState<PaymentAttempt[] | null>(null);
+  const [storedTrip, setTrip] = useState<Trip | null>(null);
+  const [storedRead, setRead] = useState<ReadResult<CompleteTrip<Trip, unknown, Balances, unknown, Payment>> | null>(null);
+  const [readAccountId, setReadAccountId] = useState<string | null>(null);
+  const loadGeneration = useRef(0);
+  const bal = readAccountId === user?.id ? storedBal : null;
+  const payments = readAccountId === user?.id ? storedPayments : null;
+  const attempts = readAccountId === user?.id ? storedAttempts : null;
+  const trip = readAccountId === user?.id ? storedTrip : null;
+  const read = readAccountId === user?.id ? storedRead : null;
   const [busy, setBusy] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [storedLoadError, setLoadError] = useState<string | null>(null);
+  const loadError = readAccountId === user?.id ? storedLoadError : null;
   const [handoff, setHandoff] = useState<
     | null
     | {
@@ -140,30 +149,49 @@ export default function SettleUp() {
   >(null);
 
   const load = useCallback(async () => {
+    if (!user?.id || !id) return;
+    const generation = ++loadGeneration.current;
     try {
       setLoadError(null);
-      const [b, p, a, t] = await Promise.all([
-        api<Balances>(`/trips/${id}/balances`),
-        listPayments(id),
-        listPaymentAttempts(id),
-        api<Trip>(`/trips/${id}`),
+      const [bundle, attemptResult] = await Promise.all([
+        loadTripReadBundle<Trip, unknown, Balances, unknown, Payment>(
+          user.id, id, sessionMode === 'offline',
+        ),
+        sessionMode === 'offline' ? Promise.resolve({ data: null })
+          : listPaymentAttempts(id).then((data) => ({ data })).catch(() => ({ data: null })),
       ]);
-      setBal(b);
-      setPayments(p);
-      setAttempts(a);
-      setTrip(t);
+      if (generation !== loadGeneration.current) return;
+      setReadAccountId(user.id);
+      setRead(bundle);
+      setAttempts(attemptResult.data);
+      if (bundle.data) {
+        setBal(bundle.data.balances);
+        setPayments(bundle.data.payments);
+        setTrip(bundle.data.trip);
+      } else {
+        setBal(null); setPayments(null); setTrip(null);
+        setLoadError(bundle.error || 'Settlement is temporarily unavailable.');
+      }
     } catch (error: any) {
-      setLoadError(error?.message || 'Settlement is temporarily unavailable.');
+      if (generation === loadGeneration.current) {
+        setReadAccountId(user.id);
+        setLoadError(error?.message || 'Settlement is temporarily unavailable.');
+        setBal(null); setPayments(null); setTrip(null);
+      }
     }
-  }, [id]);
+  }, [id, user?.id, sessionMode]);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    void load();
+    return () => { loadGeneration.current += 1; };
+  }, [load]));
 
   const members = bal?.members ?? [];
   const displayNames = memberDisplayNames(members);
   const nameOf = (mid: string) => displayNames[mid] || '?';
   const currency = bal?.currency ?? '';
-  const loading = !bal || !payments || !attempts || !trip;
+  const loading = !bal || !payments || !trip;
+  const offlineView = sessionMode === 'offline' || read?.source === 'cache';
 
   const recommendations = bal?.transfers ?? [];
   const history = [...(payments ?? [])].sort((a, b) =>
@@ -175,18 +203,19 @@ export default function SettleUp() {
   const projection = bal?.settlement_projection;
   const wholeUnit = true;
 
-  const allow = (toId: string) => !!trip && canRecordPayment(
+  const allow = (toId: string) => !offlineView && !!attempts && !!trip && canRecordPayment(
     trip, toId, user?.id, members, user?.is_super_admin === true,
   );
-  const canPayViaUpi = (fromId: string) => !!trip && canInitiateUpiPayment(
+  const canPayViaUpi = (fromId: string) => !offlineView && !!attempts && !!trip && canInitiateUpiPayment(
     trip, fromId, user?.id, members, user?.is_super_admin === true,
   );
-  const canReviewUpi = (toId: string) => !!trip && canReviewUpiAttempt(
+  const canReviewUpi = (toId: string) => !offlineView && !!trip && canReviewUpiAttempt(
     trip, toId, user?.id, members, user?.is_super_admin === true,
   );
 
   // ---- Async mutations (only reached AFTER the ConfirmModal guard-rail) ----
   const doRecord = async (fromId: string, toId: string, amount: number, note?: string) => {
+    if (offlineView || !attempts) return;
     setBusy(true);
     try {
       await recordPayment(id, { from_member_id: fromId, to_member_id: toId, amount, ...(note ? { note } : {}) });
@@ -200,6 +229,7 @@ export default function SettleUp() {
     }
   };
   const doEdit = async (paymentId: string, amount: number, originalAmount: number, note?: string) => {
+    if (offlineView || !attempts) return;
     setBusy(true);
     try {
       const body: { amount?: number; note: string } = { note: note ?? '' };
@@ -217,6 +247,7 @@ export default function SettleUp() {
     }
   };
   const doDelete = async (paymentId: string) => {
+    if (offlineView || !attempts) return;
     setBusy(true);
     try {
       await deletePayment(id, paymentId);
@@ -365,6 +396,17 @@ export default function SettleUp() {
       <T muted>
         A deterministic whole-unit payment plan calculated from the trip ledger.
       </T>
+      {read ? <OfflineReadStatus result={read} /> : null}
+      {offlineView ? (
+        <T variant="caption" muted testID="settle-offline-note">
+          These are the last server-confirmed balances and payments. Connect to record or change a payment.
+        </T>
+      ) : null}
+      {!attempts && !loading && !loadError ? (
+        <T variant="caption" muted testID="upi-attempts-unavailable">
+          UPI payment activity and payment actions are unavailable until you reconnect.
+        </T>
+      ) : null}
       {projection ? (
         <T variant="caption" muted>
           {projection.routing.optimal ? 'Minimum payment plan' : 'Simplified payment plan'}

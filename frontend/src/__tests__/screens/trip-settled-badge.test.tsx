@@ -146,6 +146,8 @@ async function mountTrip(transfersValue: any[]) {
     if (url === '/trips/t1') return Promise.resolve(TRIP);
     if (url === '/trips/t1/expenses') return Promise.resolve(EXPENSES);
     if (url === '/trips/t1/balances') return Promise.resolve(balances(transfersValue));
+    if (url === '/trips/t1/spend-summary') return Promise.resolve({ total: 50, count: 2, entities: [] });
+    if (url === '/trips/t1/payments') return Promise.resolve([]);
     return Promise.resolve({});
   });
   let r: any;
@@ -173,6 +175,27 @@ describe('Category chart navigation', () => {
     act(() => { donut.props.onSlicePress({ key: 'Local Transportation' }); });
     expect(mockRouterPush).toHaveBeenCalledWith('/trip/t1/category/Local%20Transportation');
   });
+});
+
+it('shows the last confirmed expense list while disabling online edits from a saved trip', async () => {
+  const reads = require('../../offlineReads');
+  const loader = jest.spyOn(reads, 'loadTripReadBundle').mockResolvedValue({
+    data: { trip: TRIP, expenses: EXPENSES, balances: balances([]),
+      spend: { total: 50, count: 2, entities: [] }, payments: [] },
+    source: 'cache', fetchedAt: 1_700_000_000_000,
+  });
+  try {
+    const renderer = await mountTrip([]);
+    await act(async () => { tabBtn(renderer, 'expenses').props.onPress(); });
+    expect(renderer.root.findAll((node: any) => node.props?.testID === 'expense-item-e1'))
+      .not.toHaveLength(0);
+    expect(renderer.root.findAll((node: any) => node.props?.testID === 'expense-del-e1'))
+      .toHaveLength(0);
+    expect(renderer.root.findAll((node: any) => node.props?.testID === 'offline-read-status'))
+      .toHaveLength(1);
+  } finally {
+    loader.mockRestore();
+  }
 });
 
 describe('Expenses tab — trip-level "Settled" badge', () => {

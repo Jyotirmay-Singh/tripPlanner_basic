@@ -31,8 +31,16 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
   identity during a temporary server outage while its existing token is valid (up to 30 days from
   sign-in). The update moves an existing Android token into secure device storage without requiring
   a new login. If this is the first launch after updating, or the token has expired, connect to the
-  server to finish restoring or sign in. Trip lists and financial data still need a connection in
-  this session; offline trip viewing and expense capture are coming in later updates.
+  server to finish restoring or sign in. After opening a trip successfully online, you can reopen its
+  saved roster, expenses, confirmed balances, spend summary, and recorded-payment history on Android
+  in airplane mode. Dashboard, Trips, and the Add picker can show their saved lists. Each saved view
+  shows when it was last synced; amounts and payment suggestions are the last server-confirmed values.
+  If a view was never saved completely, it says unavailable instead of showing a zero balance or an
+  empty history. Reconnect and open that view to refresh it.
+- The saved Add Expense form lets you review the roster and split preview offline. Transactions,
+  refunds, receipts, and manual payments cannot be saved offline in this update; keep a separate note
+  until you can reconnect. Settle Up can show saved payment history, but UPI attempt activity and all
+  payment actions require a connection. Web and iOS still require a connection for trip data.
 
 ### 1.3 Dark mode & sign out
 - Bottom-tab **Profile** → toggle **Dark mode**.

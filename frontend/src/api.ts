@@ -511,7 +511,9 @@ export function createPaymentAttempt(
   });
 }
 export function listPaymentAttempts(tripId: string): Promise<PaymentAttempt[]> {
-  return api<PaymentAttempt[]>(`/trips/${encodeURIComponent(tripId)}/payment-attempts`);
+  return api<PaymentAttempt[]>(`/trips/${encodeURIComponent(tripId)}/payment-attempts`, {
+    timeoutMs: 10_000,
+  });
 }
 export function updatePaymentAttemptSender(
   tripId: string,

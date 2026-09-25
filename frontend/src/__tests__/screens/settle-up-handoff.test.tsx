@@ -85,13 +85,18 @@ const trip = {
 
 async function mountAs(
   user: typeof mockUser,
-  options: { attempts?: any[]; payments?: any[] } = {},
+  options: { attempts?: any[]; payments?: any[]; attemptsError?: boolean } = {},
 ) {
   mockUser = user;
   mockListPayments.mockResolvedValue(options.payments ?? []);
-  mockListAttempts.mockResolvedValue(options.attempts ?? []);
+  mockListAttempts.mockImplementation(() => options.attemptsError
+    ? Promise.reject(new Error('offline')) : Promise.resolve(options.attempts ?? []));
   mockApi.mockImplementation((path: string) => (
-    path.endsWith('/balances') ? Promise.resolve(balance) : Promise.resolve(trip)
+    path.endsWith('/balances') ? Promise.resolve(balance)
+      : path.endsWith('/expenses') ? Promise.resolve([])
+        : path.endsWith('/spend-summary') ? Promise.resolve({ total: 0, count: 0, entities: [] })
+          : path.endsWith('/payments') ? Promise.resolve(options.payments ?? [])
+            : Promise.resolve(trip)
   ));
   let renderer: any;
   await act(async () => {
@@ -150,6 +155,28 @@ it('shows Pay via UPI only to the linked payer and opens the focused handoff she
   expect(hosts(renderer, 'record-payment-0')).toHaveLength(0);
   await act(async () => { interactive(renderer, 'upi-pay-0').props.onPress(); });
   expect(renderer.root.findAllByType('UpiPaymentSheet')).toHaveLength(1);
+});
+
+it('shows saved manual-payment history without UPI details or money actions offline', async () => {
+  const reads = require('../../offlineReads');
+  const payment = { id: 'payment-1', from_member_id: 'payer', to_member_id: 'recipient',
+    amount: 50, created_at: '2026-09-11T10:00:00+00:00', note: 'Cash' };
+  const loader = jest.spyOn(reads, 'loadTripReadBundle').mockResolvedValue({
+    data: { trip, expenses: [], balances: balance,
+      spend: { total: 0, count: 0, entities: [] }, payments: [payment] },
+    source: 'cache', fetchedAt: 1_700_000_000_000,
+  });
+  try {
+    const renderer = await mountAs({ id: 'recipient-user', is_super_admin: false },
+      { attemptsError: true });
+    expect(hosts(renderer, 'payment-history-payment-1')).toHaveLength(1);
+    expect(hosts(renderer, 'record-payment-0')).toHaveLength(0);
+    expect(hosts(renderer, 'payment-edit-payment-1')).toHaveLength(0);
+    expect(hosts(renderer, 'upi-pay-0')).toHaveLength(0);
+    expect(hosts(renderer, 'upi-attempts-unavailable')).toHaveLength(1);
+  } finally {
+    loader.mockRestore();
+  }
 });
 
 it('renames the receiver action to Record payment and hides payer handoff', async () => {
