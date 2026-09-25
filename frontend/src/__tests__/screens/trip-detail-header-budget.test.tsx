@@ -27,6 +27,8 @@ jest.mock('expo-clipboard', () => ({
 }));
 jest.mock('../../offlineExpenses', () => ({
   listPendingExpenses: (...args: any[]) => mockListPendingExpenses(...args),
+  pendingStatusLabel: (item: { state: string }) => item.state === 'needs_review'
+    ? 'Needs review · Pending sync' : 'Pending sync',
 }));
 jest.mock('../../AuthContext', () => ({ useAuth: () => ({
   user: mockUser,

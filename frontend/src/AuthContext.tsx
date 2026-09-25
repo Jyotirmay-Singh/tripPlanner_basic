@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
+import { syncCoordinator } from './syncWorker';
 import { ApiError, api, getToken, setToken, subscribeUnauthorized } from './api';
 import type { ChatCapability } from './chat';
 import { unregisterCurrentPushInstallation } from './pushNotifications';
@@ -211,6 +212,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (currentToken === failedToken) void handleAuthenticationRequired();
     }).catch(() => {});
   }), [handleAuthenticationRequired]);
+
+  useEffect(() => {
+    const accountId = sessionMode === 'online_required' ? null : user?.id ?? null;
+    syncCoordinator.setAccount(accountId, () => { void handleAuthenticationRequired(); });
+    if (!accountId) return () => { syncCoordinator.setAccount(null); };
+    const appSubscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') syncCoordinator.wake(accountId);
+    });
+    const networkSubscription = NetInfo.addEventListener((state) => {
+      if (state.isConnected) syncCoordinator.wake(accountId);
+    });
+    return () => {
+      appSubscription?.remove?.();
+      networkSubscription();
+      syncCoordinator.setAccount(null);
+    };
+  }, [user?.id, sessionMode, handleAuthenticationRequired]);
 
   const refreshUserProfile = useCallback(async () => {
     const generation = authGeneration.current;

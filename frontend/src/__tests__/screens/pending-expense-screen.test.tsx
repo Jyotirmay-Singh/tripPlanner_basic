@@ -8,6 +8,9 @@ const mockToastShow = jest.fn();
 const mockListOutbox = jest.fn();
 const mockTripSnapshot = jest.fn();
 const mockDiscard = jest.fn();
+const mockRetry = jest.fn();
+const mockApproveBudget = jest.fn();
+let mockSessionMode = 'online';
 
 jest.mock('expo-router', () => {
   const R = require('react');
@@ -17,7 +20,9 @@ jest.mock('expo-router', () => {
     useFocusEffect: (callback: any) => R.useEffect(() => { callback(); }, []),
   };
 });
-jest.mock('../../AuthContext', () => ({ useAuth: () => ({ user: { id: 'account-1' } }) }));
+jest.mock('../../AuthContext', () => ({ useAuth: () => ({
+  user: { id: 'account-1' }, sessionMode: mockSessionMode,
+}) }));
 jest.mock('../../ThemeContext', () => ({ useTheme: () => ({ colors: {
   warning: '#eea', textMain: '#fff', textMuted: '#999', primary: '#8cc',
 } }) }));
@@ -28,8 +33,13 @@ jest.mock('../../offlineStore', () => ({ offlineStore: {
 } }));
 jest.mock('../../offlineExpenses', () => ({
   expenseCaptureActive: () => true,
+  pendingStatusLabel: () => 'Needs review · Pending sync',
   reviewReason: () => 'Trip participants changed. Review the split.',
 }));
+jest.mock('../../syncWorker', () => ({ syncCoordinator: {
+  subscribe: () => () => {}, retry: (...args: any[]) => mockRetry(...args),
+  approveBudget: (...args: any[]) => mockApproveBudget(...args), wake: jest.fn(),
+} }));
 jest.mock('../../T', () => {
   const R = require('react');
   return { __esModule: true, default: (props: any) => R.createElement('T', props, props.children) };
@@ -60,6 +70,31 @@ beforeEach(() => {
   }]);
   mockTripSnapshot.mockResolvedValue({ payload: { members: [{ id: 'member-1', name: 'Asha' }] } });
   mockDiscard.mockResolvedValue(undefined);
+  mockRetry.mockResolvedValue(true);
+  mockApproveBudget.mockResolvedValue(true);
+  mockSessionMode = 'online';
+});
+
+it('requires explicit confirmation before sending a budget overage with the saved ID', async () => {
+  mockListOutbox.mockResolvedValueOnce([{
+    clientMutationId: 'uuid-1', accountId: 'account-1', tripId: 'trip-1',
+    operation: 'expense_create', state: 'needs_review',
+    lastSafeErrorCode: 'budget_confirmation_required',
+    reviewContext: { warning: '12 INR over budget' },
+    payload: { amount: 12, currency: 'INR', category: 'Food', date: '25-09-26',
+      paid_by_member_id: 'member-1', split_member_ids: ['member-1'], split_mode: 'PER_CAPITA' },
+  }]);
+  let renderer: any;
+  await act(async () => { renderer = TestRenderer.create(<PendingExpenseDetail />); });
+  expect(mockApproveBudget).not.toHaveBeenCalled();
+  await act(async () => {
+    renderer.root.findByProps({ testID: 'pending-budget-approve' }).props.onPress();
+  });
+  const modal = renderer.root.findAllByType('ConfirmModal' as any)
+    .find((entry: any) => entry.props.title === 'Approve budget overage?');
+  expect(modal.props.message).toBe('12 INR over budget');
+  await act(async () => { modal.props.actions[1].onPress(); });
+  expect(mockApproveBudget).toHaveBeenCalledWith('account-1', 'uuid-1');
 });
 
 it('shows the captured review intent and discards only after confirmation', async () => {
@@ -71,7 +106,8 @@ it('shows the captured review intent and discards only after confirmation', asyn
     params: { id: 'trip-1', reviewId: 'uuid-1' } });
   expect(mockDiscard).not.toHaveBeenCalled();
   await act(async () => { renderer.root.findByProps({ testID: 'pending-discard' }).props.onPress(); });
-  const modal = renderer.root.findByType('ConfirmModal' as any);
+  const modal = renderer.root.findAllByType('ConfirmModal' as any)
+    .find((entry: any) => entry.props.title === 'Discard pending expense?');
   expect(modal.props.visible).toBe(true);
   await act(async () => { modal.props.actions[1].onPress(); });
   expect(mockDiscard).toHaveBeenCalledWith('account-1', 'uuid-1');

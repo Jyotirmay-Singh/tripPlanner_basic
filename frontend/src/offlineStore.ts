@@ -21,8 +21,12 @@ export const offlineStore: OfflineStore = {
   putReadSnapshot: async () => { throw new OfflineStoreError('unsupported'); },
   enqueueOutbox: async () => { throw new OfflineStoreError('unsupported'); },
   listOutbox: async () => [],
+  updateOutbox: async () => { throw new OfflineStoreError('unsupported'); },
+  getSyncMeta: async () => null,
+  putSyncMeta: async () => { throw new OfflineStoreError('unsupported'); },
   replaceReviewExpense: async () => { throw new OfflineStoreError('unsupported'); },
   discardReviewExpense: async () => { throw new OfflineStoreError('unsupported'); },
+  discardReviewPayment: async () => { throw new OfflineStoreError('unsupported'); },
   pendingCount: async () => 0,
   purgeAccount: async () => {},
 };

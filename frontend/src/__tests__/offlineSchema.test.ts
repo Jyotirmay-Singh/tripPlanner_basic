@@ -13,6 +13,7 @@ it('rolls back a failed migration and succeeds on retry', async () => {
           if (sql.includes('CREATE TABLE account_meta') && failCreate) throw new Error('disk full');
           if (sql.includes('PRAGMA user_version = 1')) pendingVersion = 1;
           if (sql.includes('PRAGMA user_version = 2')) pendingVersion = 2;
+          if (sql.includes('PRAGMA user_version = 3')) pendingVersion = 3;
         },
       });
       version = pendingVersion;
@@ -22,7 +23,7 @@ it('rolls back a failed migration and succeeds on retry', async () => {
   expect(version).toBe(0);
   failCreate = false;
   await migrateOfflineSchema(db);
-  expect(version).toBe(2);
+  expect(version).toBe(3);
 });
 
 it('upgrades an existing v1 store without recreating its account or outbox tables', async () => {
@@ -40,6 +41,7 @@ it('upgrades an existing v1 store without recreating its account or outbox table
           throw new Error('disk full');
         }
         if (sql.includes('PRAGMA user_version = 2')) pendingVersion = 2;
+        if (sql.includes('PRAGMA user_version = 3')) pendingVersion = 3;
       } });
       version = pendingVersion;
     },
@@ -48,6 +50,6 @@ it('upgrades an existing v1 store without recreating its account or outbox table
   expect(version).toBe(1);
   failUpgrade = false;
   await migrateOfflineSchema(db);
-  expect(version).toBe(2);
+  expect(version).toBe(3);
   expect(statements.join('\n')).not.toContain('CREATE TABLE outbox');
 });

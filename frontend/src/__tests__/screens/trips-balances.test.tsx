@@ -31,6 +31,7 @@ jest.mock('../../TripListCard', () => {
   const R = require('react');
   return { __esModule: true, default: (props: any) => R.createElement('TripListCard', props) };
 });
+jest.mock('../../ConfirmModal', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../ui', () => {
   const R = require('react');
   const stub = (name: string) => (props: any) => R.createElement(name, props, props?.children);
@@ -45,6 +46,7 @@ jest.mock('../../ui', () => {
     Card: stub('Card'), Button: stub('Button'),
     IconButton: stub('IconButton'),
     EmptyState: stub('EmptyState'), SkeletonCard: stub('SkeletonCard'), Icon: stub('Icon'),
+    useToast: () => ({ show: jest.fn() }),
   };
 });
 

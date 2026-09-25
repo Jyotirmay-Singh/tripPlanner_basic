@@ -31,6 +31,7 @@ jest.mock('../TabPageHeader', () => {
   const R = require('react');
   return { __esModule: true, default: (props: any) => R.createElement('TabPageHeader', props) };
 });
+jest.mock('../ConfirmModal', () => ({ __esModule: true, default: () => null }));
 jest.mock('../ui', () => {
   const R = require('react');
   const stub = (name: string) => (props: any) => R.createElement(name, props, props.children);

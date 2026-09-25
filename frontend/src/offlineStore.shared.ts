@@ -41,6 +41,15 @@ export type StoredOutboxItem = {
   lastSafeErrorCode: string | null;
   canonicalResourceId: string | null;
   acknowledgedResponse: unknown | null;
+  budgetApproved?: boolean;
+  reviewContext?: unknown | null;
+};
+export type OutboxUpdate = Partial<Pick<StoredOutboxItem,
+  'state' | 'attemptCount' | 'nextRetryAt' | 'lastSafeErrorCode' | 'canonicalResourceId'
+  | 'acknowledgedResponse' | 'budgetApproved' | 'reviewContext'>>;
+export type SyncMeta = {
+  lastSuccessfulRefreshAt: number | null;
+  lastErrorClass: string | null;
 };
 
 export interface OfflineStore {
@@ -60,8 +69,12 @@ export interface OfflineStore {
   putReadSnapshot(accountId: string, tripId: string, kind: ReadKind, snapshot: Snapshot): Promise<void>;
   enqueueOutbox(item: StoredOutboxItem): Promise<void>;
   listOutbox(accountId: string): Promise<StoredOutboxItem[]>;
+  updateOutbox(accountId: string, mutationId: string, from: OutboxState[], update: OutboxUpdate): Promise<boolean>;
+  getSyncMeta(accountId: string, tripId: string): Promise<SyncMeta | null>;
+  putSyncMeta(accountId: string, tripId: string, meta: SyncMeta): Promise<void>;
   replaceReviewExpense(accountId: string, oldMutationId: string, item: StoredOutboxItem): Promise<void>;
   discardReviewExpense(accountId: string, mutationId: string): Promise<void>;
+  discardReviewPayment(accountId: string, mutationId: string): Promise<void>;
   pendingCount(accountId: string): Promise<number>;
   purgeAccount(accountId: string): Promise<void>;
 }

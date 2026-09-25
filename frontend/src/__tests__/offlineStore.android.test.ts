@@ -205,14 +205,57 @@ it('commits one expense UUID durably, rejects changed intent, and retains it aft
   SQLite.openDatabaseAsync.mockResolvedValue(db);
   db.getFirstAsync.mockImplementation(async (sql: string) => {
     if (sql === 'PRAGMA cipher_version') return { cipher_version: '4.6.0' };
-    if (sql === 'PRAGMA user_version') return { user_version: 2 };
+    if (sql === 'PRAGMA user_version') return { user_version: 3 };
     return { count: 0 };
   });
   const restored = require('../offlineStore.android').offlineStore;
   restored.setActiveAccount('account-a');
-  expect(await restored.listOutbox('account-a')).toEqual([item]);
+  expect(await restored.listOutbox('account-a')).toEqual([{
+    ...item, budgetApproved: false, reviewContext: null,
+  }]);
   restored.setActiveAccount('account-b');
   await expect(restored.listOutbox('account-a')).rejects.toMatchObject({ code: 'account_mismatch' });
+});
+
+it('persists acknowledgement and review decisions with state checks in one transaction', async () => {
+  const { offlineStore, db } = environment();
+  offlineStore.setActiveAccount('account-a');
+  await offlineStore.saveIdentity(identity);
+  const id = '7fa30d5e-b4f6-4cb3-b45a-27b4119d0101';
+  const row: Record<string, any> = {
+    client_mutation_id: id, account_id: 'account-a', trip_id: 'trip-1',
+    operation: 'expense_create', payload_json: JSON.stringify({ client_mutation_id: id }),
+    precondition_json: '{}', queued_at: 123, state: 'sending', attempt_count: 1,
+    next_retry_at: null, last_safe_error_code: null, canonical_resource_id: null,
+    acknowledged_response_json: null, budget_approved: 0, review_context_json: null,
+  };
+  db.withExclusiveTransactionAsync.mockImplementation(async (task: any) => {
+    await task({
+      getFirstAsync: async (_sql: string, accountId: string, mutationId: string) =>
+        accountId === 'account-a' && mutationId === id ? row : null,
+      runAsync: async (_sql: string, ...args: unknown[]) => {
+        if (row.state !== args[10]) return { changes: 0 };
+        [row.state, row.attempt_count, row.next_retry_at, row.last_safe_error_code,
+          row.canonical_resource_id, row.acknowledged_response_json, row.budget_approved,
+          row.review_context_json] = args.slice(0, 8);
+        return { changes: 1 };
+      },
+    });
+  });
+  db.getAllAsync.mockImplementation(async () => [row] as any);
+  expect(await offlineStore.updateOutbox('account-a', id, ['queued'], { state: 'needs_review' }))
+    .toBe(false);
+  expect(await offlineStore.updateOutbox('account-a', id, ['sending'], {
+    state: 'awaiting_reconcile', canonicalResourceId: 'server-1',
+    acknowledgedResponse: { expense: { id: 'server-1' } },
+  })).toBe(true);
+  expect(await offlineStore.listOutbox('account-a')).toMatchObject([{
+    state: 'awaiting_reconcile', canonicalResourceId: 'server-1',
+    acknowledgedResponse: { expense: { id: 'server-1' } },
+  }]);
+  offlineStore.setActiveAccount('account-b');
+  await expect(offlineStore.updateOutbox('account-a', id, ['awaiting_reconcile'],
+    { state: 'synced' })).rejects.toMatchObject({ code: 'account_mismatch' });
 });
 
 it('keeps a rejected intent if edit storage fails and replaces or discards it only by explicit action', async () => {
@@ -259,5 +302,11 @@ it('keeps a rejected intent if edit storage fails and replaces or discards it on
     .rejects.toThrow('no longer ready');
   rows.get('new-id')!.state = 'needs_review';
   await offlineStore.discardReviewExpense('account-a', 'new-id');
+  expect(rows.size).toBe(0);
+  rows.set('payment-id', {
+    client_mutation_id: 'payment-id', account_id: 'account-a', trip_id: 'trip-1',
+    operation: 'manual_payment_create', state: 'needs_review',
+  });
+  await offlineStore.discardReviewPayment('account-a', 'payment-id');
   expect(rows.size).toBe(0);
 });

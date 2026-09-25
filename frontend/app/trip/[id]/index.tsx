@@ -9,7 +9,8 @@ import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo
 import { api, getToken, getTripInviteLink, receiptUrl } from '../../../src/api';
 import { loadTripReadBundle, type CompleteTrip, type ReadResult } from '../../../src/offlineReads';
 import OfflineReadStatus from '../../../src/OfflineReadStatus';
-import { listPendingExpenses, type PendingExpense } from '../../../src/offlineExpenses';
+import { listPendingExpenses, pendingStatusLabel, type PendingExpense } from '../../../src/offlineExpenses';
+import { syncCoordinator } from '../../../src/syncWorker';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, CONTENT_MAX_WIDTH, COMPONENT_SIZE, FONTS } from '../../../src/theme';
@@ -343,6 +344,16 @@ export default function TripDetail() {
     void load();
     return () => { loadGeneration.current += 1; };
   }, [load]));
+
+  useFocusEffect(useCallback(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = syncCoordinator.subscribe((event) => {
+      if (event.accountId !== user?.id || event.tripId !== id) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { void load(); }, 150);
+    });
+    return () => { unsubscribe(); if (timer) clearTimeout(timer); };
+  }, [user?.id, id, load]));
 
   const offlineView = sessionMode === 'offline' || read?.source === 'cache';
 
@@ -813,7 +824,7 @@ export default function TripDetail() {
               {pendingExpenses.map((item) => {
                 const payload = item.payload;
                 const amount = Number(payload.amount ?? payload.original_amount ?? 0);
-                const status = item.state === 'needs_review' ? 'Needs review · Pending sync' : 'Pending sync';
+                const status = pendingStatusLabel(item);
                 return (
                   <Card key={item.clientMutationId}
                     onPress={() => router.push(

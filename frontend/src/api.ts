@@ -147,9 +147,11 @@ export class ApiError extends Error {
   code: ApiErrorCode;
   detailCode?: string;
   retryable?: boolean;
+  retryAfterMs?: number;
 
   constructor(message: string, options: {
-    status?: number; data?: unknown; code: ApiErrorCode; detailCode?: string; retryable?: boolean;
+    status?: number; data?: unknown; code: ApiErrorCode; detailCode?: string;
+    retryable?: boolean; retryAfterMs?: number;
   }) {
     super(message);
     this.name = 'ApiError';
@@ -158,6 +160,7 @@ export class ApiError extends Error {
     this.code = options.code;
     this.detailCode = options.detailCode;
     this.retryable = options.retryable;
+    this.retryAfterMs = options.retryAfterMs;
   }
 }
 
@@ -167,7 +170,17 @@ type ApiOptions = {
   auth?: boolean;
   timeoutMs?: number;
   signal?: AbortSignal;
+  // The sync worker binds one request to the token whose claims match its outbox account.
+  authToken?: string;
+  suppressUnauthorized?: boolean;
 };
+
+function retryAfterMs(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  const delay = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(value) - Date.now();
+  return Number.isFinite(delay) ? Math.max(0, delay) : undefined;
+}
 
 function backendBase(): string {
   if (!BASE) {
@@ -204,7 +217,7 @@ export async function api<T = any>(
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   let requestToken: string | null = null;
   if (auth) {
-    requestToken = await getToken();
+    requestToken = opts.authToken ?? await getToken();
     if (requestToken) headers['Authorization'] = `Bearer ${requestToken}`;
   }
   const base = backendBase();
@@ -218,6 +231,7 @@ export async function api<T = any>(
     ? setTimeout(() => controller?.abort(), timeoutMs)
     : null;
   let res: Response;
+  let responseText: string;
   try {
     res = await fetch(`${base}/api${path}`, {
       method,
@@ -225,6 +239,7 @@ export async function api<T = any>(
       body: body ? JSON.stringify(body) : undefined,
       signal: controller?.signal ?? signal,
     });
+    responseText = await res.text();
   } catch (error: any) {
     if (error?.name === 'AbortError') {
       if (signal?.aborted) {
@@ -237,11 +252,10 @@ export async function api<T = any>(
     if (timeout) clearTimeout(timeout);
     if (controller && signal) signal.removeEventListener('abort', abortFromCaller);
   }
-  const text = await res.text();
   let data: any = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  try { data = responseText ? JSON.parse(responseText) : null; } catch { data = responseText; }
   if (!res.ok) {
-    if (res.status === 401 && requestToken && path !== '/auth/me') {
+    if (res.status === 401 && requestToken && path !== '/auth/me' && !opts.suppressUnauthorized) {
       for (const listener of unauthorizedListeners) {
         try { listener(requestToken); } catch { /* Preserve the original HTTP error. */ }
       }
@@ -254,6 +268,7 @@ export async function api<T = any>(
       code: 'http',
       detailCode: typeof detail === 'object' ? detail?.code : undefined,
       retryable: typeof detail === 'object' ? detail?.retryable : undefined,
+      retryAfterMs: res.status === 429 ? retryAfterMs(res.headers.get('Retry-After')) : undefined,
     });
   }
   return data as T;

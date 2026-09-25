@@ -7,6 +7,7 @@ jest.mock('../offlineStore', () => ({
     replaceReviewExpense: jest.fn(),
   },
 }));
+jest.mock('../syncWorker', () => ({ syncCoordinator: { wake: jest.fn() } }));
 
 import { offlineStore } from '../offlineStore';
 import { captureExpense, listPendingExpenses, makeExpenseOutboxItem } from '../offlineExpenses';

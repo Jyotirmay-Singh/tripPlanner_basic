@@ -75,7 +75,29 @@ type OutboxRow = {
   queued_at: number; state: OutboxState; attempt_count: number; next_retry_at: number | null;
   last_safe_error_code: string | null; canonical_resource_id: string | null;
   acknowledged_response_json: string | null;
+  budget_approved: number; review_context_json: string | null;
 };
+
+function outboxItem(row: OutboxRow): StoredOutboxItem {
+  return {
+    clientMutationId: row.client_mutation_id,
+    accountId: row.account_id,
+    tripId: row.trip_id,
+    operation: row.operation,
+    payload: JSON.parse(row.payload_json),
+    precondition: JSON.parse(row.precondition_json),
+    queuedAt: row.queued_at,
+    state: row.state,
+    attemptCount: row.attempt_count,
+    nextRetryAt: row.next_retry_at,
+    lastSafeErrorCode: row.last_safe_error_code,
+    canonicalResourceId: row.canonical_resource_id,
+    acknowledgedResponse: row.acknowledged_response_json
+      ? JSON.parse(row.acknowledged_response_json) : null,
+    budgetApproved: row.budget_approved === 1,
+    reviewContext: row.review_context_json ? JSON.parse(row.review_context_json) : null,
+  };
+}
 
 export const offlineStore: OfflineStore = {
   setActiveAccount(accountId) { activeAccountId = accountId; },
@@ -336,22 +358,71 @@ export const offlineStore: OfflineStore = {
       accountId,
     );
     assertAccount(accountId);
-    return rows.map((row) => ({
-      clientMutationId: row.client_mutation_id,
-      accountId: row.account_id,
-      tripId: row.trip_id,
-      operation: row.operation,
-      payload: JSON.parse(row.payload_json),
-      precondition: JSON.parse(row.precondition_json),
-      queuedAt: row.queued_at,
-      state: row.state,
-      attemptCount: row.attempt_count,
-      nextRetryAt: row.next_retry_at,
-      lastSafeErrorCode: row.last_safe_error_code,
-      canonicalResourceId: row.canonical_resource_id,
-      acknowledgedResponse: row.acknowledged_response_json
-        ? JSON.parse(row.acknowledged_response_json) : null,
-    }));
+    return rows.map(outboxItem);
+  },
+
+  async updateOutbox(accountId, mutationId, from, update) {
+    assertAccount(accountId);
+    if (!from.length) throw new Error('Expected outbox state is required');
+    const response = update.acknowledgedResponse === undefined ? undefined
+      : update.acknowledgedResponse === null ? null : safeSnapshotJson(update.acknowledgedResponse);
+    const context = update.reviewContext === undefined ? undefined
+      : update.reviewContext === null ? null : safeSnapshotJson(update.reviewContext);
+    const db = await database();
+    assertAccount(accountId);
+    let updated = false;
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      assertAccount(accountId);
+      const row = await tx.getFirstAsync<OutboxRow>(
+        'SELECT * FROM outbox WHERE account_id = ? AND client_mutation_id = ?',
+        accountId, mutationId,
+      );
+      if (!row || !from.includes(row.state)) return;
+      const next = { ...outboxItem(row), ...update };
+      const changed = await tx.runAsync(
+        `UPDATE outbox SET state = ?, attempt_count = ?, next_retry_at = ?,
+          last_safe_error_code = ?, canonical_resource_id = ?, acknowledged_response_json = ?,
+          budget_approved = ?, review_context_json = ?
+         WHERE account_id = ? AND client_mutation_id = ? AND state = ?`,
+        next.state, next.attemptCount, next.nextRetryAt, next.lastSafeErrorCode,
+        next.canonicalResourceId,
+        response === undefined ? row.acknowledged_response_json : response,
+        next.budgetApproved ? 1 : 0,
+        context === undefined ? row.review_context_json : context,
+        accountId, mutationId, row.state,
+      );
+      assertAccount(accountId);
+      updated = changed.changes === 1;
+    });
+    return updated;
+  },
+
+  async getSyncMeta(accountId, tripId) {
+    assertAccount(accountId);
+    const db = await database();
+    assertAccount(accountId);
+    const row = await db.getFirstAsync<{
+      last_successful_refresh_at: number | null; last_error_class: string | null;
+    }>('SELECT last_successful_refresh_at, last_error_class FROM sync_meta WHERE account_id = ? AND trip_id = ?',
+      accountId, tripId);
+    assertAccount(accountId);
+    return row ? { lastSuccessfulRefreshAt: row.last_successful_refresh_at,
+      lastErrorClass: row.last_error_class } : null;
+  },
+
+  async putSyncMeta(accountId, tripId, meta) {
+    assertAccount(accountId);
+    const db = await database();
+    assertAccount(accountId);
+    await db.runAsync(
+      `INSERT INTO sync_meta (account_id, trip_id, last_successful_refresh_at, last_error_class)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(account_id, trip_id) DO UPDATE SET
+         last_successful_refresh_at = excluded.last_successful_refresh_at,
+         last_error_class = excluded.last_error_class`,
+      accountId, tripId, meta.lastSuccessfulRefreshAt, meta.lastErrorClass,
+    );
+    assertAccount(accountId);
   },
 
   async replaceReviewExpense(accountId, oldMutationId, item) {
@@ -394,6 +465,23 @@ export const offlineStore: OfflineStore = {
       );
       if (!row || row.operation !== 'expense_create' || row.state !== 'needs_review') {
         throw new Error('Expense is no longer ready for review');
+      }
+      await tx.runAsync('DELETE FROM outbox WHERE client_mutation_id = ? AND account_id = ?',
+        mutationId, accountId);
+      assertAccount(accountId);
+    });
+  },
+
+  async discardReviewPayment(accountId, mutationId) {
+    assertAccount(accountId);
+    const db = await database();
+    assertAccount(accountId);
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      const row = await tx.getFirstAsync<OutboxRow>(
+        'SELECT * FROM outbox WHERE client_mutation_id = ? AND account_id = ?', mutationId, accountId,
+      );
+      if (!row || row.operation !== 'manual_payment_create' || row.state !== 'needs_review') {
+        throw new Error('Payment is no longer ready for review');
       }
       await tx.runAsync('DELETE FROM outbox WHERE client_mutation_id = ? AND account_id = ?',
         mutationId, accountId);

@@ -75,6 +75,31 @@ it('reports an authenticated 401 so the active session can be locked', async () 
   storage.getItem.mockResolvedValue(null);
 });
 
+it('binds a sync request to its account token and exposes Retry-After without global logout', async () => {
+  process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+  jest.resetModules();
+  const { api, subscribeUnauthorized } = require('../api');
+  const onUnauthorized = jest.fn();
+  const unsubscribe = subscribeUnauthorized(onUnauthorized);
+  const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+    ok: false, status: 401, text: () => Promise.resolve('{}'),
+  } as Response).mockResolvedValueOnce({
+    ok: false, status: 429, text: () => Promise.resolve('{}'),
+    headers: { get: () => '17' },
+  } as unknown as Response);
+  await expect(api('/trips/t1/expenses', {
+    method: 'POST', authToken: 'account-bound-token', suppressUnauthorized: true,
+  })).rejects.toMatchObject({ status: 401 });
+  expect(onUnauthorized).not.toHaveBeenCalled();
+  expect(fetchSpy.mock.calls[0][1]?.headers).toMatchObject({
+    Authorization: 'Bearer account-bound-token',
+  });
+  await expect(api('/trips/t1/expenses', {
+    method: 'POST', authToken: 'account-bound-token', suppressUnauthorized: true,
+  })).rejects.toMatchObject({ status: 429, retryAfterMs: 17_000 });
+  unsubscribe();
+});
+
 it('surfaces structured backend conversion details', async () => {
   process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
   jest.resetModules();

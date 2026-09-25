@@ -3,9 +3,10 @@ import { Platform } from 'react-native';
 import { familyMemberIds } from './familyParticipation';
 import { offlineStore } from './offlineStore';
 import type { StoredOutboxItem } from './offlineStore.shared';
+import { ANDROID_OFFLINE_WRITES_ENABLED, offlineWritesActive } from './offlineActivation';
+import { syncCoordinator } from './syncWorker';
 
-// Activation waits for the native SQLCipher restart and live Mongo transaction gates.
-export const ANDROID_EXPENSE_CAPTURE_ENABLED = false;
+export const ANDROID_EXPENSE_CAPTURE_ENABLED = ANDROID_OFFLINE_WRITES_ENABLED;
 
 export type ExpenseCaptureMember = {
   id: string;
@@ -28,7 +29,7 @@ export type ExpenseCreatePayload = Record<string, unknown> & {
 export type PendingExpense = StoredOutboxItem & { payload: ExpenseCreatePayload };
 
 export function expenseCaptureActive(): boolean {
-  return Platform.OS === 'android' && ANDROID_EXPENSE_CAPTURE_ENABLED;
+  return offlineWritesActive();
 }
 
 export function makeExpenseOutboxItem(
@@ -89,6 +90,7 @@ export async function captureExpense(item: PendingExpense, reviewId?: string): P
       && JSON.stringify(row.payload) === JSON.stringify(item.payload));
     if (!saved) throw error;
   }
+  syncCoordinator.wake(item.accountId);
 }
 
 export async function listPendingExpenses(
@@ -111,8 +113,33 @@ export function reviewReason(code: string | null): string {
   switch (code) {
     case 'expense_roster_changed': return 'Trip participants changed. Review the split.';
     case 'budget_confirmation_required': return 'The trip budget needs online confirmation.';
-    case 'expense_retry_unavailable': return 'Expense sync is temporarily unavailable.';
-    case 'forbidden': return 'Your permission to add this expense changed.';
-    default: return 'Review this expense before trying to sync it.';
+    case 'expense_retry_unavailable':
+    case 'expense_create_protocol_unavailable':
+    case 'manual_payment_create_protocol_unavailable': return 'Sync is temporarily unavailable.';
+    case 'permission_lost': return 'Your permission to add this expense changed.';
+    case 'trip_unavailable': return 'This trip is unavailable to your account.';
+    case 'invalid_write':
+    case 'invalid_local_payload': return 'This transaction needs changes before the server can accept it.';
+    case 'client_mutation_conflict': return 'This save ID conflicts with an earlier server request.';
+    case 'eligibility_changed':
+    case 'business_conflict': return 'Trip details changed. Review this transaction.';
+    case 'payment_recommendation_changed': return 'The suggested payment changed. Keep this record for review.';
+    case 'authentication_required': return 'Sign in to this account again to resume sync.';
+    case 'reconciliation_pending': return 'The server accepted this transaction. Confirmed data is still refreshing.';
+    case 'server_unavailable':
+    case 'network_unavailable': return 'Waiting for the server. Your transaction remains saved.';
+    case 'rate_limited': return 'The server asked this device to wait before retrying.';
+    default: return 'Review this pending transaction before trying to sync it.';
+  }
+}
+
+export function pendingStatusLabel(item: StoredOutboxItem): string {
+  switch (item.state) {
+    case 'sending': return 'Syncing · Pending sync';
+    case 'awaiting_reconcile': return 'Accepted by server · Refreshing confirmed data';
+    case 'needs_review': return 'Needs review · Pending sync';
+    case 'paused_auth': return 'Sign in to sync · Pending sync';
+    case 'queued': return item.nextRetryAt ? 'Waiting to retry · Pending sync' : 'Pending sync';
+    case 'synced': return 'Synced';
   }
 }
