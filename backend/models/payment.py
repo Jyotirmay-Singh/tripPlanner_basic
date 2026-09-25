@@ -1,7 +1,10 @@
 from decimal import Decimal
 from typing import List, Optional
+from uuid import UUID
 
-from pydantic import BaseModel, Field, StrictStr, field_validator
+from pydantic import BaseModel, Field, StrictStr, field_validator, model_validator
+
+from utils.currency_rules import normalize_currency
 
 
 class PaymentCreate(BaseModel):
@@ -12,6 +15,22 @@ class PaymentCreate(BaseModel):
     to_member_id: str
     amount: Decimal = Field(gt=0, allow_inf_nan=False)
     note: Optional[str] = None
+    client_mutation_id: Optional[UUID] = None
+    expected_payable: Optional[Decimal] = Field(default=None, gt=0, allow_inf_nan=False)
+    expected_currency: Optional[str] = None
+
+    @field_validator("expected_currency")
+    @classmethod
+    def _check_expected_currency(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_currency(value, allow_none=True)
+
+    @model_validator(mode="after")
+    def _retry_precondition(self):
+        if self.client_mutation_id and (
+            self.expected_payable is None or self.expected_currency is None
+        ):
+            raise ValueError("client_mutation_id requires expected_payable and expected_currency")
+        return self
 
 
 class PaymentPatch(BaseModel):

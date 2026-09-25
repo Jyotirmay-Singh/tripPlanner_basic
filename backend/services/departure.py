@@ -1186,6 +1186,9 @@ async def delete_account(user: dict, *, confirmation: str, acknowledge_unsettled
         await db.expense_mutation_receipts.delete_many(
             {"actor_user_id": user["id"]}, session=session,
         )
+        await db.payment_mutation_receipts.delete_many(
+            {"actor_user_id": user["id"]}, session=session,
+        )
         deleted = await db.users.delete_one({"id": user["id"]}, session=session)
         if getattr(deleted, "deleted_count", 1) == 0:
             raise _conflict(

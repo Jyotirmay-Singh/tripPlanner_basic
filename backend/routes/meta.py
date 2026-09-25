@@ -10,6 +10,7 @@ from config import (
 )
 from utils.money_policy import money_policy_config
 from services.expense_idempotency import expense_protocol_ready
+from services.payment_idempotency import payment_protocol_ready
 
 router = APIRouter()
 CHAT_PROTOCOL_VERSION = 1
@@ -41,6 +42,7 @@ async def get_config():
         "money_policy": money_policy_config(),
         "chat_protocol_version": CHAT_PROTOCOL_VERSION,
         "expense_create_protocol_version": 1 if expense_protocol_ready() else 0,
+        "payment_create_protocol_version": 1 if payment_protocol_ready() else 0,
     }
 
 

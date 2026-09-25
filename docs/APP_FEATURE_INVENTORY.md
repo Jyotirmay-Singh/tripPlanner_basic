@@ -62,11 +62,13 @@ MongoDB is accessed through Motor ([backend/database.py](../backend/database.py#
 | `trips` | Trip metadata, share code, access arrays, embedded member/family roster, and monotonic `last_activity_at` recency |
 | `trip_mobile_claims` | Active per-trip projections of linked users' mobile numbers, uniquely guarded by both trip/number and trip/user |
 | `expenses` | Canonical signed trip-currency transactions plus original-currency/rate audit metadata, payer, participants, split data, and receipt reference |
+| `expense_mutation_receipts` | Permanent accepted expense-create outcomes for safe UUID replay after ledger-row deletion |
 | `exchange_rates` | Durable provider/pair/effective-date Decimal128 reference rates and revision history |
 | `exchange_rate_aliases` | Requested-date and latest-rate cache aliases, including bounded latest freshness/staleness windows |
 | `exchange_rate_quotes` | Short-lived, user-bound conversion previews used for explicit write approval |
 | `settlements` | Legacy completed settlements and the older pending-to-paid lifecycle |
 | `payments` | Current partial-payment log over suggested debtor/creditor pairs, including sanitized recipient-confirmed UPI rows |
+| `payment_mutation_receipts` | Permanent accepted manual-payment-create outcomes for safe UUID replay after ledger-row deletion |
 | `payment_attempts` | Immutable UPI handoff/confirmation audit, active-direction lock, private reference, status transitions, expiry, and linked ledger payment ID |
 | `chat_messages` | Per-trip text history, sent-time attribution, edits, and deletion tombstones |
 | `chat_reads` | Per-trip/per-user last-read sequence for cross-device unread counts |
@@ -146,6 +148,8 @@ was contacted during this audit.
 | Local/hosted deployment wiring | Configured but inactive | Compose, Render backend, Vercel web, and EAS native profiles are present | Deployment/config files | [docker-compose.yml](../docker-compose.yml#L7), [render.yaml](../render.yaml#L5), [frontend/vercel.json](../frontend/vercel.json#L1), [frontend/eas.json](../frontend/eas.json#L1) | Configuration review only | No deployment was contacted; duplicate root/frontend Expo/EAS identities conflict |
 
 The expense-create API also accepts an optional UUID mutation ID with an explicit split and relevant-roster precondition. On a transaction-verified MongoDB it stores a permanent receipt and returns the original accepted response on retry, without repeating audits or notifications; changed intent or roster returns 409. `/meta/config` advertises `expense_create_protocol_version: 1` only after the write-transaction probe succeeds. This backend-only protocol is implemented and locally unit-tested, but the live MongoDB test is unverified because localhost:27017 is unavailable; Android expense capture remains online-only.
+
+Manual payment creation also accepts an optional UUID mutation ID plus the selected pair's expected payable and currency. On a transaction-verified MongoDB, an accepted retry returns its durable receipt without posting another payment, even after deletion; stale recommendations and changed intent return 409. `/meta/config` advertises `payment_create_protocol_version: 1` only after its write-transaction probe succeeds. The backend contract and focused regressions passed locally; its real-Mongo test skipped because localhost:27017 is unavailable. The existing client still records manual payments online without a mutation ID, and offline payment capture has not started.
 
 ## User Roles and Permissions
 

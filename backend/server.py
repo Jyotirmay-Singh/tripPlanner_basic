@@ -21,6 +21,7 @@ from services.payment_attempts import start_payment_attempt_sweeper, stop_paymen
 from services.trip_activity import backfill_trip_activity
 from services.mobile_claims import reconcile_mobile_claims
 from services.expense_idempotency import verify_expense_transactions
+from services.payment_idempotency import verify_payment_transactions
 
 
 # ---------- Startup / Shutdown ----------
@@ -102,6 +103,11 @@ async def lifespan(app: FastAPI):
         [("actor_user_id", 1), ("operation", 1), ("client_mutation_id", 1)],
         unique=True,
         name="unique_expense_mutation",
+    )
+    await db.payment_mutation_receipts.create_index(
+        [("actor_user_id", 1), ("operation", 1), ("client_mutation_id", 1)],
+        unique=True,
+        name="unique_payment_mutation",
     )
     await db.exchange_rates.create_index([
         ("provider", 1), ("source_currency", 1), ("target_currency", 1), ("effective_date", 1)
@@ -266,6 +272,7 @@ async def lifespan(app: FastAPI):
     # The pass is idempotent and is also the crash-recovery path for standalone MongoDB writes.
     await reconcile_mobile_claims()
     await verify_expense_transactions()
+    await verify_payment_transactions()
 
     # one-time, secret-free summary of how outbound email behaves in this process
     logger.info(sender_mode_summary())

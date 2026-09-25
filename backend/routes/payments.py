@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pymongo.errors import DuplicateKeyError
 
 from database import db
 from models.payment import (
@@ -18,7 +19,7 @@ from services.exchange_rates import (
 from utils.common import gen_id, now_utc
 from utils.deps import get_current_user, _trip_or_404, _payment_or_403, is_trip_admin
 from utils.members import padded_family_member_ids
-from utils.permissions import can_record_payment
+from utils.permissions import can_record_payment, is_super_admin
 from utils.upi_attempt_permissions import (
     can_initiate_upi_attempt,
     can_inspect_upi_recipient_details,
@@ -29,9 +30,16 @@ from utils.settlement_gate import (
     payable_tolerance,
     validate_new_amount,
 )
-from services.push_notifications import classify_payment_notification, enqueue_notification_event
+from services.push_notifications import (
+    classify_payment_notification, dispatch_outbox_event, enqueue_notification_event,
+    notification_event_key,
+)
 from services.admin_audit import record_admin_action
 from services.money_audit import record_money_normalizations
+from services.payment_idempotency import (
+    disable_payment_protocol, intent_fingerprint, payment_protocol_ready, receipt_key,
+    replay_or_conflict,
+)
 from services.ledger_transactions import (
     TransactionUnavailableError,
     run_optional_transaction,
@@ -373,6 +381,110 @@ async def preview_payment_handoff(
 
 
 # ---------- Partial Payments (Phase 20) ----------
+async def _create_retryable_payment(trip_id: str, body: PaymentCreate, user: dict,
+                                    fingerprint: str, background_tasks: BackgroundTasks) -> dict:
+    key = receipt_key(user["id"], str(body.client_mutation_id))
+
+    async def transactional_write(session):
+        receipt = await db.payment_mutation_receipts.find_one(key, session=session)
+        if receipt is not None:
+            return replay_or_conflict(receipt, trip_id, fingerprint), False
+        trip = await db.trips.find_one({"id": trip_id}, {"_id": 0}, session=session)
+        if trip is None:
+            raise HTTPException(404, "Trip not found")
+        if not is_super_admin(user) and user["id"] not in trip.get("user_ids", []):
+            raise HTTPException(403, "Not a member of this trip")
+        if not can_record_payment(trip, body.to_member_id, user):
+            raise HTTPException(403, "Only the receiver or a trip admin can record this payment")
+        amount, audit_fields = validate_new_amount(trip, body.amount)
+        if body.from_member_id == body.to_member_id:
+            raise HTTPException(400, "A payment cannot be from and to the same member")
+        member_ids = {member["id"] for member in trip.get("members", [])}
+        if body.from_member_id not in member_ids or body.to_member_id not in member_ids:
+            raise HTTPException(400, "Both members must belong to this trip")
+
+        balances = await _compute_balances(
+            trip_id, diagnostic=is_trip_admin(trip, user), session=session,
+        )
+        payable = _suggested_amount(
+            balances["transfers"], body.from_member_id, body.to_member_id,
+        )
+        if (trip.get("currency", "INR") != body.expected_currency
+                or payable <= 0 or payable != body.expected_payable):
+            raise HTTPException(409, detail={"code": "payment_recommendation_changed"})
+        if amount > payable + payable_tolerance(trip):
+            raise HTTPException(400, f"Amount exceeds the {int(payable):,} payable for this pair")
+
+        doc = {
+            "id": gen_id(), "trip_id": trip_id,
+            "from_member_id": body.from_member_id,
+            "to_member_id": body.to_member_id,
+            "amount": int(amount) if audit_fields else float(amount),
+            "currency": trip.get("currency", "INR"),
+            "created_at": now_utc().isoformat(),
+            "recorded_by": user["id"],
+            "note": body.note,
+            **audit_fields,
+        }
+        await db.payment_mutation_receipts.insert_one({
+            **key, "trip_id": trip_id, "fingerprint": fingerprint,
+            "resource_id": doc["id"], "response": dict(doc),
+            "created_at": doc["created_at"],
+        }, session=session)
+        version_query = {"id": trip_id, "version": trip.get("version", 0)}
+        if "version" not in trip:
+            version_query["version"] = {"$exists": False}
+        guard = await db.trips.update_one(
+            version_query,
+            with_trip_activity({"$inc": {"version": 1}}, doc["created_at"]),
+            session=session,
+        )
+        if not _write_changed(guard):
+            raise _balances_changed()
+        await db.payments.insert_one(dict(doc), session=session)
+        await record_money_normalizations(
+            [normalization_change("amount", body.amount, amount)],
+            actor_user_id=user["id"], trip_id=trip_id,
+            resource_type="payment", resource_id=doc["id"], session=session,
+        )
+        await record_admin_action(
+            user, "payment.created", trip=trip, resource_type="payment",
+            resource_id=doc["id"],
+            changed_fields=("from_member_id", "to_member_id", "amount", "note"),
+            event_id=f"payment.created:{doc['id']}", session=session,
+        )
+        display_names = member_display_names(trip.get("members", []))
+        await enqueue_notification_event(
+            event_type="payment.recorded", source_id=doc["id"], trip_id=trip_id,
+            actor_user_id=user["id"],
+            payer_name=display_names.get(body.from_member_id),
+            recipient_name=display_names.get(body.to_member_id),
+            amount=doc["amount"], currency=doc["currency"],
+            payment_classification=classify_payment_notification(
+                amount, payable, payable_tolerance(trip),
+            ),
+            session=session,
+        )
+        return dict(doc), True
+
+    try:
+        response, created = await run_required_transaction(transactional_write)
+    except TransactionUnavailableError as exc:
+        disable_payment_protocol()
+        raise HTTPException(503, detail={"code": "payment_retry_unavailable", "retryable": True}) from exc
+    except DuplicateKeyError:
+        receipt = await db.payment_mutation_receipts.find_one(key)
+        if receipt is None:
+            raise
+        return replay_or_conflict(receipt, trip_id, fingerprint)
+
+    if created:
+        background_tasks.add_task(
+            dispatch_outbox_event, notification_event_key("payment.recorded", response["id"]),
+        )
+    return response
+
+
 @router.get("/trips/{trip_id}/payments")
 async def list_payments(trip_id: str, user=Depends(get_current_user)):
     # Any trip member may view the payment log (everyone sees badges + logs), newest first.
@@ -386,6 +498,18 @@ async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: Ba
                          user=Depends(get_current_user)):
     # Record a (possibly partial) payment along a CURRENTLY SUGGESTED debtor->creditor pair. The
     # receiver (creditor's app user) or a trip admin may record; the payer never self-records.
+    if body.client_mutation_id is not None:
+        fingerprint = intent_fingerprint(body)
+        key = receipt_key(user["id"], str(body.client_mutation_id))
+        receipt = await db.payment_mutation_receipts.find_one(key)
+        if receipt is not None:
+            return replay_or_conflict(receipt, trip_id, fingerprint)
+        if not payment_protocol_ready():
+            raise HTTPException(503, detail={"code": "payment_retry_unavailable", "retryable": True})
+        return await _create_retryable_payment(
+            trip_id, body, user, fingerprint, background_tasks,
+        )
+
     trip = await _trip_or_404(trip_id, user)
     current_version = trip.get("version", 0)
     if not can_record_payment(trip, body.to_member_id, user):

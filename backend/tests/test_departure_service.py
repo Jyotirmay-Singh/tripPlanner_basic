@@ -529,6 +529,7 @@ def test_account_deletion_requires_acknowledgement_then_runs_scoped_and_global_c
         password_reset_tokens=SimpleNamespace(delete_many=AsyncMock()),
         push_devices=SimpleNamespace(delete_many=AsyncMock()),
         expense_mutation_receipts=SimpleNamespace(delete_many=AsyncMock()),
+        payment_mutation_receipts=SimpleNamespace(delete_many=AsyncMock()),
     )
     monkeypatch.setattr(departure, "db", fake_db)
     monkeypatch.setattr(departure, "_run_destructive_transaction", execute)
@@ -557,6 +558,9 @@ def test_account_deletion_requires_acknowledgement_then_runs_scoped_and_global_c
     assert scrub.await_args_list[0].kwargs["identity"] == identity
     assert scrub.await_args_list[1].kwargs["trip_id"] is None
     fake_db.expense_mutation_receipts.delete_many.assert_awaited_once_with(
+        {"actor_user_id": "user-1"}, session="session",
+    )
+    fake_db.payment_mutation_receipts.delete_many.assert_awaited_once_with(
         {"actor_user_id": "user-1"}, session="session",
     )
     users.delete_one.assert_awaited_once_with({"id": "user-1"}, session="session")
