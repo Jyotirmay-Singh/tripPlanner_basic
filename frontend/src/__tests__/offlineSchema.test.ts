@@ -14,6 +14,7 @@ it('rolls back a failed migration and succeeds on retry', async () => {
           if (sql.includes('PRAGMA user_version = 1')) pendingVersion = 1;
           if (sql.includes('PRAGMA user_version = 2')) pendingVersion = 2;
           if (sql.includes('PRAGMA user_version = 3')) pendingVersion = 3;
+          if (sql.includes('PRAGMA user_version = 4')) pendingVersion = 4;
         },
       });
       version = pendingVersion;
@@ -23,7 +24,7 @@ it('rolls back a failed migration and succeeds on retry', async () => {
   expect(version).toBe(0);
   failCreate = false;
   await migrateOfflineSchema(db);
-  expect(version).toBe(3);
+  expect(version).toBe(4);
 });
 
 it('upgrades an existing v1 store without recreating its account or outbox tables', async () => {
@@ -42,6 +43,7 @@ it('upgrades an existing v1 store without recreating its account or outbox table
         }
         if (sql.includes('PRAGMA user_version = 2')) pendingVersion = 2;
         if (sql.includes('PRAGMA user_version = 3')) pendingVersion = 3;
+        if (sql.includes('PRAGMA user_version = 4')) pendingVersion = 4;
       } });
       version = pendingVersion;
     },
@@ -50,6 +52,25 @@ it('upgrades an existing v1 store without recreating its account or outbox table
   expect(version).toBe(1);
   failUpgrade = false;
   await migrateOfflineSchema(db);
-  expect(version).toBe(3);
+  expect(version).toBe(4);
   expect(statements.join('\n')).not.toContain('CREATE TABLE outbox');
+});
+
+it('adds the payment capability to an existing v3 account without changing queued rows', async () => {
+  let version = 3;
+  const statements: string[] = [];
+  const db = {
+    getFirstAsync: async <T,>() => ({ user_version: version } as T),
+    execAsync: async () => {},
+    withExclusiveTransactionAsync: async (task: (tx: { execAsync: (sql: string) => Promise<void> }) => Promise<void>) => {
+      await task({ execAsync: async (sql) => {
+        statements.push(sql);
+        if (sql.includes('PRAGMA user_version = 4')) version = 4;
+      } });
+    },
+  };
+  await migrateOfflineSchema(db);
+  expect(version).toBe(4);
+  expect(statements.join('\n')).toContain('ADD COLUMN payment_protocol_version');
+  expect(statements.join('\n')).not.toContain('outbox');
 });

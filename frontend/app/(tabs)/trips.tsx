@@ -190,9 +190,10 @@ export default function Trips() {
           {item.lastSafeErrorCode ? <T variant="caption" muted>
             {reviewReason(item.lastSafeErrorCode)}
           </T> : null}
-          {item.operation === 'expense_create' ? <Button label="Review"
-            onPress={() => router.push(`/trip/${item.tripId}/pending-expense?mutationId=${encodeURIComponent(item.clientMutationId)}`)}
-            testID={`trips-review-${item.clientMutationId}`} /> : null}
+          <Button label="Review"
+            onPress={() => router.push(`/trip/${item.tripId}/${item.operation === 'expense_create'
+              ? 'pending-expense' : 'pending-payment'}?mutationId=${encodeURIComponent(item.clientMutationId)}`)}
+            testID={`trips-review-${item.clientMutationId}`} />
           {(item.state === 'queued' || item.state === 'awaiting_reconcile') ? <Button
             label="Retry sync" disabled={!offlineWritesActive()}
             onPress={() => { if (item.state === 'awaiting_reconcile') {

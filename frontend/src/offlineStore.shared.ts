@@ -58,6 +58,8 @@ export interface OfflineStore {
   saveIdentity(record: CachedIdentityRecord): Promise<void>;
   getExpenseProtocolVersion(accountId: string): Promise<number>;
   setExpenseProtocolVersion(accountId: string, version: number): Promise<void>;
+  getPaymentProtocolVersion(accountId: string): Promise<number>;
+  setPaymentProtocolVersion(accountId: string, version: number): Promise<void>;
   getTripSnapshot(accountId: string, tripId: string): Promise<Snapshot | null>;
   putTripSnapshot(accountId: string, tripId: string, snapshot: Snapshot): Promise<void>;
   getTripReadBundle(accountId: string, tripId: string): Promise<Snapshot | null>;
@@ -73,6 +75,7 @@ export interface OfflineStore {
   getSyncMeta(accountId: string, tripId: string): Promise<SyncMeta | null>;
   putSyncMeta(accountId: string, tripId: string, meta: SyncMeta): Promise<void>;
   replaceReviewExpense(accountId: string, oldMutationId: string, item: StoredOutboxItem): Promise<void>;
+  replaceReviewPayment(accountId: string, oldMutationId: string, item: StoredOutboxItem): Promise<void>;
   discardReviewExpense(accountId: string, mutationId: string): Promise<void>;
   discardReviewPayment(accountId: string, mutationId: string): Promise<void>;
   pendingCount(accountId: string): Promise<number>;

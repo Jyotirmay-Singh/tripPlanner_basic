@@ -162,6 +162,28 @@ export const offlineStore: OfflineStore = {
     );
   },
 
+  async getPaymentProtocolVersion(accountId) {
+    assertAccount(accountId);
+    const db = await database();
+    assertAccount(accountId);
+    const row = await db.getFirstAsync<{ payment_protocol_version: number }>(
+      'SELECT payment_protocol_version FROM account_meta WHERE account_id = ?', accountId,
+    );
+    assertAccount(accountId);
+    return row?.payment_protocol_version ?? 0;
+  },
+
+  async setPaymentProtocolVersion(accountId, version) {
+    assertAccount(accountId);
+    if (version !== 0 && version !== 1) throw new Error('Unsupported payment protocol version');
+    const db = await database();
+    assertAccount(accountId);
+    await db.runAsync(
+      'UPDATE account_meta SET payment_protocol_version = ? WHERE account_id = ?',
+      version, accountId,
+    );
+  },
+
   async getTripSnapshot(accountId, tripId) {
     assertAccount(accountId);
     const db = await database();
@@ -331,7 +353,7 @@ export const offlineStore: OfflineStore = {
         if (existing.account_id !== item.accountId || existing.trip_id !== item.tripId
           || existing.operation !== item.operation || existing.payload_json !== payload
           || existing.precondition_json !== precondition) {
-          throw new Error('This save ID already belongs to another expense');
+          throw new Error('This save ID already belongs to another transaction');
         }
         return;
       }
@@ -445,6 +467,39 @@ export const offlineStore: OfflineStore = {
            payload_json, precondition_json, queued_at, state, attempt_count, next_retry_at,
            last_safe_error_code, canonical_resource_id, acknowledged_response_json)
          VALUES (?, ?, ?, 'expense_create', ?, ?, ?, 'queued', 0, NULL, NULL, NULL, NULL)`,
+        item.clientMutationId, accountId, item.tripId, payload, precondition, item.queuedAt,
+      );
+      await tx.runAsync(
+        'DELETE FROM outbox WHERE client_mutation_id = ? AND account_id = ? AND state = ?',
+        oldMutationId, accountId, 'needs_review',
+      );
+      assertAccount(accountId);
+    });
+  },
+
+  async replaceReviewPayment(accountId, oldMutationId, item) {
+    assertAccount(accountId);
+    if (item.accountId !== accountId || item.operation !== 'manual_payment_create'
+      || item.clientMutationId === oldMutationId) throw new Error('Invalid reviewed payment');
+    const payload = safeSnapshotJson(item.payload);
+    const precondition = safeSnapshotJson(item.precondition);
+    const db = await database();
+    assertAccount(accountId);
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      const old = await tx.getFirstAsync<OutboxRow>(
+        'SELECT * FROM outbox WHERE client_mutation_id = ? AND account_id = ?',
+        oldMutationId, accountId,
+      );
+      if (!old || old.operation !== 'manual_payment_create' || old.state !== 'needs_review'
+        || old.canonical_resource_id || old.trip_id !== item.tripId
+        || old.last_safe_error_code === 'client_mutation_conflict') {
+        throw new Error('Payment is no longer ready for review');
+      }
+      await tx.runAsync(
+        `INSERT INTO outbox (client_mutation_id, account_id, trip_id, operation,
+           payload_json, precondition_json, queued_at, state, attempt_count, next_retry_at,
+           last_safe_error_code, canonical_resource_id, acknowledged_response_json)
+         VALUES (?, ?, ?, 'manual_payment_create', ?, ?, ?, 'queued', 0, NULL, NULL, NULL, NULL)`,
         item.clientMutationId, accountId, item.tripId, payload, precondition, item.queuedAt,
       );
       await tx.runAsync(

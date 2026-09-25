@@ -1,4 +1,4 @@
-export const OFFLINE_SCHEMA_VERSION = 3;
+export const OFFLINE_SCHEMA_VERSION = 4;
 
 type MigrationTransaction = {
   execAsync(sql: string): Promise<void>;
@@ -80,6 +80,10 @@ ALTER TABLE outbox ADD COLUMN budget_approved INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE outbox ADD COLUMN review_context_json TEXT;
 `;
 
+const FOURTH_SCHEMA = `
+ALTER TABLE account_meta ADD COLUMN payment_protocol_version INTEGER NOT NULL DEFAULT 0;
+`;
+
 export async function migrateOfflineSchema(db: MigrationDatabase): Promise<void> {
   const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
   const version = row?.user_version ?? 0;
@@ -103,6 +107,12 @@ export async function migrateOfflineSchema(db: MigrationDatabase): Promise<void>
     await db.withExclusiveTransactionAsync(async (tx) => {
       await tx.execAsync(THIRD_SCHEMA);
       await tx.execAsync('PRAGMA user_version = 3');
+    });
+  }
+  if (version < 4) {
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      await tx.execAsync(FOURTH_SCHEMA);
+      await tx.execAsync('PRAGMA user_version = 4');
     });
   }
 }

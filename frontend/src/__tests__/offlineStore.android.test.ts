@@ -80,6 +80,23 @@ it('keeps identity reads scoped to the currently active account', async () => {
   });
 });
 
+it('reads and updates the payment protocol only for the active account', async () => {
+  const { offlineStore, db } = environment();
+  offlineStore.setActiveAccount('account-a');
+  await offlineStore.saveIdentity(identity);
+  db.getFirstAsync.mockImplementation(async (sql: string) =>
+    sql.includes('SELECT payment_protocol_version') ? { count: 0, payment_protocol_version: 1 } : null);
+  expect(await offlineStore.getPaymentProtocolVersion('account-a')).toBe(1);
+  await offlineStore.setPaymentProtocolVersion('account-a', 0);
+  expect(db.runAsync).toHaveBeenCalledWith(
+    'UPDATE account_meta SET payment_protocol_version = ? WHERE account_id = ?',
+    0, 'account-a',
+  );
+  offlineStore.setActiveAccount('account-b');
+  await expect(offlineStore.getPaymentProtocolVersion('account-a'))
+    .rejects.toMatchObject({ code: 'account_mismatch' });
+});
+
 it('refuses a restored database whose encryption key is missing', async () => {
   const { offlineStore, SQLite } = environment({ fileExists: true });
   offlineStore.setActiveAccount('account-a');
@@ -151,7 +168,7 @@ it('replaces all five trip reads atomically and retains the old set after a fail
   expect(db.runAsync).toHaveBeenCalledTimes(1); // Identity only; bundle writes use the transaction.
 });
 
-it('commits one expense UUID durably, rejects changed intent, and retains it after a cold module restart', async () => {
+it('commits expense and payment UUIDs durably and retains them after a cold module restart', async () => {
   const { offlineStore, db, secrets } = environment();
   offlineStore.setActiveAccount('account-a');
   await offlineStore.saveIdentity(identity);
@@ -194,7 +211,18 @@ it('commits one expense UUID durably, rejects changed intent, and retains it aft
   await offlineStore.enqueueOutbox(item);
   expect(rows.size).toBe(1);
   await expect(offlineStore.enqueueOutbox({ ...item, payload: { amount: -30 } }))
-    .rejects.toThrow('another expense');
+    .rejects.toThrow('another transaction');
+  const payment = {
+    ...item, clientMutationId: '7fa30d5e-b4f6-4cb3-b45a-27b4119d0102',
+    operation: 'manual_payment_create' as const,
+    payload: { from_member_id: 'payer', to_member_id: 'receiver', amount: 10,
+      note: 'Cash', expected_payable: 50, expected_currency: 'INR',
+      client_mutation_id: '7fa30d5e-b4f6-4cb3-b45a-27b4119d0102' },
+    precondition: { expectedPayable: 50, currency: 'INR', fetchedAt: 100 },
+  };
+  await offlineStore.enqueueOutbox(payment);
+  await offlineStore.enqueueOutbox(payment);
+  expect(rows.size).toBe(2);
 
   jest.resetModules();
   const { File } = require('expo-file-system');
@@ -205,14 +233,15 @@ it('commits one expense UUID durably, rejects changed intent, and retains it aft
   SQLite.openDatabaseAsync.mockResolvedValue(db);
   db.getFirstAsync.mockImplementation(async (sql: string) => {
     if (sql === 'PRAGMA cipher_version') return { cipher_version: '4.6.0' };
-    if (sql === 'PRAGMA user_version') return { user_version: 3 };
+    if (sql === 'PRAGMA user_version') return { user_version: 4 };
     return { count: 0 };
   });
   const restored = require('../offlineStore.android').offlineStore;
   restored.setActiveAccount('account-a');
-  expect(await restored.listOutbox('account-a')).toEqual([{
-    ...item, budgetApproved: false, reviewContext: null,
-  }]);
+  expect(await restored.listOutbox('account-a')).toEqual([
+    { ...item, budgetApproved: false, reviewContext: null },
+    { ...payment, budgetApproved: false, reviewContext: null },
+  ]);
   restored.setActiveAccount('account-b');
   await expect(restored.listOutbox('account-a')).rejects.toMatchObject({ code: 'account_mismatch' });
 });
@@ -309,4 +338,57 @@ it('keeps a rejected intent if edit storage fails and replaces or discards it on
   });
   await offlineStore.discardReviewPayment('account-a', 'payment-id');
   expect(rows.size).toBe(0);
+});
+
+it('keeps payment review replacement atomic and rejects a conflicting receipt', async () => {
+  const { offlineStore, db } = environment();
+  offlineStore.setActiveAccount('account-a');
+  await offlineStore.saveIdentity(identity);
+  const oldId = 'old-payment-id';
+  const rows = new Map<string, Record<string, unknown>>([[oldId, {
+    client_mutation_id: oldId, account_id: 'account-a', trip_id: 'trip-1',
+    operation: 'manual_payment_create', state: 'needs_review',
+    canonical_resource_id: null, last_safe_error_code: 'payment_recommendation_changed',
+  }]]);
+  let failInsert = true;
+  db.withExclusiveTransactionAsync.mockImplementation(async (task: any) => {
+    const staged: (() => void)[] = [];
+    await task({
+      getFirstAsync: async (_sql: string, id: string) => rows.get(id) ?? null,
+      runAsync: async (sql: string, ...args: unknown[]) => {
+        if (sql.includes('INSERT INTO outbox')) {
+          if (failInsert) throw new Error('disk full');
+          staged.push(() => rows.set(args[0] as string, {
+            client_mutation_id: args[0], account_id: args[1], trip_id: args[2],
+            operation: 'manual_payment_create', state: 'queued',
+          }));
+        } else if (sql.includes('DELETE FROM outbox')) {
+          staged.push(() => rows.delete(args[0] as string));
+        }
+      },
+    });
+    staged.forEach((write) => write());
+  });
+  const item = {
+    clientMutationId: 'new-payment-id', accountId: 'account-a', tripId: 'trip-1',
+    operation: 'manual_payment_create' as const,
+    payload: { from_member_id: 'payer', to_member_id: 'receiver', amount: 20,
+      expected_payable: 50, expected_currency: 'INR' },
+    precondition: { fetchedAt: 123 }, queuedAt: 456, state: 'queued' as const,
+    attemptCount: 0, nextRetryAt: null, lastSafeErrorCode: null,
+    canonicalResourceId: null, acknowledgedResponse: null,
+  };
+  await expect(offlineStore.replaceReviewPayment('account-a', oldId, item))
+    .rejects.toThrow('disk full');
+  expect([...rows.keys()]).toEqual([oldId]);
+  rows.get(oldId)!.last_safe_error_code = 'client_mutation_conflict';
+  await expect(offlineStore.replaceReviewPayment('account-a', oldId, item))
+    .rejects.toThrow('no longer ready');
+  rows.get(oldId)!.last_safe_error_code = 'payment_recommendation_changed';
+  failInsert = false;
+  await offlineStore.replaceReviewPayment('account-a', oldId, item);
+  expect([...rows.keys()]).toEqual(['new-payment-id']);
+  offlineStore.setActiveAccount('account-b');
+  await expect(offlineStore.replaceReviewPayment('account-a', oldId, item))
+    .rejects.toMatchObject({ code: 'account_mismatch' });
 });

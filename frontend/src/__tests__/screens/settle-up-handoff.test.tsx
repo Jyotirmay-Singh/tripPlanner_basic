@@ -6,10 +6,17 @@ const mockApi = jest.fn();
 const mockListPayments = jest.fn();
 const mockListAttempts = jest.fn();
 const mockUpdateAttemptRecipient = jest.fn();
+const mockListPendingPayments = jest.fn();
+const mockMakePaymentOutboxItem = jest.fn();
+const mockCapturePayment = jest.fn();
+let mockCaptureEnabled = false;
+let mockSessionMode: 'online' | 'offline' = 'online';
+let mockReviewId: string | undefined;
 let mockUser = { id: 'payer-user', is_super_admin: false };
 
 jest.mock('expo-router', () => ({
-  useLocalSearchParams: () => ({ id: 'trip-1' }),
+  useLocalSearchParams: () => ({ id: 'trip-1', reviewId: mockReviewId }),
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
   useFocusEffect: (callback: () => void) => {
     const R = require('react');
     R.useEffect(callback, [callback]);
@@ -30,7 +37,17 @@ jest.mock('../../api', () => ({
   deletePayment: jest.fn(),
 }));
 
-jest.mock('../../AuthContext', () => ({ useAuth: () => ({ user: mockUser }) }));
+jest.mock('../../AuthContext', () => ({ useAuth: () => ({ user: mockUser, sessionMode: mockSessionMode }) }));
+jest.mock('../../offlineStore', () => ({ offlineStore: {
+  getPaymentProtocolVersion: jest.fn(async () => 1),
+} }));
+jest.mock('../../offlinePayments', () => ({
+  paymentCaptureActive: () => mockCaptureEnabled,
+  listPendingPayments: (...args: unknown[]) => mockListPendingPayments(...args),
+  makePaymentOutboxItem: (...args: unknown[]) => mockMakePaymentOutboxItem(...args),
+  capturePayment: (...args: unknown[]) => mockCapturePayment(...args),
+}));
+jest.mock('../../syncWorker', () => ({ syncCoordinator: { subscribe: () => () => {} } }));
 jest.mock('../../ThemeContext', () => ({
   useTheme: () => ({ colors: new Proxy({}, { get: () => '#123456' }) }),
 }));
@@ -38,7 +55,10 @@ jest.mock('../../T', () => {
   const R = require('react');
   return { __esModule: true, default: (props: any) => R.createElement('T', props, props.children) };
 });
-jest.mock('../../ConfirmModal', () => ({ __esModule: true, default: () => null }));
+jest.mock('../../ConfirmModal', () => ({
+  __esModule: true,
+  default: (props: any) => require('react').createElement('ConfirmModal', props),
+}));
 jest.mock('../../UpiPaymentSheet', () => ({
   __esModule: true,
   default: (props: any) => require('react').createElement('UpiPaymentSheet', props),
@@ -118,6 +138,11 @@ const interactive = (renderer: any, testID: string) => (
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockCaptureEnabled = false;
+  mockSessionMode = 'online';
+  mockReviewId = undefined;
+  mockListPendingPayments.mockResolvedValue([]);
+  mockCapturePayment.mockResolvedValue(undefined);
 });
 
 const attempt = (overrides: Record<string, unknown> = {}) => ({
@@ -177,6 +202,120 @@ it('shows saved manual-payment history without UPI details or money actions offl
   } finally {
     loader.mockRestore();
   }
+});
+
+it('queues a partial manual record from a cached pair and keeps confirmed balances unchanged', async () => {
+  mockCaptureEnabled = true;
+  mockSessionMode = 'offline';
+  const reads = require('../../offlineReads');
+  const loader = jest.spyOn(reads, 'loadTripReadBundle').mockResolvedValue({
+    data: { trip, expenses: [], balances: balance,
+      spend: { total: 0, count: 0, entities: [] }, payments: [] },
+    source: 'cache', fetchedAt: 1_700_000_000_000,
+  });
+  const queued = { clientMutationId: 'queued-id', accountId: 'recipient-user', tripId: 'trip-1',
+    operation: 'manual_payment_create', state: 'queued', queuedAt: 1_700_000_000_001,
+    payload: { from_member_id: 'payer', to_member_id: 'recipient', amount: 20,
+      expected_payable: 50, expected_currency: 'INR' },
+    lastSafeErrorCode: null, canonicalResourceId: null };
+  mockMakePaymentOutboxItem.mockReturnValue(queued);
+  mockListPendingPayments.mockResolvedValueOnce([]).mockResolvedValue([queued]);
+  try {
+    const renderer = await mountAs({ id: 'recipient-user', is_super_admin: false });
+    expect(hosts(renderer, 'record-payment-0')).toHaveLength(1);
+    expect(hosts(renderer, 'upi-pay-0')).toHaveLength(0);
+    await act(async () => { interactive(renderer, 'record-payment-0').props.onPress(); });
+    const amountModal = renderer.root.find((item: any) =>
+      typeof item.type === 'function' && item.type.name === 'AmountModal');
+    await act(async () => { amountModal.props.onSubmit(20, 'Cash'); });
+    const confirm = renderer.root.findByType('ConfirmModal');
+    expect(confirm.props.message).toContain('already paid');
+    await act(async () => {
+      confirm.props.actions[1].onPress();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockMakePaymentOutboxItem).toHaveBeenCalledWith('recipient-user', trip, balance,
+      balance.transfers[0], 20, 'Cash', 1_700_000_000_000,
+      undefined, undefined, false);
+    expect(mockCapturePayment).toHaveBeenCalledWith(queued, undefined);
+    expect(hosts(renderer, 'payment-pending-queued-id')).toHaveLength(1);
+    expect(hosts(renderer, 'payment-history-queued-id')).toHaveLength(0);
+    expect(hosts(renderer, 'payable-0')).toHaveLength(1);
+  } finally {
+    loader.mockRestore();
+  }
+});
+
+it('does not offer cached recording to the payer when payment capture is enabled', async () => {
+  mockCaptureEnabled = true;
+  mockSessionMode = 'offline';
+  const reads = require('../../offlineReads');
+  const loader = jest.spyOn(reads, 'loadTripReadBundle').mockResolvedValue({
+    data: { trip, expenses: [], balances: balance,
+      spend: { total: 0, count: 0, entities: [] }, payments: [] },
+    source: 'cache', fetchedAt: 1_700_000_000_000,
+  });
+  try {
+    const renderer = await mountAs({ id: 'payer-user', is_super_admin: false });
+    expect(hosts(renderer, 'record-payment-0')).toHaveLength(0);
+    expect(hosts(renderer, 'upi-pay-0')).toHaveLength(0);
+  } finally { loader.mockRestore(); }
+});
+
+it('does not fall back to an immediate record if the queued payment protocol is unavailable', async () => {
+  mockCaptureEnabled = true;
+  const store = require('../../offlineStore').offlineStore;
+  store.getPaymentProtocolVersion.mockResolvedValueOnce(0);
+  const renderer = await mountAs({ id: 'recipient-user', is_super_admin: false });
+  expect(hosts(renderer, 'record-payment-0')).toHaveLength(0);
+});
+
+it('restores the payment form after a failed local save and preserves the selected facts', async () => {
+  mockCaptureEnabled = true;
+  const queued = { clientMutationId: 'queued-id', accountId: 'recipient-user', tripId: 'trip-1',
+    operation: 'manual_payment_create', state: 'queued', payload: { amount: 20 } };
+  mockMakePaymentOutboxItem.mockReturnValue(queued);
+  mockCapturePayment.mockRejectedValueOnce(new Error('disk full'));
+  const renderer = await mountAs({ id: 'recipient-user', is_super_admin: false });
+  await act(async () => { interactive(renderer, 'record-payment-0').props.onPress(); });
+  const amountModal = renderer.root.find((entry: any) =>
+    typeof entry.type === 'function' && entry.type.name === 'AmountModal');
+  await act(async () => { amountModal.props.onSubmit(20, 'Cash'); });
+  const confirm = renderer.root.findByType('ConfirmModal');
+  await act(async () => { confirm.props.actions[1].onPress(); await Promise.resolve(); });
+  const restored = renderer.root.find((entry: any) =>
+    typeof entry.type === 'function' && entry.type.name === 'AmountModal');
+  expect(restored.props.initial).toBe(20);
+  expect(restored.props.max).toBe(50);
+  expect(restored.props.initialNote).toBe('Cash');
+  expect(mockMakePaymentOutboxItem).toHaveBeenCalledTimes(1);
+  await act(async () => { restored.props.onSubmit(20, 'Cash'); });
+  expect(mockMakePaymentOutboxItem.mock.calls[1][7]).toBe('queued-id');
+});
+
+it('uses an explicit new record when replacing a rejected pending payment', async () => {
+  mockCaptureEnabled = true;
+  mockReviewId = 'old-id';
+  const old = { clientMutationId: 'old-id', accountId: 'recipient-user', tripId: 'trip-1',
+    operation: 'manual_payment_create', state: 'needs_review',
+    lastSafeErrorCode: 'payment_recommendation_changed', queuedAt: 1_700_000_000_000,
+    payload: { from_member_id: 'payer', to_member_id: 'recipient', amount: 20,
+      note: 'Cash', expected_payable: 50, expected_currency: 'INR' } };
+  const next = { ...old, clientMutationId: 'new-id', state: 'queued' };
+  mockListPendingPayments.mockResolvedValue([old]);
+  mockMakePaymentOutboxItem.mockReturnValue(next);
+  const renderer = await mountAs({ id: 'recipient-user', is_super_admin: false });
+  await act(async () => { interactive(renderer, 'record-payment-0').props.onPress(); });
+  const amountModal = renderer.root.find((entry: any) =>
+    typeof entry.type === 'function' && entry.type.name === 'AmountModal');
+  expect(amountModal.props.initial).toBe(20);
+  expect(amountModal.props.initialNote).toBe('Cash');
+  await act(async () => { amountModal.props.onSubmit(20, 'Cash'); });
+  const confirm = renderer.root.findByType('ConfirmModal');
+  expect(confirm.props.message).toContain('to Recipient Person');
+  await act(async () => { confirm.props.actions[1].onPress(); await Promise.resolve(); });
+  expect(mockCapturePayment).toHaveBeenCalledWith(next, 'old-id');
 });
 
 it('renames the receiver action to Record payment and hides payer handoff', async () => {

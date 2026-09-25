@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   View,
@@ -10,7 +10,7 @@ import {
   TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   deletePayment,
   editPayment,
@@ -20,6 +20,13 @@ import {
 } from '../../../src/api';
 import { loadTripReadBundle, type CompleteTrip, type ReadResult } from '../../../src/offlineReads';
 import OfflineReadStatus from '../../../src/OfflineReadStatus';
+import { offlineStore } from '../../../src/offlineStore';
+import {
+  capturePayment, listPendingPayments, makePaymentOutboxItem, paymentCaptureActive,
+  type PendingPayment,
+} from '../../../src/offlinePayments';
+import { pendingStatusLabel, reviewReason } from '../../../src/offlineExpenses';
+import { syncCoordinator } from '../../../src/syncWorker';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS } from '../../../src/theme';
@@ -98,12 +105,15 @@ function attemptExplanation(attempt: PaymentAttempt): string {
 export default function SettleUp() {
   const params = useLocalSearchParams<{
     id: string; paymentId?: string; settlementId?: string; paymentAttemptId?: string;
+    reviewId?: string;
   }>();
   const {
     id,
     paymentId: notificationPaymentId,
     paymentAttemptId: notificationPaymentAttemptId,
+    reviewId,
   } = params;
+  const router = useRouter();
   const { user, sessionMode } = useAuth();
   const { colors } = useTheme();
   const toast = useToast();
@@ -112,13 +122,24 @@ export default function SettleUp() {
   const [storedAttempts, setAttempts] = useState<PaymentAttempt[] | null>(null);
   const [storedTrip, setTrip] = useState<Trip | null>(null);
   const [storedRead, setRead] = useState<ReadResult<CompleteTrip<Trip, unknown, Balances, unknown, Payment>> | null>(null);
+  const [storedPending, setStoredPending] = useState<{
+    accountId: string; rows: PendingPayment[]; error: boolean;
+  } | null>(null);
+  const [storedPaymentProtocol, setStoredPaymentProtocol] = useState<{
+    accountId: string; version: number;
+  } | null>(null);
   const [readAccountId, setReadAccountId] = useState<string | null>(null);
   const loadGeneration = useRef(0);
+  const modalAccountId = useRef(user?.id);
   const bal = readAccountId === user?.id ? storedBal : null;
   const payments = readAccountId === user?.id ? storedPayments : null;
   const attempts = readAccountId === user?.id ? storedAttempts : null;
   const trip = readAccountId === user?.id ? storedTrip : null;
   const read = readAccountId === user?.id ? storedRead : null;
+  const pending = storedPending && storedPending.accountId === user?.id ? storedPending.rows : [];
+  const pendingError = !!storedPending && storedPending.accountId === user?.id && storedPending.error;
+  const paymentProtocolReady = !!storedPaymentProtocol && storedPaymentProtocol.accountId === user?.id
+    && storedPaymentProtocol.version === 1;
   const [busy, setBusy] = useState(false);
   const [storedLoadError, setLoadError] = useState<string | null>(null);
   const loadError = readAccountId === user?.id ? storedLoadError : null;
@@ -139,7 +160,8 @@ export default function SettleUp() {
     | null
     | { mode: 'record' | 'edit'; fromId: string; toId: string; fromName: string; toName: string;
         initial: number; max: number; paymentId?: string; note?: string; originalAmount?: number;
-        amountLocked?: boolean }
+        amountLocked?: boolean; transfer?: Transfer; fetchedAt?: number;
+        clientMutationId?: string; queuedAt?: number }
   >(null);
   // The shared themed guard-rail (native Alert renders no buttons on web).
   const [confirm, setConfirm] = useState<
@@ -148,20 +170,36 @@ export default function SettleUp() {
         onYes: () => void; yesId?: string }
   >(null);
 
+  useEffect(() => {
+    if (modalAccountId.current === user?.id) return;
+    modalAccountId.current = user?.id;
+    setEditor(null);
+    setConfirm(null);
+    setHandoff(null);
+  }, [user?.id]);
+
   const load = useCallback(async () => {
     if (!user?.id || !id) return;
     const generation = ++loadGeneration.current;
     try {
       setLoadError(null);
-      const [bundle, attemptResult] = await Promise.all([
+      const [bundle, attemptResult, protocolVersion] = await Promise.all([
         loadTripReadBundle<Trip, unknown, Balances, unknown, Payment>(
           user.id, id, sessionMode === 'offline',
         ),
         sessionMode === 'offline' ? Promise.resolve({ data: null })
           : listPaymentAttempts(id).then((data) => ({ data })).catch(() => ({ data: null })),
+        paymentCaptureActive() ? offlineStore.getPaymentProtocolVersion(user.id).catch(() => 0)
+          : Promise.resolve(0),
       ]);
+      const pendingResult = await listPendingPayments(user.id, id,
+        bundle.data?.payments.map((payment) => payment.id) ?? [])
+        .then((rows) => ({ rows, error: false }))
+        .catch(() => ({ rows: [] as PendingPayment[], error: true }));
       if (generation !== loadGeneration.current) return;
       setReadAccountId(user.id);
+      setStoredPending({ accountId: user.id, ...pendingResult });
+      setStoredPaymentProtocol({ accountId: user.id, version: protocolVersion });
       setRead(bundle);
       setAttempts(attemptResult.data);
       if (bundle.data) {
@@ -186,12 +224,24 @@ export default function SettleUp() {
     return () => { loadGeneration.current += 1; };
   }, [load]));
 
+  useFocusEffect(useCallback(() => {
+    if (!user?.id || !id) return () => {};
+    return syncCoordinator.subscribe((event) => {
+      if (event.accountId === user.id && event.tripId === id) void load();
+    });
+  }, [user?.id, id, load]));
+
   const members = bal?.members ?? [];
   const displayNames = memberDisplayNames(members);
-  const nameOf = (mid: string) => displayNames[mid] || '?';
+  const nameOf = (mid: string) => displayNames[mid] || mid;
   const currency = bal?.currency ?? '';
   const loading = !bal || !payments || !trip;
   const offlineView = sessionMode === 'offline' || read?.source === 'cache';
+  const queuedCaptureAvailable = paymentCaptureActive() && paymentProtocolReady
+    && !!read?.data && !read.cacheError && !pendingError;
+  const reviewItem = reviewId ? pending.find((item) => item.clientMutationId === reviewId) : null;
+  const reviewReady = !reviewId || (reviewItem?.state === 'needs_review'
+    && reviewItem.lastSafeErrorCode !== 'client_mutation_conflict');
 
   const recommendations = bal?.transfers ?? [];
   const history = [...(payments ?? [])].sort((a, b) =>
@@ -203,7 +253,9 @@ export default function SettleUp() {
   const projection = bal?.settlement_projection;
   const wholeUnit = true;
 
-  const allow = (toId: string) => !offlineView && !!attempts && !!trip && canRecordPayment(
+  const allow = (toId: string) => !!trip && !!reviewReady
+    && (queuedCaptureAvailable || (!paymentCaptureActive() && !reviewId && !offlineView && !!attempts))
+    && canRecordPayment(
     trip, toId, user?.id, members, user?.is_super_admin === true,
   );
   const canPayViaUpi = (fromId: string) => !offlineView && !!attempts && !!trip && canInitiateUpiPayment(
@@ -214,16 +266,28 @@ export default function SettleUp() {
   );
 
   // ---- Async mutations (only reached AFTER the ConfirmModal guard-rail) ----
-  const doRecord = async (fromId: string, toId: string, amount: number, note?: string) => {
-    if (offlineView || !attempts) return;
+  const doRecord = async (selected: Transfer, amount: number, note: string,
+    preparedItem: PendingPayment | null, restoreEditor: () => void) => {
+    if (!trip || !bal || !read || !user?.id) return;
     setBusy(true);
     try {
-      await recordPayment(id, { from_member_id: fromId, to_member_id: toId, amount, ...(note ? { note } : {}) });
-      toast.show('Payment recorded', 'success');
-      await load();
+      if (preparedItem) {
+        await capturePayment(preparedItem, reviewId);
+        toast.show('Saved on this device. Pending sync.', 'success');
+        if (reviewId) router.replace(`/trip/${id}/settle-up`);
+        else await load();
+      } else if (!paymentCaptureActive() && !offlineView && !reviewId && attempts) {
+        await recordPayment(id, { from_member_id: selected.from_member_id,
+          to_member_id: selected.to_member_id, amount, ...(note ? { note } : {}) });
+        toast.show('Payment recorded', 'success');
+        await load();
+      } else {
+        throw new Error('Connect and review this payment before recording it.');
+      }
     } catch (e: any) {
       toast.show(e.message || 'Could not record payment', 'error');
-      await load(); // self-heal: a 409 (or any failure) refreshes balances so the user can retry
+      if (preparedItem) restoreEditor();
+      else await load();
     } finally {
       setBusy(false);
     }
@@ -288,7 +352,9 @@ export default function SettleUp() {
     setEditor({
       mode: 'record', fromId: transfer.from_member_id, toId: transfer.to_member_id,
       fromName: nameOf(transfer.from_member_id), toName: nameOf(transfer.to_member_id),
-      initial: transfer.amount, max: transfer.amount,
+      initial: reviewItem ? Number(reviewItem.payload.amount) : transfer.amount,
+      max: transfer.amount, note: reviewItem?.payload.note,
+      transfer: { ...transfer }, fetchedAt: read?.fetchedAt ?? Date.now(),
     });
 
   const openUpiHandoff = (transfer: Transfer) => setHandoff({
@@ -327,6 +393,21 @@ export default function SettleUp() {
     const e = editor;
     if (!e) return;
     const remark = note.trim();
+    let preparedItem: PendingPayment | null = null;
+    if (e.mode === 'record' && paymentCaptureActive() && !queuedCaptureAvailable) {
+      toast.show('Payment sync is unavailable. Keep this form and reconnect to review the suggestion.', 'error');
+      return;
+    }
+    if (e.mode === 'record' && queuedCaptureAvailable && e.transfer && trip && bal && user?.id) {
+      try {
+        preparedItem = makePaymentOutboxItem(user.id, trip, bal, e.transfer, amount, remark,
+          e.fetchedAt ?? Date.now(), e.clientMutationId, e.queuedAt,
+          user.is_super_admin === true);
+      } catch (error: any) {
+        toast.show(error?.message || 'This payment suggestion changed. Review it again.', 'error');
+        return;
+      }
+    }
     setEditor(null);
     setConfirm({
       title: e.mode === 'edit'
@@ -334,8 +415,10 @@ export default function SettleUp() {
         : 'Confirm payment',
       message: e.amountLocked
         ? `Update the remark for ${e.fromName}’s recipient-confirmed UPI payment to ${e.toName}? The amount stays ${formatMoney(e.initial, { currency })}.`
-        : `Confirm ${e.fromName} paid ${formatMoney(amount, { currency })} to ${e.toName}?`,
-      yesLabel: e.mode === 'edit' ? 'Update' : 'Confirm',
+        : preparedItem && e.mode === 'record'
+          ? `Confirm ${e.fromName} already paid ${formatMoney(amount, { currency })} to ${e.toName}? This uses a last-confirmed suggestion and will stay pending until the server checks it. Confirmed balances stay unchanged until then.`
+          : `Confirm ${e.fromName} paid ${formatMoney(amount, { currency })} to ${e.toName}?`,
+      yesLabel: e.mode === 'edit' ? 'Update' : preparedItem ? 'Save pending record' : 'Confirm',
       yesVariant: 'primary',
       yesId: 'payment-confirm',
       onYes: () => {
@@ -343,7 +426,10 @@ export default function SettleUp() {
         if (e.mode === 'edit' && e.paymentId) {
           doEdit(e.paymentId, amount, e.originalAmount ?? e.initial, remark);
         }
-        else doRecord(e.fromId, e.toId, amount, remark);
+        else if (e.transfer) doRecord(e.transfer, amount, remark, preparedItem,
+          () => setEditor({ ...e, initial: amount, note: remark,
+            clientMutationId: preparedItem?.clientMutationId,
+            queuedAt: preparedItem?.queuedAt }));
       },
     });
   };
@@ -399,12 +485,22 @@ export default function SettleUp() {
       {read ? <OfflineReadStatus result={read} /> : null}
       {offlineView ? (
         <T variant="caption" muted testID="settle-offline-note">
-          These are the last server-confirmed balances and payments. Connect to record or change a payment.
+          {queuedCaptureAvailable
+            ? 'These are the last server-confirmed balances and payments. You can save a manual record of money already exchanged. It will be pending until the server checks it.'
+            : 'These are the last server-confirmed balances and payments. Connect to record or change a payment.'}
         </T>
       ) : null}
+      {reviewId ? <T variant="caption" color={colors.warning} testID="payment-review-banner">
+        {reviewReady
+          ? 'Choose the suggested pair and confirm the amount and receiver to replace the pending record. Nothing changes automatically.'
+          : 'This pending payment is no longer available for editing. Open its review to check the latest state.'}
+      </T> : null}
+      {pendingError ? <T variant="caption" color={colors.warning} testID="payment-pending-error">
+        Pending payment records could not be read on this device.
+      </T> : null}
       {!attempts && !loading && !loadError ? (
         <T variant="caption" muted testID="upi-attempts-unavailable">
-          UPI payment activity and payment actions are unavailable until you reconnect.
+          UPI payment activity and UPI actions are unavailable until you reconnect.
         </T>
       ) : null}
       {projection ? (
@@ -609,10 +705,30 @@ export default function SettleUp() {
         </View>
       ) : null}
 
-      {history.length > 0 ? (
+      {pending.length > 0 || history.length > 0 ? (
         <View style={styles.historySection}>
           <T variant="h3">Payment history</T>
-          <T muted>Recorded payments stay in chronological history even when the current plan reroutes.</T>
+          <T muted>Pending records are saved on this device. Confirmed payments stay in history even when the current plan reroutes.</T>
+          {pending.map((item) => (
+            <Card key={item.clientMutationId}
+              testID={`payment-pending-${item.clientMutationId}`}
+              accessibilityLabel={`Manual payment ${pendingStatusLabel(item)}`} style={styles.card}>
+              <View style={styles.cardTop}>
+                <Parties from={item.payload.from_member_id} to={item.payload.to_member_id} />
+                <View style={{ alignItems: 'flex-end', gap: SPACING.sm }}>
+                  <T variant="caption" muted>{formatMoney(item.payload.amount, { currency: item.payload.expected_currency })}</T>
+                  <Badge label={pendingStatusLabel(item)} color={colors.warning} icon="clock" />
+                </View>
+              </View>
+              <T variant="caption" muted>Saved on device: {formatIST(new Date(item.queuedAt).toISOString())}</T>
+              {item.payload.note ? <T variant="caption" muted numberOfLines={2}>{item.payload.note}</T> : null}
+              {item.lastSafeErrorCode ? <T variant="caption" muted>{reviewReason(item.lastSafeErrorCode)}</T> : null}
+              <T variant="caption" muted>Confirmed balances and recommendations do not include this record yet.</T>
+              <Button label="Review pending payment" variant="secondary"
+                onPress={() => router.push(`/trip/${id}/pending-payment?mutationId=${encodeURIComponent(item.clientMutationId)}`)}
+                testID={`payment-review-${item.clientMutationId}`} />
+            </Card>
+          ))}
           {history.map((payment) => (
             <Card
               key={payment.id}
@@ -664,7 +780,7 @@ export default function SettleUp() {
         </View>
       ) : null}
 
-      {editor ? (
+      {editor && readAccountId === user?.id ? (
         <AmountModal
           title={editor.mode === 'edit'
             ? (editor.amountLocked ? 'Edit payment remark' : 'Edit payment')
@@ -681,7 +797,7 @@ export default function SettleUp() {
         />
       ) : null}
 
-      {handoff && trip ? (
+      {handoff && trip && readAccountId === user?.id ? (
         <UpiPaymentSheet
           visible
           tripId={id}
@@ -703,7 +819,7 @@ export default function SettleUp() {
       ) : null}
 
       <ConfirmModal
-        visible={!!confirm}
+        visible={!!confirm && readAccountId === user?.id}
         title={confirm?.title || ''}
         message={confirm?.message}
         onRequestClose={() => setConfirm(null)}

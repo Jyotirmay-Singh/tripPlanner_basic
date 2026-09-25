@@ -225,6 +225,24 @@ it('holds a stale manual-payment recommendation for review after an earlier expe
   f.coordinator.setAccount(null);
 });
 
+it.each([
+  [403, 'permission_lost', undefined],
+  [400, 'invalid_write', undefined],
+  [409, 'payment_recommendation_changed', 'payment_recommendation_changed'],
+])('keeps a rejected manual payment unchanged after HTTP %i', async (status, code, detailCode) => {
+  const original = payment();
+  const f = fixture([original]);
+  f.post.mockRejectedValueOnce(new ApiError('Rejected', {
+    code: 'http', status, detailCode,
+  }));
+  f.coordinator.setAccount('account-a');
+  await f.coordinator.waitForIdle();
+  expect(f.rows.get(paymentId)).toMatchObject({ state: 'needs_review',
+    lastSafeErrorCode: code, payload: original.payload });
+  expect(f.serverPayments.size).toBe(0);
+  f.coordinator.setAccount(null);
+});
+
 it('holds a budget warning for explicit online approval and preserves the UUID with force', async () => {
   const f = fixture();
   f.post.mockResolvedValueOnce({ requires_confirmation: true, warning: '12 INR over budget',

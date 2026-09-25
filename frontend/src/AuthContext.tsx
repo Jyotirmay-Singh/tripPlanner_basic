@@ -124,6 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       chat_protocol_version?: number;
       multi_currency_expenses_enabled?: boolean;
       expense_create_protocol_version?: number;
+      payment_create_protocol_version?: number;
       }>('/meta/config', { auth: false });
       const linksEnabled = config?.invite_links_enabled === true;
       const currencyCapability = config?.multi_currency_expenses_enabled === true
@@ -134,9 +135,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setMultiCurrencyCapability(currencyCapability);
       setChatCapability(config?.chat_protocol_version === 1 ? 'supported' : 'unsupported');
       const expenseCreateProtocolVersion = config?.expense_create_protocol_version === 1 ? 1 : 0;
+      const paymentCreateProtocolVersion = config?.payment_create_protocol_version === 1 ? 1 : 0;
       if (user?.id) {
-        await offlineStore.setExpenseProtocolVersion(user.id, expenseCreateProtocolVersion)
-          .catch(() => {});
+        await Promise.all([
+          offlineStore.setExpenseProtocolVersion(user.id, expenseCreateProtocolVersion),
+          offlineStore.setPaymentProtocolVersion(user.id, paymentCreateProtocolVersion),
+        ].map((operation) => operation.catch(() => {})));
       }
       return { inviteLinksEnabled: linksEnabled, multiCurrencyCapability: currencyCapability };
     } catch (error) {
