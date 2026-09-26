@@ -13,7 +13,7 @@ jest.mock('expo-secure-store', () => ({
 }));
 jest.mock('expo-crypto', () => ({ getRandomBytes: jest.fn(() => new Uint8Array(32).fill(1)) }));
 jest.mock('expo-sqlite', () => ({
-  defaultDatabaseDirectory: 'file:///databases',
+  defaultDatabaseDirectory: '/databases',
   openDatabaseAsync: jest.fn(),
 }));
 
@@ -33,7 +33,12 @@ function environment(options: {
   const secrets = new Map<string, string>();
   const identities = new Map<string, { profile_json: string; verified_at: number; token_expires_at: number }>();
   let version = 0;
-  File.mockImplementation(() => ({ exists: options.fileExists ?? false }));
+  File.mockImplementation((directory: string, name: string) => {
+    if (!directory.startsWith('file:///') || name !== 'trip_offline_v1.db') {
+      throw new Error('A database file must use an absolute file URI');
+    }
+    return { exists: options.fileExists ?? false };
+  });
   SecureStore.getItemAsync.mockImplementation(async (key: string) => secrets.get(key) ?? null);
   SecureStore.setItemAsync.mockImplementation(async (key: string, value: string) => { secrets.set(key, value); });
   const db = {
@@ -62,7 +67,23 @@ function environment(options: {
         if (sql.includes('PRAGMA user_version = 1')) version = 1;
       } });
     }),
+    withTransactionAsync: jest.fn(),
   };
+  // The real adapter keys a fresh connection, then runs the callback on that same connection.
+  // Reuse the existing staged transaction fakes while preserving that connection contract.
+  db.withTransactionAsync.mockImplementation(async (task: () => Promise<void>) => {
+    await db.withExclusiveTransactionAsync(async (tx: any) => {
+      const original = {
+        execAsync: db.execAsync, getFirstAsync: db.getFirstAsync,
+        getAllAsync: db.getAllAsync, runAsync: db.runAsync,
+      };
+      if (tx.execAsync) db.execAsync = tx.execAsync;
+      if (tx.getFirstAsync) db.getFirstAsync = tx.getFirstAsync;
+      if (tx.getAllAsync) db.getAllAsync = tx.getAllAsync;
+      if (tx.runAsync) db.runAsync = tx.runAsync;
+      try { await task(); } finally { Object.assign(db, original); }
+    });
+  });
   SQLite.openDatabaseAsync.mockResolvedValue(db);
   const { offlineStore } = require('../offlineStore.android');
   return { offlineStore, secrets, identities, db, SQLite };
@@ -109,7 +130,8 @@ it('keeps the encrypted database and key intact after migration failure', async 
   offlineStore.setActiveAccount('account-a');
   await expect(offlineStore.saveIdentity(identity)).rejects.toMatchObject({ code: 'migration_failed' });
   expect(secrets.has('offline_db_key_v1')).toBe(true);
-  expect(SQLite.openDatabaseAsync).toHaveBeenCalledTimes(1);
+  expect(SQLite.openDatabaseAsync).toHaveBeenCalledWith('trip_offline_v1.db',
+    { useNewConnection: true });
 });
 
 it('refuses to use a plaintext SQLite runtime', async () => {

@@ -16,6 +16,7 @@ const KEY_NAME = 'offline_db_key_v1';
 const READY_NAME = 'offline_db_initialized_v1';
 let activeAccountId: string | null = null;
 let databasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
+let databaseKey: string | null = null;
 
 function assertAccount(accountId: string): void {
   if (!accountId || activeAccountId !== accountId) {
@@ -23,8 +24,28 @@ function assertAccount(accountId: string): void {
   }
 }
 
+async function withEncryptedTransaction(
+  task: (tx: SQLite.SQLiteDatabase) => Promise<void>,
+  key = databaseKey,
+): Promise<void> {
+  if (!key) throw new OfflineStoreError('key_missing');
+  // Expo's exclusive transaction API opens a new connection without copying PRAGMA key.
+  // Open and key an isolated connection before beginning its transaction instead.
+  const tx = await SQLite.openDatabaseAsync(DB_NAME, { useNewConnection: true });
+  try {
+    await tx.execAsync(`PRAGMA key = "x'${key}'"`);
+    await tx.getFirstAsync('SELECT count(*) AS count FROM sqlite_master');
+    await tx.execAsync('PRAGMA foreign_keys = ON');
+    await tx.withTransactionAsync(() => task(tx));
+  } finally {
+    await tx.closeAsync().catch(() => {});
+  }
+}
+
 async function openEncryptedDatabase(): Promise<SQLite.SQLiteDatabase> {
-  const exists = new File(SQLite.defaultDatabaseDirectory, DB_NAME).exists;
+  // expo-sqlite exposes a filesystem path on Android, while expo-file-system requires a file URI.
+  const directory = SQLite.defaultDatabaseDirectory;
+  const exists = new File(directory.startsWith('file://') ? directory : `file://${directory}`, DB_NAME).exists;
   const [storedKey, initialized] = await Promise.all([
     SecureStore.getItemAsync(KEY_NAME),
     SecureStore.getItemAsync(READY_NAME),
@@ -45,11 +66,16 @@ async function openEncryptedDatabase(): Promise<SQLite.SQLiteDatabase> {
     await db.getFirstAsync('SELECT count(*) AS count FROM sqlite_master');
     await db.execAsync('PRAGMA foreign_keys = ON');
     try {
-      await migrateOfflineSchema(db);
+      await migrateOfflineSchema({
+        execAsync: (sql) => db.execAsync(sql),
+        getFirstAsync: <T,>(sql: string) => db.getFirstAsync<T>(sql),
+        withExclusiveTransactionAsync: (task) => withEncryptedTransaction(task, key),
+      });
     } catch {
       throw new OfflineStoreError('migration_failed');
     }
     await SecureStore.setItemAsync(READY_NAME, '1');
+    databaseKey = key;
     return db;
   } catch (error) {
     await db.closeAsync().catch(() => {});
@@ -62,6 +88,7 @@ function database(): Promise<SQLite.SQLiteDatabase> {
   if (!databasePromise) {
     databasePromise = openEncryptedDatabase().catch((error) => {
       databasePromise = null;
+      databaseKey = null;
       throw error;
     });
   }
@@ -249,9 +276,9 @@ export const offlineStore: OfflineStore = {
       { kind: 'spend', json: safeSnapshotJson(bundle.spend) },
       { kind: 'payments', json: safeSnapshotJson(bundle.payments) },
     ];
-    const db = await database();
+    await database();
     assertAccount(accountId);
-    await db.withExclusiveTransactionAsync(async (tx) => {
+    await withEncryptedTransaction(async (tx) => {
       assertAccount(accountId);
       await tx.runAsync(
         `INSERT INTO trip_snapshots (account_id, trip_id, payload_json, fetched_at)
@@ -275,9 +302,9 @@ export const offlineStore: OfflineStore = {
 
   async removeTripReadData(accountId, tripId) {
     assertAccount(accountId);
-    const db = await database();
+    await database();
     assertAccount(accountId);
-    await db.withExclusiveTransactionAsync(async (tx) => {
+    await withEncryptedTransaction(async (tx) => {
       assertAccount(accountId);
       await tx.runAsync('DELETE FROM read_snapshots WHERE account_id = ? AND trip_id = ?', accountId, tripId);
       await tx.runAsync('DELETE FROM trip_snapshots WHERE account_id = ? AND trip_id = ?', accountId, tripId);
@@ -345,9 +372,9 @@ export const offlineStore: OfflineStore = {
     assertAccount(item.accountId);
     const payload = safeSnapshotJson(item.payload);
     const precondition = safeSnapshotJson(item.precondition);
-    const db = await database();
+    await database();
     assertAccount(item.accountId);
-    await db.withExclusiveTransactionAsync(async (tx) => {
+    await withEncryptedTransaction(async (tx) => {
       assertAccount(item.accountId);
       const existing = await tx.getFirstAsync<OutboxRow>(
         'SELECT * FROM outbox WHERE client_mutation_id = ?', item.clientMutationId,
@@ -393,10 +420,10 @@ export const offlineStore: OfflineStore = {
       : update.acknowledgedResponse === null ? null : safeSnapshotJson(update.acknowledgedResponse);
     const context = update.reviewContext === undefined ? undefined
       : update.reviewContext === null ? null : safeSnapshotJson(update.reviewContext);
-    const db = await database();
+    await database();
     assertAccount(accountId);
     let updated = false;
-    await db.withExclusiveTransactionAsync(async (tx) => {
+    await withEncryptedTransaction(async (tx) => {
       assertAccount(accountId);
       const row = await tx.getFirstAsync<OutboxRow>(
         'SELECT * FROM outbox WHERE account_id = ? AND client_mutation_id = ?',
@@ -457,9 +484,9 @@ export const offlineStore: OfflineStore = {
       || item.clientMutationId === oldMutationId) throw new Error('Invalid reviewed expense');
     const payload = safeSnapshotJson(item.payload);
     const precondition = safeSnapshotJson(item.precondition);
-    const db = await database();
+    await database();
     assertAccount(accountId);
-    await db.withExclusiveTransactionAsync(async (tx) => {
+    await withEncryptedTransaction(async (tx) => {
       const old = await tx.getFirstAsync<OutboxRow>(
         'SELECT * FROM outbox WHERE client_mutation_id = ? AND account_id = ?',
         oldMutationId, accountId,
@@ -487,9 +514,9 @@ export const offlineStore: OfflineStore = {
       || item.clientMutationId === oldMutationId) throw new Error('Invalid reviewed payment');
     const payload = safeSnapshotJson(item.payload);
     const precondition = safeSnapshotJson(item.precondition);
-    const db = await database();
+    await database();
     assertAccount(accountId);
-    await db.withExclusiveTransactionAsync(async (tx) => {
+    await withEncryptedTransaction(async (tx) => {
       const old = await tx.getFirstAsync<OutboxRow>(
         'SELECT * FROM outbox WHERE client_mutation_id = ? AND account_id = ?',
         oldMutationId, accountId,
@@ -516,9 +543,9 @@ export const offlineStore: OfflineStore = {
 
   async discardReviewExpense(accountId, mutationId) {
     assertAccount(accountId);
-    const db = await database();
+    await database();
     assertAccount(accountId);
-    await db.withExclusiveTransactionAsync(async (tx) => {
+    await withEncryptedTransaction(async (tx) => {
       const row = await tx.getFirstAsync<OutboxRow>(
         'SELECT * FROM outbox WHERE client_mutation_id = ? AND account_id = ?', mutationId, accountId,
       );
@@ -533,9 +560,9 @@ export const offlineStore: OfflineStore = {
 
   async discardReviewPayment(accountId, mutationId) {
     assertAccount(accountId);
-    const db = await database();
+    await database();
     assertAccount(accountId);
-    await db.withExclusiveTransactionAsync(async (tx) => {
+    await withEncryptedTransaction(async (tx) => {
       const row = await tx.getFirstAsync<OutboxRow>(
         'SELECT * FROM outbox WHERE client_mutation_id = ? AND account_id = ?', mutationId, accountId,
       );
@@ -562,9 +589,9 @@ export const offlineStore: OfflineStore = {
 
   async pruneRetainedData(accountId, now) {
     assertAccount(accountId);
-    const db = await database();
+    await database();
     assertAccount(accountId);
-    await db.withExclusiveTransactionAsync(async (tx) => {
+    await withEncryptedTransaction(async (tx) => {
       assertAccount(accountId);
       await pruneOfflineData(tx, accountId, now);
       assertAccount(accountId);
