@@ -15,7 +15,15 @@ import type { ChatMessage, ChatPage, ChatUnread } from './chat';
 import type { JoinCredential, JoinRequestView } from './joinIdentity';
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL?.trim().replace(/\/$/, '');
+const QA_LOCAL_BACKEND_URL = 'http://127.0.0.1:8000';
 const unauthorizedListeners = new Set<(token: string) => void>();
+
+export function isAllowedBackendUrl(
+  base: string, isDev: boolean, isOfflineQa: boolean, platform: string,
+): boolean {
+  return isDev || /^https:\/\//i.test(base)
+    || (isOfflineQa && platform === 'android' && base === QA_LOCAL_BACKEND_URL);
+}
 
 export function subscribeUnauthorized(listener: (token: string) => void): () => void {
   unauthorizedListeners.add(listener);
@@ -186,7 +194,9 @@ function backendBase(): string {
   if (!BASE) {
     throw new ApiError('The backend URL is not configured', { code: 'configuration' });
   }
-  if (!__DEV__ && !/^https:\/\//i.test(BASE)) {
+  if (!isAllowedBackendUrl(
+    BASE, __DEV__, process.env.EXPO_PUBLIC_OFFLINE_QA === 'true', Platform.OS,
+  )) {
     throw new ApiError('Release builds require an HTTPS backend URL', { code: 'configuration' });
   }
   return BASE;

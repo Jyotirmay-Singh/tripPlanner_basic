@@ -1,5 +1,5 @@
 import {
-  exactPositionLabel,
+  positionLabel,
   normalizedTripDeletionName,
   primaryResolution,
   selectedTripsRequireAcknowledgement,
@@ -24,10 +24,11 @@ function trip(overrides: Partial<TripDeletionImpact> = {}): TripDeletionImpact {
 }
 
 
-test('formats exact signed positions without rounding residuals away', () => {
-  expect(exactPositionLabel('0.000000000001', 'INR')).toBe('INR +0.000000000001');
-  expect(exactPositionLabel('-12.5000', 'USD')).toBe('USD -12.5');
-  expect(exactPositionLabel('0.000000000000', 'LKR')).toBe('LKR 0');
+test('formats signed positions as whole grouped money', () => {
+  expect(positionLabel('0.000000000001', 'INR')).toBe('INR 0');
+  expect(positionLabel('-12.5000', 'USD')).toBe('USD -13');
+  expect(positionLabel('12345', 'INR')).toBe('INR +12,345');
+  expect(positionLabel('0', 'LKR')).toBe('LKR 0');
 });
 
 test('requires acknowledgement only for unsettled trips retained by default', () => {

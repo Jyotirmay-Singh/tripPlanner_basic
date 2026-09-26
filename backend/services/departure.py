@@ -32,6 +32,7 @@ from utils.members import (
     assign_family_member_ids,
     padded_family_member_ids,
 )
+from utils.money_policy import whole_money
 from utils.permissions import is_super_admin
 
 
@@ -323,6 +324,10 @@ def _precise_entity_position(balances: dict, member_id: str) -> str:
     return _decimal_text((balances.get("net") or {}).get(member_id, 0))
 
 
+def _whole_position_text(value: object) -> str:
+    return str(whole_money(value, label="Position", reject_nonzero_to_zero=False))
+
+
 def _identity_payload(identity: dict) -> dict:
     return {
         "type": identity["identity_type"],
@@ -397,11 +402,13 @@ async def evaluate_trip(trip: dict, user_id: str, *, session=None) -> dict:
             (row for row in rows if row.get("id") == identity.get("family_member_id")),
             None,
         )
-        public["position"] = _decimal_text((own_row or {}).get("net", 0))
-        public["family_position"] = entity_position
+        public["position"] = _whole_position_text((own_row or {}).get("net", 0))
+        public["family_position"] = _whole_position_text(
+            (balances.get("net") or {}).get(identity["member_id"], 0)
+        )
         public["unsettled_family_members"] = [
             {"id": row.get("id"), "name": row.get("name") or "Family member",
-             "position": _decimal_text(row.get("net", 0))}
+             "position": _whole_position_text(row.get("net", 0))}
             for row in unsettled_rows
         ]
         family_settled = entity_settled and not unsettled_rows
@@ -413,16 +420,33 @@ async def evaluate_trip(trip: dict, user_id: str, *, session=None) -> dict:
             for linked_user_id in (family.get("family_member_user_ids") or [])
         ) or bool(family.get("user_id") and family.get("user_id") != user_id)
     else:
-        public["position"] = entity_position
+        public["position"] = _whole_position_text(
+            (balances.get("net") or {}).get(identity["member_id"], 0)
+        )
         public["settled"] = entity_settled
 
     if not public["settled"]:
-        public["blockers"].append(_blocker(
-            "membership_unsettled",
-            "This membership must be settled exactly before it can leave.",
-            "settle_up",
-            ("leave", "dissolve_family"),
-        ))
+        payable = any(
+            identity["member_id"] in (
+                transfer.get("from_member_id"), transfer.get("to_member_id")
+            )
+            for transfer in balances.get("transfers") or []
+        )
+        if payable:
+            public["blockers"].append(_blocker(
+                "membership_unsettled",
+                "This membership must be settled exactly before it can leave.",
+                "settle_up",
+                ("leave", "dissolve_family"),
+            ))
+        else:
+            public["blockers"].append(_blocker(
+                "ledger_reconciliation_required",
+                "This trip has an unsettled ledger position with no payable whole-unit transfer. "
+                "Ask a trip admin to reconcile the ledger before leaving.",
+                "none",
+                ("leave", "dissolve_family"),
+            ))
     if active_user_attempt:
         public["active_payment_blocker"] = True
         public["blockers"].append(_blocker(
@@ -597,6 +621,16 @@ def _raise_action_block(evaluation: dict, action: str) -> None:
             action=action,
         )
     if not public.get("settled"):
+        reconciliation = next(
+            (blocker for blocker in public.get("blockers", [])
+             if blocker.get("code") == "ledger_reconciliation_required"),
+            None,
+        )
+        if reconciliation:
+            raise _conflict(
+                reconciliation["code"], reconciliation["message"],
+                trip_id=trip_id, action=action,
+            )
         raise _conflict(
             "membership_unsettled",
             "This membership is not settled exactly. Settle up and try again.",

@@ -17,7 +17,7 @@ import {
 } from '../src/api';
 import { AUTH_LOGIN_HREF, navResetTo } from '../src/authNav';
 import {
-  exactPositionLabel,
+  positionLabel,
   primaryResolution,
   selectedTripsRequireAcknowledgement,
   TRIP_ACTION_LABELS,
@@ -75,7 +75,8 @@ function TripReviewCard({
     value,
     label: TRIP_ACTION_LABELS[value],
   }));
-  const actionBlockers = trip.blockers.filter((blocker) => blocker.actions.includes(action));
+  const actionBlockers = trip.blockers.filter((blocker) => blocker.actions.includes(action)
+    || (action === 'keep' && blocker.code === 'ledger_reconciliation_required'));
   const resolution = primaryResolution(actionBlockers.length ? actionBlockers : trip.blockers);
   const identityLabel = trip.identity?.type === 'family_member'
     ? `${trip.identity.member_name} in ${trip.identity.family_name}`
@@ -99,14 +100,14 @@ function TripReviewCard({
         <View style={styles.flexCopy}>
           <T variant="caption" muted>Your position</T>
           <T variant="money" testID={`deletion-trip-${trip.trip_id}-position`}>
-            {exactPositionLabel(trip.position, trip.currency)}
+            {positionLabel(trip.position, trip.currency)}
           </T>
         </View>
         {trip.family_position != null ? (
           <View style={[styles.familyTotal, { borderColor: colors.border }]}>
             <T variant="caption" muted>Family total</T>
             <T variant="h4" testID={`deletion-trip-${trip.trip_id}-family-position`}>
-              {exactPositionLabel(trip.family_position, trip.currency)}
+              {positionLabel(trip.family_position, trip.currency)}
             </T>
           </View>
         ) : null}
@@ -119,7 +120,7 @@ function TripReviewCard({
             <View key={member.id} style={styles.compactRow}>
               <T style={styles.flexCopy} numberOfLines={1}>{member.name}</T>
               <T style={styles.numberText} color={colors.warning}>
-                {exactPositionLabel(member.position, trip.currency)}
+                {positionLabel(member.position, trip.currency)}
               </T>
             </View>
           ))}

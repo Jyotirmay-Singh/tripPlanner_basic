@@ -215,7 +215,7 @@ export default function ExchangeRatePanel({
         </T>
         <T variant="caption" muted>
           {locked.mode === 'manual' ? 'Manual conversion' : `Reference rate from ${displayDate(locked.effectiveDate)}`}
-          {' · '}{locked.provider}{locked.stale ? ' · stale cache' : ''}
+          {locked.stale ? ' · Older rate' : ''}
         </T>
         <Button
           testID={`${testID}-requote`}
@@ -340,13 +340,11 @@ export default function ExchangeRatePanel({
               ? 'Manual bank/card conversion'
               : `Reference rate from ${displayDate(quoteResult.quote.effective_rate_date)}`}
           </T>
-          <View style={styles.badges}>
-            {quoteResult.quote.cache_hit ? <Badge label="cached" colors={colors} /> : null}
-            {quoteResult.quote.stale ? <Badge label="stale" colors={colors} warning /> : null}
-            {quoteResult.quote.manual ? <Badge label="manual" colors={colors} /> : null}
-            {!quoteResult.quote.manual
-              ? <Badge label={quoteResult.quote.provider} colors={colors} /> : null}
-          </View>
+          {quoteResult.quote.stale ? (
+            <View style={styles.badges}>
+              <Badge label="Older rate" colors={colors} warning />
+            </View>
+          ) : null}
           <Button
             testID={`${testID}-approve`}
             label={approvedQuoteId === quoteResult.quote.quote_id ? 'Conversion approved' : 'Use this conversion'}

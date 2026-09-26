@@ -75,7 +75,7 @@ const IMPACT = {
         type: 'individual', member_id: 'm1', member_name: 'Ada', family_id: null,
         family_name: null, family_member_id: null,
       },
-      position: '-12.5', family_position: null, unsettled_family_members: [],
+      position: '-13', family_position: null, unsettled_family_members: [],
       settled: false, leave_eligible: false, dissolve_family_eligible: false,
       requires_family_dissolution: false, available_actions: ['keep'], default_action: 'keep',
       active_payment_blocker: false,
@@ -132,7 +132,7 @@ it('keeps every trip by default and requires acknowledgement plus uppercase DELE
   const review = () => renderer.root.findByProps({ testID: 'delete-account-review-final' });
   expect(review().props.disabled).toBe(true);
   expect(renderer.root.findByProps({ testID: 'deletion-trip-unsettled-position' }).props.children)
-    .toBe('INR -12.5');
+    .toBe('INR -13');
   expect(renderer.root.findByProps({ testID: 'deletion-trip-family-ownership' }))
     .toBeDefined();
 
@@ -189,4 +189,27 @@ it('keeps the destructive action disabled while the server reports a blocker', a
   expect(renderer.root.findByProps({ testID: 'delete-account-blockers' })).toBeDefined();
   expect(renderer.root.findByProps({ testID: 'delete-account-review-final' }).props.disabled)
     .toBe(true);
+});
+
+
+it('explains an unpayable residual on the trip review card without a settle action', async () => {
+  const value = {
+    ...IMPACT,
+    trips: [{
+      ...IMPACT.trips[0], position: '0',
+      blockers: [{
+        code: 'ledger_reconciliation_required',
+        message: 'Ask a trip admin to reconcile the ledger before leaving.',
+        resolution: 'none', actions: ['leave', 'dissolve_family'],
+      }],
+    }],
+  };
+  const renderer = await mount(value);
+
+  expect(renderer.root.findByProps({ testID: 'deletion-trip-unsettled-position' }).props.children)
+    .toBe('INR 0');
+  expect(renderer.root.findAllByType('T' as any).some((row: any) =>
+    row.props.children === 'Ask a trip admin to reconcile the ledger before leaving.')).toBe(true);
+  expect(renderer.root.findAllByProps({ testID: 'deletion-trip-unsettled-settle_up' }))
+    .toHaveLength(0);
 });

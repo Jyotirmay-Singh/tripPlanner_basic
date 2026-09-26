@@ -1,12 +1,14 @@
 import asyncio
 from copy import deepcopy
+from unittest.mock import AsyncMock
 
 import pytest
 from bson.decimal128 import Decimal128
 
-from services import whole_unit_migration as migration
+from services import departure, whole_unit_migration as migration
 from services.ledger_transactions import TransactionUnavailableError
-from services.settlement_engine import SCALE, apply_migration_adjustments
+from services.settlement_engine import SCALE, apply_migration_adjustments, build_precise_net
+from utils import balances
 
 
 class _Result:
@@ -353,6 +355,55 @@ def test_originally_settled_trip_remains_settled_after_rounding():
     assert plan.target_net == {"a": 0, "b": 0}
     assert plan.post_rounding_net == {"a": 0, "b": 0}
     assert plan.adjustment_vector == {"a": 0, "b": 0}
+
+
+def test_fractional_family_residual_is_settled_and_eligible_after_migration(monkeypatch):
+    trip = {
+        "id": "family-residual", "name": "South India", "currency": "INR",
+        "owner_id": "other", "user_ids": ["user-1", "other"], "admin_ids": ["other"],
+        "members": [
+            {
+                "id": "family-1", "kind": "family", "name": "JY",
+                "family_members": ["R", "J"], "family_member_ids": ["person-1", "person-2"],
+                "family_member_user_ids": ["user-1", None],
+            },
+            {"id": "other-1", "kind": "individual", "name": "Other", "user_id": "other"},
+        ],
+    }
+    expense = {
+        "id": "legacy-expense", "trip_id": trip["id"],
+        "amount": Decimal128("0.873333333334"),
+        "paid_by_member_id": "family-1", "split_member_ids": ["family-1", "other-1"],
+        "split_mode": "PER_FAMILY",
+    }
+    precise_before = build_precise_net(trip["members"], [expense])
+    assert precise_before["family-1"] == 436_666_666_667
+    plan = migration.plan_trip_migration(trip, [expense], [], [])
+    assert plan.target_net == {"family-1": 0, "other-1": 0}
+    assert sum(plan.adjustment_vector.values()) == 0
+
+    database = _Database(trip=trip, expenses=[expense])
+    monkeypatch.setattr(migration, "db", database)
+    monkeypatch.setattr(balances, "db", database)
+    monkeypatch.setattr(migration, "run_required_transaction", _transaction)
+    monkeypatch.setattr(departure, "_ownership_outcome", AsyncMock(return_value={
+        "is_owner": False, "transfer_required": False,
+        "successor": None, "requires_trip_deletion": False,
+    }))
+    monkeypatch.setattr(departure, "_active_attempt_flags", AsyncMock(return_value=(False, False)))
+
+    applied = asyncio.run(migration.apply_trip_migration(trip["id"]))
+    impact = asyncio.run(departure.membership_leave_impact(database.trips.rows[0], "user-1"))
+
+    assert applied["status"] == "applied"
+    assert database.expenses.rows[0]["amount"] == 1
+    assert impact["position"] == "0"
+    assert impact["family_position"] == "0"
+    assert impact["settled"] is True
+    assert impact["leave_eligible"] is True
+    assert impact["blockers"] == []
+    assert asyncio.run(migration.apply_trip_migration(trip["id"]))["status"] == "already_applied"
+    assert len(database.money_migration_audits.rows) == 1
 
 
 def test_apply_fails_closed_when_transactions_are_unavailable(monkeypatch):

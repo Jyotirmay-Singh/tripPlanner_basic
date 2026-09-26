@@ -58,7 +58,7 @@ function impact(overrides: Record<string, unknown> = {}) {
       type: 'individual', member_id: 'member-1', member_name: 'Ada',
       family_id: null, family_name: null, family_member_id: null,
     },
-    position: '0.000000000000', family_position: null,
+    position: '0', family_position: null,
     unsettled_family_members: [], settled: true,
     leave_eligible: true, dissolve_family_eligible: false,
     requires_family_dissolution: false, available_actions: ['keep', 'leave'],
@@ -91,7 +91,7 @@ beforeEach(() => {
 });
 
 
-it('shows identity and exact position, confirms departure, then returns to Trips', async () => {
+it('shows identity and whole position, confirms departure, then returns to Trips', async () => {
   const renderer = await mount();
   expect(renderer.root.findByProps({ testID: 'membership-position' }).props.children)
     .toBe('INR 0');
@@ -150,4 +150,22 @@ it('routes an active-payment blocker to resolution instead of showing leave', as
   expect(renderer.root.findAllByProps({ testID: 'membership-leave' })).toHaveLength(0);
   act(() => renderer.root.findByProps({ testID: 'membership-resolve_payment' }).props.onPress());
   expect(mockPush).toHaveBeenCalledWith('/trip/trip-1/settle-up');
+});
+
+
+it('shows reconciliation guidance without a settle-up action for a fractional residual', async () => {
+  const renderer = await mount(impact({
+    position: '0', family_position: '0', settled: false, leave_eligible: false,
+    blockers: [{
+      code: 'ledger_reconciliation_required',
+      message: 'Ask a trip admin to reconcile the ledger before leaving.',
+      resolution: 'none', actions: ['leave', 'dissolve_family'],
+    }],
+  }));
+
+  expect(renderer.root.findByProps({ testID: 'membership-family-position' }).props.children)
+    .toBe('INR 0');
+  expect(renderer.root.findAllByProps({ testID: 'membership-settle_up' })).toHaveLength(0);
+  expect(renderer.root.findAllByType('T' as any).some((row: any) =>
+    row.props.children === 'Ask a trip admin to reconcile the ledger before leaving.')).toBe(true);
 });

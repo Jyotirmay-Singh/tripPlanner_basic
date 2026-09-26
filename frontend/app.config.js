@@ -9,6 +9,9 @@ const os = require('os');
 const path = require('path');
 
 const googleServicesFile = process.env.GOOGLE_SERVICES_JSON;
+const offlineQaBuild = process.env.EXPO_PUBLIC_OFFLINE_QA === 'true';
+const qaUsesLocalHttp = offlineQaBuild &&
+  process.env.EXPO_PUBLIC_BACKEND_URL?.trim() === 'http://127.0.0.1:8000';
 const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?.trim();
 const googleClientIdSuffix = '.apps.googleusercontent.com';
 
@@ -49,6 +52,10 @@ const plugins = base.expo.plugins.map((plugin) => {
   return [plugin[0], { ...plugin[1], icon: notificationIcon }];
 });
 
+if (qaUsesLocalHttp) {
+  plugins.push('./plugins/withQaLocalHttp');
+}
+
 if (googleIosUrlScheme) {
   plugins.push([
     'react-native-nitro-google-signin',
@@ -60,6 +67,11 @@ module.exports = {
   ...base,
   expo: {
     ...base.expo,
+    name: offlineQaBuild ? 'Trip Splitter QA' : base.expo.name,
+    extra: {
+      ...base.expo.extra,
+      offlineQaBuild,
+    },
     plugins,
     android: {
       ...base.expo.android,

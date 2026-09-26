@@ -27,7 +27,7 @@ def test_manual_payment_receipt_and_ledger_share_real_transaction(monkeypatch):
 
     async def exercise():
         client = AsyncIOMotorClient(test_url, serverSelectionTimeoutMS=1200)
-        database = client[f"trip_splitter_payment_retry_test_{uuid4().hex}"]
+        database = client[f"trip_splitter_payment_test_{uuid4().hex}"]
         database_created = False
         try:
             try:

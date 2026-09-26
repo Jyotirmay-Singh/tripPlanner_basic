@@ -24,7 +24,7 @@ def test_expense_receipt_and_side_effects_share_real_transaction(monkeypatch):
 
     async def exercise():
         client = AsyncIOMotorClient(test_url, serverSelectionTimeoutMS=1200)
-        database = client[f"trip_splitter_expense_retry_test_{uuid4().hex}"]
+        database = client[f"trip_splitter_expense_test_{uuid4().hex}"]
         database_created = False
         try:
             try:

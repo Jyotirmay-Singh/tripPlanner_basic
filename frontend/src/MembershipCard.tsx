@@ -12,7 +12,7 @@ import {
   type DepartureBlocker,
   type TripDeletionImpact,
 } from './api';
-import { exactPositionLabel, primaryResolution } from './departure';
+import { positionLabel, primaryResolution } from './departure';
 import { SPACING } from './theme';
 import { Button, Card, Icon, SkeletonBox, useToast } from './ui';
 
@@ -134,14 +134,14 @@ export default function MembershipCard({ tripId }: { tripId: string }) {
         <View style={styles.positionRow}>
           <T variant="caption" muted style={styles.flexCopy}>Your position</T>
           <T style={styles.position} testID="membership-position">
-            {exactPositionLabel(impact.position, impact.currency)}
+            {positionLabel(impact.position, impact.currency)}
           </T>
         </View>
         {impact.family_position != null ? (
           <View style={styles.positionRow}>
             <T variant="caption" muted style={styles.flexCopy}>Family total</T>
             <T style={styles.position} testID="membership-family-position">
-              {exactPositionLabel(impact.family_position, impact.currency)}
+              {positionLabel(impact.family_position, impact.currency)}
             </T>
           </View>
         ) : null}

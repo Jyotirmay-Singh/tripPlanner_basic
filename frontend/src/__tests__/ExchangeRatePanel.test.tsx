@@ -134,7 +134,7 @@ it('shows a locked conversion without requiring a new quote for unrelated edits'
   expect(renderer.root.findByProps({ testID: 'exchange-rate-locked' })).toBeTruthy();
   expect(textContent(renderer)).toContain('Rs3,520');
   expect(textContent(renderer)).toContain('Reference rate from 28 Aug 2026');
-  expect(textContent(renderer)).toContain('frankfurter_v2_blended');
+  expect(textContent(renderer)).not.toContain('frankfurter_v2_blended');
   expect(mockUseExchangeRateQuote).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
   expect(onRequoteRequiredChange).toHaveBeenLastCalledWith(false);
 });
@@ -166,9 +166,9 @@ it('approves an automatic cached stale quote and clears approval when an input c
     );
   });
 
-  expect(textContent(renderer)).toContain('cached');
-  expect(textContent(renderer)).toContain('stale');
-  expect(textContent(renderer)).toContain('frankfurter_v2_blended');
+  expect(textContent(renderer)).toContain('Older rate');
+  expect(textContent(renderer)).not.toContain('cached');
+  expect(textContent(renderer)).not.toContain('frankfurter_v2_blended');
   act(() => renderer.root.findByProps({ testID: 'exchange-rate-approve' }).props.onPress());
   expect(onApprovalChange).toHaveBeenLastCalledWith({
     quote: automaticQuote,

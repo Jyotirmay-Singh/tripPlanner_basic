@@ -151,10 +151,40 @@ def test_precise_residual_blocks_individual_departure(monkeypatch):
 
     result = run(departure.evaluate_trip(individual_trip(), "user-1"))["public"]
 
-    assert result["position"] == "0.000000000001"
+    assert result["position"] == "0"
     assert result["settled"] is False
     assert result["leave_eligible"] is False
-    assert {blocker["code"] for blocker in result["blockers"]} == {"membership_unsettled"}
+    assert {blocker["code"] for blocker in result["blockers"]} == {
+        "ledger_reconciliation_required"
+    }
+    assert result["blockers"][0]["resolution"] == "none"
+    with pytest.raises(HTTPException) as error:
+        departure._raise_action_block({"public": result, "identity": {"id": "member-1"}}, "leave")
+    assert error.value.detail["code"] == "ledger_reconciliation_required"
+    assert "reconcile" in error.value.detail["message"]
+
+
+@pytest.mark.parametrize("amount", [1234, -1234])
+def test_payable_individual_position_stays_whole_and_offers_settlement(monkeypatch, amount):
+    monkeypatch.setattr(departure, "_ownership_outcome", AsyncMock(return_value=ownership_ok()))
+    monkeypatch.setattr(departure, "_active_attempt_flags", AsyncMock(return_value=(False, False)))
+    monkeypatch.setattr(departure, "_compute_balances", AsyncMock(return_value={
+        "net": {"member-1": amount},
+        "settlement_projection": {"precise_net": {"member-1": str(amount)}},
+        "transfers": [{
+            "from_member_id": "member-1" if amount < 0 else "member-2",
+            "to_member_id": "member-2" if amount < 0 else "member-1",
+            "amount": abs(amount),
+        }],
+        "per_person": [],
+    }))
+
+    result = run(departure.evaluate_trip(individual_trip(), "user-1"))["public"]
+
+    assert result["position"] == str(amount)
+    assert result["settled"] is False
+    assert result["blockers"][0]["code"] == "membership_unsettled"
+    assert result["blockers"][0]["resolution"] == "settle_up"
 
 
 def test_family_requires_zero_entity_and_every_member_row(monkeypatch):
@@ -175,7 +205,9 @@ def test_family_requires_zero_entity_and_every_member_row(monkeypatch):
     monkeypatch.setattr(departure, "_compute_balances", compute)
 
     unsettled = run(departure.evaluate_trip(family_trip(), "user-1"))["public"]
-    assert unsettled["family_position"] == "0.000000000000"
+    assert unsettled["family_position"] == "0"
+    assert unsettled["position"] == "1"
+    assert [row["position"] for row in unsettled["unsettled_family_members"]] == ["1", "-1"]
     assert unsettled["settled"] is False
     assert [row["id"] for row in unsettled["unsettled_family_members"]] == [
         "person-1", "person-2",

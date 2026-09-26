@@ -18,6 +18,17 @@ afterEach(() => {
   jest.resetModules();
 });
 
+it('limits release HTTP to the USB-forwarded Android QA backend', () => {
+  const { isAllowedBackendUrl } = require('../api');
+
+  expect(isAllowedBackendUrl('http://127.0.0.1:8000', false, true, 'android')).toBe(true);
+  expect(isAllowedBackendUrl('http://127.0.0.1:8000', false, false, 'android')).toBe(false);
+  expect(isAllowedBackendUrl('http://127.0.0.1:8000', false, true, 'web')).toBe(false);
+  expect(isAllowedBackendUrl('http://192.168.1.9:8000', false, true, 'android')).toBe(false);
+  expect(isAllowedBackendUrl('https://api.example.test', false, false, 'android')).toBe(true);
+  expect(isAllowedBackendUrl('http://api.example.test', true, false, 'android')).toBe(true);
+});
+
 it('preserves a missing endpoint as a non-transport configuration error', async () => {
   delete process.env.EXPO_PUBLIC_BACKEND_URL;
   jest.resetModules();

@@ -39,11 +39,14 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
   empty history. Reconnect and open that view to refresh it. Saved confirmed copies can be removed
   after 30 days. A trip copy needed for an unresolved local action is retained. Reopen the trip
   online to refresh its copy.
-- The saved Add Expense form lets you review the roster and split preview offline. Transactions,
-  refunds, receipts, and manual payments **cannot yet be saved offline**: Android offline capture
-  remains disabled pending device and transaction-backed server verification. Keep a separate note
-  until you can reconnect. Settle Up can show saved payment history, but UPI attempt activity and all
-  payment actions require a connection. Web and iOS still require a connection for trip data.
+- The saved Add Expense form lets you review the roster and split preview offline. In ordinary
+  builds, transactions, refunds, receipts, and manual payments **cannot yet be saved offline**:
+  Android offline capture remains disabled pending device verification. Keep a separate note until
+  you can reconnect. A disposable **Trip Splitter QA** APK enables offline expense/refund and manual
+  payment capture for test accounts; its pending entries do not change confirmed totals until the
+  server accepts them. Follow the [Android QA runbook](docs/OFFLINE_ANDROID_QA_RUNBOOK.md) before
+  using it. Settle Up can show saved payment history, but UPI attempt activity and UPI payments
+  require a connection. Web and iOS still require a connection for trip data.
 - Android automatic backup is disabled for this app's local financial cache. If a test build has
   pending actions, avoid uninstalling the app or clearing its storage before they sync. Uninstall,
   storage clearing, or an unrecoverable encryption-key loss can remove those unsynced actions. If
