@@ -85,6 +85,9 @@
       ]
     },
     "doctor": {
+      "appConfigFieldsNotSyncedCheck": {
+        "enabled": false
+      },
       "reactNativeDirectoryCheck": {
         "exclude": [
           "react-native-nitro-google-signin"

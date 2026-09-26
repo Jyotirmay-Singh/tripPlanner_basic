@@ -1,0 +1,55 @@
+# EAS may archive from the Git root for this frontend project. Keep the local
+# Android QA project out of the release upload so app.config.js runs Prebuild.
+/frontend/android/
+/frontend/modules/upi-app-launcher/android/build/
+
+# Dependencies and generated output
+node_modules/
+.venv/
+venv/
+__pycache__/
+.expo/
+.kotlin/
+.metro-cache/
+.next/
+.vercel/
+.pytest_cache/
+.cache/
+coverage/
+dist/
+web-build/
+/build/
+/out/
+/tmp/
+/.release-tmp/
+/.playwright-mcp/
+/.tokensave/
+/test_reports/
+
+# Local files and secrets
+.git/
+.claude/
+.vscode/
+.idea/
+.env
+.env.*
+*.env
+*token.json*
+*credentials.json*
+google-services.json
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+
+# Logs and temporary artifacts
+*.log
+*.tsbuildinfo
+*.apk
+*.aab
+*.zip
+*.tar
+*.tar.gz

@@ -1,0 +1,29 @@
+# EAS builds the release Android project from app.config.js. The checked-in
+# android/ folder is retained for local QA and must not be uploaded to EAS.
+/android/
+/modules/upi-app-launcher/android/build/
+
+# Dependencies and generated output
+/node_modules/
+/.expo/
+/dist/
+/web-build/
+/.metro-cache/
+/.kotlin/
+/.vercel/
+/coverage/
+
+# Local configuration and signing material
+/.env*
+/google-services.json
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+
+# Local logs and temporary files
+*.log
+*.tsbuildinfo
