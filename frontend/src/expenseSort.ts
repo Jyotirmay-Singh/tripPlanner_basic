@@ -88,3 +88,30 @@ export function compareExpensesDesc(a: SortableExpense, b: SortableExpense): num
 export function sortExpensesDesc<T extends SortableExpense>(list: T[]): T[] {
   return [...list].sort(compareExpensesDesc);
 }
+
+type PendingSortableExpense = {
+  clientMutationId: string;
+  queuedAt: number;
+  payload: { date: string; time?: unknown };
+};
+
+/** Put pending and confirmed rows in one date-ordered Expenses tab list. */
+export function sortExpenseRowsDesc<
+  TExpense extends SortableExpense,
+  TPending extends PendingSortableExpense,
+>(expenses: TExpense[], pendingExpenses: TPending[]) {
+  const rows = [
+    ...expenses.map((expense) => ({ kind: 'confirmed' as const, expense, sortKey: expense })),
+    ...pendingExpenses.map((item) => ({
+      kind: 'pending' as const,
+      item,
+      sortKey: {
+        id: item.clientMutationId,
+        date: item.payload.date,
+        time: typeof item.payload.time === 'string' ? item.payload.time : null,
+        created_at: new Date(item.queuedAt).toISOString(),
+      },
+    })),
+  ];
+  return rows.sort((a, b) => compareExpensesDesc(a.sortKey, b.sortKey));
+}

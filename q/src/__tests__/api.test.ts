@@ -1,0 +1,247 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  __esModule: true,
+  default: {
+    getItem: jest.fn().mockResolvedValue(null),
+    setItem: jest.fn().mockResolvedValue(undefined),
+    removeItem: jest.fn().mockResolvedValue(undefined),
+  },
+}));
+
+const originalBackendUrl = process.env.EXPO_PUBLIC_BACKEND_URL;
+
+afterEach(() => {
+  if (originalBackendUrl == null) delete process.env.EXPO_PUBLIC_BACKEND_URL;
+  else process.env.EXPO_PUBLIC_BACKEND_URL = originalBackendUrl;
+  jest.restoreAllMocks();
+  jest.resetModules();
+});
+
+it('limits release HTTP to the USB-forwarded Android QA backend', () => {
+  const { isAllowedBackendUrl } = require('../api');
+
+  expect(isAllowedBackendUrl('http://127.0.0.1:8000', false, true, 'android')).toBe(true);
+  expect(isAllowedBackendUrl('http://127.0.0.1:8000', false, false, 'android')).toBe(false);
+  expect(isAllowedBackendUrl('http://127.0.0.1:8000', false, true, 'web')).toBe(false);
+  expect(isAllowedBackendUrl('http://192.168.1.9:8000', false, true, 'android')).toBe(false);
+  expect(isAllowedBackendUrl('https://api.example.test', false, false, 'android')).toBe(true);
+  expect(isAllowedBackendUrl('http://api.example.test', true, false, 'android')).toBe(true);
+});
+
+it('preserves a missing endpoint as a non-transport configuration error', async () => {
+  delete process.env.EXPO_PUBLIC_BACKEND_URL;
+  jest.resetModules();
+  const { api, ApiError } = require('../api');
+  const fetchSpy = jest.spyOn(globalThis, 'fetch');
+
+  await expect(api('/meta/config', { auth: false })).rejects.toMatchObject({
+    name: 'ApiError',
+    code: 'configuration',
+  });
+  await expect(api('/meta/config', { auth: false })).rejects.toBeInstanceOf(ApiError);
+  expect(fetchSpy).not.toHaveBeenCalled();
+});
+
+it('preserves HTTP status and classifies an actual fetch rejection as network failure', async () => {
+  process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test/';
+  jest.resetModules();
+  const { api } = require('../api');
+  const fetchSpy = jest.spyOn(globalThis, 'fetch');
+  fetchSpy.mockResolvedValueOnce({
+    ok: false,
+    status: 403,
+    text: () => Promise.resolve(JSON.stringify({ detail: 'Not a member' })),
+  } as Response);
+
+  await expect(api('/trips/t1/chat/messages')).rejects.toMatchObject({
+    code: 'http',
+    status: 403,
+    message: 'Not a member',
+  });
+
+  fetchSpy.mockRejectedValueOnce(new TypeError('connection failed'));
+  await expect(api('/trips/t1/chat/messages')).rejects.toMatchObject({
+    code: 'network',
+    message: 'Could not reach the server',
+  });
+});
+
+it('reports an authenticated 401 so the active session can be locked', async () => {
+  process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+  jest.resetModules();
+  const storage = require('@react-native-async-storage/async-storage').default;
+  storage.getItem.mockResolvedValue('active-jwt');
+  const { api, subscribeUnauthorized } = require('../api');
+  const onUnauthorized = jest.fn();
+  const unsubscribe = subscribeUnauthorized(onUnauthorized);
+  jest.spyOn(globalThis, 'fetch').mockResolvedValue({
+    ok: false, status: 401, text: () => Promise.resolve('{}'),
+  } as Response);
+  await expect(api('/trips')).rejects.toMatchObject({ code: 'http', status: 401 });
+  await expect(api('/auth/login', { auth: false })).rejects.toMatchObject({ status: 401 });
+  expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  expect(onUnauthorized).toHaveBeenCalledWith('active-jwt');
+  unsubscribe();
+  storage.getItem.mockResolvedValue(null);
+});
+
+it('binds a sync request to its account token and exposes Retry-After without global logout', async () => {
+  process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+  jest.resetModules();
+  const { api, subscribeUnauthorized } = require('../api');
+  const onUnauthorized = jest.fn();
+  const unsubscribe = subscribeUnauthorized(onUnauthorized);
+  const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+    ok: false, status: 401, text: () => Promise.resolve('{}'),
+  } as Response).mockResolvedValueOnce({
+    ok: false, status: 429, text: () => Promise.resolve('{}'),
+    headers: { get: () => '17' },
+  } as unknown as Response);
+  await expect(api('/trips/t1/expenses', {
+    method: 'POST', authToken: 'account-bound-token', suppressUnauthorized: true,
+  })).rejects.toMatchObject({ status: 401 });
+  expect(onUnauthorized).not.toHaveBeenCalled();
+  expect(fetchSpy.mock.calls[0][1]?.headers).toMatchObject({
+    Authorization: 'Bearer account-bound-token',
+  });
+  await expect(api('/trips/t1/expenses', {
+    method: 'POST', authToken: 'account-bound-token', suppressUnauthorized: true,
+  })).rejects.toMatchObject({ status: 429, retryAfterMs: 17_000 });
+  unsubscribe();
+});
+
+it('surfaces structured backend conversion details', async () => {
+  process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+  jest.resetModules();
+  const { api } = require('../api');
+  jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+    ok: false,
+    status: 503,
+    text: () => Promise.resolve(JSON.stringify({
+      detail: {
+        code: 'exchange_rate_timeout',
+        message: 'Exchange-rate provider timed out',
+        retryable: true,
+      },
+    })),
+  } as Response);
+
+  await expect(api('/exchange-rates/quote')).rejects.toMatchObject({
+    message: 'Exchange-rate provider timed out',
+    detailCode: 'exchange_rate_timeout',
+    retryable: true,
+  });
+});
+
+it('distinguishes caller cancellation from a timeout', async () => {
+  process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+  jest.resetModules();
+  const { api } = require('../api');
+  const fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementationOnce((_url, init) => (
+    new Promise((_resolve, reject) => {
+      if (init?.signal?.aborted) {
+        reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        return;
+      }
+      init?.signal?.addEventListener('abort', () => {
+        reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+      });
+    })
+  ));
+  const controller = new AbortController();
+  const request = api('/exchange-rates/quote', { signal: controller.signal, timeoutMs: 10_000 });
+  controller.abort();
+
+  await expect(request).rejects.toMatchObject({ code: 'aborted', message: 'The request was cancelled' });
+  expect(fetchSpy).toHaveBeenCalledTimes(1);
+});
+
+it('builds quote requests entirely through the backend API', async () => {
+  process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+  jest.resetModules();
+  const { quoteExchangeRate } = require('../api');
+  const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    text: () => Promise.resolve('{}'),
+  } as Response);
+
+  await quoteExchangeRate({
+    from: 'INR', to: 'LKR', amount: '1000', date: '2026-08-28', mode: 'automatic',
+  });
+
+  expect(fetchSpy.mock.calls[0][0]).toBe(
+    'https://api.example.test/api/exchange-rates/quote?from=INR&to=LKR&amount=1000&mode=automatic&date=2026-08-28',
+  );
+  expect(String(fetchSpy.mock.calls[0][0])).not.toContain('frankfurter.dev');
+});
+
+it('uses authenticated invite management and a public no-auth resolver', async () => {
+  process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+  jest.resetModules();
+  const { getTripInviteLink, resetTripInviteLink, getPublicTripInvite } = require('../api');
+  const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue({
+    ok: true,
+    status: 200,
+    text: () => Promise.resolve('{}'),
+  } as Response);
+
+  await getTripInviteLink('trip /1');
+  await resetTripInviteLink('trip /1');
+  await getPublicTripInvite('token/value');
+
+  expect(fetchSpy.mock.calls[0][0]).toBe('https://api.example.test/api/trips/trip%20%2F1/invite-link');
+  expect(fetchSpy.mock.calls[0][1]?.method).toBe('GET');
+  expect(fetchSpy.mock.calls[1][0]).toBe('https://api.example.test/api/trips/trip%20%2F1/invite-link/reset');
+  expect(fetchSpy.mock.calls[1][1]?.method).toBe('POST');
+  expect(fetchSpy.mock.calls[2][0]).toBe('https://api.example.test/api/invites/token%2Fvalue');
+  expect(fetchSpy.mock.calls[2][1]?.headers).toEqual({ 'Content-Type': 'application/json' });
+});
+
+it('URL-encodes every payment recipient-details identifier', async () => {
+  process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+  jest.resetModules();
+  const { getPaymentRecipientDetails } = require('../api');
+  const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    text: () => Promise.resolve(JSON.stringify({ recipients: [] })),
+  } as Response);
+
+  await getPaymentRecipientDetails('trip /1', 'payer &/1', 'family ?#2');
+
+  expect(fetchSpy.mock.calls[0][0]).toBe(
+    'https://api.example.test/api/trips/trip%20%2F1/payment-recipient-details'
+      + '?from_member_id=payer%20%26%2F1&to_member_id=family%20%3F%232',
+  );
+});
+
+it('posts exact decimal strings and an optional reviewed quote to the handoff preview', async () => {
+  process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+  jest.resetModules();
+  const { previewPaymentHandoff } = require('../api');
+  const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+    ok: true,
+    status: 200,
+    text: () => Promise.resolve('{}'),
+  } as Response);
+
+  await previewPaymentHandoff('trip /1', {
+    from_member_id: 'payer',
+    to_member_id: 'recipient',
+    amount: '12.340',
+    quote_id: 'quote-reviewed',
+  });
+
+  expect(fetchSpy.mock.calls[0][0]).toBe(
+    'https://api.example.test/api/trips/trip%20%2F1/payment-handoff/preview',
+  );
+  expect(fetchSpy.mock.calls[0][1]?.method).toBe('POST');
+  expect(fetchSpy.mock.calls[0][1]?.body).toBe(JSON.stringify({
+    from_member_id: 'payer',
+    to_member_id: 'recipient',
+    amount: '12.340',
+    quote_id: 'quote-reviewed',
+  }));
+});

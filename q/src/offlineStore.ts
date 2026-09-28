@@ -1,0 +1,36 @@
+import {
+  OfflineStoreError,
+  type OfflineStore,
+} from './offlineStore.shared';
+
+// Web and iOS continue to use the live API. Metro picks offlineStore.android.ts on Android.
+export const offlineStore: OfflineStore = {
+  setActiveAccount: () => {},
+  getIdentity: async () => null,
+  saveIdentity: async () => {},
+  getExpenseProtocolVersion: async () => 0,
+  setExpenseProtocolVersion: async () => { throw new OfflineStoreError('unsupported'); },
+  getPaymentProtocolVersion: async () => 0,
+  setPaymentProtocolVersion: async () => { throw new OfflineStoreError('unsupported'); },
+  getTripSnapshot: async () => null,
+  putTripSnapshot: async () => { throw new OfflineStoreError('unsupported'); },
+  getTripReadBundle: async () => null,
+  putTripReadBundle: async () => { throw new OfflineStoreError('unsupported'); },
+  removeTripReadData: async () => {},
+  getAccountReadSnapshot: async () => null,
+  putAccountReadSnapshot: async () => { throw new OfflineStoreError('unsupported'); },
+  getReadSnapshot: async () => null,
+  putReadSnapshot: async () => { throw new OfflineStoreError('unsupported'); },
+  enqueueOutbox: async () => { throw new OfflineStoreError('unsupported'); },
+  listOutbox: async () => [],
+  updateOutbox: async () => { throw new OfflineStoreError('unsupported'); },
+  getSyncMeta: async () => null,
+  putSyncMeta: async () => { throw new OfflineStoreError('unsupported'); },
+  replaceReviewExpense: async () => { throw new OfflineStoreError('unsupported'); },
+  replaceReviewPayment: async () => { throw new OfflineStoreError('unsupported'); },
+  discardReviewExpense: async () => { throw new OfflineStoreError('unsupported'); },
+  discardReviewPayment: async () => { throw new OfflineStoreError('unsupported'); },
+  pendingCount: async () => 0,
+  pruneRetainedData: async () => {},
+  purgeAccount: async () => {},
+};

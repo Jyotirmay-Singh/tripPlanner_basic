@@ -33,8 +33,9 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
   a new login. If this is the first launch after updating, or the token has expired, connect to the
   server to finish restoring or sign in. After opening a trip successfully online, you can reopen its
   saved roster, expenses, confirmed balances, spend summary, and recorded-payment history on Android
-  in airplane mode. Dashboard, Trips, and the Add picker can show their saved lists. Each saved view
-  shows when it was last synced; amounts and payment suggestions are the last server-confirmed values.
+  in airplane mode. Dashboard, Trips, and the Add picker can show their saved lists. A small
+  dismissible offline notice explains available features when tapped. Amounts and payment
+  suggestions remain the last server-confirmed values.
   If a view was never saved completely, it says unavailable instead of showing a zero balance or an
   empty history. Reconnect and open that view to refresh it. Saved confirmed copies can be removed
   after 30 days. A trip copy needed for an unresolved local action is retained. Reopen the trip
@@ -43,8 +44,10 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
   builds, transactions, refunds, receipts, and manual payments **cannot yet be saved offline**:
   Android offline capture remains disabled pending device verification. Keep a separate note until
   you can reconnect. A disposable **Trip Splitter QA** APK enables offline expense/refund and manual
-  payment capture for test accounts; its pending entries do not change confirmed totals until the
-  server accepts them. Follow the [Android QA runbook](docs/OFFLINE_ANDROID_QA_RUNBOOK.md) before
+  payment capture for test accounts under a separate Android package ID. A foreign-currency amount
+  stays in its original currency with **Conversion review needed** until reconnecting supplies a
+  server quote and you approve it. Pending entries do not change confirmed totals until the server
+  accepts them. Follow the [Android QA runbook](docs/OFFLINE_ANDROID_QA_RUNBOOK.md) before
   using it. Settle Up can show saved payment history, but UPI attempt activity and UPI payments
   require a connection. Web and iOS still require a connection for trip data.
 - Android automatic backup is disabled for this app's local financial cache. If a test build has
@@ -327,9 +330,10 @@ across standalone individuals, family entries, and joined app users.
    - Money fields accept signed whole numbers only, so a pasted decimal is rejected. A manual
      exchange-rate ratio may still contain decimals, while a manual final amount must be whole.
      Calculated conversions round half-up to a whole unit in the trip currency.
-   - A same-currency transaction uses rate 1 and never contacts the rate service. Foreign-currency
-     entry still requires an online connection to the backend, including when you supply a manual
-     rate or final amount.
+   - A same-currency transaction uses rate 1 and never contacts the rate service. In ordinary builds,
+     foreign-currency entry requires an online backend connection, including for a manual rate or
+     final amount. The disposable Android QA build can save the original foreign amount offline;
+     its automatic server quote must be approved after reconnecting before the expense can sync.
    - The app checks the backend capability before allowing a foreign-currency expense. While it is
      **loading**, the app shows that it is checking. **Enabled** allows quoting and confirmation;
      **disabled** means the rollout switch is off; **unknown** means the server could not be reached

@@ -1,0 +1,112 @@
+{
+  "expo": {
+    "name": "Trip Splitter",
+    "slug": "frontend",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/images/icon.png",
+    "scheme": ["frontend", "tripsplitter"],
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "com.tripsplitter.app",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Attach receipt photos to expenses",
+        "NSPhotoLibraryAddUsageDescription": "Save receipt photos to your gallery",
+        "NSCameraUsageDescription": "Take photos of receipts to attach to expenses"
+      }
+    },
+    "android": {
+      "package": "com.tripsplitter.app",
+      "allowBackup": false,
+      "softwareKeyboardLayoutMode": "resize",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#0A0D0C"
+      },
+      "edgeToEdgeEnabled": true,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "tripsplitter-web.vercel.app",
+              "pathPrefix": "/invite/"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
+      "permissions": [
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES"
+      ]
+    },
+    "androidStatusBar": {
+      "barStyle": "light-content",
+      "backgroundColor": "#0A0D0C",
+      "translucent": true
+    },
+    "androidNavigationBar": {
+      "barStyle": "light-content"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "./plugins/withUpiAppQueries",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-image.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#0A0D0C"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Attach receipt photos to expenses",
+          "cameraPermission": "Take photos of receipts to attach to expenses"
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow access to save receipts to your gallery",
+          "savePhotosPermission": "Save receipt photos to your gallery"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.svg",
+          "color": "#1FC89A",
+          "defaultChannel": "trip_activity"
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-web-browser",
+      "expo-font",
+      ["expo-sqlite", { "android": { "useSQLCipher": true } }],
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "0a3b5a1c-5cbd-4eac-bff7-5b53ee4b6948"
+      }
+    },
+    "owner": "jyotirmay03"
+  }
+}

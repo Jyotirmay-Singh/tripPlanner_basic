@@ -1,0 +1,605 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+
+const mockStorage = new Map<string, string>();
+const mockGetItem = jest.fn();
+const mockSetItem = jest.fn();
+const mockMultiSet = jest.fn();
+const mockAlert = jest.fn();
+const mockOpenSettings = jest.fn();
+const mockSetNotificationHandler = jest.fn();
+const mockSetNotificationChannel = jest.fn();
+const mockGetPermissions = jest.fn();
+const mockRequestPermissions = jest.fn();
+const mockGetExpoPushToken = jest.fn();
+const mockApi = jest.fn();
+const mockConstants: {
+  expoConfig: { extra: { eas: { projectId: string } } } | null;
+  easConfig: { projectId?: string } | null;
+} = {
+  expoConfig: { extra: { eas: { projectId: 'test-project-id' } } },
+  easConfig: null,
+};
+
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  __esModule: true,
+  default: {
+    getItem: mockGetItem,
+    setItem: mockSetItem,
+    multiSet: mockMultiSet,
+  },
+}));
+
+jest.mock('react-native', () => {
+  return {
+    Platform: { OS: 'android' },
+    Alert: { alert: mockAlert },
+    Linking: { openSettings: mockOpenSettings },
+  };
+});
+
+jest.mock('expo-constants', () => ({
+  __esModule: true,
+  default: mockConstants,
+}));
+
+jest.mock('expo-crypto', () => ({
+  randomUUID: jest.fn(() => '12345678-1234-4678-9234-567812345678'),
+}));
+
+jest.mock('expo-notifications', () => ({
+  __esModule: true,
+  setNotificationHandler: mockSetNotificationHandler,
+  setNotificationChannelAsync: mockSetNotificationChannel,
+  getPermissionsAsync: mockGetPermissions,
+  requestPermissionsAsync: mockRequestPermissions,
+  getExpoPushTokenAsync: mockGetExpoPushToken,
+  PermissionStatus: {
+    GRANTED: 'granted',
+    DENIED: 'denied',
+    UNDETERMINED: 'undetermined',
+  },
+  AndroidImportance: { HIGH: 4 },
+  AndroidNotificationVisibility: { PRIVATE: 0 },
+}));
+
+jest.mock('../api', () => ({ api: mockApi }));
+
+const {
+  getPushNotificationSettings,
+  getPushPermissionState,
+  openPushNotificationSettings,
+  setPushNotificationsEnabled,
+  syncPushRegistrationIfEligible,
+  unregisterCurrentPushInstallation,
+} = require('../pushNotifications.android');
+
+type PermissionName = 'granted' | 'denied' | 'undetermined';
+
+function permission(status: PermissionName, canAskAgain = status !== 'denied') {
+  return {
+    status,
+    granted: status === 'granted',
+    canAskAgain,
+    expires: 'never',
+  };
+}
+
+async function flushAsyncWork() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function pressRationale(label: 'Not now' | 'Enable notifications') {
+  await flushAsyncWork();
+  const buttons = mockAlert.mock.calls.at(-1)?.[2] as {
+    text: string;
+    onPress: () => void;
+  }[];
+  const button = buttons?.find((candidate) => candidate.text === label);
+  expect(button).toBeDefined();
+  button!.onPress();
+  await flushAsyncWork();
+}
+
+describe('Android push notification registration', () => {
+  let info: jest.SpyInstance;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    info = jest.spyOn(console, 'info').mockImplementation(() => {});
+    mockStorage.clear();
+    mockConstants.expoConfig = { extra: { eas: { projectId: 'test-project-id' } } };
+    mockConstants.easConfig = null;
+    mockGetItem.mockImplementation(async (key: string) => mockStorage.get(key) ?? null);
+    mockSetItem.mockImplementation(async (key: string, value: string) => {
+      mockStorage.set(key, value);
+    });
+    mockMultiSet.mockImplementation(async (entries: [string, string][]) => {
+      entries.forEach(([key, value]) => mockStorage.set(key, value));
+    });
+    mockOpenSettings.mockResolvedValue(undefined);
+    mockSetNotificationChannel.mockResolvedValue(null);
+    mockGetPermissions.mockResolvedValue(permission('undetermined'));
+    mockRequestPermissions.mockResolvedValue(permission('granted'));
+    mockGetExpoPushToken.mockResolvedValue({ data: 'ExpoPushToken[test-token-value]' });
+    mockApi.mockImplementation(async (path: string) => (
+      path === '/push/eligibility' ? { eligible: true } : { ok: true }
+    ));
+  });
+
+  afterEach(() => info.mockRestore());
+
+  it('does not prompt or register a zero-trip account without a pending request', async () => {
+    mockApi.mockResolvedValueOnce({ eligible: false });
+
+    await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: true }))
+      .resolves.toBe('undetermined');
+
+    expect(mockSetNotificationChannel).not.toHaveBeenCalled();
+    expect(mockAlert).not.toHaveBeenCalled();
+    expect(mockRequestPermissions).not.toHaveBeenCalled();
+    expect(mockGetExpoPushToken).not.toHaveBeenCalled();
+  });
+
+  it('shows the trip-aware privacy rationale once and remembers Not now without a system prompt', async () => {
+    const firstSync = syncPushRegistrationIfEligible({ allowPermissionPrompt: true });
+    await pressRationale('Not now');
+
+    await expect(firstSync).resolves.toBe('undetermined');
+    expect(mockAlert).toHaveBeenCalledWith(
+      'Stay updated on your trips',
+      expect.stringContaining('trip name and activity type'),
+      expect.any(Array),
+      { cancelable: false },
+    );
+    expect(mockAlert.mock.calls.at(-1)?.[1]).toContain(
+      'a chat sender; an expense creator and description or category; or payment parties, amount, and currency.',
+    );
+    expect(mockAlert.mock.calls.at(-1)?.[1]).toContain(
+      'Payment notes, UPI details, email addresses, receipts, message text, credentials, and rejection reasons are never included.',
+    );
+    expect(mockStorage.get('push_rationale_seen')).toBe('true');
+    expect(mockStorage.get('push_rationale_accepted')).toBe('false');
+    expect(mockRequestPermissions).not.toHaveBeenCalled();
+
+    await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: true }))
+      .resolves.toBe('undetermined');
+    expect(mockAlert).toHaveBeenCalledTimes(1);
+  });
+
+  it('requests Android permission and registers the installation after Enable notifications', async () => {
+    const sync = syncPushRegistrationIfEligible({ allowPermissionPrompt: true });
+    await pressRationale('Enable notifications');
+
+    await expect(sync).resolves.toBe('granted');
+    expect(mockRequestPermissions).toHaveBeenCalledTimes(1);
+    expect(mockSetNotificationChannel).toHaveBeenCalledWith('trip_activity', expect.objectContaining({
+      name: 'Trip activity',
+      description: 'Private updates for trip activity and join requests',
+      importance: 4,
+      lockscreenVisibility: 0,
+    }));
+    expect(mockGetExpoPushToken).toHaveBeenCalledWith({ projectId: 'test-project-id' });
+    expect(mockApi).toHaveBeenCalledWith(
+      '/push/devices/12345678-1234-4678-9234-567812345678',
+      {
+        method: 'PUT',
+        body: { token: 'ExpoPushToken[test-token-value]', platform: 'android' },
+      },
+    );
+  });
+
+  it('prompts and registers a zero-trip account with a pending join request', async () => {
+    mockApi.mockResolvedValueOnce({ eligible: true });
+    const sync = syncPushRegistrationIfEligible({ allowPermissionPrompt: true });
+    await pressRationale('Enable notifications');
+
+    await expect(sync).resolves.toBe('granted');
+    expect(mockApi).toHaveBeenNthCalledWith(1, '/push/eligibility');
+    expect(mockGetExpoPushToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('registers an already-granted installation without showing either prompt', async () => {
+    mockGetPermissions.mockResolvedValue(permission('granted'));
+
+    await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: true }))
+      .resolves.toBe('granted');
+
+    expect(mockAlert).not.toHaveBeenCalled();
+    expect(mockRequestPermissions).not.toHaveBeenCalled();
+    expect(mockGetExpoPushToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('enables from the switch, persists intent, requests permission, and registers', async () => {
+    const result = await setPushNotificationsEnabled(true);
+
+    expect(result).toEqual({
+      userPreference: true,
+      permission: 'granted',
+      canAskAgain: true,
+      enabled: true,
+    });
+    expect(mockStorage.get('push_notifications_enabled')).toBe('true');
+    expect(mockRequestPermissions).toHaveBeenCalledTimes(1);
+    expect(mockAlert).not.toHaveBeenCalled();
+    expect(mockApi).not.toHaveBeenCalledWith('/push/eligibility');
+    expect(mockApi).toHaveBeenCalledWith(
+      '/push/devices/12345678-1234-4678-9234-567812345678',
+      {
+        method: 'PUT',
+        body: { token: 'ExpoPushToken[test-token-value]', platform: 'android' },
+      },
+    );
+  });
+
+  it('re-enables immediately when Android permission is already granted', async () => {
+    mockStorage.set('push_notifications_enabled', 'false');
+    mockGetPermissions.mockResolvedValue(permission('granted'));
+
+    await expect(setPushNotificationsEnabled(true)).resolves.toMatchObject({
+      userPreference: true,
+      permission: 'granted',
+      enabled: true,
+    });
+
+    expect(mockRequestPermissions).not.toHaveBeenCalled();
+    expect(mockGetExpoPushToken).toHaveBeenCalledTimes(1);
+    expect(mockStorage.get('push_notifications_enabled')).toBe('true');
+  });
+
+  it('bypasses a saved Not now rationale choice after explicit enablement', async () => {
+    mockStorage.set('push_rationale_seen', 'true');
+    mockStorage.set('push_rationale_accepted', 'false');
+
+    await expect(setPushNotificationsEnabled(true)).resolves.toMatchObject({ enabled: true });
+
+    expect(mockAlert).not.toHaveBeenCalled();
+    expect(mockRequestPermissions).toHaveBeenCalledTimes(1);
+  });
+
+  it('requests permission again when Android says a denial is still requestable', async () => {
+    mockStorage.set('push_installation_id', '12345678-1234-4678-9234-567812345678');
+    mockGetPermissions.mockResolvedValue(permission('denied', true));
+    mockRequestPermissions.mockResolvedValue(permission('denied', true));
+
+    await expect(setPushNotificationsEnabled(true)).resolves.toEqual({
+      userPreference: true,
+      permission: 'denied',
+      canAskAgain: true,
+      enabled: false,
+    });
+
+    expect(mockRequestPermissions).toHaveBeenCalledTimes(1);
+    expect(mockGetExpoPushToken).not.toHaveBeenCalled();
+    expect(mockApi).toHaveBeenCalledWith(
+      '/push/devices/12345678-1234-4678-9234-567812345678?reason=permission_denied',
+      { method: 'DELETE' },
+    );
+  });
+
+  it('reports a permanently blocked permission without showing another Android prompt', async () => {
+    mockGetPermissions.mockResolvedValue(permission('denied', false));
+
+    await expect(setPushNotificationsEnabled(true)).resolves.toEqual({
+      userPreference: true,
+      permission: 'denied',
+      canAskAgain: false,
+      enabled: false,
+    });
+
+    expect(mockRequestPermissions).not.toHaveBeenCalled();
+    expect(mockGetExpoPushToken).not.toHaveBeenCalled();
+  });
+
+  it('turns off directly, persists the opt-out, and deactivates this installation', async () => {
+    mockStorage.set('push_installation_id', '12345678-1234-4678-9234-567812345678');
+    mockGetPermissions.mockResolvedValue(permission('granted'));
+
+    await expect(setPushNotificationsEnabled(false)).resolves.toEqual({
+      userPreference: false,
+      permission: 'granted',
+      canAskAgain: true,
+      enabled: false,
+    });
+
+    expect(mockStorage.get('push_notifications_enabled')).toBe('false');
+    expect(mockApi).toHaveBeenCalledWith(
+      '/push/devices/12345678-1234-4678-9234-567812345678?reason=user_disabled',
+      { method: 'DELETE' },
+    );
+    expect(mockSetNotificationChannel).not.toHaveBeenCalled();
+    expect(mockRequestPermissions).not.toHaveBeenCalled();
+    expect(mockGetExpoPushToken).not.toHaveBeenCalled();
+  });
+
+  it('makes a direct disable win over an in-flight startup registration', async () => {
+    let releaseEligibility!: (value: { eligible: boolean }) => void;
+    mockGetPermissions.mockResolvedValue(permission('granted'));
+    mockApi.mockImplementation((path: string) => {
+      if (path === '/push/eligibility') {
+        return new Promise((resolve) => { releaseEligibility = resolve; });
+      }
+      return Promise.resolve({ ok: true });
+    });
+
+    const startupSync = syncPushRegistrationIfEligible({ allowPermissionPrompt: false });
+    await flushAsyncWork();
+    const disable = setPushNotificationsEnabled(false);
+    await flushAsyncWork();
+    expect(releaseEligibility).toEqual(expect.any(Function));
+    releaseEligibility({ eligible: true });
+
+    await expect(startupSync).resolves.toBe('granted');
+    await expect(disable).resolves.toMatchObject({ userPreference: false, enabled: false });
+
+    expect(mockStorage.get('push_notifications_enabled')).toBe('false');
+    expect(mockApi).toHaveBeenCalledWith(
+      '/push/devices/12345678-1234-4678-9234-567812345678',
+      expect.objectContaining({ method: 'PUT' }),
+    );
+    expect(mockApi).toHaveBeenLastCalledWith(
+      '/push/devices/12345678-1234-4678-9234-567812345678?reason=user_disabled',
+      { method: 'DELETE' },
+    );
+  });
+
+  it('returns unavailable without requesting a token when the EAS project ID is absent', async () => {
+    mockConstants.expoConfig = null;
+    mockGetPermissions.mockResolvedValue(permission('granted'));
+
+    await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: false }))
+      .resolves.toBe('unavailable');
+
+    expect(mockGetExpoPushToken).not.toHaveBeenCalled();
+    expect(mockApi).toHaveBeenCalledTimes(1);
+    expect(mockApi).toHaveBeenCalledWith('/push/eligibility');
+  });
+
+  it('does not prompt when trip eligibility cannot be checked offline', async () => {
+    mockApi.mockRejectedValueOnce(new Error('offline'));
+
+    await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: true }))
+      .resolves.toBe('undetermined');
+
+    expect(mockSetNotificationChannel).not.toHaveBeenCalled();
+    expect(mockAlert).not.toHaveBeenCalled();
+    expect(mockRequestPermissions).not.toHaveBeenCalled();
+  });
+
+  it('returns denied when the system prompt is denied and does not request a token', async () => {
+    mockRequestPermissions.mockResolvedValue(permission('denied'));
+    const sync = syncPushRegistrationIfEligible({ allowPermissionPrompt: true });
+    await pressRationale('Enable notifications');
+
+    await expect(sync).resolves.toBe('denied');
+    expect(mockGetExpoPushToken).not.toHaveBeenCalled();
+  });
+
+  it('retries eligibility and registration after an unavailable startup check', async () => {
+    mockGetPermissions.mockResolvedValue(permission('granted'));
+    mockApi.mockRejectedValueOnce(new Error('offline'));
+
+    await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: false }))
+      .resolves.toBe('granted');
+    expect(mockGetExpoPushToken).not.toHaveBeenCalled();
+
+    await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: false }))
+      .resolves.toBe('granted');
+    expect(mockApi).toHaveBeenNthCalledWith(2, '/push/eligibility');
+    expect(mockGetExpoPushToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves an opt-out across restarts and retries an offline deactivation', async () => {
+    mockStorage.set('push_notifications_enabled', 'false');
+    mockStorage.set('push_installation_id', '12345678-1234-4678-9234-567812345678');
+    mockGetPermissions.mockResolvedValue(permission('granted'));
+    mockApi.mockRejectedValueOnce(new Error('offline'));
+
+    await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: true }))
+      .resolves.toBe('granted');
+    await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: true }))
+      .resolves.toBe('granted');
+
+    expect(mockApi).toHaveBeenCalledTimes(2);
+    expect(mockApi).toHaveBeenNthCalledWith(
+      1,
+      '/push/devices/12345678-1234-4678-9234-567812345678?reason=user_disabled',
+      { method: 'DELETE' },
+    );
+    expect(mockApi).toHaveBeenNthCalledWith(
+      2,
+      '/push/devices/12345678-1234-4678-9234-567812345678?reason=user_disabled',
+      { method: 'DELETE' },
+    );
+    expect(mockApi).not.toHaveBeenCalledWith('/push/eligibility');
+    expect(mockAlert).not.toHaveBeenCalled();
+    expect(mockRequestPermissions).not.toHaveBeenCalled();
+    expect(mockGetExpoPushToken).not.toHaveBeenCalled();
+  });
+
+  it('does not automatically prompt again after explicit intent has been saved', async () => {
+    mockStorage.set('push_notifications_enabled', 'true');
+    mockGetPermissions.mockResolvedValue(permission('undetermined', true));
+
+    await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: true }))
+      .resolves.toBe('undetermined');
+
+    expect(mockAlert).not.toHaveBeenCalled();
+    expect(mockRequestPermissions).not.toHaveBeenCalled();
+    expect(mockGetExpoPushToken).not.toHaveBeenCalled();
+  });
+
+  it('deactivates a previously registered installation after permission is revoked', async () => {
+    mockStorage.set('push_installation_id', '12345678-1234-4678-9234-567812345678');
+    mockGetPermissions.mockResolvedValue(permission('denied'));
+
+    await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: false }))
+      .resolves.toBe('denied');
+
+    expect(mockApi).toHaveBeenCalledWith('/push/eligibility');
+    expect(mockApi).toHaveBeenCalledWith(
+      '/push/devices/12345678-1234-4678-9234-567812345678?reason=permission_denied',
+      { method: 'DELETE' },
+    );
+    expect(mockGetExpoPushToken).not.toHaveBeenCalled();
+  });
+
+  it('opens Android settings without requesting or changing permission directly', async () => {
+    await expect(openPushNotificationSettings()).resolves.toBeUndefined();
+
+    expect(mockSetNotificationChannel).toHaveBeenCalledTimes(1);
+    expect(mockOpenSettings).toHaveBeenCalledTimes(1);
+    expect(mockGetPermissions).not.toHaveBeenCalled();
+    expect(mockRequestPermissions).not.toHaveBeenCalled();
+    expect(mockGetExpoPushToken).not.toHaveBeenCalled();
+  });
+
+  it('still opens Android settings when notification channel setup is unavailable', async () => {
+    mockSetNotificationChannel.mockRejectedValueOnce(new Error('channel unavailable'));
+
+    await expect(openPushNotificationSettings()).resolves.toBeUndefined();
+
+    expect(mockOpenSettings).toHaveBeenCalledTimes(1);
+    expect(info).toHaveBeenCalledWith('[push-notifications] settings_channel_unavailable', {});
+  });
+
+  it('reports a settings launch failure to the caller', async () => {
+    mockOpenSettings.mockRejectedValueOnce(new Error('settings unavailable'));
+
+    await expect(openPushNotificationSettings()).rejects.toThrow('settings unavailable');
+  });
+
+  it('deduplicates concurrent foreground registration attempts', async () => {
+    let releaseEligibility!: (value: { eligible: boolean }) => void;
+    mockApi.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseEligibility = resolve;
+    }));
+
+    const first = syncPushRegistrationIfEligible({ allowPermissionPrompt: false });
+    const second = syncPushRegistrationIfEligible({ allowPermissionPrompt: false });
+    expect(second).toBe(first);
+
+    await flushAsyncWork();
+    expect(releaseEligibility).toEqual(expect.any(Function));
+    releaseEligibility({ eligible: false });
+    await expect(first).resolves.toBe('undetermined');
+    expect(mockApi).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns unavailable without leaking native or network errors', async () => {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockGetPermissions.mockResolvedValue(permission('granted'));
+    mockGetExpoPushToken.mockRejectedValue(new Error('token=private-value'));
+
+    await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: false }))
+      .resolves.toBe('unavailable');
+
+    expect(log).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith(
+      '[push-notifications] registration_unavailable',
+      { reason: 'native_token_error' },
+    );
+    expect(JSON.stringify(info.mock.calls)).not.toContain('private-value');
+    log.mockRestore();
+    warn.mockRestore();
+    error.mockRestore();
+  });
+
+  it('reports permission state without prompting', async () => {
+    mockGetPermissions.mockResolvedValue(permission('denied'));
+
+    await expect(getPushPermissionState()).resolves.toBe('denied');
+    expect(mockAlert).not.toHaveBeenCalled();
+    expect(mockRequestPermissions).not.toHaveBeenCalled();
+  });
+
+  it('returns the persisted preference, Android permission, and effective state', async () => {
+    mockGetPermissions.mockResolvedValue(permission('granted'));
+
+    await expect(getPushNotificationSettings()).resolves.toEqual({
+      userPreference: null,
+      permission: 'granted',
+      canAskAgain: true,
+      enabled: true,
+    });
+
+    mockStorage.set('push_notifications_enabled', 'false');
+    await expect(getPushNotificationSettings()).resolves.toMatchObject({
+      userPreference: false,
+      permission: 'granted',
+      enabled: false,
+    });
+    expect(mockRequestPermissions).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates repeated switch actions while an update is busy', async () => {
+    let finishPreferenceWrite!: () => void;
+    mockSetItem.mockImplementationOnce((key: string, value: string) => new Promise<void>((resolve) => {
+      finishPreferenceWrite = () => {
+        mockStorage.set(key, value);
+        resolve();
+      };
+    }));
+
+    const first = setPushNotificationsEnabled(true);
+    const second = setPushNotificationsEnabled(true);
+    expect(second).toBe(first);
+
+    finishPreferenceWrite();
+    await expect(first).resolves.toMatchObject({ enabled: true });
+    expect(mockRequestPermissions).toHaveBeenCalledTimes(1);
+    expect(mockGetExpoPushToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns a non-interactive unavailable snapshot when native state cannot be read', async () => {
+    mockGetPermissions.mockRejectedValueOnce(new Error('native unavailable'));
+
+    await expect(getPushNotificationSettings()).resolves.toEqual({
+      userPreference: null,
+      permission: 'unavailable',
+      canAskAgain: false,
+      enabled: false,
+    });
+    expect(mockRequestPermissions).not.toHaveBeenCalled();
+  });
+
+  it('keeps notification settings Android-only', async () => {
+    const { Platform } = require('react-native');
+    (Platform as any).OS = 'ios';
+    const storageCalls = mockGetItem.mock.calls.length + mockSetItem.mock.calls.length;
+
+    await expect(getPushNotificationSettings()).resolves.toEqual({
+      userPreference: null,
+      permission: 'unavailable',
+      canAskAgain: false,
+      enabled: false,
+    });
+    await expect(setPushNotificationsEnabled(true)).resolves.toMatchObject({
+      permission: 'unavailable',
+      enabled: false,
+    });
+    await expect(syncPushRegistrationIfEligible({ allowPermissionPrompt: true }))
+      .resolves.toBe('unavailable');
+
+    expect(mockGetItem.mock.calls.length + mockSetItem.mock.calls.length).toBe(storageCalls);
+    expect(mockGetPermissions).not.toHaveBeenCalled();
+    expect(mockRequestPermissions).not.toHaveBeenCalled();
+    (Platform as any).OS = 'android';
+  });
+
+  it('unregisters only a persisted installation and never blocks logout on failure', async () => {
+    await unregisterCurrentPushInstallation();
+    expect(mockApi).not.toHaveBeenCalled();
+
+    mockStorage.set('push_installation_id', '12345678-1234-4678-9234-567812345678');
+    mockApi.mockRejectedValueOnce(new Error('offline'));
+    await expect(unregisterCurrentPushInstallation()).resolves.toBeUndefined();
+    expect(mockApi).toHaveBeenCalledWith(
+      '/push/devices/12345678-1234-4678-9234-567812345678',
+      { method: 'DELETE' },
+    );
+  });
+});

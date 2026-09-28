@@ -75,6 +75,7 @@ jest.mock('../../ui', () => {
     Button: stub('Button'),
     IconButton: stub('IconButton'),
     Icon: stub('Icon'),
+    Input: stub('Input'),
     StatCard: stub('StatCard'),
     ProgressBar: stub('ProgressBar'),
     EmptyState: stub('EmptyState'),
@@ -131,8 +132,8 @@ const TRIP = {
   members: [{ id: 'm1', name: 'A', kind: 'individual', family_members: [], user_id: 'u1' }],
 };
 const EXPENSES = [
-  { id: 'e1', amount: 100, category: 'Food', date: '01-01-25', paid_by_member_id: 'm1', split_member_ids: ['m1'] },
-  { id: 'i1', amount: -50, category: 'Refund', date: '01-01-25', paid_by_member_id: 'm1', split_member_ids: ['m1'] },
+  { id: 'e1', amount: 100, category: 'Food', description: 'Food lunch', date: '01-01-25', paid_by_member_id: 'm1', split_member_ids: ['m1'] },
+  { id: 'i1', amount: -50, category: 'Refund', description: 'Money returned', date: '01-01-25', paid_by_member_id: 'm1', split_member_ids: ['m1'] },
 ];
 const balances = (transfers: any[]) => ({
   net: { m1: transfers.length ? -10 : 0 }, transfers, members: TRIP.members, currency: 'INR', per_person: [],
@@ -141,10 +142,10 @@ const balances = (transfers: any[]) => ({
 const settledBadges = (r: any) => r.root.findAll((n: any) => n.props && n.props.label === 'Settled');
 const tabBtn = (r: any, value: string) => r.root.find((n: any) => n.props && n.props.testID === `trip-tab-${value}`);
 
-async function mountTrip(transfersValue: any[]) {
+async function mountTrip(transfersValue: any[], expenseRows = EXPENSES) {
   apiMock.mockImplementation((url: string) => {
     if (url === '/trips/t1') return Promise.resolve(TRIP);
-    if (url === '/trips/t1/expenses') return Promise.resolve(EXPENSES);
+    if (url === '/trips/t1/expenses') return Promise.resolve(expenseRows);
     if (url === '/trips/t1/balances') return Promise.resolve(balances(transfersValue));
     if (url === '/trips/t1/spend-summary') return Promise.resolve({ total: 50, count: 2, entities: [] });
     if (url === '/trips/t1/payments') return Promise.resolve([]);
@@ -155,8 +156,8 @@ async function mountTrip(transfersValue: any[]) {
   return r;
 }
 
-async function openExpenses(transfersValue: any[]) {
-  const r = await mountTrip(transfersValue);
+async function openExpenses(transfersValue: any[], expenseRows = EXPENSES) {
+  const r = await mountTrip(transfersValue, expenseRows);
   await act(async () => { tabBtn(r, 'expenses').props.onPress(); });
   return r;
 }
@@ -192,7 +193,13 @@ it('shows the last confirmed expense list while disabling online edits from a sa
     expect(renderer.root.findAll((node: any) => node.props?.testID === 'expense-del-e1'))
       .toHaveLength(0);
     expect(renderer.root.findAll((node: any) => node.props?.testID === 'offline-read-status'))
-      .toHaveLength(1);
+      .not.toHaveLength(0);
+    const input = renderer.root.find((node: any) => node.props?.testID === 'expense-search-input');
+    act(() => { input.props.onChangeText('food'); });
+    expect(renderer.root.findAll((node: any) => node.props?.testID === 'expense-item-e1'))
+      .not.toHaveLength(0);
+    expect(renderer.root.findAll((node: any) => node.props?.testID === 'expense-item-i1'))
+      .toHaveLength(0);
   } finally {
     loader.mockRestore();
   }
@@ -207,6 +214,73 @@ describe('Expenses tab — trip-level "Settled" badge', () => {
   it('shows no badge when any balance is outstanding', async () => {
     const r = await openExpenses([{ from_member_id: 'm1', to_member_id: 'm2', amount: 10 }]);
     expect(settledBadges(r).length).toBe(0);
+  });
+});
+
+describe('Expenses tab search', () => {
+  it('keeps the query when switching away from and back to Expenses', async () => {
+    const r = await openExpenses([]);
+    const input = r.root.find((node: any) => node.props?.testID === 'expense-search-input');
+    act(() => { input.props.onChangeText('food'); });
+    act(() => { tabBtn(r, 'summary').props.onPress(); });
+    act(() => { tabBtn(r, 'expenses').props.onPress(); });
+
+    const restoredInput = r.root.find((node: any) => node.props?.testID === 'expense-search-input');
+    expect(restoredInput.props.value).toBe('food');
+    expect(r.root.findAll((node: any) => node.props?.testID === 'expense-item-i1'))
+      .toHaveLength(0);
+  });
+
+  it('filters saved and pending descriptions while preserving newest-first order', async () => {
+    const pendingLoader = jest.spyOn(require('../../offlineExpenses'), 'listPendingExpenses')
+      .mockResolvedValue([{
+        clientMutationId: 'pending-food', accountId: 'u1', tripId: 't1',
+        operation: 'expense_create', state: 'queued', queuedAt: Date.parse('2026-09-02T12:00:00Z'),
+        attemptCount: 0, nextRetryAt: null, lastSafeErrorCode: null,
+        canonicalResourceId: null, acknowledgedResponse: null, precondition: {},
+        payload: { category: 'Food', description: 'Food classico', date: '02-09-26',
+          time: '12:00', amount: 90, paid_by_member_id: 'm1', split_member_ids: ['m1'],
+          split_mode: 'PER_CAPITA' },
+      }]);
+    const expenseRows = [
+      { id: 'food-old', amount: 100, category: 'Food', description: 'The food biryani',
+        date: '01-09-26', time: '09:00', paid_by_member_id: 'm1', split_member_ids: ['m1'] },
+      { id: 'taxi', amount: 50, category: 'Food', description: 'Taxi ride',
+        date: '04-09-26', time: '09:00', paid_by_member_id: 'm1', split_member_ids: ['m1'] },
+      { id: 'food-new', amount: 70, category: 'Other', description: 'Bengali FOOD',
+        date: '03-09-26', time: '19:00', paid_by_member_id: 'm1', split_member_ids: ['m1'] },
+    ];
+    const visibleIds = (r: any) => r.root.findAll((node: any) =>
+      typeof node.type === 'string' && typeof node.props?.testID === 'string'
+      && /^(expense-item|pending-expense-item)-/.test(node.props.testID))
+      .map((node: any) => node.props.testID);
+
+    try {
+      const r = await openExpenses([], expenseRows);
+      const input = r.root.find((node: any) => node.props?.testID === 'expense-search-input');
+      act(() => { input.props.onChangeText(' fOoD '); });
+      expect(visibleIds(r)).toEqual([
+        'expense-item-food-new', 'pending-expense-item-pending-food', 'expense-item-food-old',
+      ]);
+
+      act(() => { input.props.onChangeText('BIRYANI food'); });
+      expect(visibleIds(r)).toEqual(['expense-item-food-old']);
+
+      act(() => { input.props.onChangeText('unmatched'); });
+      expect(visibleIds(r)).toEqual([]);
+      expect(r.root.findAll((node: any) =>
+        typeof node.type === 'string' && node.props?.testID === 'expenses-search-empty'))
+        .toHaveLength(1);
+
+      const clear = r.root.find((node: any) => node.props?.testID === 'expense-search-clear');
+      act(() => { clear.props.onPress(); });
+      expect(visibleIds(r)).toEqual([
+        'expense-item-taxi', 'expense-item-food-new',
+        'pending-expense-item-pending-food', 'expense-item-food-old',
+      ]);
+    } finally {
+      pendingLoader.mockRestore();
+    }
   });
 });
 

@@ -1,10 +1,30 @@
-import { compareExpensesDesc, sortExpensesDesc, SortableExpense } from '../expenseSort';
+import { compareExpensesDesc, sortExpenseRowsDesc, sortExpensesDesc, SortableExpense } from '../expenseSort';
 
 const mk = (over: Partial<SortableExpense> & { id: string }): SortableExpense => ({
   date: over.date ?? '01-01-25',
   time: over.time ?? null,
   created_at: over.created_at ?? '2025-01-01T00:00:00+00:00',
   ...over,
+});
+
+describe('sortExpenseRowsDesc', () => {
+  it('places pending and confirmed expenses by their expense date, newest first', () => {
+    const confirmed = [
+      mk({ id: 'confirmed-new', date: '30-06-25', created_at: '2025-06-01T10:00:00Z' }),
+      mk({ id: 'confirmed-old', date: '01-06-25', created_at: '2025-06-30T10:00:00Z' }),
+    ];
+    const pending = [
+      { clientMutationId: 'pending-mid', queuedAt: Date.parse('2025-07-02T10:00:00Z'), payload: { date: '15-06-25' } },
+      { clientMutationId: 'pending-new', queuedAt: Date.parse('2025-06-01T10:00:00Z'), payload: { date: '01-07-25' } },
+    ];
+
+    const ordered = sortExpenseRowsDesc(confirmed, pending).map((row) =>
+      row.kind === 'pending' ? row.item.clientMutationId : row.expense.id);
+
+    expect(ordered).toEqual(['pending-new', 'confirmed-new', 'pending-mid', 'confirmed-old']);
+    expect(confirmed.map((expense) => expense.id)).toEqual(['confirmed-new', 'confirmed-old']);
+    expect(pending.map((item) => item.clientMutationId)).toEqual(['pending-mid', 'pending-new']);
+  });
 });
 
 const ids = (list: SortableExpense[]) => sortExpensesDesc(list).map((e) => e.id);

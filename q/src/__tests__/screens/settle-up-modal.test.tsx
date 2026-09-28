@@ -1,0 +1,153 @@
+/* eslint-disable import/first, @typescript-eslint/no-require-imports */
+// jest.mock calls must precede the module imports they replace, and their factories use require();
+// both are idiomatic for jest and intentionally exempted here.
+//
+// Focused test for the settle-up record/edit modal (AmountModal in app/trip/[id]/settle-up.tsx):
+//  - the explicit ✕ (payment-close) CANCELS without recording (calls onCancel, never onSubmit);
+//  - the restructured modal still mounts the amount + remark inputs and the footer buttons, and
+//    Continue submits (footer stays wired/reachable). Heavy screen deps are stubbed so importing
+//    the route module doesn't pull the network / router; the modal uses the REAL
+//    validatePaymentAmount + formatMoney.
+import React from 'react';
+import { StyleSheet } from 'react-native';
+import TestRenderer, { act } from 'react-test-renderer';
+
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 24, right: 0, bottom: 30, left: 0 }),
+}));
+
+jest.mock('expo-router', () => ({ useFocusEffect: () => {}, useLocalSearchParams: () => ({ id: 't1' }) }));
+jest.mock('../../api', () => ({
+  api: jest.fn(), listPayments: jest.fn(), recordPayment: jest.fn(), editPayment: jest.fn(), deletePayment: jest.fn(),
+}));
+jest.mock('../../AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
+jest.mock('../../ThemeContext', () => ({ useTheme: () => ({ colors: new Proxy({}, { get: () => '#123456' }), mode: 'light' }) }));
+jest.mock('../../T', () => {
+  const R = require('react');
+  const { Text } = require('react-native');
+  return { __esModule: true, default: (p: any) => R.createElement(Text, null, p.children) };
+});
+jest.mock('../../ConfirmModal', () => ({ __esModule: true, default: () => null }));
+jest.mock('../../ui', () => {
+  const R = require('react');
+  const stub = (name: string) => (p: any) => R.createElement(name, p, p && p.children);
+  return {
+    __esModule: true,
+    Screen: stub('Screen'), Card: stub('Card'), Button: stub('Button'), Icon: stub('Icon'),
+    IconButton: stub('IconButton'), Input: stub('Input'), EmptyState: stub('EmptyState'),
+    AmountText: stub('AmountText'), SkeletonCard: stub('SkeletonCard'), ProgressBar: stub('ProgressBar'),
+    useToast: () => ({ show: jest.fn() }),
+  };
+});
+
+import { AmountModal } from '../../../app/trip/[id]/settle-up';
+
+const host = (r: any, id: string) =>
+  r.root.find((n: any) => typeof n.type === 'string' && n.props && n.props.testID === id);
+const hasHost = (r: any, id: string) =>
+  r.root.findAll((n: any) => typeof n.type === 'string' && n.props && n.props.testID === id).length > 0;
+const buttonByLabel = (r: any, label: string) =>
+  r.root.find((n: any) => n.type === 'Button' && n.props && n.props.label === label);
+
+function mount(
+  onCancel: jest.Mock,
+  onSubmit: jest.Mock,
+  overrides: Partial<React.ComponentProps<typeof AmountModal>> = {},
+) {
+  let r: any;
+  act(() => {
+    r = TestRenderer.create(React.createElement(AmountModal, {
+      title: 'Record payment', subtitle: 'Ram pays Shyam', initial: 100, max: 100, currency: 'INR',
+      initialNote: '', submitLabel: 'Continue', onCancel, onSubmit,
+      ...overrides,
+    }));
+  });
+  return r;
+}
+
+describe('settle-up AmountModal (✕ close + reachable footer)', () => {
+  it('renders the amount + remark inputs and the footer buttons', () => {
+    const r = mount(jest.fn(), jest.fn());
+    const cancel = buttonByLabel(r, 'Cancel');
+    const continueButton = buttonByLabel(r, 'Continue');
+    expect(hasHost(r, 'payment-amount-input')).toBe(true);
+    expect(hasHost(r, 'payment-remark-input')).toBe(true);
+    expect(hasHost(r, 'payment-amount-continue')).toBe(true);
+    expect(hasHost(r, 'payment-close')).toBe(true);
+    expect(cancel).toBeTruthy();
+    expect(continueButton).toBeTruthy();
+    expect(cancel.props.fullWidth).toBe(true);
+    expect(continueButton.props.fullWidth).toBe(true);
+    expect(host(r, 'payment-keyboard-view').props).toEqual(expect.objectContaining({
+      behavior: 'padding', automaticOffset: true,
+    }));
+    expect(StyleSheet.flatten(cancel.parent?.parent?.props.style).flex).toBe(1);
+    expect(StyleSheet.flatten(continueButton.parent?.parent?.props.style).flex).toBe(1);
+  });
+
+  it('✕ cancels WITHOUT recording (onCancel, never onSubmit)', () => {
+    const onCancel = jest.fn(); const onSubmit = jest.fn();
+    const r = mount(onCancel, onSubmit);
+    act(() => { host(r, 'payment-close').props.onPress(); });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('Cancel button also cancels without recording', () => {
+    const onCancel = jest.fn(); const onSubmit = jest.fn();
+    const r = mount(onCancel, onSubmit);
+    act(() => { buttonByLabel(r, 'Cancel').props.onPress(); });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('Continue submits the initial valid amount (footer stays wired)', () => {
+    const onCancel = jest.fn(); const onSubmit = jest.fn();
+    const r = mount(onCancel, onSubmit);
+    act(() => { host(r, 'payment-amount-continue').props.onPress(); });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit.mock.calls[0][0]).toBe(100); // amount
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it('rejects a legacy decimal in the updated whole-unit editor', () => {
+    jest.useFakeTimers();
+    const onSubmit = jest.fn();
+    const legacyAmount = 1.234567;
+    const r = mount(jest.fn(), onSubmit, {
+      initial: legacyAmount,
+      max: legacyAmount,
+      currency: 'LKR',
+      wholeUnit: true,
+      allowLegacyDecimal: true,
+    });
+
+    expect(host(r, 'payment-amount-input').props.helper).toContain('Whole LKR amounts only');
+    act(() => { host(r, 'payment-amount-continue').props.onPress(); });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(host(r, 'payment-amount-input').props.error).toBe('Enter a whole LKR amount');
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  it('renders a remark-only editor for a recipient-confirmed UPI payment', () => {
+    const onSubmit = jest.fn();
+    const r = mount(jest.fn(), onSubmit, {
+      title: 'Edit payment remark',
+      initial: 50,
+      max: 50,
+      initialNote: 'old remark',
+      amountLocked: true,
+    });
+
+    expect(hasHost(r, 'payment-amount-input')).toBe(false);
+    expect(hasHost(r, 'payment-locked-amount')).toBe(true);
+    expect(hasHost(r, 'payment-remark-continue')).toBe(true);
+    expect(host(r, 'payment-remark-input').props.autoFocus).toBe(true);
+    act(() => { host(r, 'payment-remark-input').props.onChangeText('new remark'); });
+    act(() => { host(r, 'payment-remark-continue').props.onPress(); });
+
+    expect(onSubmit).toHaveBeenCalledWith(50, 'new remark');
+  });
+});

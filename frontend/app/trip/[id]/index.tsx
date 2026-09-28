@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator, View, ScrollView, TouchableOpacity, StyleSheet, RefreshControl,
   Share, Image, Linking, Platform, Pressable,
@@ -30,7 +30,8 @@ import {
 import { compositionLabel } from '../../../src/composition';
 import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displayNames';
 import { billLabel } from '../../../src/bill';
-import { sortExpensesDesc } from '../../../src/expenseSort';
+import { sortExpenseRowsDesc } from '../../../src/expenseSort';
+import { matchesExpenseDescription } from '../../../src/expenseSearch';
 import { hasShareBreakdown, shareVerbs, type ExpenseShares } from '../../../src/expenseShares';
 import { tripTabFromParam, type TripTabKey } from '../../../src/tripTabs';
 import { isTripSettled } from '../../../src/tripSettled';
@@ -48,7 +49,7 @@ import InviteLinksPanel from '../../../src/InviteLinksPanel';
 import MembershipCard from '../../../src/MembershipCard';
 import { normalizedTripDeletionName } from '../../../src/departure';
 import {
-  Card, Button, IconButton, Icon, SegmentedControl, StatCard, ProgressBar,
+  Card, Button, IconButton, Icon, Input, SegmentedControl, StatCard, ProgressBar,
   ActionSheet, EmptyState, ResponsiveAmountText, SkeletonCard, useToast,
 } from '../../../src/ui';
 
@@ -258,8 +259,28 @@ export default function TripDetail() {
   const loadGeneration = useRef(0);
   const trip = readAccountId === user?.id ? storedTrip : null;
   const read = readAccountId === user?.id ? storedRead : null;
-  const pendingExpenses = readAccountId === user?.id ? storedPendingExpenses : [];
+  const pendingExpenses = useMemo(
+    () => readAccountId === user?.id ? storedPendingExpenses : [],
+    [readAccountId, user?.id, storedPendingExpenses],
+  );
   const [tab, setTab] = useState<TabKey>(() => tripTabFromParam(tabParam));
+  const [expenseSearchQuery, setExpenseSearchQuery] = useState('');
+
+  useEffect(() => { setExpenseSearchQuery(''); }, [id, user?.id]);
+  useEffect(() => {
+    if (notificationExpenseId) setExpenseSearchQuery('');
+  }, [notificationExpenseId]);
+
+  const sortedExpenseRows = useMemo(
+    () => sortExpenseRowsDesc(expenses, pendingExpenses),
+    [expenses, pendingExpenses],
+  );
+  const matchingExpenseRows = useMemo(() => sortedExpenseRows.filter((row) =>
+    matchesExpenseDescription(
+      row.kind === 'pending' ? row.item.payload.description : row.expense.description,
+      expenseSearchQuery,
+    )), [sortedExpenseRows, expenseSearchQuery]);
+  const expenseSearchActive = expenseSearchQuery.trim().length > 0;
 
   // Handles both a cold notification launch and a tap while this trip screen is already mounted.
   useEffect(() => {
@@ -528,18 +549,12 @@ export default function TripDetail() {
       {read ? <OfflineReadStatus result={read} /> : null}
       {pendingExpenses.length > 0 ? (
         <T variant="caption" muted testID="trip-pending-summary">
-          {pendingExpenses.length} Pending sync · confirmed totals exclude pending transactions.
+          {pendingExpenses.length} pending sync
         </T>
       ) : null}
       {pendingReadError ? <T variant="caption" color={colors.warning} testID="trip-pending-read-error">
         Pending transactions could not be read on this device.
       </T> : null}
-      {offlineView ? (
-        <T variant="caption" muted testID="trip-online-actions-note">
-          Saved trip view. Changes and receipt images require a connection.
-        </T>
-      ) : null}
-
       {isApplicationAdmin ? (
         <Card variant="muted" testID="trip-privileged-mode">
           <View style={styles.privilegedRow}>
@@ -631,6 +646,7 @@ export default function TripDetail() {
       <ScrollView
         ref={notificationScrollRef}
         contentContainerStyle={{ padding: SPACING.lg, alignItems: 'center' }}
+        keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor={colors.primary} />}
       >
         <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
@@ -821,9 +837,49 @@ export default function TripDetail() {
               style={{ gap: SPACING.sm }}
               onLayout={(event) => { expensesSectionY.current = event.nativeEvent.layout.y; }}
             >
-              {pendingExpenses.map((item) => {
+              <View style={styles.expenseSearchRow}>
+                <Input
+                  value={expenseSearchQuery}
+                  onChangeText={setExpenseSearchQuery}
+                  placeholder="Search expense descriptions"
+                  icon="search"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                  accessibilityLabel="Search expense descriptions"
+                  testID="expense-search-input"
+                  containerStyle={styles.expenseSearchInput}
+                />
+                {expenseSearchActive ? (
+                  <IconButton
+                    name="close"
+                    variant="surface"
+                    size={18}
+                    touchSize={COMPONENT_SIZE.minTouchTarget}
+                    onPress={() => setExpenseSearchQuery('')}
+                    accessibilityLabel="Clear expense search"
+                    testID="expense-search-clear"
+                  />
+                ) : null}
+              </View>
+              {expenseSearchActive && sortedExpenseRows.length > 0 ? (
+                <T variant="caption" muted testID="expense-search-count">
+                  {matchingExpenseRows.length} {matchingExpenseRows.length === 1 ? 'match' : 'matches'}
+                </T>
+              ) : null}
+              {sortedExpenseRows.length === 0 ? (
+                <EmptyState icon="receipt" title="No transactions yet" body="Add an expense (or a negative amount for money back) to start tracking this trip." ctaLabel="Add transaction" ctaIcon="plus" onCta={() => router.push(`/trip/${id}/add-expense`)} testID="expenses-empty" />
+              ) : matchingExpenseRows.length === 0 ? (
+                <EmptyState icon="search" title="No matching expenses" body="Try different words or clear the search." ctaLabel="Clear search" onCta={() => setExpenseSearchQuery('')} testID="expenses-search-empty" />
+              ) : matchingExpenseRows.map((row) => {
+                if (row.kind === 'pending') {
+                const item = row.item;
                 const payload = item.payload;
                 const amount = Number(payload.amount ?? payload.original_amount ?? 0);
+                const pendingCurrency = typeof payload.original_currency === 'string'
+                  ? payload.original_currency
+                  : typeof payload.currency === 'string' ? payload.currency : trip.currency;
+                const foreignCurrency = pendingCurrency !== trip.currency;
                 const status = pendingStatusLabel(item);
                 return (
                   <Card key={item.clientMutationId}
@@ -845,15 +901,16 @@ export default function TripDetail() {
                           accessibilityLabel={`${status}. Saved on this device; not included in confirmed totals.`}
                           testID={`pending-expense-status-${item.clientMutationId}`}>{status}</T>
                       </View>
-                      <ResponsiveAmountText value={amount} currency={trip.currency} showCurrency={false}
+                      <ResponsiveAmountText value={amount} currency={pendingCurrency}
+                        showCurrency={foreignCurrency}
+                        currencyDisplay={foreignCurrency ? 'code' : undefined}
                         label="Pending transaction amount" color={amount < 0 ? colors.success : colors.textMain} />
                     </View>
                   </Card>
                 );
-              })}
-              {expenses.length === 0 && pendingExpenses.length === 0 ? (
-                <EmptyState icon="receipt" title="No transactions yet" body="Add an expense (or a negative amount for money back) to start tracking this trip." ctaLabel="Add transaction" ctaIcon="plus" onCta={() => router.push(`/trip/${id}/add-expense`)} testID="expenses-empty" />
-              ) : sortExpensesDesc(expenses).map((e) => (
+                }
+                const e = row.expense;
+                return (
                 <View
                   key={e.id}
                   onLayout={(event) => {
@@ -961,7 +1018,8 @@ export default function TripDetail() {
                   })()}
                 </Card>
                 </View>
-              ))}
+                );
+              })}
             </View>
           )}
 
@@ -1283,6 +1341,8 @@ const styles = StyleSheet.create({
   },
   actionButton: { flexGrow: 1, flexShrink: 0, maxWidth: '100%' },
   actionButtonControl: { minHeight: COMPONENT_SIZE.minTouchTarget },
+  expenseSearchRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  expenseSearchInput: { flex: 1, minWidth: 0 },
   budgetUsageContent: { gap: SPACING.sm },
   budgetUsageValues: {
     flexDirection: 'row',

@@ -1,0 +1,97 @@
+import React, { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, ActivityIndicator, Platform } from 'react-native';
+import * as Google from 'expo-auth-session/providers/google';
+import * as WebBrowser from 'expo-web-browser';
+import { Ionicons } from '@expo/vector-icons'; // brand logo only (lucide has no brand glyphs)
+import { useRouter } from 'expo-router';
+import { useAuth } from './AuthContext';
+import { useTheme } from './ThemeContext';
+import { SPACING, RADIUS, FONTS } from './theme';
+import T from './T';
+import { useToast } from './ui';
+import { mobileSetupHref, passwordSetupHref, postAuthHref } from './inviteNavigation';
+
+WebBrowser.maybeCompleteAuthSession();
+
+const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || undefined;
+const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || undefined;
+
+// Android resolves GoogleSignInButton.android.tsx and uses Credential Manager. This implementation
+// remains the existing AuthSession flow for web/iOS. Hooks cannot be called conditionally, so an
+// unconfigured platform hides the hook-bearing component instead of crashing the whole screen.
+const PLATFORM_CLIENT_ID =
+  Platform.OS === 'ios' ? IOS_CLIENT_ID
+  : WEB_CLIENT_ID;
+
+// True when the Google button will actually render on this platform. Lets callers (e.g. the login
+// screen's "or continue with" divider) avoid an orphaned rule when Google auth is unconfigured.
+export const googleAuthAvailable = !!PLATFORM_CLIENT_ID;
+
+function GoogleSignInInner() {
+  const { signInWithGoogle, pendingInvitePath } = useAuth();
+  const { colors } = useTheme();
+  const router = useRouter();
+  const toast = useToast();
+  const [loading, setLoading] = useState(false);
+
+  const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
+    clientId: WEB_CLIENT_ID,
+    webClientId: WEB_CLIENT_ID,
+    iosClientId: IOS_CLIENT_ID,
+  });
+
+  useEffect(() => {
+    if (response?.type !== 'success') {
+      if (response?.type === 'error') toast.show('Google sign-in failed. Try again.', 'error');
+      return;
+    }
+    const idToken = response.params?.id_token || response.authentication?.idToken;
+    if (!idToken) return;
+    setLoading(true);
+    signInWithGoogle(idToken)
+      // A first-time Google user must create a local password before entering the app.
+      .then((u) => router.replace(
+        u.credentials_set === false
+          ? passwordSetupHref(pendingInvitePath)
+          : !u.mobile_number
+            ? mobileSetupHref(pendingInvitePath)
+            : postAuthHref(pendingInvitePath),
+      ))
+      .catch((e: any) => toast.show(e.message || 'Google sign-in failed', 'error'))
+      .finally(() => setLoading(false));
+  }, [pendingInvitePath, response, router, signInWithGoogle, toast]);
+
+  return (
+    <Pressable
+      testID="google-signin"
+      disabled={!request || loading}
+      onPress={() => promptAsync()}
+      accessibilityRole="button"
+      accessibilityLabel="Continue with Google"
+      style={({ pressed }) => [
+        styles.btn,
+        { backgroundColor: colors.surface, borderColor: colors.border, opacity: pressed ? 0.9 : 1 },
+      ]}
+    >
+      {loading ? <ActivityIndicator color={colors.textMain} /> : (
+        <>
+          <Ionicons name="logo-google" size={18} color={colors.textMain} />
+          <T style={{ marginLeft: SPACING.sm, fontFamily: FONTS.bodyBold }}>Continue with Google</T>
+        </>
+      )}
+    </Pressable>
+  );
+}
+
+export default function GoogleSignInButton() {
+  // Only mount the hook-bearing component when this platform's client ID is configured.
+  if (!PLATFORM_CLIENT_ID) return null;
+  return <GoogleSignInInner />;
+}
+
+const styles = StyleSheet.create({
+  btn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 16, borderRadius: RADIUS.pill, borderWidth: 1,
+  },
+});

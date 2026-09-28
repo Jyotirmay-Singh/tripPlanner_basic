@@ -1,0 +1,234 @@
+/* eslint-disable import/first, @typescript-eslint/no-require-imports */
+// jest.mock calls must precede the module imports they replace, and their factories use require();
+// both are idiomatic for jest and intentionally exempted here (mirrors unverified-banner.test.tsx).
+//
+// Render test for the trip-level "Settled" badge on the Expenses tab
+// (frontend/app/trip/[id]/index.tsx). The badge is shown on EVERY transaction row (positive expenses
+// and negative money-back rows alike) when the WHOLE trip is settled (balances.transfers === []).
+// `Badge` and the real `isTripSettled` helper are intentionally NOT mocked so the wiring is exercised;
+// the badge is located by its `label === 'Settled'` prop. Everything peripheral (display/permission
+// helpers, theme, heavy UI components) is stubbed so the test stays focused and deterministic.
+import React from 'react';
+import TestRenderer, { act } from 'react-test-renderer';
+
+const mockRouterPush = jest.fn();
+
+// --- contexts / router / native shells ---
+jest.mock('../../api', () => ({
+  api: jest.fn(), getToken: jest.fn(), receiptUrl: jest.fn(() => 'receipt://x'),
+  spendSummary: jest.fn(() => Promise.resolve({ total: 0, count: 0, entities: [] })),
+}));
+jest.mock('../../AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
+jest.mock('../../ThemeContext', () => ({
+  useTheme: () => ({ colors: new Proxy({}, { get: () => '#123456' }), mode: 'light' }),
+}));
+jest.mock('expo-router', () => {
+  const R = require('react');
+  return {
+    useLocalSearchParams: () => ({ id: 't1' }),
+    useRouter: () => ({ push: mockRouterPush, back: jest.fn() }),
+    // Run the focus callback once on mount so the screen's load() fires.
+    useFocusEffect: (cb: any) => R.useEffect(() => { cb(); }, []),
+  };
+});
+jest.mock('react-native-safe-area-context', () => {
+  const R = require('react');
+  const { View } = require('react-native');
+  return { SafeAreaView: (p: any) => R.createElement(View, p, p.children) };
+});
+
+// --- text + heavy / irrelevant components ---
+jest.mock('../../T', () => {
+  const R = require('react');
+  const { Text } = require('react-native');
+  return { __esModule: true, default: (p: any) => R.createElement(Text, null, p.children) };
+});
+jest.mock('../../DonutChart', () => {
+  const R = require('react');
+  return {
+    __esModule: true,
+    default: (p: any) => R.createElement('DonutChart', p),
+    paletteForMode: () => ['#000'],
+  };
+});
+jest.mock('../../SpendBarChart', () => ({ __esModule: true, default: () => null }));
+jest.mock('../../ReceiptViewer', () => ({ __esModule: true, default: () => null }));
+jest.mock('../../ConfirmModal', () => ({ __esModule: true, default: () => null }));
+jest.mock('../../TripChat', () => {
+  const R = require('react');
+  return { __esModule: true, default: (p: any) => R.createElement('TripChat', p) };
+});
+jest.mock('../../useTripChat', () => ({
+  useTripChat: () => ({
+    messages: [], unreadCount: 3, loading: false, loadingOlder: false,
+    hasMoreBefore: false, connected: true, refreshUnread: jest.fn(), loadLatest: jest.fn(),
+    loadOlder: jest.fn(), send: jest.fn(), retry: jest.fn(), edit: jest.fn(), remove: jest.fn(),
+    clear: jest.fn(), markThrough: jest.fn(),
+  }),
+}));
+jest.mock('../../ui', () => {
+  const R = require('react');
+  const stub = (name: string) => (p: any) => R.createElement(name, p, p && p.children);
+  return {
+    __esModule: true,
+    Card: (p: any) => R.createElement('Card', p, p.children),
+    Button: stub('Button'),
+    IconButton: stub('IconButton'),
+    Icon: stub('Icon'),
+    StatCard: stub('StatCard'),
+    ProgressBar: stub('ProgressBar'),
+    EmptyState: stub('EmptyState'),
+    AmountText: stub('AmountText'),
+    ResponsiveAmountText: stub('ResponsiveAmountText'),
+    SkeletonCard: stub('SkeletonCard'),
+    ActionSheet: stub('ActionSheet'),
+    // Render each tab segment as a pressable host node so the test can switch tabs.
+    SegmentedControl: (p: any) =>
+      R.createElement(
+        'segmented-control',
+        { layout: p.layout },
+        (p.segments || []).map((s: any) =>
+          R.createElement('segment', {
+            key: s.value,
+            testID: `${p.testIDPrefix}-${s.value}`,
+            onPress: () => p.onChange(s.value),
+            badge: s.badge,
+          }),
+        ),
+      ),
+    useToast: () => ({ show: jest.fn() }),
+  };
+});
+
+// --- pure display / permission helpers (orthogonal to the badge; stubbed for a minimal fixture) ---
+jest.mock('../../permissions', () => ({
+  canModifyExpense: () => false,
+  roleOf: () => null,
+  canEditTripSettings: () => false,
+  canManageMembers: () => false,
+  canDeleteTrip: () => false,
+}));
+jest.mock('../../composition', () => ({ compositionLabel: () => '' }));
+jest.mock('../../displayNames', () => ({ memberDisplayNames: () => ({}), familyMemberDisplayNames: () => [] }));
+jest.mock('../../format', () => ({
+  formatMoney: () => '0',
+  formatAccessibleMoney: () => 'INR 0',
+}));
+jest.mock('../../date', () => ({ formatTripDates: () => '' }));
+jest.mock('../../time', () => ({ formatTime12h: () => '' }));
+jest.mock('../../bill', () => ({ billLabel: () => 'Bill not attached' }));
+// NOTE: ../../Badge and ../../tripSettled are deliberately left REAL.
+
+import TripDetail from '../../../app/trip/[id]/index';
+import { api, getToken } from '../../api';
+
+const apiMock = api as unknown as jest.Mock;
+const getTokenMock = getToken as unknown as jest.Mock;
+
+const TRIP = {
+  id: 't1', name: 'Trip', code: 'ABC', currency: 'INR',
+  owner_id: 'u1', admin_ids: ['u1'],
+  members: [{ id: 'm1', name: 'A', kind: 'individual', family_members: [], user_id: 'u1' }],
+};
+const EXPENSES = [
+  { id: 'e1', amount: 100, category: 'Food', date: '01-01-25', paid_by_member_id: 'm1', split_member_ids: ['m1'] },
+  { id: 'i1', amount: -50, category: 'Refund', date: '01-01-25', paid_by_member_id: 'm1', split_member_ids: ['m1'] },
+];
+const balances = (transfers: any[]) => ({
+  net: { m1: transfers.length ? -10 : 0 }, transfers, members: TRIP.members, currency: 'INR', per_person: [],
+});
+
+const settledBadges = (r: any) => r.root.findAll((n: any) => n.props && n.props.label === 'Settled');
+const tabBtn = (r: any, value: string) => r.root.find((n: any) => n.props && n.props.testID === `trip-tab-${value}`);
+
+async function mountTrip(transfersValue: any[]) {
+  apiMock.mockImplementation((url: string) => {
+    if (url === '/trips/t1') return Promise.resolve(TRIP);
+    if (url === '/trips/t1/expenses') return Promise.resolve(EXPENSES);
+    if (url === '/trips/t1/balances') return Promise.resolve(balances(transfersValue));
+    if (url === '/trips/t1/spend-summary') return Promise.resolve({ total: 50, count: 2, entities: [] });
+    if (url === '/trips/t1/payments') return Promise.resolve([]);
+    return Promise.resolve({});
+  });
+  let r: any;
+  await act(async () => { r = TestRenderer.create(React.createElement(TripDetail)); });
+  return r;
+}
+
+async function openExpenses(transfersValue: any[]) {
+  const r = await mountTrip(transfersValue);
+  await act(async () => { tabBtn(r, 'expenses').props.onPress(); });
+  return r;
+}
+
+beforeEach(() => {
+  apiMock.mockReset();
+  getTokenMock.mockReset();
+  getTokenMock.mockResolvedValue('tok');
+  mockRouterPush.mockReset();
+});
+
+describe('Category chart navigation', () => {
+  it('opens one concrete encoded category path from the chart callback', async () => {
+    const r = await mountTrip([]);
+    const donut = r.root.findByType('DonutChart' as any);
+    act(() => { donut.props.onSlicePress({ key: 'Local Transportation' }); });
+    expect(mockRouterPush).toHaveBeenCalledWith('/trip/t1/category/Local%20Transportation');
+  });
+});
+
+it('shows the last confirmed expense list while disabling online edits from a saved trip', async () => {
+  const reads = require('../../offlineReads');
+  const loader = jest.spyOn(reads, 'loadTripReadBundle').mockResolvedValue({
+    data: { trip: TRIP, expenses: EXPENSES, balances: balances([]),
+      spend: { total: 50, count: 2, entities: [] }, payments: [] },
+    source: 'cache', fetchedAt: 1_700_000_000_000,
+  });
+  try {
+    const renderer = await mountTrip([]);
+    await act(async () => { tabBtn(renderer, 'expenses').props.onPress(); });
+    expect(renderer.root.findAll((node: any) => node.props?.testID === 'expense-item-e1'))
+      .not.toHaveLength(0);
+    expect(renderer.root.findAll((node: any) => node.props?.testID === 'expense-del-e1'))
+      .toHaveLength(0);
+    expect(renderer.root.findAll((node: any) => node.props?.testID === 'offline-read-status'))
+      .not.toHaveLength(0);
+  } finally {
+    loader.mockRestore();
+  }
+});
+
+describe('Expenses tab — trip-level "Settled" badge', () => {
+  it('shows the badge on every transaction row (incl. money-back) when the trip is fully settled', async () => {
+    const r = await openExpenses([]); // no suggested transfers => trip settled
+    expect(settledBadges(r).length).toBe(2); // both rows (positive + negative) show the badge
+  });
+
+  it('shows no badge when any balance is outstanding', async () => {
+    const r = await openExpenses([{ from_member_id: 'm1', to_member_id: 'm2', amount: 10 }]);
+    expect(settledBadges(r).length).toBe(0);
+  });
+});
+
+describe('Trip chat tab wiring', () => {
+  it('uses adaptive trip tabs and horizontal safe-area protection', async () => {
+    const r = await openExpenses([]);
+    expect(r.root.findByType('segmented-control' as any).props.layout).toBe('adaptive');
+    const safeArea = r.root.findAll((node: any) => Array.isArray(node.props.edges))[0];
+    expect(safeArea.props.edges).toEqual(['bottom', 'left', 'right']);
+  });
+
+  it('adds the fifth Chat segment with its exact unread badge', async () => {
+    const r = await openExpenses([]);
+    expect(tabBtn(r, 'chat').props.badge).toBe('3');
+  });
+
+  it('opens the chat view with the linked sender enabled', async () => {
+    const r = await openExpenses([]);
+    await act(async () => { tabBtn(r, 'chat').props.onPress(); });
+    const chat = r.root.findByType('TripChat' as any);
+    expect(chat.props.currentUserId).toBe('u1');
+    expect(chat.props.isOwner).toBe(true);
+    expect(chat.props.canSend).toBe(true);
+  });
+});
