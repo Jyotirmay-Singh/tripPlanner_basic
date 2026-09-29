@@ -1,10 +1,11 @@
 import { ddmmyyToDDMMYYYY, parseISO, toISO } from './date';
 
 export type TrendPeriod = 'daily' | 'weekly' | 'monthly';
-export type TrendExpense = { date?: string | null; amount: number };
+export type TrendExpense = { date?: string | null; amount: number; paid_by_member_id?: string | null };
 export type TrendBucket = {
   key: string;
   total: number;
+  personalTotal: number;
   count: number;
   axisLabel: string;
   detailLabel: string;
@@ -104,15 +105,19 @@ export function expenseTrendWindow(
   period: TrendPeriod,
   requestedPage = 0,
   requestedSize = TREND_WINDOW_SIZE[period],
+  personalMemberId?: string | null,
 ): TrendWindow | null {
-  const sums = new Map<string, { total: number; count: number }>();
+  const sums = new Map<string, { total: number; personalTotal: number; count: number }>();
   for (const expense of expenses) {
     if (!Number.isFinite(expense.amount)) continue;
     const iso = expenseISO(expense.date);
     if (!iso) continue;
     const key = startOfPeriod(iso, period);
-    const current = sums.get(key) ?? { total: 0, count: 0 };
+    const current = sums.get(key) ?? { total: 0, personalTotal: 0, count: 0 };
     current.total += expense.amount;
+    if (personalMemberId && expense.paid_by_member_id === personalMemberId) {
+      current.personalTotal += expense.amount;
+    }
     current.count += 1;
     sums.set(key, current);
   }
@@ -128,7 +133,7 @@ export function expenseTrendWindow(
   const windowStart = movePeriod(windowEnd, period, -(size - 1));
   const buckets = Array.from({ length: size }, (_, index) => {
     const key = movePeriod(windowStart, period, index);
-    const sum = sums.get(key) ?? { total: 0, count: 0 };
+    const sum = sums.get(key) ?? { total: 0, personalTotal: 0, count: 0 };
     return { key, ...sum, ...bucketLabels(key, period) };
   });
   const rangeEnd = isoDate(new Date(utcDate(movePeriod(windowEnd, period, 1)).getTime() - DAY_MS));

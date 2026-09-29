@@ -803,7 +803,12 @@ export default function TripDetail() {
                 </View>
 
                 <Card>
-                  <ExpenseTrendChart expenses={expenses} currency={trip.currency} />
+                  <ExpenseTrendChart
+                    expenses={expenses}
+                    currency={trip.currency}
+                    personalMemberId={myMember?.id}
+                    personalKind={myMember?.kind}
+                  />
                 </Card>
 
                 {slices.length > 0 && (

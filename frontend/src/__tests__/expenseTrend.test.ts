@@ -77,4 +77,28 @@ describe('expenseTrendWindow', () => {
     ], 'daily')!;
     expect(window.total).toBe(30);
   });
+
+  it('tracks the signed amount paid by one member or family alongside the trip total', () => {
+    const expenses = [
+      { date: '07-09-26', amount: 8000, paid_by_member_id: 'other' },
+      { date: '07-09-26', amount: 2000, paid_by_member_id: 'family' },
+      { date: '08-09-26', amount: -500, paid_by_member_id: 'family' },
+    ];
+    const daily = expenseTrendWindow(expenses, 'daily', 0, 7, 'family')!;
+    expect(daily.buckets.at(-2)).toMatchObject({ total: 10000, personalTotal: 2000 });
+    expect(daily.buckets.at(-1)).toMatchObject({ total: -500, personalTotal: -500 });
+    const weekly = expenseTrendWindow(expenses, 'weekly', 0, 6, 'family')!;
+    expect(weekly.buckets.at(-1)).toMatchObject({ total: 9500, personalTotal: 1500 });
+    const monthly = expenseTrendWindow(expenses, 'monthly', 0, 6, 'family')!;
+    expect(monthly.buckets.at(-1)).toMatchObject({ total: 9500, personalTotal: 1500 });
+    expect(expenseTrendWindow(expenses, 'monthly')!.buckets.at(-1)?.personalTotal).toBe(0);
+  });
+
+  it('retains separate signed totals when other payers refunds exceed their spending', () => {
+    const window = expenseTrendWindow([
+      { date: '08-09-26', amount: 100, paid_by_member_id: 'me' },
+      { date: '08-09-26', amount: -150, paid_by_member_id: 'other' },
+    ], 'daily', 0, 7, 'me')!;
+    expect(window.buckets.at(-1)).toMatchObject({ total: -50, personalTotal: 100 });
+  });
 });

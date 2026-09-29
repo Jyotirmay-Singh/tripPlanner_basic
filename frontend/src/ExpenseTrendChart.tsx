@@ -16,9 +16,11 @@ const PERIODS: { value: TrendPeriod; label: string }[] = [
 const PLOT_HEIGHT = 148;
 const AXIS_HEIGHT = 28;
 
-export default function ExpenseTrendChart({ expenses, currency }: {
+export default function ExpenseTrendChart({ expenses, currency, personalMemberId, personalKind }: {
   expenses: readonly TrendExpense[];
   currency: string;
+  personalMemberId?: string | null;
+  personalKind?: 'individual' | 'family';
 }) {
   const { colors } = useTheme();
   const [period, setPeriod] = useState<TrendPeriod>('daily');
@@ -29,8 +31,8 @@ export default function ExpenseTrendChart({ expenses, currency }: {
     ? Math.max(3, Math.min(TREND_WINDOW_SIZE[period], Math.floor(chartWidth / 44)))
     : TREND_WINDOW_SIZE[period];
   const window = useMemo(
-    () => expenseTrendWindow(expenses, period, page, visibleCount),
-    [expenses, period, page, visibleCount],
+    () => expenseTrendWindow(expenses, period, page, visibleCount, personalMemberId),
+    [expenses, period, page, visibleCount, personalMemberId],
   );
 
   const changePeriod = (next: TrendPeriod) => {
@@ -55,14 +57,25 @@ export default function ExpenseTrendChart({ expenses, currency }: {
   const selected = window.buckets.find((bucket) => bucket.key === selectedKey)
     ?? [...window.buckets].reverse().find((bucket) => bucket.count > 0)
     ?? window.buckets[window.buckets.length - 1];
-  const maxPositive = Math.max(0, ...window.buckets.map((bucket) => bucket.total));
-  const maxNegative = Math.max(0, ...window.buckets.map((bucket) => -bucket.total));
+  const visibleValues = window.buckets.flatMap((bucket) => personalMemberId
+    ? [bucket.total, bucket.personalTotal]
+    : [bucket.total]);
+  const maxPositive = Math.max(0, ...visibleValues);
+  const maxNegative = Math.max(0, ...visibleValues.map((value) => -value));
   const negativeHeight = maxNegative === 0 ? 0 : maxPositive === 0
     ? PLOT_HEIGHT - 12
     : Math.max(32, Math.min(72, PLOT_HEIGHT * maxNegative / (maxPositive + maxNegative)));
   const positiveHeight = PLOT_HEIGHT - negativeHeight;
+  const barHeight = (value: number) => value > 0
+    ? Math.max(3, (positiveHeight - 8) * value / maxPositive)
+    : value < 0
+      ? Math.max(3, (negativeHeight - 8) * -value / maxNegative)
+      : 0;
   const selectedAmount = formatMoney(selected.total, { currency });
   const selectedAccessibleAmount = formatAccessibleMoney(selected.total, { currency });
+  const personalLabel = personalKind === 'family' ? 'Your family paid' : 'You paid';
+  const selectedPersonalAmount = formatMoney(selected.personalTotal, { currency });
+  const selectedPersonalAccessibleAmount = formatAccessibleMoney(selected.personalTotal, { currency });
 
   return (
     <View
@@ -79,20 +92,42 @@ export default function ExpenseTrendChart({ expenses, currency }: {
         testIDPrefix="expense-trend-period"
       />
 
-      <View style={styles.selectedSummary} accessible accessibilityLabel={`${selected.detailLabel}, net spending ${selectedAccessibleAmount}, ${selected.count} ${selected.count === 1 ? 'transaction' : 'transactions'}`}>
+      <View style={styles.selectedSummary} accessible accessibilityLabel={`${selected.detailLabel}, trip net spending ${selectedAccessibleAmount}${personalMemberId ? `, ${personalLabel.toLowerCase()} net ${selectedPersonalAccessibleAmount}` : ''}, ${selected.count} ${selected.count === 1 ? 'transaction' : 'transactions'}`}>
         <T variant="caption" muted importantForAccessibility="no">{selected.detailLabel}</T>
-        <T
-          testID="expense-trend-selected-amount"
-          variant="moneyLg"
-          color={selected.total < 0 ? colors.danger : colors.textMain}
-          style={styles.amount}
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.65}
-          importantForAccessibility="no"
-        >
-          {selectedAmount}
-        </T>
+        <View style={styles.metricRow}>
+          <View style={[styles.metricSwatch, { backgroundColor: selected.total < 0 ? colors.danger : colors.primary }]} />
+          <T variant="caption" muted style={styles.metricLabel} importantForAccessibility="no">Trip net</T>
+          <T
+            testID="expense-trend-selected-amount"
+            variant="moneyLg"
+            color={selected.total < 0 ? colors.danger : colors.textMain}
+            style={styles.amount}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.65}
+            importantForAccessibility="no"
+          >
+            {selectedAmount}
+          </T>
+        </View>
+        {personalMemberId ? (
+          <View style={styles.metricRow}>
+            <View style={[styles.metricSwatch, { backgroundColor: colors.chartPersonal }]} />
+            <T variant="caption" muted style={styles.metricLabel} importantForAccessibility="no">{personalLabel}</T>
+            <T
+              testID="expense-trend-personal-amount"
+              variant="money"
+              color={colors.chartPersonal}
+              style={styles.amount}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.65}
+              importantForAccessibility="no"
+            >
+              {selectedPersonalAmount}
+            </T>
+          </View>
+        ) : null}
         <T variant="caption" muted importantForAccessibility="no">
           {selected.count} {selected.count === 1 ? 'transaction' : 'transactions'}
         </T>
@@ -111,11 +146,8 @@ export default function ExpenseTrendChart({ expenses, currency }: {
           const active = bucket.key === selected.key;
           const positiveBar = bucket.total > 0;
           const negativeBar = bucket.total < 0;
-          const height = positiveBar
-            ? Math.max(3, (positiveHeight - 8) * bucket.total / maxPositive)
-            : negativeBar
-              ? Math.max(3, (negativeHeight - 8) * -bucket.total / maxNegative)
-              : 0;
+          const height = barHeight(bucket.total);
+          const personalHeight = personalMemberId ? barHeight(bucket.personalTotal) : 0;
           return (
             <Pressable
               key={bucket.key}
@@ -123,7 +155,7 @@ export default function ExpenseTrendChart({ expenses, currency }: {
               onPress={() => setSelectedKey(bucket.key)}
               accessibilityRole="button"
               accessibilityState={{ selected: active }}
-              accessibilityLabel={`${bucket.detailLabel}, net spending ${formatAccessibleMoney(bucket.total, { currency })}, ${bucket.count} ${bucket.count === 1 ? 'transaction' : 'transactions'}`}
+              accessibilityLabel={`${bucket.detailLabel}, trip net spending ${formatAccessibleMoney(bucket.total, { currency })}${personalMemberId ? `, ${personalLabel.toLowerCase()} net ${formatAccessibleMoney(bucket.personalTotal, { currency })}` : ''}, ${bucket.count} ${bucket.count === 1 ? 'transaction' : 'transactions'}`}
               style={({ pressed, focused }: any) => [
                 styles.bucket,
                 active && { backgroundColor: colors.surfaceMuted },
@@ -136,11 +168,25 @@ export default function ExpenseTrendChart({ expenses, currency }: {
               <View style={styles.plotColumn}>
                 {height > 0 ? (
                   <View
+                    testID={`expense-trend-total-bar-${bucket.key}`}
                     style={[
                       styles.bar,
                       positiveBar ? { bottom: negativeHeight, borderTopLeftRadius: RADIUS.sm, borderTopRightRadius: RADIUS.sm }
                         : { top: positiveHeight, borderBottomLeftRadius: RADIUS.sm, borderBottomRightRadius: RADIUS.sm },
-                      { height, backgroundColor: negativeBar ? colors.danger : colors.primary, opacity: active ? 1 : 0.46 },
+                      { height, backgroundColor: negativeBar ? colors.danger : colors.primary, opacity: active ? 0.68 : 0.4 },
+                    ]}
+                  />
+                ) : null}
+                {personalHeight > 0 ? (
+                  <View
+                    testID={`expense-trend-personal-bar-${bucket.key}`}
+                    style={[
+                      styles.bar,
+                      styles.personalBar,
+                      bucket.personalTotal > 0
+                        ? { bottom: negativeHeight, borderTopLeftRadius: RADIUS.sm, borderTopRightRadius: RADIUS.sm }
+                        : { top: positiveHeight, borderBottomLeftRadius: RADIUS.sm, borderBottomRightRadius: RADIUS.sm },
+                      { height: personalHeight, backgroundColor: colors.chartPersonal, opacity: active ? 1 : 0.84 },
                     ]}
                   />
                 ) : null}
@@ -192,8 +238,11 @@ export default function ExpenseTrendChart({ expenses, currency }: {
 const styles = StyleSheet.create({
   root: { gap: SPACING.md },
   empty: { gap: SPACING.xs },
-  selectedSummary: { gap: 1, alignItems: 'flex-start' },
-  amount: { fontVariant: ['tabular-nums'], maxWidth: '100%' },
+  selectedSummary: { gap: SPACING.xs, alignItems: 'stretch' },
+  metricRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, minWidth: 0 },
+  metricSwatch: { width: 8, height: 8, borderRadius: RADIUS.pill },
+  metricLabel: { flex: 1, minWidth: 0 },
+  amount: { fontVariant: ['tabular-nums'], maxWidth: '70%', flexShrink: 1, textAlign: 'right' },
   chartScroll: { width: '100%', maxWidth: '100%' },
   chartContent: { flexGrow: 1, flexDirection: 'row', height: PLOT_HEIGHT + AXIS_HEIGHT, position: 'relative' },
   guide: { position: 'absolute', height: 1, left: 0, right: 0, opacity: 0.55 },
@@ -201,6 +250,7 @@ const styles = StyleSheet.create({
   bucket: { flex: 1, minWidth: 44, height: PLOT_HEIGHT + AXIS_HEIGHT, alignItems: 'center', borderRadius: RADIUS.sm },
   plotColumn: { width: '100%', height: PLOT_HEIGHT },
   bar: { position: 'absolute', alignSelf: 'center', width: '56%', maxWidth: 34, minWidth: 8 },
+  personalBar: { width: '34%', maxWidth: 20, minWidth: 6 },
   axisLabel: { height: AXIS_HEIGHT, paddingTop: SPACING.sm, textAlign: 'center', fontSize: TYPESCALE.micro, lineHeight: 15 },
   activeAxisLabel: { fontFamily: FONTS.bodyBold },
   navigation: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: SPACING.xs },
