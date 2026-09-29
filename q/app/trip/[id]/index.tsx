@@ -19,6 +19,7 @@ import Badge from '../../../src/Badge';
 import DonutChart, { paletteForMode } from '../../../src/DonutChart';
 import SpendBarChart from '../../../src/SpendBarChart';
 import ExpenseTrendChart from '../../../src/ExpenseTrendChart';
+import { trendDetailPath } from '../../../src/expenseTrend';
 import { type SpendSummary } from '../../../src/spend';
 import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
@@ -808,6 +809,7 @@ export default function TripDetail() {
                     currency={trip.currency}
                     personalMemberId={myMember?.id}
                     personalKind={myMember?.kind}
+                    onOpenPeriod={(selection) => router.push(trendDetailPath(id as string, selection) as Href)}
                   />
                 </Card>
 

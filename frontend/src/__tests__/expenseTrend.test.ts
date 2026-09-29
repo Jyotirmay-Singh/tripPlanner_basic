@@ -1,4 +1,4 @@
-import { expenseTrendWindow } from '../expenseTrend';
+import { expenseTrendWindow, trendDetailPath, trendExpensesForPeriod, trendPeriodLabel } from '../expenseTrend';
 
 describe('expenseTrendWindow', () => {
   it('fills quiet days and nets refunds against the trip-currency amount', () => {
@@ -85,8 +85,8 @@ describe('expenseTrendWindow', () => {
       { date: '08-09-26', amount: -500, paid_by_member_id: 'family' },
     ];
     const daily = expenseTrendWindow(expenses, 'daily', 0, 7, 'family')!;
-    expect(daily.buckets.at(-2)).toMatchObject({ total: 10000, personalTotal: 2000 });
-    expect(daily.buckets.at(-1)).toMatchObject({ total: -500, personalTotal: -500 });
+    expect(daily.buckets.at(-2)).toMatchObject({ total: 10000, personalTotal: 2000, personalCount: 1 });
+    expect(daily.buckets.at(-1)).toMatchObject({ total: -500, personalTotal: -500, personalCount: 1 });
     const weekly = expenseTrendWindow(expenses, 'weekly', 0, 6, 'family')!;
     expect(weekly.buckets.at(-1)).toMatchObject({ total: 9500, personalTotal: 1500 });
     const monthly = expenseTrendWindow(expenses, 'monthly', 0, 6, 'family')!;
@@ -100,5 +100,27 @@ describe('expenseTrendWindow', () => {
       { date: '08-09-26', amount: -150, paid_by_member_id: 'other' },
     ], 'daily', 0, 7, 'me')!;
     expect(window.buckets.at(-1)).toMatchObject({ total: -50, personalTotal: 100 });
+  });
+
+  it('selects exactly the transactions behind a daily, weekly or monthly bar', () => {
+    const expenses = [
+      { id: 'other', date: '07-09-26', amount: 8000, paid_by_member_id: 'other' },
+      { id: 'family', date: '08-09-26', amount: 2000, paid_by_member_id: 'family' },
+      { id: 'refund', date: '08-09-26', amount: -500, paid_by_member_id: 'family' },
+      { id: 'later', date: '14-09-26', amount: 100, paid_by_member_id: 'family' },
+    ];
+    expect(trendExpensesForPeriod(expenses, 'daily', '2026-09-08', 'trip').map((row) => row.id))
+      .toEqual(['family', 'refund']);
+    expect(trendExpensesForPeriod(expenses, 'daily', '2026-09-08', 'personal', 'family').map((row) => row.id))
+      .toEqual(['family', 'refund']);
+    expect(trendExpensesForPeriod(expenses, 'weekly', '2026-09-07', 'personal', 'family').map((row) => row.id))
+      .toEqual(['family', 'refund']);
+    expect(trendExpensesForPeriod(expenses, 'monthly', '2026-09-01', 'trip').map((row) => row.id))
+      .toEqual(['other', 'family', 'refund', 'later']);
+    expect(trendExpensesForPeriod(expenses, 'weekly', '2026-09-07', 'personal')).toEqual([]);
+    expect(trendPeriodLabel('weekly', '2026-09-08')).toBeNull();
+    expect(trendPeriodLabel('monthly', '2026-09-01')).toBe('September 2026');
+    expect(trendDetailPath('trip & 1', { period: 'weekly', key: '2026-09-07', scope: 'personal' }))
+      .toBe('/trip/trip%20%26%201/spending/weekly/2026-09-07?scope=personal');
   });
 });

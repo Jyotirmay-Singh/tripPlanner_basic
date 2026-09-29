@@ -135,4 +135,77 @@ describe('ExpenseTrendChart', () => {
     expect(familyBar.top).toBeGreaterThan(0);
     expect(familyBar.bottom).toBeUndefined();
   });
+
+  it('opens trip and personal period details from distinct bar targets without an outer highlight', () => {
+    const onOpenPeriod = jest.fn();
+    let renderer!: ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(
+        <ExpenseTrendChart
+          expenses={[
+            { date: '08-09-26', amount: 8000, paid_by_member_id: 'other' },
+            { date: '08-09-26', amount: 2000, paid_by_member_id: 'me' },
+          ]}
+          currency="INR"
+          personalMemberId="me"
+          onOpenPeriod={onOpenPeriod}
+        />,
+      );
+    });
+    const tripBar = byTestID(renderer.root, 'expense-trend-bar-2026-09-08');
+    act(() => { tripBar.props.onPress(); });
+    expect(onOpenPeriod).toHaveBeenLastCalledWith({ period: 'daily', key: '2026-09-08', scope: 'trip' });
+    act(() => {
+      byTestID(renderer.root, 'expense-trend-personal-bar-2026-09-08').props.onPress();
+    });
+    expect(onOpenPeriod).toHaveBeenCalledTimes(2);
+    expect(onOpenPeriod).toHaveBeenLastCalledWith({ period: 'daily', key: '2026-09-08', scope: 'personal' });
+    expect(tripBar.findAll((node) => node.props.testID === 'expense-trend-personal-bar-2026-09-08'))
+      .toHaveLength(0);
+    expect(StyleSheet.flatten(tripBar.props.style({ pressed: false, focused: true })).backgroundColor)
+      .toBeUndefined();
+
+    act(() => { byTestID(renderer.root, 'expense-trend-period-adaptive').props.onChange('weekly'); });
+    act(() => { byTestID(renderer.root, 'expense-trend-bar-2026-09-07').props.onPress(); });
+    expect(onOpenPeriod).toHaveBeenLastCalledWith({ period: 'weekly', key: '2026-09-07', scope: 'trip' });
+    act(() => { byTestID(renderer.root, 'expense-trend-period-adaptive').props.onChange('monthly'); });
+    act(() => { byTestID(renderer.root, 'expense-trend-personal-summary').props.onPress(); });
+    expect(onOpenPeriod).toHaveBeenLastCalledWith({ period: 'monthly', key: '2026-09-01', scope: 'personal' });
+  });
+
+  it('keeps zero-net transaction markers clickable and leaves empty periods inactive', () => {
+    const onOpenPeriod = jest.fn();
+    let renderer!: ReactTestRenderer;
+    act(() => {
+      renderer = TestRenderer.create(
+        <ExpenseTrendChart
+          expenses={[
+            { date: '08-09-26', amount: 100, paid_by_member_id: 'me' },
+            { date: '08-09-26', amount: -100, paid_by_member_id: 'me' },
+            { date: '10-09-26', amount: 200, paid_by_member_id: 'other' },
+          ]}
+          currency="INR"
+          personalMemberId="me"
+          onOpenPeriod={onOpenPeriod}
+        />,
+      );
+    });
+    expect(StyleSheet.flatten(byTestID(renderer.root, 'expense-trend-total-bar-2026-09-08').props.style).height).toBe(5);
+    expect(StyleSheet.flatten(byTestID(renderer.root, 'expense-trend-personal-bar-2026-09-08').props.style).height).toBe(5);
+    act(() => { byTestID(renderer.root, 'expense-trend-bar-2026-09-08').props.onPress(); });
+    expect(onOpenPeriod).toHaveBeenLastCalledWith({ period: 'daily', key: '2026-09-08', scope: 'trip' });
+    act(() => { byTestID(renderer.root, 'expense-trend-personal-bar-2026-09-08').props.onPress(); });
+    expect(onOpenPeriod).toHaveBeenLastCalledWith({ period: 'daily', key: '2026-09-08', scope: 'personal' });
+    expect(byTestID(renderer.root, 'expense-trend-bar-2026-09-09').props.disabled).toBe(true);
+    act(() => { byTestID(renderer.root, 'expense-trend-bar-2026-09-09').props.onPress(); });
+    expect(onOpenPeriod).toHaveBeenCalledTimes(2);
+    expect(renderer.root.findAll((node) => node.props.children === 'Net spend includes refunds')).toHaveLength(0);
+
+    act(() => { byTestID(renderer.root, 'expense-trend-period-adaptive').props.onChange('weekly'); });
+    act(() => { byTestID(renderer.root, 'expense-trend-personal-bar-2026-09-07').props.onPress(); });
+    expect(onOpenPeriod).toHaveBeenLastCalledWith({ period: 'weekly', key: '2026-09-07', scope: 'personal' });
+    act(() => { byTestID(renderer.root, 'expense-trend-period-adaptive').props.onChange('monthly'); });
+    act(() => { byTestID(renderer.root, 'expense-trend-personal-bar-2026-09-01').props.onPress(); });
+    expect(onOpenPeriod).toHaveBeenLastCalledWith({ period: 'monthly', key: '2026-09-01', scope: 'personal' });
+  });
 });

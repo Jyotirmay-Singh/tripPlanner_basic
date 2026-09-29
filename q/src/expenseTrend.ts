@@ -1,12 +1,15 @@
 import { ddmmyyToDDMMYYYY, parseISO, toISO } from './date';
 
 export type TrendPeriod = 'daily' | 'weekly' | 'monthly';
+export type TrendScope = 'trip' | 'personal';
+export type TrendSelection = { period: TrendPeriod; key: string; scope: TrendScope };
 export type TrendExpense = { date?: string | null; amount: number; paid_by_member_id?: string | null };
 export type TrendBucket = {
   key: string;
   total: number;
   personalTotal: number;
   count: number;
+  personalCount: number;
   axisLabel: string;
   detailLabel: string;
 };
@@ -27,6 +30,10 @@ const MONTHS_FULL = [
 ];
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 export const TREND_WINDOW_SIZE: Record<TrendPeriod, number> = { daily: 7, weekly: 6, monthly: 6 };
+
+export function trendDetailPath(tripId: string, selection: TrendSelection): string {
+  return `/trip/${encodeURIComponent(tripId)}/spending/${selection.period}/${selection.key}?scope=${selection.scope}`;
+}
 
 function utcDate(iso: string): Date {
   const parts = parseISO(iso)!;
@@ -99,6 +106,29 @@ function bucketLabels(start: string, period: TrendPeriod): Pick<TrendBucket, 'ax
   };
 }
 
+/** Resolve a chart bucket into the same human-readable period used by the plot. */
+export function trendPeriodLabel(period: TrendPeriod, key: string): string | null {
+  if (!parseISO(key) || startOfPeriod(key, period) !== key) return null;
+  return bucketLabels(key, period).detailLabel;
+}
+
+/** Select the transactions behind one bar, preserving the chart's date and refund rules. */
+export function trendExpensesForPeriod<T extends TrendExpense>(
+  expenses: readonly T[],
+  period: TrendPeriod,
+  key: string,
+  scope: TrendScope,
+  personalMemberId?: string | null,
+): T[] {
+  if (!trendPeriodLabel(period, key) || (scope === 'personal' && !personalMemberId)) return [];
+  return expenses.filter((expense) => {
+    if (!Number.isFinite(expense.amount)) return false;
+    const iso = expenseISO(expense.date);
+    return !!iso && startOfPeriod(iso, period) === key
+      && (scope === 'trip' || expense.paid_by_member_id === personalMemberId);
+  });
+}
+
 /** Calendar-aligned, timezone-safe net spending. Negative expenses are refunds. */
 export function expenseTrendWindow(
   expenses: readonly TrendExpense[],
@@ -107,16 +137,17 @@ export function expenseTrendWindow(
   requestedSize = TREND_WINDOW_SIZE[period],
   personalMemberId?: string | null,
 ): TrendWindow | null {
-  const sums = new Map<string, { total: number; personalTotal: number; count: number }>();
+  const sums = new Map<string, { total: number; personalTotal: number; count: number; personalCount: number }>();
   for (const expense of expenses) {
     if (!Number.isFinite(expense.amount)) continue;
     const iso = expenseISO(expense.date);
     if (!iso) continue;
     const key = startOfPeriod(iso, period);
-    const current = sums.get(key) ?? { total: 0, personalTotal: 0, count: 0 };
+    const current = sums.get(key) ?? { total: 0, personalTotal: 0, count: 0, personalCount: 0 };
     current.total += expense.amount;
     if (personalMemberId && expense.paid_by_member_id === personalMemberId) {
       current.personalTotal += expense.amount;
+      current.personalCount += 1;
     }
     current.count += 1;
     sums.set(key, current);
@@ -133,7 +164,7 @@ export function expenseTrendWindow(
   const windowStart = movePeriod(windowEnd, period, -(size - 1));
   const buckets = Array.from({ length: size }, (_, index) => {
     const key = movePeriod(windowStart, period, index);
-    const sum = sums.get(key) ?? { total: 0, personalTotal: 0, count: 0 };
+    const sum = sums.get(key) ?? { total: 0, personalTotal: 0, count: 0, personalCount: 0 };
     return { key, ...sum, ...bucketLabels(key, period) };
   });
   const rangeEnd = isoDate(new Date(utcDate(movePeriod(windowEnd, period, 1)).getTime() - DAY_MS));
