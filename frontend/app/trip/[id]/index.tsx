@@ -18,6 +18,7 @@ import T from '../../../src/T';
 import Badge from '../../../src/Badge';
 import DonutChart, { paletteForMode } from '../../../src/DonutChart';
 import SpendBarChart from '../../../src/SpendBarChart';
+import ExpenseTrendChart from '../../../src/ExpenseTrendChart';
 import { type SpendSummary } from '../../../src/spend';
 import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
@@ -800,6 +801,10 @@ export default function TripDetail() {
                     icon="arrow-down"
                   />
                 </View>
+
+                <Card>
+                  <ExpenseTrendChart expenses={expenses} currency={trip.currency} />
+                </Card>
 
                 {slices.length > 0 && (
                   <Card>

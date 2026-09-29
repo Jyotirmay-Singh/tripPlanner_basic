@@ -6,9 +6,9 @@
 
 - The installed side-by-side test app is **Trip Splitter QA**, package `com.tripsplitter.app.qa`. Use only the isolated QA trip and accounts. Do not uninstall or clear `com.tripsplitter.app`, the user's production app.
 - The QA API uses `http://127.0.0.1:8000` and the replica-set database `trip_splitter_qa_local_20260925` at `127.0.0.1:27018`. Its config advertised expense and payment create protocol versions `1` on 2026-09-28. Test account credentials are in ignored `.release-tmp/offline-qa-accounts.json`; do not print passwords or tokens.
-- The last **confirmed** phone cleanup left no pending QA entries and budget used at INR 9,292. A later USD form attempt was not saved. Check the queue before starting another test.
-- The phone was connected earlier, but the final `adb devices -l` check on 2026-09-28 showed **no device**. Reconnect/authorize USB debugging before a phone test. The previous `adb reverse` mapping must also be re-established after reconnection.
-- Do not build another APK, commit changes, replace build 17, or alter `/download/android` under the current instruction. Tests of the installed app cover that binary; source checks cover the current worktree.
+- The 2026-09-29 preflight found one pre-existing **Conversion review needed** row in the Trips queue. With user authorization, its synthetic QA conversion was approved: exactly one server expense and durable mutation receipt appeared, the local row cleared, and only that new expense was deleted. The receipt remains for replay protection. The queue is empty before the fresh APK update. Private evidence is in ignored `.release-tmp/qa-everyday-20260928-2350/`.
+- The moto g54 5G was connected and authorized during the 2026-09-29 preflight. Recheck `adb devices -l` and restore the `adb reverse` mapping for each new phone test.
+- After the pre-existing queue row is resolved, build a fresh QA APK from the 2026-09-28 source for this device journey and verify its signer before `adb install -r`. Keep the production package, build 17, and `/download/android` untouched.
 - The `rtk` command required by the repository instructions was unavailable in this PowerShell session. The commands below are shown in their runnable form; try `rtk` first in a future session and use raw commands only if it is still unavailable.
 
 ### Preflight for each phone check

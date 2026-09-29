@@ -115,7 +115,10 @@ jest.mock('../../format', () => ({
   formatMoney: () => '0',
   formatAccessibleMoney: () => 'INR 0',
 }));
-jest.mock('../../date', () => ({ formatTripDates: () => '' }));
+jest.mock('../../date', () => ({
+  ...jest.requireActual('../../date'),
+  formatTripDates: () => '',
+}));
 jest.mock('../../time', () => ({ formatTime12h: () => '' }));
 jest.mock('../../bill', () => ({ billLabel: () => 'Bill not attached' }));
 // NOTE: ../../Badge and ../../tripSettled are deliberately left REAL.

@@ -103,6 +103,7 @@ jest.mock('../../ui', () => {
     Button: stub('Button'),
     IconButton: stub('IconButton'),
     Icon: stub('Icon'),
+    Input: stub('Input'),
     SegmentedControl: stub('SegmentedControl'),
     StatCard: stub('StatCard'),
     ProgressBar: stub('ProgressBar'),
@@ -244,6 +245,55 @@ beforeEach(() => {
   mockSearchParams = { id: 't1' };
 });
 
+it('shows a compact search control in dark mode and clears the query for a new expense target, trip, or account', async () => {
+  const renderer = await mountTrip({
+    expenses: [{ ...expense(100, 'target'), description: 'Food stall' }],
+  });
+  act(() => renderer.root.findByType('SegmentedControl' as any).props.onChange('expenses'));
+
+  const searchInput = () => hostByTestID(renderer.root, 'Input', 'expense-search-input');
+  act(() => searchInput().props.onChangeText('food'));
+  expect(searchInput().props.containerStyle).toEqual({ flex: 1, minWidth: 0 });
+  expect(textContent(hostByTestID(renderer.root, 'T', 'expense-search-count'))).toBe('1 match');
+  expect(hostByTestID(renderer.root, 'IconButton', 'expense-search-clear').props.touchSize)
+    .toBe(COMPONENT_SIZE.minTouchTarget);
+
+  await act(async () => {
+    mockSearchParams = { id: 't1', expenseId: 'target' } as any;
+    renderer.update(<TripDetail />);
+  });
+  expect(searchInput().props.value).toBe('');
+
+  act(() => searchInput().props.onChangeText('food'));
+  await act(async () => {
+    mockSearchParams = { id: 't2' };
+    renderer.update(<TripDetail />);
+  });
+  expect(searchInput().props.value).toBe('');
+
+  act(() => searchInput().props.onChangeText('food'));
+  await act(async () => {
+    mockUser = { ...mockUser, id: 'u2' };
+    renderer.update(<TripDetail />);
+  });
+  await act(async () => {
+    mockUser = { ...mockUser, id: 'u1' };
+    renderer.update(<TripDetail />);
+  });
+  expect(searchInput().props.value).toBe('');
+  await act(async () => { renderer.unmount(); });
+});
+
+it('keeps the no-transactions state distinct from an empty search result', async () => {
+  const renderer = await mountTrip({ expenses: [] });
+  act(() => renderer.root.findByType('SegmentedControl' as any).props.onChange('expenses'));
+
+  expect(hostByTestID(renderer.root, 'Input', 'expense-search-input')).toBeTruthy();
+  expect(hostByTestID(renderer.root, 'EmptyState', 'expenses-empty')).toBeTruthy();
+  expect(hostByTestID(renderer.root, 'EmptyState', 'expenses-search-empty')).toBeUndefined();
+  await act(async () => { renderer.unmount(); });
+});
+
 it('shows a pending expense once across remounts without adding it to confirmed totals', async () => {
   const pending = {
     clientMutationId: 'uuid-pending', accountId: 'u1', tripId: 't1', operation: 'expense_create',
@@ -266,6 +316,37 @@ it('shows a pending expense once across remounts without adding it to confirmed 
     expect(hostsByTestID(renderer.root, 'expense-item-e-500')).toHaveLength(1);
     await act(async () => { renderer.unmount(); });
   }
+});
+
+it('renders pending and confirmed expenses with the latest expense date first', async () => {
+  mockListPendingExpenses.mockResolvedValue([
+    {
+      clientMutationId: 'pending-old', queuedAt: Date.parse('2026-12-01T10:00:00Z'),
+      state: 'queued', payload: { date: '10-11-26', category: 'Food', paid_by_member_id: 'm1' },
+    },
+    {
+      clientMutationId: 'pending-new', queuedAt: Date.parse('2026-11-01T10:00:00Z'),
+      state: 'queued', payload: { date: '20-11-26', category: 'Food', paid_by_member_id: 'm1' },
+    },
+  ]);
+  const renderer = await mountTrip({ expenses: [
+    { ...expense(1, 'confirmed-mid'), date: '15-11-26' },
+    { ...expense(2, 'confirmed-earliest'), date: '01-11-26' },
+  ] });
+
+  await act(async () => {
+    renderer.root.findByType('SegmentedControl' as any).props.onChange('expenses');
+  });
+  const cardIds = renderer.root.findAll((node: any) =>
+    node.type === 'Card' && /^(pending-expense-item|expense-item)-/.test(node.props.testID ?? ''))
+    .map((node: any) => node.props.testID);
+  expect(cardIds).toEqual([
+    'pending-expense-item-pending-new',
+    'expense-item-confirmed-mid',
+    'pending-expense-item-pending-old',
+    'expense-item-confirmed-earliest',
+  ]);
+  await act(async () => { renderer.unmount(); });
 });
 
 it('shows an offline foreign expense in its saved source currency', async () => {
