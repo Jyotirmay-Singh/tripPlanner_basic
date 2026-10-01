@@ -1,8 +1,10 @@
 # Android offline expense and manual-payment QA
 
-Status on 2026-09-28: **QA expense, refund, partial payment, foreign conversion,
-roster and payment conflicts, and budget approval checks passed; release gates
-remain open**.
+Status on 2026-10-01: **The everyday QA save, restart, sync, conversion, and
+post-sync attachment flow passed on the isolated QA build. Final cleanup is
+pending because one unapproved budget review row remains on the phone.
+Enlarged-text layout and Trips queue accessibility checks failed. Release gates
+remain open.**
 Ordinary Android builds still keep offline writes off. The disposable QA build
 sets `EXPO_PUBLIC_OFFLINE_QA=true` and uses `com.tripsplitter.app.qa` so it can
 be installed beside `com.tripsplitter.app` without clearing real app data.
@@ -94,6 +96,34 @@ test key and cannot replace the user's installed production package.
   backend idempotency and conversion tests passed: **48 tests**, including the
   live MongoDB transaction cases. The unrestricted backend run completed with
   **1,354 passed, 14 failed, 1 skipped**; those failures remain a release gate.
+
+## Everyday device journey (2026-09-29 through 2026-10-01)
+
+- A refreshed side-by-side QA APK from commit `959a4957` was installed without
+  clearing the phone's saved data or touching the production package. The
+  pre-existing conversion review row was resolved and its accepted disposable
+  expense deleted before the fresh run.
+- Four offline entries survived a cold launch: INR 40 exact-split expense,
+  INR -40 opposite refund, INR 10 partial B-to-A manual payment, and USD 1
+  expense. Confirmed totals stayed at their server values. Reconnect created
+  one expense, refund, and payment each; the USD row waited for explicit
+  conversion approval. A synthetic QA quote converted USD 1 to INR 84. After
+  approval, both independently authenticated accounts saw the same canonical
+  records. A nonsensitive image attached to the confirmed INR 40 expense was
+  retrieved by account B without creating another expense.
+- The next INR 100,000 offline entry reached **Needs review** for a budget
+  warning and remains local and unapproved. On 2026-10-01, the isolated database
+  still held zero expense records and mutation receipts for it. The accepted
+  entries and receipt file remain until the phone row can be reviewed and
+  discarded, then the run's accepted records can be deleted. Private IDs,
+  counts, screenshots, and continuation steps are in ignored
+  `.release-tmp/qa-everyday-20260928-2350/REPORT.md`.
+- Font scale 1.3 exposed clipped Trip, Settle Up, and pending-detail content.
+  The Trips queue omitted pending expense names and original USD amounts and
+  exposed repeated generic **Review**/**Retry sync** TalkBack labels. These are
+  failed UI checks, not release passes. The font scale and accessibility service
+  were restored after inspection. Spoken output for all requested states is
+  still unverified.
 
 ## QA APK and local backend
 

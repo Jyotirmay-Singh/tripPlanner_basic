@@ -88,13 +88,26 @@ Use separate disposable payable suggestions. Open Settle Up online to cache B-to
 
 ### D06 — Online-only actions and post-sync receipt
 
-**Status:** Open on phone.
+**Status:** Partially checked on 2026-09-29. New-trip and member changes clearly
+required a connection; UPI initiation was unavailable offline and no transfer
+was launched. Receipt selection for an unsynced expense was deferred. After
+sync, a nonsensitive image was attached to the same canonical INR 40 expense;
+account B independently retrieved it and no new expense was created. Final
+receipt-file deletion is pending with the run's cleanup. See the private
+`.release-tmp/qa-everyday-20260928-2350/REPORT.md`.
 
 With the QA app offline, attempt new-trip creation, member changes, UPI initiation, and receipt upload. Each must clearly require connectivity and must not enter the expense/payment outbox. Do not initiate a real money transfer. Then sync one small disposable expense, attach a non-sensitive test receipt **after** confirmation, and verify it on account B without creating another expense. Clean up the test record and attachment.
 
 ### D07 — Offline notice, headers, and accessibility
 
-**Status:** Partially checked. The dismissible notice, short details, automatic clearing, and a single **Add Transaction** title were observed. Other form titles and TalkBack states remain open.
+**Status:** Partially checked and UI failures found on 2026-09-29. The
+dismissible notice, short details, automatic clearing, no last-sync time, and a
+single **Add Transaction** title were observed. At font scale 1.3, Trip, Settle
+Up, and pending-detail text and controls clipped. Trips queue rows omitted
+expense names and original USD amounts; repeated **Review** and **Retry sync**
+buttons had generic TalkBack labels. Full spoken-output traversal and repaired
+screen verification remain open. Private screenshots and hierarchy notes are
+in `.release-tmp/qa-everyday-20260928-2350/REPORT.md`.
 
 In airplane mode, inspect Trip, Add Transaction, Settle Up, pending expense, and pending payment screens. The notice should say only that the app is offline, open short feature details on tap, and dismiss with ×. No “last synced” timestamp should appear. Each screen should have one clear title and usable spacing. With TalkBack, confirm **Pending sync**, **Conversion review needed**, **Needs review**, and confirmed entries are distinguishable. Restore connectivity and verify the notice clears.
 
