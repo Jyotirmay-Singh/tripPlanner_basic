@@ -28,6 +28,10 @@ from utils.money_policy import (
 )
 
 
+class ExactSplitValidationError(ValueError):
+    """Invalid person-level allocation supplied by an expense author."""
+
+
 def _person_to_entity(members: list) -> dict:
     """member_id (person-level) -> owning entity id. Family roster ids map to the family entity id;
     a standalone individual maps to itself."""
@@ -66,25 +70,25 @@ def validate_original_exact_amounts(
     """
     ca = custom_amounts or {}
     if not ca:
-        raise ValueError("Exact split: select at least one person and enter their amounts.")
+        raise ExactSplitValidationError("Exact split: select at least one person and enter their amounts.")
     valid = valid_exact_member_ids(members)
     normalized: dict[str, Decimal] = {}
     for pid, raw in ca.items():
         if pid not in valid:
-            raise ValueError(f"Exact split: '{pid}' is not a member of this trip.")
+            raise ExactSplitValidationError(f"Exact split: '{pid}' is not a member of this trip.")
         try:
             value = decimal_money(raw, label="Exact split amount")
         except ValueError as exc:
-            raise ValueError("Exact split: every amount must be a finite number.") from exc
+            raise ExactSplitValidationError("Exact split: every amount must be a finite number.") from exc
         if value < 0:
-            raise ValueError("Exact split: amounts cannot be negative.")
+            raise ExactSplitValidationError("Exact split: amounts cannot be negative.")
         normalized[pid] = value
     if not any(value > 0 for value in normalized.values()):
-        raise ValueError("Exact split: at least one amount must be greater than 0.")
+        raise ExactSplitValidationError("Exact split: at least one amount must be greater than 0.")
     expected = abs(decimal_money(total, label="Total"))
     actual = sum(normalized.values(), Decimal(0))
     if actual != expected:
-        raise ValueError(
+        raise ExactSplitValidationError(
             f"Exact split: amounts must add up to the original total ({expected:f}); "
             f"they currently add up to {actual:f}."
         )

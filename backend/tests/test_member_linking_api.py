@@ -64,7 +64,8 @@ class TestSubMemberClaim(_Helpers):
         assert match["member_id"] == fam["id"]
         assert match["family_member_id"] == fam["family_member_ids"][0]
         assert match["member_name"] == "Alice"
-        assert match["has_financial_history"] is True  # claim-only signal
+        assert match["has_financial_history"] is False
+        assert match["can_replace"] is True
 
     def test_claim_links_account_and_grants_access(self, api_client, test_user):
         trip_id = self._create_trip(api_client, test_user["token"])
@@ -159,20 +160,55 @@ class TestSubMemberClaim(_Helpers):
         f = next(m for m in trip["members"] if m["id"] == fam["id"])
         assert f["family_member_user_ids"][0] == u1
 
-    def test_join_as_new_with_sub_member_email_blocked(self, api_client, test_user):
-        # One-email guardrail: a joiner whose email sits on an unclaimed sub-member cannot spawn a
-        # duplicate individual — the create path enforces uniqueness (steering them to claim).
+    def test_join_as_new_replaces_clean_sub_member_email(self, api_client, test_user):
         trip_id = self._create_trip(api_client, test_user["token"])
         e = _gmail()
         self._add_family(api_client, test_user["token"], trip_id,
                          name="TEST_Fam", family_members=["Alice", "Bob"],
                          family_member_emails=[e, None])
         code = self._get_trip(api_client, test_user["token"], trip_id).json()["code"]
-        jtok, _ = self._register(api_client, e)
+        before = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/balances", headers=_auth(test_user["token"])).json()
+        jtok, juid = self._register(api_client, e)
         r = api_client.post(f"{BASE_URL}/api/trips/join", json={
             "code": code, "action": "join_new", "mode": "individual",
         }, headers=_auth(jtok))
-        assert r.status_code == 400, r.text
+        assert r.status_code == 200, r.text
+        trip = self._get_trip(api_client, test_user["token"], trip_id).json()
+        family = next(m for m in trip["members"] if m["kind"] == "family")
+        assert family["family_member_emails"] == [None, None]
+        assert family["family_member_user_ids"] == [None, None]
+        identities = [m for m in trip["members"] if m.get("email") == e]
+        assert len(identities) == 1 and identities[0]["user_id"] == juid
+        after = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/balances", headers=_auth(test_user["token"])).json()
+        assert all(value == 0 for value in after["net"].values())
+        assert before["transfers"] == after["transfers"] == []
+
+    def test_join_new_financial_sub_member_rejected_without_mutation(self, api_client, test_user):
+        trip_id = self._create_trip(api_client, test_user["token"])
+        e = _gmail()
+        family = self._add_family(api_client, test_user["token"], trip_id,
+                                 name="TEST_Fam", family_members=["Alice", "Bob"],
+                                 family_member_emails=[e, None]).json()
+        before_trip = self._get_trip(api_client, test_user["token"], trip_id).json()
+        expense = api_client.post(f"{BASE_URL}/api/trips/{trip_id}/expenses", json={
+            "kind": "expense", "amount": 100, "category": "Food", "description": "Dinner",
+            "date": "01-10-26", "paid_by_member_id": before_trip["members"][0]["id"],
+            "split_member_ids": [family["id"]], "split_mode": "PER_CAPITA",
+        }, headers=_auth(test_user["token"]))
+        assert expense.status_code == 200, expense.text
+        before = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/balances", headers=_auth(test_user["token"])).json()
+        jtok, _ = self._register(api_client, e)
+        preview = self._preview(api_client, jtok, before_trip["code"]).json()["match"]
+        assert preview["has_financial_history"] is True
+        assert preview["can_replace"] is False
+        result = api_client.post(f"{BASE_URL}/api/trips/join", json={
+            "code": before_trip["code"], "action": "join_new", "mode": "individual",
+        }, headers=_auth(jtok))
+        assert result.status_code == 409, result.text
+        after_trip = self._get_trip(api_client, test_user["token"], trip_id).json()
+        assert after_trip["members"] == before_trip["members"]
+        after = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/balances", headers=_auth(test_user["token"])).json()
+        assert before == after
 
 
 class TestLinkedSubMemberLifecycle(_Helpers):

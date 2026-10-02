@@ -23,12 +23,12 @@ export default function StatCard({ label, value, valueColor, caption, icon, vari
     <Card variant={variant} padding="md" style={[{ flex: 1 }, style]} testID={testID}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.xs }}>
         {icon ? <Icon name={icon} size={14} /> : null}
-        <T variant="label" muted>{label}</T>
+        <T variant="label" muted style={{ flexShrink: 1, minWidth: 0 }}>{label}</T>
       </View>
-      <T variant="h2" color={valueColor} style={{ marginTop: SPACING.xs }} numberOfLines={1} adjustsFontSizeToFit>
+      <T variant="h2" color={valueColor} style={{ marginTop: SPACING.xs }}>
         {value}
       </T>
-      {caption ? <T variant="caption" muted style={{ marginTop: 2 }} numberOfLines={1}>{caption}</T> : null}
+      {caption ? <T variant="caption" muted style={{ marginTop: 2 }}>{caption}</T> : null}
     </Card>
   );
 }

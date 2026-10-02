@@ -202,12 +202,26 @@ class TestGoogleAuthUnit:
             "ios.apps.googleusercontent.com",
         ]
 
-    def test_real_verifier_rejects_malformed_token(self, client, configured, fake_users):
-        """No stubbing here: exercises the REAL google-auth library. A structurally
-        invalid token must be rejected (ValueError -> 401). Skips gracefully if the
-        Google certs endpoint is unreachable (offline)."""
+    def test_real_verifier_rejects_malformed_token(self, client, configured, fake_users, monkeypatch):
+        """Exercise the real verifier with a local certificate response."""
+        monkeypatch.setattr(auth_module.google_requests, "Request", lambda: (
+            lambda *args, **kwargs: SimpleNamespace(status=200, data=b"{}")
+        ))
         r = client.post("/api/auth/google", json={"id_token": "this.is.not.a.jwt"})
-        if r.status_code == 500:
-            pytest.skip("Google certs endpoint unreachable (offline); skipping real-verifier check")
         assert r.status_code == 401, r.text
         assert r.json()["detail"] == "Invalid Google token"
+        fake_users.find_one.assert_not_called()
+        fake_users.insert_one.assert_not_called()
+
+    def test_certificate_transport_failure_never_authenticates(self, client, configured, fake_users, monkeypatch):
+        from google.auth.exceptions import TransportError
+
+        def unavailable(*args, **kwargs):
+            raise TransportError("certificate service unavailable")
+
+        monkeypatch.setattr(auth_module.google_requests, "Request", lambda: unavailable)
+        r = client.post("/api/auth/google", json={"id_token": "unverified-token"})
+        assert r.status_code == 503
+        assert r.json()["detail"] == "Google sign-in is temporarily unavailable"
+        fake_users.find_one.assert_not_called()
+        fake_users.insert_one.assert_not_called()

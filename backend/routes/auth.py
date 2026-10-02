@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException, Depends
 from google.auth.transport import requests as google_requests
+from google.auth.exceptions import TransportError
 from google.oauth2 import id_token as google_id_token
 
 from config import GOOGLE_CLIENT_ID, EMAIL_FEATURES_ENABLED
@@ -179,6 +180,8 @@ async def google_auth(body: GoogleAuthIn):
         )
     except ValueError:
         raise HTTPException(401, "Invalid Google token")
+    except TransportError:
+        raise HTTPException(503, "Google sign-in is temporarily unavailable")
 
     email = normalize_email(idinfo.get("email"))
     if not email:

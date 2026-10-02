@@ -8,7 +8,8 @@ const item: StoredOutboxItem = {
   payload: { client_mutation_id: 'old', original_amount: '-90', original_currency: 'USD',
     date: '25-09-26', split_member_ids: ['m'],
     expected_roster: { currency: 'INR', members: [{ id: 'm', kind: 'individual', family_member_ids: [] }] } },
-  precondition: { currency: 'INR' }, queuedAt: 12, state: 'needs_review', attemptCount: 0,
+  precondition: { currency: 'INR', display: { tripName: 'Coast', memberNames: { m: 'Asha' } } },
+  queuedAt: 12, state: 'needs_review', attemptCount: 0,
   nextRetryAt: null, lastSafeErrorCode: 'conversion_review_needed',
   canonicalResourceId: null, acknowledgedResponse: null,
 };
@@ -33,6 +34,11 @@ it('approves only a matching, unexpired server quote and retains the captured sp
         approved: true, allow_stale: false },
     } });
   expect(item.payload).not.toHaveProperty('conversion');
+  expect(approved.precondition).toEqual(item.precondition);
+  expect(approved.payload).toEqual({ ...(item.payload as object), conversion: {
+    mode: 'automatic', quote_id: 'quote-1', approved: true, allow_stale: false,
+  } });
+  expect(approved.payload).not.toHaveProperty('display');
   expect(() => approvedForeignExpense(item, { ...quote, source_amount: '-91' }, now))
     .toThrow('new conversion quote');
   expect(() => approvedForeignExpense(item, quote, now + 51_000))

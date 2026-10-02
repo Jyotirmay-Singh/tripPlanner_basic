@@ -13,17 +13,18 @@ const mockApproveBudget = jest.fn();
 const mockCaptureExpense = jest.fn();
 const mockWake = jest.fn();
 let mockSessionMode = 'online';
+let mockAccount = 'account-1';
 
 jest.mock('expo-router', () => {
   const R = require('react');
   return {
     useLocalSearchParams: () => ({ id: 'trip-1', mutationId: 'uuid-1' }),
     useRouter: () => ({ push: mockRouterPush, back: mockRouterBack }),
-    useFocusEffect: (callback: any) => R.useEffect(() => { callback(); }, []),
+    useFocusEffect: (callback: any) => R.useEffect(callback, [callback]),
   };
 });
 jest.mock('../../AuthContext', () => ({ useAuth: () => ({
-  user: { id: 'account-1' }, sessionMode: mockSessionMode,
+  user: { id: mockAccount }, sessionMode: mockSessionMode,
 }) }));
 jest.mock('../../ThemeContext', () => ({ useTheme: () => ({ colors: {
   warning: '#eea', textMain: '#fff', textMuted: '#999', primary: '#8cc',
@@ -65,6 +66,7 @@ import PendingExpenseDetail from '../../../app/trip/[id]/pending-expense';
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAccount = 'account-1';
   mockListOutbox.mockResolvedValue([{
     clientMutationId: 'uuid-1', accountId: 'account-1', tripId: 'trip-1',
     operation: 'expense_create', state: 'needs_review', lastSafeErrorCode: 'expense_roster_changed',
@@ -78,6 +80,63 @@ beforeEach(() => {
   mockApproveBudget.mockResolvedValue(true);
   mockCaptureExpense.mockResolvedValue(undefined);
   mockSessionMode = 'online';
+});
+
+it.each(['invalid_write', 'trip_unavailable'])('keeps %s intent names and actions after snapshot deletion', async (code) => {
+  mockTripSnapshot.mockRejectedValue(new Error('Snapshot removed'));
+  mockListOutbox.mockResolvedValue([{
+    clientMutationId: 'uuid-1', accountId: 'account-1', tripId: 'trip-1',
+    operation: 'expense_create', state: 'needs_review', lastSafeErrorCode: code,
+    precondition: { display: { tripName: 'Coast', memberNames: {
+      payer: 'Asha', family: 'Patels', child: 'Meera',
+    } } },
+    payload: { original_amount: '-20', original_currency: 'USD', description: 'Taxi refund',
+      paid_by_member_id: 'payer', split_member_ids: ['family'], split_mode: 'EXACT',
+      original_custom_amounts: { child: 20 } },
+  }]);
+  let renderer: any;
+  await act(async () => { renderer = TestRenderer.create(<PendingExpenseDetail />); });
+  const text = renderer.root.findAllByType('T').map((node: any) => node.props.children).flat().join(' ');
+  expect(text).toContain('Asha');
+  expect(text).toContain('Patels');
+  expect(text).toContain('Meera USD 20');
+  expect(text).toContain('USD -20');
+  expect(renderer.root.findByProps({ testID: 'pending-discard' }).props.accessibilityLabel)
+    .toBe('Discard pending expense: Taxi refund, USD -20, Coast');
+  expect(mockCaptureExpense).not.toHaveBeenCalled();
+});
+
+it('does not reveal a previous account intent while a new account load is pending', async () => {
+  let renderer: any;
+  await act(async () => { renderer = TestRenderer.create(<PendingExpenseDetail />); });
+  mockAccount = 'account-b';
+  mockListOutbox.mockImplementation(() => new Promise(() => {}));
+  await act(async () => { renderer.update(<PendingExpenseDetail />); });
+  expect(renderer.root.findAllByProps({ testID: 'pending-detail-status' })).toHaveLength(0);
+  expect(mockListOutbox).toHaveBeenCalledWith('account-b');
+  act(() => renderer.unmount());
+});
+
+it('shows a readable unavailable-member fallback for legacy orphaned rows', async () => {
+  mockTripSnapshot.mockResolvedValue(null);
+  let renderer: any;
+  await act(async () => { renderer = TestRenderer.create(<PendingExpenseDetail />); });
+  const text = renderer.root.findAllByType('T').map((node: any) => node.props.children).flat().join(' ');
+  expect(text).toContain('Member unavailable');
+  expect(text).not.toContain('member-1');
+});
+
+it('keeps a malformed rejected local payload open for review and explicit discard', async () => {
+  mockListOutbox.mockResolvedValue([{
+    clientMutationId: 'uuid-1', accountId: 'account-1', tripId: 'trip-1',
+    operation: 'expense_create', state: 'needs_review', lastSafeErrorCode: 'invalid_local_payload',
+    payload: null,
+  }]);
+  let renderer: any;
+  await act(async () => { renderer = TestRenderer.create(<PendingExpenseDetail />); });
+  expect(renderer.root.findByProps({ testID: 'pending-discard' })).toBeTruthy();
+  expect(renderer.root.findAllByProps({ testID: 'pending-retry' })).toHaveLength(0);
+  expect(renderer.root.findAllByType('T').map((node: any) => node.props.children)).toContain('Amount unavailable');
 });
 
 it('shows the server quote and requires an explicit tap before queuing a foreign expense', async () => {

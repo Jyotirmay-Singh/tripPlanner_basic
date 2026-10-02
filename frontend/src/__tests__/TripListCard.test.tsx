@@ -41,7 +41,7 @@ describe('TripListCard responsive layout', () => {
     expect(chooseTripCardLayout(432, 110, 1)).toBe('trailing');
     expect(chooseTripCardLayout(432, 220, 1)).toBe('bottom');
     expect(chooseTripCardLayout(345, 143, 1.3)).toBe('bottom');
-    expect(chooseTripCardLayout(432, 143, 1.3)).toBe('trailing');
+    expect(chooseTripCardLayout(432, 143, 1.3)).toBe('bottom');
     expect(chooseTripCardLayout(640, 110, 1.5)).toBe('bottom');
     expect(chooseTripCardLayout(640, 110, 2)).toBe('bottom');
   });
@@ -75,11 +75,8 @@ describe('TripListCard balance states', () => {
     const amount = renderer.root.findAllByType(T)
       .find((node: any) => node.props.children === '₹1,250');
     expect(amount?.props.color).toBe(mockColors.success);
-    expect(amount?.props).toMatchObject({
-      numberOfLines: 1,
-      adjustsFontSizeToFit: true,
-      minimumFontScale: 0.85,
-    });
+    expect(amount?.props.numberOfLines).toBeUndefined();
+    expect(amount?.props.adjustsFontSizeToFit).toBeUndefined();
     const balanceLabel = renderer.root.findAllByType(T)
       .find((node: any) => node.props.children === "You're owed" && node.props.muted);
     expect(StyleSheet.flatten(balanceLabel?.props.style).fontSize).toBe(TYPESCALE.micro);
@@ -172,7 +169,7 @@ describe('TripListCard balance states', () => {
 
     const textNodes = renderer.root.findAllByType(T);
     expect(textNodes.find((node: any) => node.props.children === longTitle)?.props.numberOfLines)
-      .toBe(2);
+      .toBeUndefined();
     expect(textNodes.find((node: any) => node.props.children === longMeta)?.props.numberOfLines)
       .toBe(2);
     expect(textNodes.some((node: any) => node.props.children === '₹1')).toBe(true);

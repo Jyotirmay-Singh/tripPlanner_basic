@@ -167,9 +167,17 @@ class TestEditCaps:
                               json={"amount": 100.0}, headers=_auth(test_user["token"]))
         assert ok.status_code == 200, ok.text
         # After that edit the residual is 0; the cap is now exactly 100 again (residual 0 + own 100).
+        before = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/balances",
+                                headers=_auth(test_user["token"])).json()
         over = api_client.patch(f"{BASE_URL}/api/trips/{trip_id}/payments/{pid}",
-                                json={"amount": 100.05}, headers=_auth(test_user["token"]))
+                                json={"amount": 101}, headers=_auth(test_user["token"]))
         assert over.status_code == 400, over.text
+        rows = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/payments",
+                              headers=_auth(test_user["token"])).json()
+        assert next(row for row in rows if row["id"] == pid)["amount"] == 100
+        after = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/balances",
+                               headers=_auth(test_user["token"])).json()
+        assert after["net"] == before["net"] and after["transfers"] == before["transfers"]
 
     def test_edit_over_original_cap_rejected(self, api_client, test_user):
         trip_id, m_owner, m_b, _b = _b_owes_owner(api_client, test_user["token"])

@@ -85,7 +85,10 @@ class TestCreateHardRule:
         custom = {fam_ids[0]: 80, fam_ids[1]: 10, owner_id: 5}  # sums 95, total 100
         resp = _post_exact(api_client, test_user["token"], trip_id, 100.0, custom, paid_by=owner_id)
         assert resp.status_code == 422, resp.text
-        assert "add up to the total" in resp.text
+        assert resp.json()["detail"]["code"] == "invalid_exact_split"
+        assert "original total" in resp.json()["detail"]["message"]
+        assert api_client.get(f"{BASE_URL}/api/trips/{trip_id}/expenses",
+                              headers=_h(test_user["token"])).json() == []
 
 
 # --------------------------------------------------------------------------- edit round-trip + hard rule
@@ -108,11 +111,16 @@ class TestEditHardRule:
         fam_id, fam_ids = _add_family(api_client, test_user["token"], trip_id, ["A", "B"])
         eid = _post_exact(api_client, test_user["token"], trip_id, 100.0,
                           {fam_ids[0]: 80, fam_ids[1]: 10, owner_id: 10}, paid_by=owner_id).json()["expense"]["id"]
+        before = _get_expense(api_client, test_user["token"], trip_id, eid)
+        before_balances = _balances(api_client, test_user["token"], trip_id)
         resp = api_client.patch(f"{BASE_URL}/api/trips/{trip_id}/expenses/{eid}", json={
             "custom_amounts": {fam_ids[0]: 80, fam_ids[1]: 10, owner_id: 999},
         }, headers=_h(test_user["token"]))
         assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "invalid_exact_split"
         stored = _get_expense(api_client, test_user["token"], trip_id, eid)
+        assert stored == before
+        assert _balances(api_client, test_user["token"], trip_id) == before_balances
         assert stored["custom_amounts"] == {fam_ids[0]: 80.0, fam_ids[1]: 10.0, owner_id: 10.0}
 
 

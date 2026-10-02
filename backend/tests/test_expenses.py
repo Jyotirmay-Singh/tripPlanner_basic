@@ -55,8 +55,10 @@ class TestExpenses:
             "split_member_ids": [],
         }, headers={"Authorization": f"Bearer {test_user['token']}"})
 
-        assert response.status_code == 409, response.text
-        assert "Exchange rate support" in response.json()["detail"]
+        assert response.status_code == 428, response.text
+        assert response.json()["detail"]["code"] == "conversion_confirmation_required"
+        assert api_client.get(f"{BASE_URL}/api/trips/{trip['id']}/expenses",
+                              headers={"Authorization": f"Bearer {test_user['token']}"}).json() == []
 
     def test_add_expense_default_split(self, api_client, test_user):
         """Test expense with empty split_member_ids splits among all members"""

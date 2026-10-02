@@ -247,11 +247,16 @@ class TestPaymentExcelReconciles:
         wb = load_workbook(io.BytesIO(resp.content))
         assert "Payments" in wb.sheetnames
         ws = wb["Payments"]
+        header = [cell.value for cell in ws[1]]
+        assert header == ["Payer", "Receiver", "Amount (INR)", "Date & Time", "Remark", "Source"]
+        payer_col = header.index("Payer")
+        amount_col = header.index("Amount (INR)")
         rows = list(ws.iter_rows(min_row=2, values_only=True))
         assert rows, "expected at least the payment rows + total"
-        total_row = rows[-1]
-        data_rows = rows[:-1]
-        assert total_row[0] == "Total"
+        total_index = next(i for i, row in enumerate(rows) if row[payer_col] == "Total")
+        total_row = rows[total_index]
+        data_rows = rows[:total_index]
+        assert total_row[payer_col] == "Total"
         assert len(data_rows) == len(amounts)
-        assert abs(sum(r[2] for r in data_rows) - sum(amounts)) < 0.01
-        assert abs(total_row[2] - sum(amounts)) < 0.01
+        assert abs(sum(r[amount_col] for r in data_rows) - sum(amounts)) < 0.01
+        assert abs(total_row[amount_col] - sum(amounts)) < 0.01

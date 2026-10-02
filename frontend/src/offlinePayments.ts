@@ -7,11 +7,12 @@ import { canRecordPayment, type RoleTrip } from './permissions';
 import { validatePaymentAmount } from './payments';
 import type { Transfer } from './settlements';
 import { syncCoordinator } from './syncWorker';
+import { capturePendingDisplay } from './pendingDisplay';
 
-type Member = { id: string; kind?: string; user_id?: string | null;
+type Member = { id: string; name?: string; kind?: string; user_id?: string | null;
   family_member_user_ids?: (string | null)[] };
 export type PaymentCaptureTrip = RoleTrip & {
-  id: string; currency: string; members: Member[];
+  id: string; name?: string; currency: string; members: Member[];
 };
 export type PaymentCaptureBalances = { currency: string; transfers: Transfer[] };
 export type ManualPaymentPayload = {
@@ -65,7 +66,8 @@ export function makePaymentOutboxItem(
   };
   return {
     clientMutationId, accountId, tripId: trip.id, operation: 'manual_payment_create',
-    payload, precondition: { expectedPayable: transfer.amount, currency: trip.currency, fetchedAt },
+    payload, precondition: { expectedPayable: transfer.amount, currency: trip.currency, fetchedAt,
+      display: capturePendingDisplay(trip, [transfer.from_member_id, transfer.to_member_id]) },
     queuedAt, state: 'queued', attemptCount: 0, nextRetryAt: null,
     lastSafeErrorCode: null, canonicalResourceId: null, acknowledgedResponse: null,
   };

@@ -288,9 +288,9 @@ describe('Expenses tab search', () => {
 });
 
 describe('Trip chat tab wiring', () => {
-  it('uses adaptive trip tabs and horizontal safe-area protection', async () => {
+  it('uses complete scrollable trip tabs and horizontal safe-area protection', async () => {
     const r = await openExpenses([]);
-    expect(r.root.findByType('segmented-control' as any).props.layout).toBe('adaptive');
+    expect(r.root.findByType('segmented-control' as any).props.layout).toBe('scrollable');
     const safeArea = r.root.findAll((node: any) => Array.isArray(node.props.edges))[0];
     expect(safeArea.props.edges).toEqual(['bottom', 'left', 'right']);
   });

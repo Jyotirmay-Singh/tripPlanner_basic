@@ -22,10 +22,16 @@ export default function T({
   variant = 'body', style, muted, color, children, ...rest
 }: TextProps & { variant?: Variant; muted?: boolean; color?: string }) {
   const { colors } = useTheme();
+  const effectiveStyle = StyleSheet.flatten([styles[variant], style]);
+  // Android converts both fontSize and lineHeight from SP using the native font scale.
+  // Leave scaling/caps to Text; a second JS multiplier would enlarge line spacing twice.
+  // Caller font-size overrides must also have enough room for these fonts' ascenders.
+  const fontSize = effectiveStyle.fontSize ?? styles[variant].fontSize;
+  const lineHeight = Math.max(effectiveStyle.lineHeight ?? 0, fontSize * 1.35);
   const base: any = { color: color || (muted ? colors.textMuted : colors.textMain) };
   if (NUMERIC.includes(variant)) base.fontVariant = ['tabular-nums'];
   return (
-    <Text {...rest} style={[styles[variant], base, style]}>{children}</Text>
+    <Text {...rest} style={[styles[variant], base, style, { lineHeight }]}>{children}</Text>
   );
 }
 

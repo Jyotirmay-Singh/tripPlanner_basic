@@ -11,6 +11,7 @@ import { loadTripReadBundle, type CompleteTrip, type ReadResult } from '../../..
 import OfflineReadStatus from '../../../src/OfflineReadStatus';
 import { listPendingExpenses, pendingStatusLabel, type PendingExpense } from '../../../src/offlineExpenses';
 import { syncCoordinator } from '../../../src/syncWorker';
+import { pendingDisplay, pendingMemberName } from '../../../src/pendingDisplay';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, CONTENT_MAX_WIDTH, COMPONENT_SIZE, FONTS } from '../../../src/theme';
@@ -590,7 +591,7 @@ export default function TripDetail() {
         )}
       </View>
 
-      <SegmentedControl segments={tripTabs} value={tab} onChange={setTab} layout="adaptive" testIDPrefix="trip-tab" />
+      <SegmentedControl segments={tripTabs} value={tab} onChange={setTab} layout="scrollable" testIDPrefix="trip-tab" />
     </>
   );
 
@@ -887,7 +888,7 @@ export default function TripDetail() {
                 if (row.kind === 'pending') {
                 const item = row.item;
                 const payload = item.payload;
-                const amount = Number(payload.amount ?? payload.original_amount ?? 0);
+                const amount = Number(payload.original_amount ?? payload.amount ?? 0);
                 const pendingCurrency = typeof payload.original_currency === 'string'
                   ? payload.original_currency
                   : typeof payload.currency === 'string' ? payload.currency : trip.currency;
@@ -897,17 +898,17 @@ export default function TripDetail() {
                   <Card key={item.clientMutationId}
                     onPress={() => router.push(
                       `/trip/${id}/pending-expense?mutationId=${encodeURIComponent(item.clientMutationId)}` as Href)}
-                    accessibilityLabel={`Pending transaction. ${status}. Saved on this device; confirmed totals unchanged.`}
+                    accessibilityLabel={`${pendingDisplay(item, trip).actionLabel('Review')}. ${status}. Saved on this device; confirmed totals unchanged.`}
                     testID={`pending-expense-item-${item.clientMutationId}`}>
-                    <View style={styles.rowCard}>
+                    <View style={styles.expenseCardContent}>
                       <View style={[styles.catDot,
                         { backgroundColor: amount < 0 ? colors.success : colors.warning }]} />
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <T variant="h4" numberOfLines={1}>
+                      <View style={{ width: '100%', minWidth: 0 }}>
+                        <T variant="h4">
                           {String(payload.description || payload.category)}
                         </T>
                         <T variant="caption" muted>
-                          {String(payload.date)} · {String(payload.category)} · by {displayNames[payload.paid_by_member_id] || '?'}
+                          {String(payload.date)} · {String(payload.category)} · by {pendingMemberName(item, payload.paid_by_member_id, trip)}
                         </T>
                         <T variant="caption" color={colors.warning}
                           accessibilityLabel={`${status}. Saved on this device; not included in confirmed totals.`}
@@ -939,11 +940,11 @@ export default function TripDetail() {
                     ? { borderColor: colors.primary, borderWidth: 2 }
                     : undefined}
                   testID={`expense-item-${e.id}`}>
-                  <View style={styles.rowCard}>
+                  <View style={styles.expenseCardContent}>
                     <View style={[styles.catDot, { backgroundColor: e.amount < 0 ? colors.success : colors.primary }]} />
                     <View style={{ flex: 1, minWidth: 0 }}>
-                      <T variant="h4" numberOfLines={1}>{e.description || e.category}</T>
-                      <T muted variant="caption" numberOfLines={1}>
+                      <T variant="h4">{e.description || e.category}</T>
+                      <T muted variant="caption">
                         {e.date}{e.time ? ` · ${formatTime12h(e.time)}` : ''} · {e.category} · by {displayNames[e.paid_by_member_id] || '?'}
                       </T>
                       {e.has_receipt ? (
@@ -1349,7 +1350,7 @@ const styles = StyleSheet.create({
   },
   compositionText: { opacity: 0.85, flex: 1, minWidth: 0 },
   actionsRow: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm, alignItems: 'center',
+    flexDirection: 'column', gap: SPACING.sm, alignItems: 'stretch',
   },
   actionButton: { flexGrow: 1, flexShrink: 0, maxWidth: '100%' },
   actionButtonControl: { minHeight: COMPONENT_SIZE.minTouchTarget },
@@ -1367,6 +1368,7 @@ const styles = StyleSheet.create({
   overBudgetRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.xs },
   overBudgetText: { flex: 1, minWidth: 0 },
   rowCard: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+  expenseCardContent: { alignItems: 'stretch', gap: SPACING.sm },
   familyPerson: { paddingVertical: SPACING.sm, gap: SPACING.xs },
   personHeading: {
     flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm,

@@ -7,6 +7,7 @@ const mockToast = jest.fn();
 const mockDiscardPayment = jest.fn();
 const mockRetry = jest.fn();
 let mockRows: any[] = [];
+let mockAccount = 'account-a';
 
 jest.mock('expo-router', () => {
   const R = require('react');
@@ -16,7 +17,7 @@ jest.mock('expo-router', () => {
   };
 });
 jest.mock('../../AuthContext', () => ({ useAuth: () => ({
-  user: { id: 'account-a' }, sessionMode: 'online',
+  user: { id: mockAccount }, sessionMode: 'online',
 }) }));
 jest.mock('../../ThemeContext', () => ({ useTheme: () => ({
   colors: new Proxy({}, { get: () => '#123456' }),
@@ -64,6 +65,7 @@ import Trips from '../../../app/(tabs)/trips';
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAccount = 'account-a';
   mockRows = [{
     clientMutationId: 'expense-1', accountId: 'account-a', tripId: 'lost-trip',
     operation: 'expense_create', state: 'needs_review', queuedAt: Date.now(),
@@ -79,6 +81,39 @@ beforeEach(() => {
     mockRows = mockRows.filter((row) => row.clientMutationId !== 'payment-1');
   });
   mockRetry.mockResolvedValue(true);
+});
+
+it('shows original amounts and distinct named actions while hiding other-account rows', async () => {
+  const display = { tripName: 'Goa', memberNames: { m1: 'Asha', m2: 'Meera' } };
+  mockRows = [
+    { ...mockRows[0], payload: { description: 'Dinner', amount: 100, currency: 'INR' },
+      precondition: { display } },
+    { ...mockRows[0], clientMutationId: 'refund', payload: { description: 'Taxi refund',
+      original_amount: '-20', original_currency: 'USD' }, precondition: { display } },
+    { ...mockRows[1], precondition: { display } },
+    { ...mockRows[0], clientMutationId: 'b-only', accountId: 'account-b',
+      payload: { description: 'B private', amount: 200, currency: 'INR' } },
+  ];
+  let renderer: any;
+  await act(async () => { renderer = TestRenderer.create(<Trips />); });
+  const text = renderer.root.findAllByType('T').map((node: any) => node.props.children).join(' ');
+  expect(text).toContain('Dinner');
+  expect(text).toContain('INR 100');
+  expect(text).toContain('USD -20');
+  expect(text).toContain('Asha → Meera');
+  expect(text).not.toContain('B private');
+  expect(renderer.root.findByProps({ testID: 'trips-review-expense-1' }).props.accessibilityLabel)
+    .toBe('Review: Dinner, INR 100, Goa');
+  expect(renderer.root.findByProps({ testID: 'trips-review-refund' }).props.accessibilityLabel)
+    .toBe('Review: Taxi refund, USD -20, Goa');
+  expect(renderer.root.findByProps({ testID: 'trips-discard-payment-1' }).props.accessibilityLabel)
+    .toBe('Discard pending payment: Asha → Meera, INR 5, Goa');
+  mockAccount = 'account-b';
+  await act(async () => { renderer.update(<Trips />); });
+  const bText = renderer.root.findAllByType('T').map((node: any) => node.props.children).join(' ');
+  expect(bText).toContain('B private');
+  expect(bText).not.toContain('Dinner');
+  expect(renderer.root.findAllByProps({ testID: 'trips-review-refund' })).toHaveLength(0);
 });
 
 it('keeps orphaned expense and payment reviews accessible and discards payment only after confirmation', async () => {

@@ -258,7 +258,7 @@ const styles = StyleSheet.create({
   scrollSegment: { flexGrow: 0, flexShrink: 0, paddingHorizontal: SCROLL_SEGMENT_PADDING },
   badge: {
     minWidth: 20,
-    height: 20,
+    minHeight: 20,
     paddingHorizontal: 5,
     borderRadius: RADIUS.pill,
     alignItems: 'center',

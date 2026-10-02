@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../../src/AuthContext';
@@ -9,15 +9,12 @@ import { captureExpense, expenseCaptureActive, pendingStatusLabel, reviewReason,
 import { approvedForeignExpense, conversionQuoteFromItem,
   quoteMatchesExpense } from '../../../src/offlineConversion';
 import { syncCoordinator } from '../../../src/syncWorker';
-import { familyMemberIds } from '../../../src/familyParticipation';
+import { pendingDisplay, pendingMemberName, pendingPayload, type DisplayTrip } from '../../../src/pendingDisplay';
 import { formatMoney } from '../../../src/format';
 import { SPACING, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import { Screen, Card, Button, EmptyState, useToast } from '../../../src/ui';
 import ConfirmModal from '../../../src/ConfirmModal';
 import T from '../../../src/T';
-
-type SavedTrip = { members?: { id: string; name: string; kind: string;
-  family_members: string[]; family_member_ids?: string[] }[] };
 
 export default function PendingExpenseDetail() {
   const { id, mutationId } = useLocalSearchParams<{ id: string; mutationId: string }>();
@@ -25,8 +22,12 @@ export default function PendingExpenseDetail() {
   const { colors } = useTheme();
   const router = useRouter();
   const toast = useToast();
-  const [item, setItem] = useState<PendingExpense | null>(null);
-  const [names, setNames] = useState<Record<string, string>>({});
+  const [stored, setStored] = useState<{ accountId: string; item: PendingExpense | null;
+    trip?: DisplayTrip } | null>(null);
+  const item = stored?.accountId === user?.id && stored?.item?.tripId === id
+    && stored?.item?.clientMutationId === mutationId ? stored.item : null;
+  const trip = stored?.accountId === user?.id ? stored?.trip : undefined;
+  const generation = useRef(0);
   const [loaded, setLoaded] = useState(false);
   const [readError, setReadError] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
@@ -34,33 +35,29 @@ export default function PendingExpenseDetail() {
   const [actionBusy, setActionBusy] = useState(false);
   const [confirmBudget, setConfirmBudget] = useState(false);
 
-  useFocusEffect(useCallback(() => {
+  const load = useCallback(async () => {
     if (!user?.id || !id || !mutationId) return;
-    let active = true;
+    const current = ++generation.current;
+    try {
+      const [rows, snapshot] = await Promise.all([offlineStore.listOutbox(user.id),
+        offlineStore.getTripSnapshot(user.id, id).catch(() => null)]);
+      if (current !== generation.current) return;
+      const found = rows.find((row) => row.clientMutationId === mutationId
+        && row.accountId === user.id && row.tripId === id
+        && row.operation === 'expense_create' && row.state !== 'synced');
+      setStored({ accountId: user.id, item: found as PendingExpense | undefined ?? null,
+        trip: snapshot?.payload as DisplayTrip | undefined });
+      setReadError(false);
+    } catch { if (current === generation.current) setReadError(true); }
+    finally { if (current === generation.current) setLoaded(true); }
+  }, [user?.id, id, mutationId]);
+  useFocusEffect(useCallback(() => {
     setLoaded(false);
-    Promise.all([offlineStore.listOutbox(user.id), offlineStore.getTripSnapshot(user.id, id)])
-      .then(([rows, snapshot]) => {
-        if (!active) return;
-        const found = rows.find((row) => row.clientMutationId === mutationId
-          && row.tripId === id && row.operation === 'expense_create' && row.state !== 'synced');
-        setItem(found as PendingExpense | undefined ?? null);
-        const trip = snapshot?.payload as SavedTrip | undefined;
-        const rosterNames: Record<string, string> = {};
-        for (const member of trip?.members ?? []) {
-          rosterNames[member.id] = member.name;
-          if (member.kind === 'family') {
-            familyMemberIds(member).forEach((personId, index) => {
-              rosterNames[personId] = member.family_members[index] ?? personId;
-            });
-          }
-        }
-        setNames(rosterNames);
-        setReadError(false);
-      })
-      .catch(() => { if (active) setReadError(true); })
-      .finally(() => { if (active) setLoaded(true); });
-    return () => { active = false; };
-  }, [user?.id, id, mutationId]));
+    setConfirmDiscard(false);
+    setConfirmBudget(false);
+    void load();
+    return () => { generation.current += 1; };
+  }, [load]));
 
   useFocusEffect(useCallback(() => {
     if (user?.id && sessionMode === 'online' && mutationId) {
@@ -72,12 +69,9 @@ export default function PendingExpenseDetail() {
     if (!user?.id || !id || !mutationId) return () => {};
     return syncCoordinator.subscribe((event) => {
       if (event.accountId !== user.id || event.mutationId !== mutationId) return;
-      void offlineStore.listOutbox(user.id).then((rows) => {
-        setItem(rows.find((row) => row.clientMutationId === mutationId && row.tripId === id
-          && row.state !== 'synced') as PendingExpense | undefined ?? null);
-      }).catch(() => setReadError(true));
+      void load();
     });
-  }, [user?.id, id, mutationId]));
+  }, [user?.id, id, mutationId, load]));
 
   const retry = async () => {
     if (!user?.id || !item || actionBusy) return;
@@ -139,10 +133,11 @@ export default function PendingExpenseDetail() {
     body={readError ? 'Saved transactions could not be read on this device.'
       : 'This pending expense is no longer here.'} /></Screen>;
 
-  const payload = item.payload;
-  const amount = Number(payload.amount ?? payload.original_amount ?? 0);
-  const currency = String(payload.currency ?? payload.original_currency ?? '');
-  const exact = payload.custom_amounts ?? payload.original_custom_amounts;
+  const payload = pendingPayload(item);
+  const display = pendingDisplay(item, trip);
+  const nameOf = (memberId: string) => pendingMemberName(item, memberId, trip);
+  const currency = String(payload.original_currency ?? payload.currency ?? trip?.currency ?? '');
+  const exact = payload.original_custom_amounts ?? payload.custom_amounts;
   const exactRows = exact && typeof exact === 'object'
     ? Object.entries(exact as Record<string, number>) : [];
   const conversionReview = item.lastSafeErrorCode === 'conversion_review_needed';
@@ -154,20 +149,23 @@ export default function PendingExpenseDetail() {
       <ScrollView contentContainerStyle={{ padding: SPACING.md, alignItems: 'center' }}>
         <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
           <Card>
-            <T variant="h3">{String(payload.description || payload.category)}</T>
+            <T variant="h3">{display.identity}</T>
+            <T variant="caption" muted>{display.tripName}</T>
             <T variant="caption" color={colors.warning} testID="pending-detail-status">
               {pendingStatusLabel(item)}
             </T>
-            <T>{formatMoney(amount, { currency, currencyDisplay: 'code' })}</T>
+            <T>{display.amount}</T>
             <T variant="caption" muted>{String(payload.date)} · {String(payload.category)}</T>
-            <T variant="caption" muted>Paid by {names[payload.paid_by_member_id] || payload.paid_by_member_id}</T>
+            <T variant="caption" muted>Paid by {nameOf(String(payload.paid_by_member_id))}</T>
             <T variant="caption" muted>Split: {String(payload.split_mode).replace('_', ' ').toLowerCase()}</T>
             <T variant="caption" muted>
-              Participants: {payload.split_member_ids.map((memberId) => names[memberId] || memberId).join(', ')}
+              Participants: {Array.isArray(payload.split_member_ids)
+                ? payload.split_member_ids.map((memberId) => nameOf(String(memberId))).join(', ')
+                : 'Participants unavailable'}
             </T>
             {exactRows.length ? <T variant="caption" muted>
               Exact amounts: {exactRows.map(([memberId, value]) =>
-                `${names[memberId] || memberId} ${formatMoney(value, { currency, currencyDisplay: 'code' })}`).join(', ')}
+                `${nameOf(memberId)} ${formatMoney(value, { currency, currencyDisplay: 'code' })}`).join(', ')}
             </T> : null}
             <T variant="caption" muted>Confirmed totals update after sync.</T>
           </Card>
@@ -217,35 +215,35 @@ export default function PendingExpenseDetail() {
               </T> : null}
               <View style={{ gap: SPACING.sm, marginTop: SPACING.sm }}>
                 {conversionReview ? <>
-                  {quoteCurrent ? <Button label="Use this conversion"
+                  {quoteCurrent ? <Button label="Use this conversion" fullWidth accessibilityLabel={display.actionLabel('Use this conversion')}
                     disabled={!expenseCaptureActive() || sessionMode !== 'online' || actionBusy}
                     onPress={() => { void approveConversion(); }} testID="pending-conversion-approve" /> : null}
-                  <Button label={quoteCurrent ? 'Refresh conversion quote' : 'Get conversion quote'}
+                  <Button fullWidth accessibilityLabel={display.actionLabel(quoteCurrent ? 'Refresh conversion quote' : 'Get conversion quote')} label={quoteCurrent ? 'Refresh conversion quote' : 'Get conversion quote'}
                     variant={quoteCurrent ? 'secondary' : 'primary'}
                     disabled={!expenseCaptureActive() || sessionMode !== 'online' || actionBusy}
                     onPress={() => { if (user?.id) syncCoordinator.wake(user.id, item.clientMutationId); }}
                     testID="pending-conversion-refresh" />
                 </> : item.lastSafeErrorCode === 'budget_confirmation_required' ? (
-                  <Button label="Review and approve budget overage"
+                  <Button label="Review and approve budget overage" fullWidth accessibilityLabel={display.actionLabel('Review and approve budget overage')}
                     disabled={!expenseCaptureActive() || sessionMode !== 'online' || actionBusy}
                     onPress={() => setConfirmBudget(true)} testID="pending-budget-approve" />
                 ) : item.lastSafeErrorCode !== 'invalid_write'
                   && item.lastSafeErrorCode !== 'invalid_local_payload'
                   && item.lastSafeErrorCode !== 'client_mutation_conflict' ? (
-                  <Button label="Retry same transaction" disabled={!expenseCaptureActive() || actionBusy}
+                  <Button label="Retry same transaction" fullWidth accessibilityLabel={display.actionLabel('Retry same transaction')} disabled={!expenseCaptureActive() || actionBusy}
                     onPress={() => { void retry(); }} testID="pending-retry" />
                 ) : null}
-                <Button label="Edit and requeue" variant="secondary" disabled={!expenseCaptureActive()
+                <Button label="Edit and requeue" fullWidth accessibilityLabel={display.actionLabel('Edit and requeue')} variant="secondary" disabled={!expenseCaptureActive()
                   || item.lastSafeErrorCode === 'client_mutation_conflict'}
                   onPress={() => router.push({ pathname: '/trip/[id]/add-expense',
                     params: { id, reviewId: item.clientMutationId } })} testID="pending-edit" />
-                <Button label="Discard pending expense" variant="secondary"
+                <Button label="Discard pending expense" fullWidth accessibilityLabel={display.actionLabel('Discard pending expense')} variant="secondary"
                   onPress={() => setConfirmDiscard(true)} testID="pending-discard" />
               </View>
             </Card>
           ) : null}
           {(item.state === 'queued' || item.state === 'awaiting_reconcile') ? (
-            <Button label="Retry sync" disabled={!expenseCaptureActive() || actionBusy}
+            <Button label="Retry sync" fullWidth accessibilityLabel={display.actionLabel('Retry sync')} disabled={!expenseCaptureActive() || actionBusy}
               onPress={() => { void retry(); }} testID="pending-retry" />
           ) : null}
         </View>

@@ -43,17 +43,18 @@ class TestFamilyParticipationAPI:
 
         bal = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/balances", headers=h).json()
 
-        # Involved-count weight: family owes 37.5 (3 * 12.5); owner is owed 37.5 (50 - its own 12.5).
-        assert abs(bal["net"][fam_id] - (-37.5)) < 0.01
-        assert abs(bal["net"][owner_id] - 37.5) < 0.01
+        # Whole-unit allocation gives the payer the first remainder unit: owner owes 13,
+        # family owes 37; its internal remainder goes to the first participating person.
+        assert bal["net"][fam_id] == -37
+        assert bal["net"][owner_id] == 37
 
         fam_pp = next(pp for pp in bal["per_person"] if pp["member_id"] == fam_id)
         members = {row["id"]: row["net"] for row in fam_pp["members"]}
         assert len(members) == 4
         assert members[fam_ids[3]] == 0.0                       # excluded member owes nothing
-        assert round(sum(members.values()), 2) == -37.5         # sums EXACTLY to the family total
-        for mid in fam_ids[:3]:
-            assert abs(members[mid] - (-12.5)) < 0.01           # 37.5 / 3 each
+        assert sum(members.values()) == bal["net"][fam_id]
+        assert [members[mid] for mid in fam_ids[:3]] == [-13, -12, -12]
+        assert sum(bal["net"].values()) == 0
 
         # Individuals carry an empty per-member breakdown.
         owner_pp = next(pp for pp in bal["per_person"] if pp["member_id"] == owner_id)
@@ -165,8 +166,7 @@ class TestFamilyParticipationAPI:
                       for row in next(pp for pp in bal["per_person"] if pp["member_id"] == f1_id)["members"]}
         assert f1_members[f1_ids[3]] == 0.0                       # excluded D owes nothing
         assert round(sum(f1_members.values()), 2) == -500.0
-        for mid in f1_ids[:3]:
-            assert abs(f1_members[mid] - (-500.0 / 3)) < 0.01     # ~ -166.67 each
+        assert [f1_members[mid] for mid in f1_ids[:3]] == [-167, -167, -166]
 
         f2_members = {row["id"]: row["net"]
                       for row in next(pp for pp in bal["per_person"] if pp["member_id"] == f2_id)["members"]}

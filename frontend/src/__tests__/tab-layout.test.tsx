@@ -1,6 +1,7 @@
 /* eslint-disable import/first, @typescript-eslint/no-require-imports */
 import React from 'react';
 import { Platform } from 'react-native';
+import * as RN from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import { TYPESCALE } from '../theme';
 
@@ -51,6 +52,20 @@ describe('tab navigator layout', () => {
     const tabs = renderTabs().findByType('Tabs' as any);
     expect(tabs.props.screenOptions.headerShown).toBe(false);
     expect(tabs.props.screenOptions.headerRight).toBeUndefined();
+  });
+
+  it.each([1, 1.3])('renders complete navigation labels with growing space at scale %s', (fontScale) => {
+    jest.spyOn(require('react-native'), 'useWindowDimensions').mockReturnValue({ width: 320, height: 640, scale: 1, fontScale });
+    const options = renderTabs().findByType('Tabs' as any).props.screenOptions;
+    for (const title of ['Home', 'Trips', 'Reports']) {
+      let label: any;
+      act(() => { label = TestRenderer.create(options.tabBarLabel({ children: title, color: '#123', focused: true })); });
+      const text = label.root.findByType(RN.Text);
+      expect(text.props.children).toBe(title);
+      expect(text.props.numberOfLines).toBeUndefined();
+      expect(options.tabBarStyle.height - options.tabBarStyle.paddingTop - options.tabBarStyle.paddingBottom)
+        .toBeGreaterThanOrEqual(25 + RN.StyleSheet.flatten(text.props.style).lineHeight * fontScale * 2);
+    }
   });
 
   it('shows only Home, Trips, and Reports while keeping Profile routable', () => {

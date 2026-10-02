@@ -9,6 +9,7 @@ import { Icon } from '../../src/ui';
 import { IconName } from '../../src/ui/Icon';
 import { tabBarMetrics } from '../../src/tabBarLayout';
 import { useAuth } from '../../src/AuthContext';
+import T from '../../src/T';
 
 // Named so it carries a display name (lint) — the tab icon renderer.
 function TabIcon({ name, color, focused, base = 24 }: { name: IconName; color: string; focused: boolean; base?: number }) {
@@ -51,6 +52,9 @@ export default function TabsLayout() {
         },
         // Keep the visible destinations evenly distributed across the bar width.
         tabBarItemStyle: { flex: 1 },
+        tabBarLabel: ({ children, color }) => <T variant="caption" color={color}
+          style={{ fontFamily: FONTS.bodySemibold, fontSize: TYPESCALE.xs,
+            lineHeight: TYPESCALE.xs * 1.5, textAlign: 'center', maxWidth: '100%' }}>{children}</T>,
         tabBarLabelStyle: {
           fontFamily: FONTS.bodySemibold,
           fontSize: Platform.select({ web: TYPESCALE.base, default: TYPESCALE.xs }),

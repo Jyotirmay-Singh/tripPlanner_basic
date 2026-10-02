@@ -7,14 +7,12 @@ import { offlineStore } from '../../../src/offlineStore';
 import { paymentCaptureActive, type PendingPayment } from '../../../src/offlinePayments';
 import { pendingStatusLabel, reviewReason } from '../../../src/offlineExpenses';
 import { syncCoordinator } from '../../../src/syncWorker';
-import { formatMoney } from '../../../src/format';
+import { pendingDisplay, pendingMemberName, pendingPayload, type DisplayTrip } from '../../../src/pendingDisplay';
 import { formatIST } from '../../../src/istTime';
 import { SPACING, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import { Screen, Card, Button, EmptyState, useToast } from '../../../src/ui';
 import ConfirmModal from '../../../src/ConfirmModal';
 import T from '../../../src/T';
-
-type SavedTrip = { members?: { id: string; name: string }[] };
 
 export default function PendingPaymentDetail() {
   const { id, mutationId } = useLocalSearchParams<{ id: string; mutationId: string }>();
@@ -22,14 +20,15 @@ export default function PendingPaymentDetail() {
   const { colors } = useTheme();
   const router = useRouter();
   const toast = useToast();
-  const [storedItem, setStoredItem] = useState<{ accountId: string; value: PendingPayment | null } | null>(null);
-  const [names, setNames] = useState<Record<string, string>>({});
+  const [storedItem, setStoredItem] = useState<{ accountId: string; value: PendingPayment | null;
+    trip?: DisplayTrip } | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [readError, setReadError] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [busy, setBusy] = useState(false);
   const loadGeneration = useRef(0);
-  const item = storedItem && storedItem.accountId === user?.id ? storedItem.value : null;
+  const item = storedItem?.accountId === user?.id && storedItem?.value?.tripId === id
+    && storedItem?.value?.clientMutationId === mutationId ? storedItem.value : null;
 
   const load = useCallback(async () => {
     if (!user?.id || !id || !mutationId) return;
@@ -39,16 +38,17 @@ export default function PendingPaymentDetail() {
       const snapshot = await offlineStore.getTripSnapshot(user.id, id).catch(() => null);
       if (generation !== loadGeneration.current) return;
       const found = rows.find((row) => row.clientMutationId === mutationId && row.tripId === id
-        && row.operation === 'manual_payment_create' && row.state !== 'synced');
-      setStoredItem({ accountId: user.id, value: found as PendingPayment | undefined ?? null });
-      const trip = snapshot?.payload as SavedTrip | undefined;
-      setNames(Object.fromEntries((trip?.members ?? []).map((member) => [member.id, member.name])));
+        && row.accountId === user.id && row.operation === 'manual_payment_create' && row.state !== 'synced');
+      setStoredItem({ accountId: user.id, value: found as PendingPayment | undefined ?? null,
+        trip: snapshot?.payload as DisplayTrip | undefined });
       setReadError(false);
     } catch { if (generation === loadGeneration.current) setReadError(true); }
     finally { if (generation === loadGeneration.current) setLoaded(true); }
   }, [user?.id, id, mutationId]);
 
   useFocusEffect(useCallback(() => {
+    setLoaded(false);
+    setConfirmDiscard(false);
     void load();
     return () => { loadGeneration.current += 1; };
   }, [load]));
@@ -90,7 +90,9 @@ export default function PendingPaymentDetail() {
     body={readError ? 'Saved payments could not be read on this device.'
       : 'This pending payment is no longer here.'} /></Screen>;
 
-  const payload = item.payload;
+  const payload = pendingPayload(item);
+  const trip = storedItem?.trip;
+  const display = pendingDisplay(item, trip);
   const canRetry = item.state === 'queued' || item.state === 'awaiting_reconcile'
     || (item.state === 'needs_review' && !['invalid_write', 'invalid_local_payload',
       'client_mutation_conflict'].includes(item.lastSafeErrorCode ?? ''));
@@ -101,13 +103,14 @@ export default function PendingPaymentDetail() {
     <ScrollView contentContainerStyle={{ padding: SPACING.md, alignItems: 'center' }}>
       <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
         <Card>
-          <T variant="h3">{names[payload.from_member_id] || payload.from_member_id}
-            {' paid '}{names[payload.to_member_id] || payload.to_member_id}</T>
+          <T variant="h3">{pendingMemberName(item, String(payload.from_member_id), trip)}
+            {' paid '}{pendingMemberName(item, String(payload.to_member_id), trip)}</T>
+          <T variant="caption" muted>{display.tripName}</T>
           <T variant="caption" color={colors.warning} accessibilityLabel={pendingStatusLabel(item)}
             testID="pending-payment-status">{pendingStatusLabel(item)}</T>
-          <T>{formatMoney(payload.amount, { currency: payload.expected_currency })}</T>
+          <T>{display.amount}</T>
           <T variant="caption" muted>Saved on device: {formatIST(new Date(item.queuedAt).toISOString())}</T>
-          {payload.note ? <T variant="caption" muted>{payload.note}</T> : null}
+          {typeof payload.note === 'string' && payload.note ? <T variant="caption" muted>{payload.note}</T> : null}
           <T variant="caption" muted>
             Saved on this device as a record of money already exchanged. The server must accept it before confirmed balances change.
           </T>
@@ -118,17 +121,17 @@ export default function PendingPaymentDetail() {
             Check the actual amount and recipient against a current suggestion. The app will not change either for you.
           </T> : null}
         </Card> : null}
-        {canRetry ? <Button label={item.state === 'needs_review' ? 'Retry same details' : 'Retry sync'}
+        {canRetry ? <Button fullWidth accessibilityLabel={display.actionLabel('Retry payment')} label={item.state === 'needs_review' ? 'Retry same details' : 'Retry sync'}
           disabled={!paymentCaptureActive() || busy} onPress={() => { void retry(); }}
           testID="pending-payment-retry" /> : null}
         {canEdit ? <>
-          <Button label="Edit and requeue" disabled={!paymentCaptureActive() || busy}
+          <Button label="Edit and requeue" fullWidth accessibilityLabel={display.actionLabel('Edit and requeue')} disabled={!paymentCaptureActive() || busy}
             onPress={() => router.push(`/trip/${id}/settle-up?reviewId=${encodeURIComponent(item.clientMutationId)}`)}
             testID="pending-payment-edit" />
-          <Button label="Discard pending record" variant="secondary"
+          <Button label="Discard pending record" fullWidth accessibilityLabel={display.actionLabel('Discard pending record')} variant="secondary"
             onPress={() => setConfirmDiscard(true)} testID="pending-payment-discard" />
         </> : null}
-        {item.state === 'needs_review' && !canEdit ? <Button label="Discard pending record"
+        {item.state === 'needs_review' && !canEdit ? <Button label="Discard pending record" fullWidth accessibilityLabel={display.actionLabel('Discard pending record')}
           variant="secondary" onPress={() => setConfirmDiscard(true)}
           testID="pending-payment-discard" /> : null}
       </View>

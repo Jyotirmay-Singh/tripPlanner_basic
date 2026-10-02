@@ -16,11 +16,11 @@ import {
 const store = offlineStore as jest.Mocked<typeof offlineStore>;
 const uuid = '7fa30d5e-b4f6-4cb3-b45a-27b4119d0101';
 const members = [
-  { id: 'payer', kind: 'individual', user_id: 'payer-user' },
-  { id: 'receiver', kind: 'individual', user_id: 'receiver-user' },
+  { id: 'payer', name: 'Asha', kind: 'individual', user_id: 'payer-user' },
+  { id: 'receiver', name: 'Meera', kind: 'individual', user_id: 'receiver-user' },
   { id: 'family', kind: 'family', family_member_user_ids: ['family-user', null] },
 ];
-const trip = { id: 'trip-1', currency: 'INR', owner_id: 'owner-user',
+const trip = { id: 'trip-1', name: 'Coast', currency: 'INR', owner_id: 'owner-user',
   admin_ids: ['admin-user'], user_ids: ['payer-user', 'receiver-user', 'family-user', 'admin-user'],
   members };
 const pair = { from_member_id: 'payer', to_member_id: 'receiver', amount: 50 };
@@ -44,6 +44,9 @@ it('captures a partial payment with the exact pair, cap, currency, and UUID', ()
     precondition: { expectedPayable: 50, currency: 'INR', fetchedAt: 123 },
   });
   expect(pair.amount).toBe(50);
+  expect(item.precondition).toMatchObject({ display: { tripName: 'Coast',
+    memberNames: { payer: 'Asha', receiver: 'Meera' } } });
+  expect(item.payload).not.toHaveProperty('display');
 });
 
 it('allows the receiver, linked family receiver, and admin but not the payer or an unrelated user', () => {

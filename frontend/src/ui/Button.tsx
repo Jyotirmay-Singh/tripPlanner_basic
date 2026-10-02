@@ -65,7 +65,8 @@ export default function Button({
   };
 
   return (
-    <Animated.View style={[fullWidth && { alignSelf: 'stretch' }, { transform: [{ scale }] }]}>
+    <Animated.View style={[{ maxWidth: '100%', minWidth: 0, flexShrink: 1 },
+      fullWidth && { alignSelf: 'stretch', width: '100%' }, { transform: [{ scale }] }]}>
       <Pressable
         testID={testID}
         onPress={press}
@@ -102,7 +103,8 @@ export default function Button({
                 accessible={false}
               />
             ) : icon ? <Icon name={icon} size={dim.icon} color={fg} /> : null}
-            <T style={{ fontFamily: FONTS.bodyBold, fontSize: dim.font }} color={fg}>{label}</T>
+            <T style={{ fontFamily: FONTS.bodyBold, fontSize: dim.font,
+              flexShrink: 1, minWidth: 0, textAlign: 'center' }} color={fg}>{label}</T>
             {iconRight ? <Icon name={iconRight} size={dim.icon} color={fg} /> : null}
           </>
         )}
@@ -113,6 +115,8 @@ export default function Button({
 
 const styles = StyleSheet.create({
   base: {
+    minHeight: 48,
+    maxWidth: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

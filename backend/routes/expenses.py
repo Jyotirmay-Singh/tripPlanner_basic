@@ -32,6 +32,7 @@ from services.expense_conversion import (
     stored_original_currency,
     stored_original_custom_amounts,
 )
+from services.custom_split import ExactSplitValidationError
 from utils.money_policy import (
     AmountRoundsToZeroError,
     amount_rounds_to_zero_detail,
@@ -79,6 +80,10 @@ def _conversion_http_error(exc: Exception):
         raise HTTPException(exc.status_code, error_detail(exc))
     if isinstance(exc, AmountRoundsToZeroError):
         raise HTTPException(422, amount_rounds_to_zero_detail(exc))
+    if isinstance(exc, ExactSplitValidationError):
+        raise HTTPException(422, {
+            "code": "invalid_exact_split", "message": str(exc), "retryable": False,
+        })
     raise HTTPException(422, {
         "code": "invalid_conversion", "message": str(exc), "retryable": False,
     })

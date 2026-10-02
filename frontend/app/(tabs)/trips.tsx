@@ -15,6 +15,7 @@ import TripListCard from '../../src/TripListCard';
 import { offlineStore } from '../../src/offlineStore';
 import type { StoredOutboxItem } from '../../src/offlineStore.shared';
 import { pendingStatusLabel, reviewReason } from '../../src/offlineExpenses';
+import { pendingDisplay } from '../../src/pendingDisplay';
 import { offlineWritesActive } from '../../src/offlineActivation';
 import { syncCoordinator } from '../../src/syncWorker';
 import ConfirmModal from '../../src/ConfirmModal';
@@ -62,14 +63,22 @@ export default function Trips() {
     accountId: string; items: StoredOutboxItem[]; error: boolean;
   } | null>(null);
   const loadGeneration = useRef(0);
+  const queueGeneration = useRef(0);
+  const activeAccount = useRef(user?.id);
+  activeAccount.current = user?.id;
 
   const loadQueue = useCallback(async (accountId: string) => {
+    const generation = ++queueGeneration.current;
     try {
       const items = (await offlineStore.listOutbox(accountId))
-        .filter((item) => item.state !== 'synced');
-      setStoredQueue({ accountId, items, error: false });
+        .filter((item) => item.accountId === accountId && item.state !== 'synced');
+      if (activeAccount.current === accountId && generation === queueGeneration.current) {
+        setStoredQueue({ accountId, items, error: false });
+      }
     } catch {
-      setStoredQueue({ accountId, items: [], error: true });
+      if (activeAccount.current === accountId && generation === queueGeneration.current) {
+        setStoredQueue({ accountId, items: [], error: true });
+      }
     }
   }, []);
 
@@ -110,7 +119,7 @@ export default function Trips() {
   const queue = storedQueue?.accountId === user?.id ? storedQueue : null;
 
   const discardPayment = async () => {
-    if (!user?.id || !paymentToDiscard || discarding) return;
+    if (!user?.id || !paymentToDiscard || paymentToDiscard.accountId !== user.id || discarding) return;
     setDiscarding(true);
     try {
       await offlineStore.discardReviewPayment(user.id, paymentToDiscard.clientMutationId);
@@ -162,44 +171,43 @@ export default function Trips() {
       </T> : null}
       {queue && queue.items.length > 0 ? <Card testID="trips-sync-queue">
         <T variant="h3">Pending sync: {queue.items.length}</T>
-        {queue.items.map((item) => <Card key={item.clientMutationId}
+        {queue.items.map((item) => {
+          const display = pendingDisplay(item, trips.find((trip) => trip.id === item.tripId));
+          return <Card key={item.clientMutationId}
           testID={`trips-pending-${item.clientMutationId}`}>
           <T variant="label">{item.operation === 'expense_create' ? 'Pending transaction' : 'Pending payment'}</T>
           <T variant="caption" muted accessibilityLabel={pendingStatusLabel(item)}>
             {pendingStatusLabel(item)}
           </T>
-          <T variant="caption" muted>Trip {item.tripId}</T>
-          {item.operation === 'manual_payment_create' && item.payload
-            && typeof item.payload === 'object' ? <T variant="caption" muted>
-              {String((item.payload as Record<string, unknown>).from_member_id ?? '?')}
-              {' → '}{String((item.payload as Record<string, unknown>).to_member_id ?? '?')}
-              {' · '}{String((item.payload as Record<string, unknown>).amount ?? '?')}
-              {' '}{String((item.payload as Record<string, unknown>).expected_currency ?? '')}
-            </T> : null}
+          <T variant="h4">{display.identity}</T>
+          <T>{display.amount}</T>
+          <T variant="caption" muted>{display.tripName}</T>
           {item.lastSafeErrorCode ? <T variant="caption" muted>
             {reviewReason(item.lastSafeErrorCode)}
           </T> : null}
-          <Button label="Review"
+          <Button label="Review" fullWidth accessibilityLabel={display.actionLabel('Review')}
             onPress={() => router.push(`/trip/${item.tripId}/${item.operation === 'expense_create'
               ? 'pending-expense' : 'pending-payment'}?mutationId=${encodeURIComponent(item.clientMutationId)}`)}
             testID={`trips-review-${item.clientMutationId}`} />
           {(item.state === 'queued' || item.state === 'awaiting_reconcile') ? <Button
-            label="Retry sync" disabled={!offlineWritesActive()}
+            label="Retry sync" fullWidth accessibilityLabel={display.actionLabel('Retry sync')} disabled={!offlineWritesActive()}
             onPress={() => { if (item.state === 'awaiting_reconcile') {
               syncCoordinator.wake(user!.id, item.clientMutationId);
             } else { void syncCoordinator.retry(user!.id, item.clientMutationId); } }}
             testID={`trips-retry-${item.clientMutationId}`} /> : null}
           {item.operation === 'manual_payment_create' && item.state === 'needs_review' ? <>
             {['permission_lost', 'trip_unavailable', 'business_conflict'].includes(
-              item.lastSafeErrorCode ?? '') ? <Button label="Retry same payment"
+              item.lastSafeErrorCode ?? '') ? <Button label="Retry same payment" fullWidth
+              accessibilityLabel={display.actionLabel('Retry same payment')}
               disabled={!offlineWritesActive()}
               onPress={() => { void syncCoordinator.retry(user!.id, item.clientMutationId); }}
               testID={`trips-retry-${item.clientMutationId}`} /> : null}
-            <Button label="Discard pending payment" variant="secondary"
+            <Button label="Discard pending payment" variant="secondary" fullWidth
+              accessibilityLabel={display.actionLabel('Discard pending payment')}
               onPress={() => setPaymentToDiscard(item)}
               testID={`trips-discard-${item.clientMutationId}`} />
           </> : null}
-        </Card>)}
+        </Card>; })}
       </Card> : null}
       <Card onPress={offlineView ? undefined : () => router.push('/join-trip')} testID="trips-join-btn" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm }}>
         <Icon name="key" size={18} color={colors.primary} />
@@ -239,7 +247,7 @@ export default function Trips() {
           />
         ))
       )}
-      <ConfirmModal visible={!!paymentToDiscard} title="Discard pending payment?"
+      <ConfirmModal visible={!!paymentToDiscard && paymentToDiscard.accountId === user?.id} title="Discard pending payment?"
         message="This removes the saved pending payment from this device. Confirmed balances are unchanged."
         onRequestClose={() => setPaymentToDiscard(null)} actions={[
           { label: 'Keep', variant: 'cancel', onPress: () => setPaymentToDiscard(null) },

@@ -26,6 +26,7 @@ import {
   type PendingPayment,
 } from '../../../src/offlinePayments';
 import { pendingStatusLabel } from '../../../src/offlineExpenses';
+import { pendingDisplay, pendingMemberName } from '../../../src/pendingDisplay';
 import { syncCoordinator } from '../../../src/syncWorker';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
@@ -233,7 +234,7 @@ export default function SettleUp() {
 
   const members = bal?.members ?? [];
   const displayNames = memberDisplayNames(members);
-  const nameOf = (mid: string) => displayNames[mid] || mid;
+  const nameOf = (mid: string) => displayNames[mid] || 'Member unavailable';
   const currency = bal?.currency ?? '';
   const loading = !bal || !payments || !trip;
   const offlineView = sessionMode === 'offline' || read?.source === 'cache';
@@ -444,15 +445,15 @@ export default function SettleUp() {
     });
 
   // ---- Presentational pieces ----
-  const Parties = ({ from, to }: { from: string; to: string }) => (
-    <View style={{ flex: 1, minWidth: 0 }}>
+  const Parties = ({ from, to, item }: { from: string; to: string; item?: PendingPayment }) => (
+    <View style={{ minWidth: 0, width: '100%' }}>
       <View style={styles.partyRow}>
         <View style={[styles.dot, { backgroundColor: colors.danger + '22' }]}>
           <Icon name="arrow-up" size={14} color={colors.danger} />
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <T variant="caption" muted>Pays</T>
-          <T variant="h4" color={colors.danger} numberOfLines={1}>{nameOf(from)}</T>
+          <T variant="h4" color={colors.danger}>{item ? pendingMemberName(item, from, trip) : nameOf(from)}</T>
         </View>
       </View>
       <View style={[styles.connector, { borderColor: colors.border }]} />
@@ -462,7 +463,7 @@ export default function SettleUp() {
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <T variant="caption" muted>Receives</T>
-          <T variant="h4" color={colors.success} numberOfLines={1}>{nameOf(to)}</T>
+          <T variant="h4" color={colors.success}>{item ? pendingMemberName(item, to, trip) : nameOf(to)}</T>
         </View>
       </View>
     </View>
@@ -471,7 +472,7 @@ export default function SettleUp() {
   const Badge = ({ label, color, icon }: { label: string; color: string; icon?: 'check-circle' | 'clock' }) => (
     <View style={[styles.badge, { backgroundColor: color + '22' }]}>
       {icon ? <Icon name={icon} size={12} color={color} /> : null}
-      <T variant="caption" color={color} style={{ fontWeight: '700' }}>{label}</T>
+      <T variant="caption" color={color} style={{ fontWeight: '700', flexShrink: 1 }}>{label}</T>
     </View>
   );
 
@@ -684,9 +685,9 @@ export default function SettleUp() {
           {pending.map((item) => (
             <Card key={item.clientMutationId}
               testID={`payment-pending-${item.clientMutationId}`}
-              accessibilityLabel={`Manual payment ${pendingStatusLabel(item)}`} style={styles.card}>
+              accessibilityLabel={`${pendingDisplay(item, trip).identity}, ${pendingDisplay(item, trip).amount}, ${pendingStatusLabel(item)}`} style={styles.card}>
               <View style={styles.cardTop}>
-                <Parties from={item.payload.from_member_id} to={item.payload.to_member_id} />
+                <Parties from={item.payload.from_member_id} to={item.payload.to_member_id} item={item} />
                 <T variant="h4">{formatMoney(item.payload.amount, { currency: item.payload.expected_currency })}</T>
               </View>
               <View style={styles.pendingActions}>
@@ -697,7 +698,7 @@ export default function SettleUp() {
                         : item.state === 'paused_auth' ? 'Sign in to sync' : 'Pending sync'}
                   color={colors.warning} icon="clock"
                 />
-                <Button label="Review" accessibilityLabel="Review pending payment" size="sm" variant="secondary"
+                <Button label="Review" fullWidth accessibilityLabel={pendingDisplay(item, trip).actionLabel('Review')} size="sm" variant="secondary"
                   onPress={() => router.push(`/trip/${id}/pending-payment?mutationId=${encodeURIComponent(item.clientMutationId)}`)}
                   testID={`payment-review-${item.clientMutationId}`} />
               </View>
@@ -974,12 +975,12 @@ export function AmountModal({
 const styles = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   card: { gap: SPACING.sm },
-  cardTop: { flexDirection: 'row', gap: SPACING.md, alignItems: 'center' },
+  cardTop: { flexDirection: 'column', gap: SPACING.md, alignItems: 'stretch' },
   partyRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   dot: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   connector: { height: 12, marginLeft: 13, borderLeftWidth: 2, marginVertical: 2 },
   badge: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
+    flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: '100%', flexShrink: 1,
     paddingHorizontal: 10, paddingVertical: 5, borderRadius: RADIUS.pill,
   },
   pendingActions: {
@@ -987,15 +988,15 @@ const styles = StyleSheet.create({
     alignItems: 'center', gap: SPACING.sm,
   },
   log: { marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: StyleSheet.hairlineWidth, gap: SPACING.xs },
-  logRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  logRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACING.sm },
   logActions: { flexDirection: 'row', alignItems: 'center' },
-  recommendationActions: { alignItems: 'flex-end', gap: SPACING.sm },
+  recommendationActions: { alignItems: 'stretch', width: '100%', gap: SPACING.sm },
   attemptSection: { marginTop: SPACING.lg, gap: SPACING.sm },
   attemptHeader: {
     flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.sm,
   },
   attemptAmounts: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.md,
+    flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: SPACING.md,
   },
   attemptActions: {
     flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACING.sm,

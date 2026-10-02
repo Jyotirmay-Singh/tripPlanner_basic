@@ -286,22 +286,31 @@ class TestReports:
         # Split Math is the combined per-(expense x participant) tab with subtotals.
         sm = wb["Split Math"]
         sm_header = [c.value for c in sm[1]]
-        assert sm_header[:6] == ["Expense", "Date", "Total Amount", "Split Mode",
+        assert sm_header[:6] == ["Expense", "Date", "Total Amount (GBP)", "Split Mode",
                                  "Participant", "Participant Type"]
-        assert sm_header[6] == "Units" and "Per-Unit Cost" in sm_header[7] and "Allocated" in sm_header[8]
+        assert sm_header[6:] == ["Units / Weight", "Actual Allocation (GBP)", "Remainder Unit Recipient"]
+        allocation_col = sm_header.index("Actual Allocation (GBP)")
+        total_col = sm_header.index("Total Amount (GBP)")
         # At least one expense subtotal whose Allocated equals the expense Total Amount.
         subtotal_checks = 0
-        for expense, date, total_amt, mode, participant, ptype, units, per_unit, allocated in \
-                sm.iter_rows(min_row=2, values_only=True):
+        allocations = []
+        for row in sm.iter_rows(min_row=2, values_only=True):
+            expense, total_amt, allocated = row[0], row[total_col], row[allocation_col]
             if isinstance(expense, str) and expense.endswith("Subtotal"):
                 assert abs(allocated - total_amt) <= 0.011
+                assert sum(allocations) == total_amt
+                allocations = []
                 subtotal_checks += 1
+            elif isinstance(allocated, (int, float)):
+                assert allocated == int(allocated)
+                assert row[sm_header.index("Remainder Unit Recipient")] in ("Yes", "No", None, "")
+                allocations.append(allocated)
         assert subtotal_checks >= 2  # one per expense (PER_CAPITA + PER_FAMILY line items)
 
-        # Transactions journal (Phase 18 exploded layout): Split Mode is column 6, humanized.
+        # The FX audit columns precede the human-readable Split Mode in the journal.
         tx_header = [c.value for c in wb["Transactions"][1]]
-        assert tx_header[5] == "Split Mode"
-        tx_modes = {row[5] for row in wb["Transactions"].iter_rows(min_row=2, values_only=True) if row[5]}
+        mode_col = tx_header.index("Split Mode")
+        tx_modes = {row[mode_col] for row in wb["Transactions"].iter_rows(min_row=2, values_only=True) if row[mode_col]}
         assert tx_modes <= {"Per-Person", "Per-Family"}
 
     def test_report_settlements_column_includes_partial_payments(self, api_client, test_user):
@@ -362,18 +371,27 @@ class TestReports:
         assert abs(total_row[2]) < 0.011 and abs(total_row[3]) < 0.011
 
         # Payments tab keeps Receiver/Remark and adds only a sanitized source label.
-        assert [c.value for c in wb["Payments"][1]] == ["Payer", "Receiver", "Amount (INR)",
+        payment_header = [c.value for c in wb["Payments"][1]]
+        assert payment_header == ["Payer", "Receiver", "Amount (INR)",
                                                         "Date & Time", "Remark", "Source"]
+        payer_col = payment_header.index("Payer")
+        amount_col = payment_header.index("Amount (INR)")
+        date_col = payment_header.index("Date & Time")
+        source_col = payment_header.index("Source")
 
         # Date & Time cell shows the stored UTC timestamp converted to IST (Phase 24) — not raw UTC.
         pay_created = r_pay.json()["created_at"]
-        dt_cells = [row[3] for row in wb["Payments"].iter_rows(min_row=2, values_only=True)
-                    if isinstance(row[2], (int, float)) and abs(row[2] - 15.0) < 0.01]
+        payment_rows = list(wb["Payments"].iter_rows(min_row=2, values_only=True))
+        total_index = next(i for i, row in enumerate(payment_rows) if row[payer_col] == "Total")
+        payment_rows = payment_rows[:total_index]
+        assert sum(row[amount_col] for row in payment_rows) == 15
+        dt_cells = [row[date_col] for row in payment_rows
+                    if isinstance(row[amount_col], (int, float)) and abs(row[amount_col] - 15.0) < 0.01]
         assert dt_cells, "expected the 15.0 payment row in the Payments tab"
         assert dt_cells[0] == format_ist(pay_created)
         assert dt_cells[0].endswith(" IST")
-        source_cells = [row[5] for row in wb["Payments"].iter_rows(min_row=2, values_only=True)
-                        if isinstance(row[2], (int, float)) and abs(row[2] - 15.0) < 0.01]
+        source_cells = [row[source_col] for row in payment_rows
+                        if isinstance(row[amount_col], (int, float)) and abs(row[amount_col] - 15.0) < 0.01]
         assert source_cells == ["Recorded payment"]
 
         # ----- PDF: full report renders (same builders -> same values) -----

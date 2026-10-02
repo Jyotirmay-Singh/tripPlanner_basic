@@ -1,6 +1,7 @@
 /* eslint-disable import/first, @typescript-eslint/no-require-imports */
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
+import { StyleSheet } from 'react-native';
 
 const mockApi = jest.fn();
 const mockListPayments = jest.fn();
@@ -9,6 +10,7 @@ const mockUpdateAttemptRecipient = jest.fn();
 const mockListPendingPayments = jest.fn();
 const mockMakePaymentOutboxItem = jest.fn();
 const mockCapturePayment = jest.fn();
+const mockRouterPush = jest.fn();
 let mockCaptureEnabled = false;
 let mockSessionMode: 'online' | 'offline' = 'online';
 let mockReviewId: string | undefined;
@@ -16,7 +18,7 @@ let mockUser = { id: 'payer-user', is_super_admin: false };
 
 jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ id: 'trip-1', reviewId: mockReviewId }),
-  useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),
+  useRouter: () => ({ push: mockRouterPush, replace: jest.fn() }),
   useFocusEffect: (callback: () => void) => {
     const R = require('react');
     R.useEffect(callback, [callback]);
@@ -82,6 +84,30 @@ jest.mock('../../ui', () => {
 });
 
 import SettleUp from '../../../app/trip/[id]/settle-up';
+
+it.each([1, 1.3])('keeps named rejected pending cards and full actions reachable at scale %s', async (fontScale) => {
+  jest.spyOn(require('react-native'), 'useWindowDimensions').mockReturnValue({ width: 320, height: 640, scale: 1, fontScale });
+  mockListPendingPayments.mockResolvedValue([{
+    clientMutationId: 'saved-payment', accountId: 'recipient-user', tripId: 'trip-1',
+    operation: 'manual_payment_create', state: 'needs_review', lastSafeErrorCode: 'invalid_write',
+    precondition: { display: { tripName: 'Coast', memberNames: { payer: 'Asha', recipient: 'Meera' } } },
+    payload: { from_member_id: 'payer', to_member_id: 'recipient', amount: 20, expected_currency: 'INR' },
+  }]);
+  const renderer = await mountAs({ id: 'recipient-user', is_super_admin: false });
+  const card = hosts(renderer, 'payment-pending-saved-payment')[0];
+  const text = card.findAllByType('T').map((node: any) => node.props.children).flat().join(' ');
+  expect(text).toContain('Asha');
+  expect(text).toContain('Meera');
+  expect(text).toContain('₹20');
+  const top = card.findAll((node: any) => StyleSheet.flatten(node.props.style)?.flexDirection === 'column');
+  expect(top.length).toBeGreaterThan(0);
+  const review = interactive(renderer, 'payment-review-saved-payment');
+  expect(review.props.accessibilityLabel).toBe('Review: Asha → Meera, INR 20, Coast');
+  expect(review.props.fullWidth).toBe(true);
+  act(() => review.props.onPress());
+  expect(mockRouterPush).toHaveBeenCalledWith('/trip/trip-1/pending-payment?mutationId=saved-payment');
+  jest.restoreAllMocks();
+});
 
 const members = [
   { id: 'payer', name: 'Payer Person', kind: 'individual', user_id: 'payer-user' },

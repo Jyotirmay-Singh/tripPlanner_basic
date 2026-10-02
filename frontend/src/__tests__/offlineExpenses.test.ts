@@ -14,9 +14,9 @@ import { captureExpense, listPendingExpenses, makeExpenseOutboxItem } from '../o
 
 const store = offlineStore as jest.Mocked<typeof offlineStore>;
 const trip = {
-  id: 'trip-1', currency: 'INR', members: [
+  id: 'trip-1', name: 'Coast', currency: 'INR', members: [
     { id: 'family', kind: 'family', family_members: ['A', 'B'], family_member_ids: ['a', 'b'] },
-    { id: 'solo', kind: 'individual', family_members: [] },
+    { id: 'solo', name: 'Asha', kind: 'individual', family_members: [] },
     { id: 'excluded', kind: 'individual', family_members: [] },
   ],
 };
@@ -51,6 +51,11 @@ it('freezes the exact selected roster, family participation, and negative refund
   });
   expect(item.payload.split_member_ids).not.toContain('excluded');
   expect(base.split_member_ids).toEqual(['family', 'solo']);
+  expect(item.precondition).toMatchObject({ display: { tripName: 'Coast',
+    memberNames: { solo: 'Asha', a: 'A', b: 'B' } } });
+  expect(item.payload).not.toHaveProperty('display');
+  expect(item.payload.expected_roster).not.toHaveProperty('display');
+  expect(item.payload.expected_roster).not.toHaveProperty('memberNames');
 });
 
 it('preserves exact person allocations and rejects an implicit everyone split', () => {

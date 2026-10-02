@@ -31,8 +31,8 @@ export default function Badge({
 }
 
 const styles = StyleSheet.create({
-  badge: { borderWidth: 1, borderRadius: RADIUS.sm, paddingHorizontal: 6, paddingVertical: 1 },
-  text: { fontWeight: '700', fontSize: 10 },
+  badge: { maxWidth: '100%', flexShrink: 1, borderWidth: 1, borderRadius: RADIUS.sm, paddingHorizontal: 6, paddingVertical: 1 },
+  text: { fontWeight: '700', fontSize: 10, flexShrink: 1 },
   statusBadge: {
     minHeight: COMPONENT_SIZE.statusPill,
     borderRadius: RADIUS.pill,
@@ -45,5 +45,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodyBold,
     fontSize: TYPESCALE.xs,
     lineHeight: 16,
+    flexShrink: 1,
   },
 });

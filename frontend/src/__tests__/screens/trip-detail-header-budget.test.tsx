@@ -807,7 +807,7 @@ describe('Trip identity header', () => {
     nativeShare.mockRestore();
   });
 
-  it('keeps action behavior, adaptive tabs, and 48 dp icon actions intact', async () => {
+  it('keeps action behavior, scrollable tabs, and 48 dp icon actions intact', async () => {
     const renderer = await mountTrip();
     const add = hostByTestID(renderer.root, 'Button', 'trip-add-expense');
     const settle = hostByTestID(renderer.root, 'Button', 'trip-settle-up');
@@ -820,7 +820,7 @@ describe('Trip identity header', () => {
       accessibilityLabel: 'Edit trip',
       touchSize: COMPONENT_SIZE.minTouchTarget,
     }));
-    expect(tabs.props).toEqual(expect.objectContaining({ layout: 'adaptive', testIDPrefix: 'trip-tab' }));
+    expect(tabs.props).toEqual(expect.objectContaining({ layout: 'scrollable', testIDPrefix: 'trip-tab' }));
 
     act(() => add.props.onPress());
     act(() => settle.props.onPress());

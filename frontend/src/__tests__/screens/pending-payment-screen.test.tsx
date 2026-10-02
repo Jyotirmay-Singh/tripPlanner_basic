@@ -107,3 +107,18 @@ it('keeps an orphaned payment review reachable when the trip snapshot is missing
   expect(renderer.root.findByProps({ testID: 'pending-payment-status' })).toBeTruthy();
   expect(renderer.root.findByProps({ testID: 'pending-payment-discard' })).toBeTruthy();
 });
+
+it.each(['invalid_write', 'trip_unavailable'])('retains named %s payment details after trip removal', async (code) => {
+  mockTripSnapshot.mockResolvedValue(null);
+  mockListOutbox.mockResolvedValue([{ ...item, lastSafeErrorCode: code,
+    precondition: { display: { tripName: 'Coast', memberNames: { payer: 'Asha', receiver: 'Meera' } } },
+  }]);
+  let renderer: any;
+  await act(async () => { renderer = TestRenderer.create(<PendingPaymentDetail />); });
+  const text = renderer.root.findAllByType('T').map((node: any) => node.props.children).flat().join(' ');
+  expect(text.replace(/\s+/g, ' ')).toContain('Asha paid Meera');
+  expect(text).not.toContain('payer');
+  expect(renderer.root.findByProps({ testID: 'pending-payment-discard' }).props.accessibilityLabel)
+    .toBe('Discard pending record: Asha → Meera, INR 20, Coast');
+  expect(mockRetry).not.toHaveBeenCalled();
+});

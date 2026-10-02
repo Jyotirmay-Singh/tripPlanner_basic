@@ -107,6 +107,20 @@ function fixture(items: StoredOutboxItem[] = [expense()]) {
     setToken: (next: string) => { activeToken = next; }, syncMeta };
 }
 
+it('posts only the transaction payload for expense and payment, retaining local display context', async () => {
+  const display = { tripName: 'Coast', memberNames: { 'member-a': 'Asha', 'member-b': 'Meera' } };
+  const items = [expense(), payment()].map((row) => ({ ...row, precondition: { display } }));
+  const f = fixture(items);
+  f.coordinator.setAccount('account-a');
+  await f.coordinator.waitForIdle();
+  expect(f.post).toHaveBeenCalledTimes(2);
+  for (let index = 0; index < items.length; index += 1) {
+    expect(f.post.mock.calls[index][1].body).toEqual(items[index].payload);
+    expect(f.post.mock.calls[index][1].body).not.toHaveProperty('display');
+    expect(f.rows.get(items[index].clientMutationId)?.precondition).toEqual({ display });
+  }
+});
+
 it('replays a committed expense after a lost response and reconciles exactly one canonical expense', async () => {
   const f = fixture();
   let loseResponse = true;
@@ -379,7 +393,10 @@ it.each([
 });
 
 it('holds a budget warning for explicit online approval and preserves the UUID with force', async () => {
-  const f = fixture();
+  const original = { ...expense(), precondition: { display: {
+    tripName: 'Coast', memberNames: { 'member-a': 'Asha' },
+  } } };
+  const f = fixture([original]);
   f.post.mockResolvedValueOnce({ requires_confirmation: true, warning: '12 INR over budget',
     budget_overage: 12, currency: 'INR' });
   f.coordinator.setAccount('account-a');
@@ -392,6 +409,8 @@ it('holds a budget warning for explicit online approval and preserves the UUID w
   await f.coordinator.waitForIdle();
   expect(f.post.mock.calls[1][0]).toBe('/trips/trip-a/expenses?force=true');
   expect(f.post.mock.calls[1][1].body!.client_mutation_id).toBe(expenseId);
+  expect(f.post.mock.calls[1][1].body).toEqual(original.payload);
+  expect(f.rows.get(expenseId)?.precondition).toEqual(original.precondition);
   expect(f.rows.get(expenseId)?.state).toBe('synced');
   f.coordinator.setAccount(null);
 });

@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 from bson.decimal128 import Decimal128
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 
-from models.expense import ExpenseUpdate
+from models.expense import ExpenseIn, ExpenseUpdate
 from models.exchange_rate import ReconvertIn
 from routes import expenses
 
@@ -92,6 +92,21 @@ def setup_route(monkeypatch, document):
     )
     monkeypatch.setattr(expenses, "MULTI_CURRENCY_EXPENSES_ENABLED", True)
     return collection
+
+
+def test_foreign_create_when_feature_disabled_is_409_without_write(monkeypatch):
+    collection = SimpleNamespace(insert_one=AsyncMock())
+    monkeypatch.setattr(expenses, "db", SimpleNamespace(expenses=collection))
+    monkeypatch.setattr(expenses, "_trip_or_404", AsyncMock(return_value=TRIP))
+    monkeypatch.setattr(expenses, "MULTI_CURRENCY_EXPENSES_ENABLED", False)
+    with pytest.raises(HTTPException) as caught:
+        run(expenses.add_expense("t1", ExpenseIn(
+            amount=100, currency="INR", category="Food", date="01-10-26",
+            paid_by_member_id="a", split_member_ids=["a", "b"],
+        ), BackgroundTasks(), user={"id": "u1"}))
+    assert caught.value.status_code == 409
+    assert caught.value.detail["code"] == "multi_currency_disabled"
+    collection.insert_one.assert_not_awaited()
 
 
 def test_description_only_edit_does_not_reconvert_or_change_version(monkeypatch):

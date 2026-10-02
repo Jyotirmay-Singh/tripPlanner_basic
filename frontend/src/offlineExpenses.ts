@@ -6,17 +6,20 @@ import type { StoredOutboxItem } from './offlineStore.shared';
 import { ANDROID_OFFLINE_WRITES_ENABLED, offlineWritesActive } from './offlineActivation';
 import { syncCoordinator } from './syncWorker';
 import { foreignExpenseInput } from './offlineConversion';
+import { capturePendingDisplay } from './pendingDisplay';
 
 export const ANDROID_EXPENSE_CAPTURE_ENABLED = ANDROID_OFFLINE_WRITES_ENABLED;
 
 export type ExpenseCaptureMember = {
   id: string;
+  name?: string;
   kind: string;
   family_members: string[];
   family_member_ids?: string[] | null;
 };
 export type ExpenseCaptureTrip = {
   id: string;
+  name?: string;
   currency: string;
   members: ExpenseCaptureMember[];
 };
@@ -68,7 +71,9 @@ export function makeExpenseOutboxItem(
   };
   const item: PendingExpense = {
     clientMutationId, accountId, tripId: trip.id, operation: 'expense_create',
-    payload, precondition: expectedRoster, queuedAt, state: foreign ? 'needs_review' : 'queued',
+    payload, precondition: { ...expectedRoster,
+      display: capturePendingDisplay(trip, [...relevantIds]) },
+    queuedAt, state: foreign ? 'needs_review' : 'queued',
     attemptCount: 0, nextRetryAt: null,
     lastSafeErrorCode: foreign ? 'conversion_review_needed' : null,
     canonicalResourceId: null, acknowledgedResponse: null,

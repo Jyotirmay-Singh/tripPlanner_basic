@@ -59,7 +59,7 @@ export function chooseTripCardLayout(
   balanceWidth: number,
   fontScale: number,
 ): TripCardLayout {
-  if (fontScale >= 1.5 || cardWidth <= 0 || balanceWidth <= 0) return 'bottom';
+  if (fontScale >= 1.3 || cardWidth <= 0 || balanceWidth <= 0) return 'bottom';
 
   const innerWidth = Math.max(
     0,
@@ -173,9 +173,6 @@ function TripBalanceBlock({
       <T
         variant="money"
         color={amountColor}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.85}
         style={[styles.amount, amountStyle, styles.visibleAmount]}
       >
         {formatMoney(balance.amount, { currency })}
@@ -275,7 +272,7 @@ export default function TripListCard({
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
-      <T variant="h4" numberOfLines={2}>{title}</T>
+      <T variant="h4">{title}</T>
       {subtitle ? (
         <T variant="caption" muted numberOfLines={2} style={styles.subtitle}>{subtitle}</T>
       ) : null}
