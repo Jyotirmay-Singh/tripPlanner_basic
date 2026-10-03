@@ -1,6 +1,6 @@
 /* eslint-disable import/first, @typescript-eslint/no-require-imports */
 import React from 'react';
-import { Text } from 'react-native';
+import { Dimensions, StyleSheet, Text } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 
 jest.mock('../../api', () => ({ api: jest.fn() }));
@@ -23,6 +23,7 @@ jest.mock('../../T', () => {
 jest.mock('../../composition', () => ({ compositionLabel: () => '2 individuals' }));
 jest.mock('../../date', () => ({ formatTripDates: () => 'dates' }));
 jest.mock('../../UnverifiedBanner', () => ({ __esModule: true, default: () => null }));
+jest.mock('../../ConfirmModal', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../TabPageHeader', () => {
   const R = require('react');
   return { __esModule: true, default: (props: any) => R.createElement('TabPageHeader', props) };
@@ -40,8 +41,10 @@ jest.mock('../../ui', () => {
 
 import Dashboard from '../../../app/(tabs)/dashboard';
 import { api } from '../../api';
+import * as dashboardReads from '../../offlineReads';
 
 const apiMock = api as unknown as jest.Mock;
+const renderers: any[] = [];
 
 function configure(rows: { id: string; currency: string; balance: number }[]) {
   const trips = rows.map((row) => ({
@@ -63,6 +66,7 @@ function configure(rows: { id: string; currency: string; balance: number }[]) {
 async function renderDashboard() {
   let renderer: any;
   await act(async () => { renderer = TestRenderer.create(<Dashboard />); });
+  renderers.push(renderer);
   return renderer;
 }
 
@@ -74,7 +78,20 @@ function visibleText(renderer: any): string {
     .join(' ');
 }
 
-beforeEach(() => { apiMock.mockReset(); });
+function setViewport(width = 390, fontScale = 1) {
+  const dimensions = { width, height: 844, scale: 1, fontScale };
+  Dimensions.set({ window: dimensions, screen: dimensions });
+}
+
+beforeEach(() => {
+  apiMock.mockReset();
+  setViewport();
+});
+
+afterEach(() => {
+  act(() => { renderers.splice(0).forEach((renderer) => renderer.unmount()); });
+  jest.restoreAllMocks();
+});
 
 describe('Home Net Position', () => {
   it('does not turn a missing offline copy into zero trips or a zero balance', async () => {
@@ -98,6 +115,7 @@ describe('Home Net Position', () => {
       value: balance,
       currency: 'INR',
       currencyDisplay: 'code',
+      variant: 'moneyLg',
       signed,
     });
     const copy = visibleText(renderer);
@@ -113,19 +131,106 @@ describe('Home Net Position', () => {
     expect(amount.props.value).toBe(1251);
   });
 
-  it('groups unlike currencies instead of adding them and uses mixed-position copy', async () => {
+  it.each([
+    ['GBP', 0],
+    ['GBP', 500],
+    ['USD', -10],
+    ['EUR', 250],
+    ['LKR', 10000],
+  ])('shows only INR when a %s trip has balance %s', async (currency, balance) => {
     configure([
       { id: 'inr', currency: 'INR', balance: 2000 },
-      { id: 'usd', currency: 'USD', balance: -10 },
+      { id: 'foreign', currency, balance },
     ]);
     const renderer = await renderDashboard();
     const amounts = renderer.root.findAll((node: any) => node.type === 'AmountText');
-    expect(amounts.map((node: any) => node.props.value)).toEqual([2000, -10]);
-    expect(amounts.every((node: any) => node.props.currencyDisplay === 'code')).toBe(true);
+    expect(amounts).toHaveLength(1);
+    expect(amounts[0].props).toMatchObject({
+      value: 2000, currency: 'INR', currencyDisplay: 'code', variant: 'moneyLg',
+    });
     const copy = visibleText(renderer);
     expect(copy).toContain('2 trips');
     expect(copy).not.toContain('Balances vary by currency');
   });
+
+  it('totals only INR trips without adding or relabelling foreign balances', async () => {
+    configure([
+      { id: 'inr-owed', currency: 'INR', balance: 1250 },
+      { id: 'inr-owing', currency: 'INR', balance: -800 },
+      { id: 'gbp', currency: 'GBP', balance: 999 },
+    ]);
+    const renderer = await renderDashboard();
+    const amounts = renderer.root.findAll((node: any) => node.type === 'AmountText');
+    expect(amounts).toHaveLength(1);
+    expect(amounts[0].props).toMatchObject({ value: 450, currency: 'INR', signed: true });
+    expect(visibleText(renderer)).toContain('3 trips');
+  });
+
+  it('shows INR zero when there are no trips', async () => {
+    configure([]);
+    const renderer = await renderDashboard();
+    const amount = renderer.root.findAll((node: any) => node.type === 'AmountText')[0];
+    expect(amount.props).toMatchObject({ value: 0, currency: 'INR', signed: false });
+    expect(visibleText(renderer)).toContain('0 trips');
+  });
+
+  it('shows INR zero when the user has only foreign-currency trips', async () => {
+    configure([{ id: 'gbp', currency: 'GBP', balance: 500 }]);
+    const renderer = await renderDashboard();
+    const amounts = renderer.root.findAll((node: any) => node.type === 'AmountText');
+    expect(amounts).toHaveLength(1);
+    expect(amounts[0].props).toMatchObject({ value: 0, currency: 'INR', signed: false });
+    expect(visibleText(renderer)).toContain('1 trip');
+  });
+
+  it('uses the same INR-only summary for a saved offline overview', async () => {
+    jest.spyOn(dashboardReads, 'loadDashboardOverview').mockResolvedValueOnce({
+      data: {
+        trips: [
+          { id: 'inr', name: 'INR trip', currency: 'INR', members: [] },
+          { id: 'gbp', name: 'GBP trip', currency: 'GBP', members: [] },
+        ],
+        balances: {
+          inr: { currency: 'INR', balance: 12241 },
+          gbp: { currency: 'GBP', balance: 0 },
+        },
+      },
+      source: 'cache', fetchedAt: 1,
+    });
+    const renderer = await renderDashboard();
+    const amounts = renderer.root.findAll((node: any) => node.type === 'AmountText');
+    expect(amounts).toHaveLength(1);
+    expect(amounts[0].props).toMatchObject({ value: 12241, currency: 'INR' });
+    expect(renderer.root.findAll((node: any) => node.type === 'Button')
+      .every((node: any) => node.props.disabled)).toBe(true);
+  });
+
+  it.each([
+    [320, 1, 'column'],
+    [360, 1, 'column'],
+    [390, 1, 'row'],
+    [768, 1, 'row'],
+    [1440, 1, 'row'],
+    [390, 1.5, 'column'],
+  ])('keeps the INR card and actions consistent at width %s and font scale %s',
+    async (width, fontScale, direction) => {
+      setViewport(width as number, fontScale as number);
+      configure([
+        { id: 'inr', currency: 'INR', balance: 12241 },
+        { id: 'gbp', currency: 'GBP', balance: 0 },
+      ]);
+      const renderer = await renderDashboard();
+      const actions = renderer.root.findByProps({ testID: 'dash-actions' });
+      expect(StyleSheet.flatten(actions.props.style).flexDirection).toBe(direction);
+      const amounts = renderer.root.findAll((node: any) => node.type === 'AmountText');
+      expect(amounts).toHaveLength(1);
+      expect(amounts[0].props).toMatchObject({
+        value: 12241, currency: 'INR', variant: 'moneyLg',
+      });
+      expect(StyleSheet.flatten(amounts[0].props.style).textAlign).toBe('left');
+      expect(renderer.root.findAll((node: any) => node.type === 'Button')
+        .map((node: any) => node.props.label)).toEqual(['New Trip', 'Join Trip']);
+    });
 
   it('contains no redundant You owe / You\'re owed metric cards', async () => {
     configure([{ id: 't1', currency: 'INR', balance: 0 }]);

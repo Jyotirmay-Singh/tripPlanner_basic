@@ -111,7 +111,7 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
 
 | Tab | Purpose |
 |---|---|
-| 🏠 **Home** | Your two most recently active trips + a live "you owe / you're owed" summary |
+| 🏠 **Home** | Your two most recently active trips + your net position in INR |
 | 💼 **Trips** | All trips you've created or joined, most recently active first |
 | ➕ **Add** | Pick a trip and instantly add a transaction |
 | 📊 **Reports** | One-tap XLSX or PDF download per trip |
@@ -121,10 +121,12 @@ A simple, multi-user mobile app to track trip expenses, split costs fairly betwe
 
 ## 3. Trips
 
-The **Home** tab keeps one **Net position** card for your overall position. When all of your trips
-use the same currency it shows one signed total. If your trips use different currencies, it shows a
-separate total for each currency rather than adding unlike currencies together. Its message changes
-between **You come out ahead**, **You owe overall**, **All settled up**, and a mixed-currency message.
+The **Home** tab keeps one **Net position** card showing your signed total from **INR trips only**.
+A positive amount means you're owed money; a negative amount means you owe money. Trips in other
+currencies are excluded from this total and are not converted to INR. If you have no INR trips,
+the card shows **INR 0**. The total number of trips appears below the balance. The same card is used
+across screen sizes and saved offline views; the New Trip and Join Trip buttons stack on narrow
+screens or when larger text is enabled.
 
 Below that summary, Home shows the first two trips from the server's activity-ordered list. The
 **Trips** tab shows the complete list in the same order. Qualifying activity includes saved expense,

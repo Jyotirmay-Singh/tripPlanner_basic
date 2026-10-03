@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '../../src/AuthContext';
 import { loadDashboardOverview, type DashboardOverview, type ReadResult } from '../../src/offlineReads';
@@ -11,11 +11,7 @@ import { compositionLabel } from '../../src/composition';
 import { formatTripDates } from '../../src/date';
 import UnverifiedBanner from '../../src/UnverifiedBanner';
 import TabPageHeader from '../../src/TabPageHeader';
-import {
-  BALANCE_COPY,
-  groupBalancesByCurrency,
-  type CurrencyBalance,
-} from '../../src/tripBalance';
+import { BALANCE_COPY, groupBalancesByCurrency } from '../../src/tripBalance';
 import {
   TabScreen, Card, Button, ListRow, EmptyState, AmountText, SkeletonCard,
 } from '../../src/ui';
@@ -26,6 +22,7 @@ type Trip = { id: string; name: string; code: string; start_date?: string; end_d
 export default function Dashboard() {
   const { user, sessionMode } = useAuth();
   const { colors } = useTheme();
+  const { width, fontScale } = useWindowDimensions();
   const router = useRouter();
   const [storedRead, setStoredRead] = useState<{
     accountId: string; result: ReadResult<DashboardOverview<Trip>>;
@@ -58,10 +55,12 @@ export default function Dashboard() {
   const read = storedRead && storedRead.accountId === user?.id ? storedRead.result : null;
   const trips = read?.data?.trips ?? [];
   const rows = read?.data?.balances ? Object.values(read.data.balances) : null;
-  const currencyBalances: CurrencyBalance[] = rows ? groupBalancesByCurrency(rows) : [];
+  const inrBalance = groupBalancesByCurrency(rows ?? [])
+    .find((balance) => balance.currency === 'INR')?.value ?? 0;
   const balancesAvailable = rows !== null;
   const tripCount = `${trips.length} trip${trips.length === 1 ? '' : 's'}`;
   const offlineView = sessionMode === 'offline' || read?.source === 'cache';
+  const stackActions = width <= 360 || fontScale >= 1.3;
 
   return (
     <TabScreen refreshing={refreshing} onRefresh={load}>
@@ -74,47 +73,34 @@ export default function Dashboard() {
         <T variant="label" color={colors.primaryText} style={{ opacity: 0.85 }}>Net position</T>
         {!loaded ? (
           <T variant="h3" color={colors.primaryText} style={styles.balanceMessage}>
-            Loading balances…
+            Loading balance…
           </T>
         ) : !balancesAvailable ? (
           <T variant="h3" color={colors.primaryText} style={styles.balanceMessage}>
             {BALANCE_COPY.unavailable}
           </T>
-        ) : currencyBalances.length <= 1 ? (
+        ) : (
           <AmountText
-            value={currencyBalances[0]?.value ?? 0}
-            currency={currencyBalances[0]?.currency}
+            value={inrBalance}
+            currency="INR"
             currencyDisplay="code"
             variant="moneyLg"
-            signed={(currencyBalances[0]?.units ?? 0) > 0}
+            signed={inrBalance > 0}
             color={colors.primaryText}
             style={styles.balanceAmount}
+            testID="dash-net-balance"
           />
-        ) : (
-          <View style={styles.currencyBalances}>
-            {currencyBalances.map((balance) => (
-              <View key={balance.currency} style={styles.currencyBalanceRow}>
-                <AmountText
-                  value={balance.value}
-                  currency={balance.currency}
-                  currencyDisplay="code"
-                  signed={balance.units > 0}
-                  color={colors.primaryText}
-                />
-              </View>
-            ))}
-          </View>
         )}
         <T color={colors.primaryText} style={styles.balanceSubtitle}>
           {read?.data ? tripCount : loaded ? 'Trip count unavailable' : 'Loading trips…'}
         </T>
       </Card>
 
-      <View style={styles.actions}>
-        <View style={styles.actionButton}>
+      <View style={[styles.actions, stackActions && styles.actionsStacked]} testID="dash-actions">
+        <View style={stackActions ? styles.fullWidthAction : styles.actionButton}>
           <Button label="New Trip" icon="plus" onPress={() => router.push('/create-trip')} disabled={offlineView} fullWidth testID="dash-new-trip" />
         </View>
-        <View style={styles.actionButton}>
+        <View style={stackActions ? styles.fullWidthAction : styles.actionButton}>
           <Button label="Join Trip" icon="users" variant="secondary" onPress={() => router.push('/join-trip')} disabled={offlineView} fullWidth testID="dash-join-trip" />
         </View>
       </View>
@@ -156,16 +142,11 @@ export default function Dashboard() {
 }
 
 const styles = StyleSheet.create({
-  balanceAmount: { marginTop: SPACING.xs, textAlign: 'left' },
+  balanceAmount: { marginTop: SPACING.xs, width: '100%', minWidth: 0, textAlign: 'left' },
   balanceMessage: { marginTop: SPACING.sm },
   balanceSubtitle: { opacity: 0.8, marginTop: SPACING.xs },
-  currencyBalances: { marginTop: SPACING.sm, gap: SPACING.xs },
-  currencyBalanceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: SPACING.md,
-  },
   actions: { flexDirection: 'row', gap: SPACING.sm },
-  actionButton: { flex: 1 },
+  actionsStacked: { flexDirection: 'column' },
+  actionButton: { flex: 1, minWidth: 0 },
+  fullWidthAction: { width: '100%' },
 });
