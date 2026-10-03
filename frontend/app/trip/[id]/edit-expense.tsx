@@ -1,17 +1,18 @@
+import { isCategoryName } from '../../../src/categories';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View, TouchableOpacity, StyleSheet, ScrollView,
+  View, TouchableOpacity, StyleSheet,
   Image, Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import {
-  api, uploadReceipt, deleteReceipt, receiptUrl, getToken, getExpense,
+  api, readExpenses, uploadReceipt, deleteReceipt, receiptUrl, getToken, getExpense,
 } from '../../../src/api';
 import type { ExchangeRateMode, ExchangeRateQuote, ManualExchangeInput } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
-import { SPACING, RADIUS, FONTS, CATEGORIES, CONTENT_MAX_WIDTH } from '../../../src/theme';
+import { SPACING, RADIUS, FONTS, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
 import SplitModeSelector, { SplitMode, splitPreviewLabel } from '../../../src/SplitModeSelector';
 import ExactSplitEditor from '../../../src/ExactSplitEditor';
@@ -34,7 +35,7 @@ import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { ddmmyyToDDMMYYYY, ddmmyyyyToDDMMYY, toISO } from '../../../src/date';
 import {
-  FormScreen, Screen, Card, Button, Input, Pill, Icon, ActionSheet, SkeletonCard, useToast,
+  FormScreen, Screen, Card, Button, Input, CategoryPicker, Icon, ActionSheet, SkeletonCard, useToast,
   CurrencyPicker, DateField, TimeField, ExchangeRatePanel,
 } from '../../../src/ui';
 import type { ApprovedConversion, LockedConversion } from '../../../src/ui';
@@ -151,11 +152,11 @@ export default function EditExpense() {
       const [t, e, exps] = await Promise.all([
         api<Trip>(`/trips/${id}`),
         getExpense<Expense>(id, eid),
-        api<Expense[]>(`/trips/${id}/expenses`),
+        readExpenses<Expense>(id),
       ]);
       setTrip(t);
       setLoadedExpense(e);
-      setTripNetSpendExcl(exps.filter((x) => x.id !== eid).reduce((s, x) => s + x.amount, 0));
+      setTripNetSpendExcl(exps.items.filter((x) => x.id !== eid).reduce((s, x) => s + x.amount, 0));
       setCreatedBy(e.created_by ?? null);
       const sourceAmount = e.original_amount ?? e.amount;
       const sourceCurrency = e.original_currency || e.currency || t.currency || 'INR';
@@ -229,6 +230,7 @@ export default function EditExpense() {
   };
 
   const save = async (force = false) => {
+    if (!isCategoryName(cat)) { showToast('Choose an approved category before saving.', 'error'); return; }
     if (!trip || !paidBy || !loadedExpense) return;
     const isForeign = expenseCurrency !== trip.currency;
     const precisionIssue = currencyPrecisionIssue(amount, expenseCurrency);
@@ -537,13 +539,7 @@ export default function EditExpense() {
 
             <View>
               <T variant="label" muted>Category *</T>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: SPACING.xs }}>
-                <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
-                  {CATEGORIES.map((c) => (
-                    <Pill key={c} label={c} active={cat === c} onPress={() => setCat(c)} />
-                  ))}
-                </View>
-              </ScrollView>
+              <CategoryPicker disabled={!canModify} value={cat} onChange={setCat} testID="ee-category" />
             </View>
 
             {/* Date (calendar picker) + optional time, side by side */}

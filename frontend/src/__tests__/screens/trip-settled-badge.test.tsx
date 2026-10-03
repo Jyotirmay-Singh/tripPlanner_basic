@@ -15,6 +15,8 @@ const mockRouterPush = jest.fn();
 
 // --- contexts / router / native shells ---
 jest.mock('../../api', () => ({
+  readExpenses: jest.fn(async (id: string) => ({ items: await require('../../api').api(`/trips/${id}/expenses`), complete: true })),
+
   api: jest.fn(), getToken: jest.fn(), receiptUrl: jest.fn(() => 'receipt://x'),
   spendSummary: jest.fn(() => Promise.resolve({ total: 0, count: 0, entities: [] })),
 }));

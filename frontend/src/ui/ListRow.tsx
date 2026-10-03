@@ -8,6 +8,7 @@ import Icon, { IconName } from './Icon';
 
 type Props = {
   title: string;
+  wrapText?: boolean;
   subtitle?: string;
   meta?: string;
   /** leading round icon badge */
@@ -25,7 +26,7 @@ type Props = {
 /** The canonical tappable list item: optional leading icon badge, title + subtitle/meta,
  *  and a right slot. Replaces the ad-hoc "icon + content + chevron" rows across screens. */
 export default function ListRow({
-  title, subtitle, meta, icon, iconColor, iconBg, right, onPress, showChevron, testID, accessibilityLabel,
+  title, subtitle, meta, icon, iconColor, iconBg, right, onPress, showChevron, testID, accessibilityLabel, wrapText = false,
 }: Props) {
   const { colors } = useTheme();
   return (
@@ -36,9 +37,9 @@ export default function ListRow({
         </View>
       ) : null}
       <View style={{ flex: 1, minWidth: 0 }}>
-        <T variant="h4" numberOfLines={1}>{title}</T>
-        {subtitle ? <T variant="caption" muted numberOfLines={1} style={{ marginTop: 2 }}>{subtitle}</T> : null}
-        {meta ? <T variant="caption" muted numberOfLines={1} style={{ marginTop: 1 }}>{meta}</T> : null}
+        <T variant="h4" numberOfLines={wrapText ? undefined : 1}>{title}</T>
+        {subtitle ? <T variant="caption" muted numberOfLines={wrapText ? undefined : 1} style={{ marginTop: 2 }}>{subtitle}</T> : null}
+        {meta ? <T variant="caption" muted numberOfLines={wrapText ? undefined : 1} style={{ marginTop: 1 }}>{meta}</T> : null}
       </View>
       {right ?? (onPress && showChevron !== false ? <Icon name="chevron-right" size={20} color={colors.textMuted} /> : null)}
     </Card>

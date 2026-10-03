@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends, Response
 from pymongo.errors import DuplicateKeyError
 
 from config import CATEGORIES, MULTI_CURRENCY_EXPENSES_ENABLED
@@ -413,7 +413,7 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
 
 
 @router.get("/trips/{trip_id}/expenses")
-async def list_expenses(trip_id: str, user=Depends(get_current_user)):
+async def list_expenses(trip_id: str, response: Response, user=Depends(get_current_user)):
     trip = await _trip_or_404(trip_id, user)
     # Step 22: never return the heavy receipt bytes in the list. Expose a lightweight
     # `has_receipt` flag (true for a GridFS receipt_id OR a legacy inline blob) so the client
@@ -427,7 +427,7 @@ async def list_expenses(trip_id: str, user=Depends(get_current_user)):
         ]}}},
         {"$project": {"_id": 0, "receipt_base64": 0, "conversion_history": 0}},
     ])
-    expenses = await cur.to_list(1000)
+    expenses = await cur.to_list(None)
     for e in expenses:
         e["currency"] = e.get("currency") or trip.get("currency", "INR")
         e["split_mode"] = e.get("split_mode", "PER_CAPITA")
@@ -436,6 +436,7 @@ async def list_expenses(trip_id: str, user=Depends(get_current_user)):
         # calculator the ledger uses (services.expense_shares). Read-time only — never persisted,
         # never feeds balances/settle-up. No existing field is removed or changed.
         e["shares"] = expense_share_breakdown(e, trip["members"])
+    response.headers["X-Expense-List-Complete"] = "true"
     return serialize_bson(expenses)
 
 

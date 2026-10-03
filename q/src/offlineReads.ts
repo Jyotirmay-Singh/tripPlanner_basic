@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { ApiError, api } from './api';
+import { ApiError, api, readExpenses } from './api';
 import { offlineStore } from './offlineStore';
 import type { Snapshot, TripReadBundle } from './offlineStore.shared';
 import { resolveUserTripBalance, type TripBalancePayload } from './tripBalance';
@@ -21,6 +21,7 @@ export type DashboardOverview<TTrip> = {
 export type CompleteTrip<TTrip, TExpense, TBalances, TSpend, TPayment> = {
   trip: TTrip;
   expenses: TExpense[];
+  expensesComplete?: boolean;
   balances: TBalances;
   spend: TSpend;
   payments: TPayment[];
@@ -111,6 +112,20 @@ function isApiError(error: unknown): error is ApiError {
   return isObject(error) && typeof error.code === 'string';
 }
 
+export function normalizeExpenseSnapshot<T>(payload: unknown): { items: T[]; complete: boolean } {
+  if (Array.isArray(payload)) return { items: payload as T[], complete: false };
+  if (isObject(payload) && payload.version === 2 && Array.isArray(payload.items)) {
+    return { items: payload.items as T[], complete: payload.complete === true };
+  }
+  throw new Error('Invalid saved expense list');
+}
+
+function normalizeBundle(payload: unknown): unknown {
+  if (!isObject(payload) || !('expenses' in payload)) return payload;
+  const expenses = normalizeExpenseSnapshot(payload.expenses);
+  return { ...payload, expenses: expenses.items, expensesComplete: expenses.complete };
+}
+
 async function cached<T>(
   read: () => Promise<Snapshot | null>,
   error: unknown,
@@ -121,7 +136,7 @@ async function cached<T>(
   }
   try {
     const snapshot = await read();
-    if (snapshot) return { data: snapshot.payload as T, source: 'cache', fetchedAt: snapshot.fetchedAt };
+    if (snapshot) return { data: normalizeBundle(snapshot.payload) as T, source: 'cache', fetchedAt: snapshot.fetchedAt };
   } catch {
     return { data: null, source: 'unavailable', fetchedAt: null,
       error: 'Saved data could not be read on this device.', cacheError: true };
@@ -286,7 +301,7 @@ export async function loadTripReadBundle<TTrip, TExpense, TBalances, TSpend, TPa
     `/trips/${tripId}/spend-summary`,
     `/trips/${tripId}/payments`,
   ];
-  const results = await Promise.allSettled(paths.map((path) => request<unknown>(path)));
+  const results = await Promise.allSettled(paths.map((path, index) => index === 1 ? readExpenses(tripId) : request<unknown>(path)));
   const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
     .map((result) => result.reason);
   const accessFailure = failures.find((error) => isApiError(error) && error.status === 401)
@@ -303,15 +318,22 @@ export async function loadTripReadBundle<TTrip, TExpense, TBalances, TSpend, TPa
   }
   try {
     const values = results.map((result) => (result as PromiseFulfilledResult<unknown>).value);
-    const rawBundle: TripReadBundle = {
-      trip: values[0], expenses: values[1], balances: values[2],
+    const expenseRead = values[1] as { items: unknown[]; complete: boolean };
+    if (!Array.isArray(expenseRead.items)) throw new Error('Invalid expense list');
+    if (!expenseRead.complete) {
+      const previous = await cached<CompleteTrip<TTrip, TExpense, TBalances, TSpend, TPayment>>(
+        () => offlineStore.getTripReadBundle(accountId, tripId), { code: 'network' });
+      if (previous.data?.expensesComplete) return previous;
+    }
+    const rawBundle = {
+      trip: values[0], expenses: expenseRead.items, expensesComplete: expenseRead.complete, balances: values[2],
       spend: values[3], payments: values[4],
     };
     const fetchedAt = Date.now();
-    const saved = await save(() => offlineStore.putTripReadBundle(accountId, tripId, {
+    const saved = !expenseRead.complete || await save(() => offlineStore.putTripReadBundle(accountId, tripId, {
       payload: {
         trip: sanitizeTrip(values[0]),
-        expenses: sanitizeArray(values[1], expenseFields),
+        expenses: { version: 2, complete: true, items: sanitizeArray(expenseRead.items, expenseFields) },
         balances: sanitizeBalances(values[2]),
         spend: sanitizeSpend(values[3]),
         payments: sanitizeArray(values[4], paymentFields),

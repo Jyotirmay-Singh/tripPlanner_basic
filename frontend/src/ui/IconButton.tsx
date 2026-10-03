@@ -18,13 +18,14 @@ type Props = {
   disabled?: boolean;
   style?: StyleProp<ViewStyle>;
   touchSize?: number;
+  reducedMotion?: boolean;
 };
 
 const HIT = 44; // min touch target
 
 export default function IconButton({
   name, onPress, accessibilityLabel, variant = 'plain', size = 22, color,
-  testID, disabled, style, touchSize = HIT,
+  testID, disabled, style, touchSize = HIT, reducedMotion = false,
 }: Props) {
   const { colors } = useTheme();
   const scale = useRef(new Animated.Value(1)).current;
@@ -37,7 +38,7 @@ export default function IconButton({
     color ?? (variant === 'primary' ? colors.primaryText : variant === 'danger' ? colors.danger : colors.textMain);
 
   const animate = (to: number) =>
-    Animated.spring(scale, { toValue: to, useNativeDriver: Platform.OS !== 'web', speed: 50, bounciness: 0 }).start();
+    reducedMotion ? scale.setValue(1) : Animated.spring(scale, { toValue: to, useNativeDriver: Platform.OS !== 'web', speed: 50, bounciness: 0 }).start();
 
   return (
     <Animated.View style={{ transform: [{ scale }] }}>

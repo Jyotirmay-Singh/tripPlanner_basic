@@ -1,3 +1,4 @@
+import CategoryBadge from '../../../src/ui/CategoryBadge';
 import React, { useCallback, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -159,7 +160,8 @@ export default function PendingExpenseDetail() {
               {pendingStatusLabel(item)}
             </T>
             <T>{formatMoney(amount, { currency, currencyDisplay: 'code' })}</T>
-            <T variant="caption" muted>{String(payload.date)} · {String(payload.category)}</T>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><CategoryBadge name={String(payload.category)} /><T style={{ flex: 1 }}>{String(payload.category)}</T></View>
+            <T variant="caption" muted>{String(payload.date)}</T>
             <T variant="caption" muted>Paid by {names[payload.paid_by_member_id] || payload.paid_by_member_id}</T>
             <T variant="caption" muted>Split: {String(payload.split_mode).replace('_', ' ').toLowerCase()}</T>
             <T variant="caption" muted>

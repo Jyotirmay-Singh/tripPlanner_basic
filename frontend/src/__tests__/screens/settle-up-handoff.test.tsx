@@ -30,6 +30,8 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 jest.mock('../../api', () => ({
+  readExpenses: jest.fn(async (id: string) => ({ items: await require('../../api').api(`/trips/${id}/expenses`), complete: true })),
+
   api: (...args: unknown[]) => mockApi(...args),
   listPayments: (...args: unknown[]) => mockListPayments(...args),
   listPaymentAttempts: (...args: unknown[]) => mockListAttempts(...args),

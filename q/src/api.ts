@@ -173,6 +173,7 @@ export class ApiError extends Error {
 }
 
 type ApiOptions = {
+  onResponse?: (response: Response) => void;
   method?: string;
   body?: any;
   auth?: boolean;
@@ -281,6 +282,7 @@ export async function api<T = any>(
       retryAfterMs: res.status === 429 ? retryAfterMs(res.headers.get('Retry-After')) : undefined,
     });
   }
+  opts.onResponse?.(res);
   return data as T;
 }
 
@@ -696,4 +698,16 @@ export function clearChatHistory(tripId: string): Promise<{ ok: boolean; cleared
 export function chatSocketUrl(tripId: string): string {
   const websocketBase = backendBase().replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:');
   return `${websocketBase}/api/trips/${encodeURIComponent(tripId)}/chat/ws`;
+}
+
+
+/** Expense bodies remain arrays; only the explicit server marker establishes completeness. */
+export async function readExpenses<T = any>(tripId: string): Promise<{ items: T[]; complete: boolean }> {
+  let complete = false;
+  const items = await api<T[]>(`/trips/${tripId}/expenses`, {
+    timeoutMs: 10_000,
+    onResponse: (response) => { complete = response.headers.get('X-Expense-List-Complete') === 'true'; },
+  });
+  if (!Array.isArray(items)) throw new Error('Invalid expense list response');
+  return { items, complete };
 }

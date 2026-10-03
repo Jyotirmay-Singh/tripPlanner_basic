@@ -50,8 +50,10 @@ function arcPath(cx: number, cy: number, rOuter: number, rInner: number, startDe
 
 export default function DonutChart({
   data, size = 220, thickness = 36, currency, centerLabel, centerValue,
-  centerAccessibilityLabel, onSlicePress,
+  centerAccessibilityLabel, onSlicePress, renderLegendMark, percentDigits = 0,
 }: {
+  renderLegendMark?: (slice: DonutSlice) => React.ReactNode;
+  percentDigits?: number;
   data: DonutSlice[];
   size?: number;
   thickness?: number;
@@ -71,10 +73,10 @@ export default function DonutChart({
   const innerDiameter = rInner * 2;
   useEffect(() => setMeasuredCenterWidth(null), [centerValue, fontScale, innerDiameter]);
   const estimatedCenterWidth = (centerValue?.length ?? 0) * 13 * fontScale;
-  const centerFits = !centerValue || donutCenterValueFits(
+  const centerFits = fontScale < 1.3 && (!centerValue || donutCenterValueFits(
     measuredCenterWidth ?? estimatedCenterWidth,
     innerDiameter,
-  );
+  ));
   const recordCenterWidth = (event: LayoutChangeEvent) => {
     const width = event.nativeEvent.layout.width;
     setMeasuredCenterWidth((current) => current === width ? current : width);
@@ -155,7 +157,7 @@ export default function DonutChart({
           accessibilityLabel={centerAccessibilityLabel}
           testID="donut-total-line"
         >
-          <T variant="label" muted importantForAccessibility="no">TOTAL</T>
+          <T variant="label" muted importantForAccessibility="no">{centerLabel || 'Total'}</T>
           <T variant="money" style={styles.totalValue} importantForAccessibility="no">
             {centerValue}
           </T>
@@ -199,12 +201,12 @@ export default function DonutChart({
               onPress={() => onSlicePress?.(d)}
               style={styles.legendRow}
               testID={`donut-legend-${d.key}`}
-              accessibilityRole="button"
+              accessibilityRole={onSlicePress ? "button" : "text"}
               accessibilityLabel={`Show ${d.label} transactions, ${formatAccessibleMoney(d.value, { currency })}`}
             >
-              <View style={[styles.dot, { backgroundColor: d.color }]} />
-              <T variant="caption" style={{ flex: 1 }} numberOfLines={1}>{d.label}</T>
-              <T variant="caption" muted>{pct.toFixed(0)}%</T>
+              {renderLegendMark ? renderLegendMark(d) : <View style={[styles.dot, { backgroundColor: d.color }]} />}
+              <T variant="caption" style={{ flex: 1, minWidth: 0 }}>{d.label}</T>
+              <T variant="caption" muted>{pct.toFixed(percentDigits)}%</T>
               <ResponsiveAmountText
                 value={d.value}
                 currency={currency}
@@ -239,7 +241,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: 8,
-    minHeight: 44,
+    minHeight: 48,
     paddingVertical: 8,
   },
   legendValue: { textAlign: 'right' },

@@ -485,3 +485,26 @@ it('never sends one account’s row with another account’s token', async () =>
   expect(f.rows.get(expenseId)?.state).not.toBe('synced');
   f.coordinator.setAccount(null);
 });
+
+it.each(['Food', 'Travel', 'Shipping & Delivery', 'Historical category'])('replays the frozen %s category after a lost response with one canonical expense and durable acknowledgement', async (category) => {
+  const row = expense(); row.payload = { ...(row.payload as Record<string, unknown>), category, description: 'Frozen intent', amount: -12 };
+  const payload = JSON.parse(JSON.stringify(row.payload));
+  const f = fixture([JSON.parse(JSON.stringify(row))]);
+  f.post.mockImplementationOnce(async (path, opts) => {
+    const id = opts.body!.client_mutation_id;
+    f.serverExpenses.set(id, { id: `server-${id}`, tripId: path.split('/')[2] });
+    throw new ApiError('Lost response', { code: 'timeout' });
+  });
+  f.coordinator.setAccount('account-a'); await f.coordinator.waitForIdle();
+  expect(f.rows.get(expenseId)?.payload).toEqual(payload);
+  f.coordinator.setAccount(null); f.setToken(token('account-b')); f.coordinator.setAccount('account-b');
+  await f.coordinator.waitForIdle(); expect(f.post).toHaveBeenCalledTimes(1);
+  f.setToken(token('account-a')); f.coordinator.setAccount('account-a');
+  await f.coordinator.retry('account-a', expenseId); await f.coordinator.waitForIdle();
+  expect(f.post.mock.calls.map((c) => c[1].body)).toEqual([payload, payload]);
+  expect(f.serverExpenses.size).toBe(1);
+  expect(f.rows.get(expenseId)).toMatchObject({ clientMutationId: expenseId, state: 'synced', payload,
+    canonicalResourceId: `server-${expenseId}`, acknowledgedResponse: { expense: { id: `server-${expenseId}`, tripId: 'trip-a' } } });
+  expect(f.quote).not.toHaveBeenCalled();
+  f.coordinator.setAccount(null);
+});

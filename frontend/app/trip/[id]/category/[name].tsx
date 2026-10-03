@@ -1,7 +1,9 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import { categoryIcon, categoryAccent, categoryBadgeColor } from '../../../../src/categories';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { api } from '../../../../src/api';
+import { api, readExpenses } from '../../../../src/api';
+import { useAuth } from '../../../../src/AuthContext';
 import { useTheme } from '../../../../src/ThemeContext';
 import { RADIUS, SPACING } from '../../../../src/theme';
 import { formatMoney, pluralize } from '../../../../src/format';
@@ -36,36 +38,62 @@ function payerRowDetail(paid: number, expenseCount: number, grossPaid: number): 
 export default function CategoryDetail() {
   const { id, name } = useLocalSearchParams<{ id: string; name: string }>();
   const decoded = decodeCategoryParam(name);
-  const { colors } = useTheme();
+  const { colors, mode } = useTheme();
   const router = useRouter();
-  const toast = useToast();
-  const [trip, setTrip] = useState<Trip | null>(null);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const { show: showToast } = useToast();
+  const { user } = useAuth();
+  const loadGeneration = useRef(0);
+  const [readScope, setReadScope] = useState<{ accountId: string; tripId: string } | null>(null);
+  const [dataScope, setDataScope] = useState<{ accountId: string; tripId: string } | null>(null);
+  const [storedTrip, setTrip] = useState<Trip | null>(null);
+  const [storedExpenses, setExpenses] = useState<Expense[]>([]);
+  const [storedComplete, setComplete] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [storedLoaded, setLoaded] = useState(false);
+  const [storedLoadError, setLoadError] = useState<string | null>(null);
+
+  const scopeMatches = readScope?.accountId === user?.id && readScope?.tripId === id;
+  // A completed request cannot assign an earlier successful payload to a new scope.
+  const dataScopeMatches = dataScope?.accountId === user?.id && dataScope?.tripId === id;
+  const trip = dataScopeMatches ? storedTrip : null;
+  const expenses = useMemo(() => dataScopeMatches ? storedExpenses : [], [dataScopeMatches, storedExpenses]);
+  const complete = dataScopeMatches && storedComplete;
+  const loaded = scopeMatches && storedLoaded && (!refreshing || dataScopeMatches);
+  const loadError = scopeMatches ? storedLoadError : null;
 
   const load = useCallback(async () => {
+    if (!id || !user?.id) return;
+    const generation = ++loadGeneration.current;
     setRefreshing(true);
     setLoadError(null);
     try {
       const [nextTrip, nextExpenses] = await Promise.all([
         api<Trip>(`/trips/${id}`),
-        api<Expense[]>(`/trips/${id}/expenses`),
+        readExpenses<Expense>(id as string),
       ]);
+      if (generation !== loadGeneration.current) return;
+      setDataScope({ accountId: user.id, tripId: id as string });
       setTrip(nextTrip);
-      setExpenses(nextExpenses);
+      setExpenses(nextExpenses.items);
+      setComplete(nextExpenses.complete);
     } catch (err: any) {
+      if (generation !== loadGeneration.current) return;
       const message = err.message || 'Could not load this category';
       setLoadError(message);
-      toast.show(message, 'error');
+      showToast(message, 'error');
     } finally {
-      setRefreshing(false);
-      setLoaded(true);
+      if (generation === loadGeneration.current) {
+        setReadScope({ accountId: user.id, tripId: id as string });
+        setRefreshing(false);
+        setLoaded(true);
+      }
     }
-  }, [id, toast]);
+  }, [id, user?.id, showToast]);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    void load();
+    return () => { loadGeneration.current += 1; };
+  }, [load]));
 
   const displayNames = useMemo(() => memberDisplayNames(trip?.members), [trip?.members]);
   const memberById = (memberId: string) => displayNames[memberId] || 'Unknown payer';
@@ -78,6 +106,8 @@ export default function CategoryDetail() {
 
   return (
     <Screen edges={['left', 'right', 'bottom']} refreshing={refreshing} onRefresh={load} testID="category-detail-screen">
+      <T variant="h3">{decoded}</T>
+      {!complete && loaded ? <T muted>Category totals need a complete refresh</T> : null}
       <Stack.Screen options={{ title: decoded || 'Category' }} />
       {!loaded ? (
         <SkeletonCard count={4} />
@@ -95,7 +125,7 @@ export default function CategoryDetail() {
         <EmptyState icon="tag" title="Nothing here yet" body={`No transactions filed under ${decoded}.`} testID="category-empty" />
       ) : (
         <>
-          <Card testID="category-summary" variant="primary" padding="lg" radius={RADIUS.xl}>
+          {complete ? <Card testID="category-summary" variant="primary" padding="lg" radius={RADIUS.xl}>
             <T variant="label" color={colors.primaryText} style={{ opacity: 0.85 }}>Net spend</T>
             <AmountText
               value={breakdown.net}
@@ -122,9 +152,9 @@ export default function CategoryDetail() {
                 </T>
               </View>
             </View>
-          </Card>
+          </Card> : null}
 
-          <Card testID="category-payer-breakdown">
+          {complete ? <Card testID="category-payer-breakdown">
             <SpendBarChart
               summary={breakdown.payerSummary}
               displayNames={displayNames}
@@ -134,7 +164,7 @@ export default function CategoryDetail() {
               emptyMessage="No positive spending to rank in this category."
               rowDetail={(payer, grossPaid) => payerRowDetail(payer.paid, payer.expense_count, grossPaid)}
             />
-          </Card>
+          </Card> : null}
 
           <View style={styles.transactionHeading}>
             <T variant="label">Transactions</T>
@@ -142,6 +172,10 @@ export default function CategoryDetail() {
           </View>
           {breakdown.transactions.map((expense) => (
             <ListRow
+              wrapText
+              icon={categoryIcon(expense.category)}
+              iconColor={categoryAccent(expense.category, mode)}
+              iconBg={categoryBadgeColor(expense.category, mode, colors.surface)}
               key={expense.id}
               testID={`category-transaction-${expense.id}`}
               title={expense.description || decoded}

@@ -1,7 +1,8 @@
+import { categoryIcon, categoryAccent, categoryBadgeColor } from '../../../../src/categories';
 import React, { useCallback, useState } from 'react';
 import { View } from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { api } from '../../../../src/api';
+import { api, readExpenses } from '../../../../src/api';
 import { useTheme } from '../../../../src/ThemeContext';
 import { RADIUS } from '../../../../src/theme';
 import { pluralize, formatMoney } from '../../../../src/format';
@@ -22,11 +23,12 @@ type Trip = { id: string; name: string; currency: string; members: Member[] };
 // entity's gross-spend bar; each row's "their share" caption is DISPLAY-only and never summed.
 export default function MemberSpendDetail() {
   const { id, mid } = useLocalSearchParams<{ id: string; mid: string }>();
-  const { colors } = useTheme();
+  const { colors, mode } = useTheme();
   const router = useRouter();
   const toast = useToast();
   const [trip, setTrip] = useState<Trip | null>(null);
   const [expenses, setExpenses] = useState<MemberSpendExpense[]>([]);
+  const [complete, setComplete] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -35,9 +37,9 @@ export default function MemberSpendDetail() {
     try {
       const [t, e] = await Promise.all([
         api<Trip>(`/trips/${id}`),
-        api<MemberSpendExpense[]>(`/trips/${id}/expenses`),
+        readExpenses<MemberSpendExpense>(id as string),
       ]);
-      setTrip(t); setExpenses(e);
+      setTrip(t); setExpenses(e.items); setComplete(e.complete);
     } catch (err: any) { toast.show(err.message || 'Could not load', 'error'); }
     setRefreshing(false);
     setLoaded(true);
@@ -56,8 +58,10 @@ export default function MemberSpendDetail() {
 
   return (
     <Screen edges={['left', 'right', 'bottom']} refreshing={refreshing} onRefresh={load}>
+      <T variant="h3">{'Spending details'}</T>
+      {!complete && loaded ? <T muted>Category totals need a complete refresh</T> : null}
       <Stack.Screen options={{ title: 'Spending details' }} />
-      <Card variant="primary" padding="lg" radius={RADIUS.xl}>
+      {complete ? <Card variant="primary" padding="lg" radius={RADIUS.xl}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Icon name={isFamily ? 'users' : 'user'} size={16} color={colors.primaryText} />
           <T variant="label" color={colors.primaryText} style={{ opacity: 0.85 }}>
@@ -68,7 +72,7 @@ export default function MemberSpendDetail() {
         <T color={colors.primaryText} style={{ opacity: 0.8, marginTop: 4 }}>
           {pluralize(ordered.length, 'transaction')}
         </T>
-      </Card>
+      </Card> : null}
 
       {!loaded ? (
         <SkeletonCard count={3} />
@@ -82,6 +86,10 @@ export default function MemberSpendDetail() {
       ) : (
         ordered.map((r) => (
           <ListRow
+              wrapText
+              icon={categoryIcon(r.category)}
+              iconColor={categoryAccent(r.category, mode)}
+              iconBg={categoryBadgeColor(r.category, mode, colors.surface)}
             key={r.id}
             title={r.description || r.category}
             subtitle={`${r.date}${r.time ? ` · ${formatTime12h(r.time)}` : ''} · ${r.category} · ${r.split_mode === 'PER_FAMILY' ? 'Per family' : 'Per person'}${r.original_currency && r.original_currency !== trip?.currency && r.original_amount != null ? ` · originally ${formatMoney(Number(r.original_amount), { currency: r.original_currency })}` : ''}`}

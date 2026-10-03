@@ -1,10 +1,13 @@
 /* eslint-disable import/first */
 import { Platform } from 'react-native';
 
-jest.mock('../api', () => ({
-  api: jest.fn(),
-  ApiError: class ApiError extends Error {},
-}));
+jest.mock('../api', () => {
+  const api = jest.fn();
+  return { api,
+    readExpenses: jest.fn(async (id: string) => ({ items: await api(`/trips/${id}/expenses`), complete: true })),
+    ApiError: class ApiError extends Error {},
+  };
+});
 jest.mock('../offlineStore', () => ({
   offlineStore: {
     getAccountReadSnapshot: jest.fn(), putAccountReadSnapshot: jest.fn(),
@@ -13,7 +16,7 @@ jest.mock('../offlineStore', () => ({
   },
 }));
 
-import { api } from '../api';
+import { api, readExpenses } from '../api';
 import { offlineStore } from '../offlineStore';
 import { loadDashboardOverview, loadTripList, loadTripReadBundle } from '../offlineReads';
 import type { Snapshot } from '../offlineStore.shared';
@@ -89,7 +92,7 @@ it('restores a complete trip after a simulated cold restart and keeps private fi
   const persisted = snapshots.get(key('user-1', 'trip-1'))!;
   expect(persisted.payload).toMatchObject({
     trip: { name: 'Coast', members: [{ name: 'Ada' }] },
-    expenses: [{ amount: 250 }], balances: { net: { 'member-1': 250 } },
+    expenses: { version: 2, complete: true, items: [{ amount: 250 }] }, balances: { net: { 'member-1': 250 } },
     spend: { total: 250 }, payments: [{ amount: 100, note: 'Cash' }],
   });
   expect(JSON.stringify(persisted.payload)).not.toMatch(/private@example|9999999999|private@upi|do-not-cache/);
@@ -185,4 +188,64 @@ it('keeps web online-only even if an Android snapshot exists', async () => {
   const result = await loadTripReadBundle('user-1', 'trip-1');
   expect(result.data).toBeNull();
   expect(store.getTripReadBundle).not.toHaveBeenCalled();
+});
+
+
+it('preserves legacy expense arrays and marks their totals unverified', async () => {
+  snapshots.set(key('user-1', 'trip-1'), { payload: { trip, expenses, balances, spend, payments }, fetchedAt: 12 });
+  const result = await loadTripReadBundle('user-1', 'trip-1', true);
+  expect(result.data?.expenses).toEqual(expenses);
+  expect(result.data?.expensesComplete).toBe(false);
+  expect(store.putTripReadBundle).not.toHaveBeenCalled();
+});
+
+it('retains a complete bundle when a refreshed list lacks the completeness marker', async () => {
+  online();
+  await loadTripReadBundle('user-1', 'trip-1');
+  (readExpenses as jest.Mock).mockResolvedValueOnce({ items: [{ ...expenses[0], amount: 900 }], complete: false });
+  const result = await loadTripReadBundle('user-1', 'trip-1');
+  expect(result.source).toBe('cache');
+  expect(result.data?.expensesComplete).toBe(true);
+  expect(result.data?.expenses).toEqual(expenses);
+  expect(store.putTripReadBundle).toHaveBeenCalledTimes(1);
+});
+
+it('shows live unverified rows without replacing or inventing a complete cache', async () => {
+  online();
+  (readExpenses as jest.Mock).mockResolvedValueOnce({ items: expenses, complete: false });
+  const result = await loadTripReadBundle('user-1', 'trip-1');
+  expect(result.source).toBe('live');
+  expect(result.data?.expensesComplete).toBe(false);
+  expect(result.data?.expenses).toEqual(expenses);
+  expect(store.putTripReadBundle).not.toHaveBeenCalled();
+});
+
+import { groupA, groupB, deferred } from './fixtures/fixedCategoryGroups';
+import { buildCategorySummary } from '../categorySummary';
+it('stores two reversed live group responses separately and restores only the requested account/group', async () => {
+  const a = deferred(); const b = deferred();
+  apiMock.mockImplementation((path: string) => {
+    const id = path.split('/')[2];
+    if (path.endsWith('/expenses')) return id === 'group-a' ? a.promise : b.promise;
+    if (path.endsWith('/balances')) return Promise.resolve(balances);
+    if (path.endsWith('/spend-summary')) return Promise.resolve(spend);
+    if (path.endsWith('/payments')) return Promise.resolve([]);
+    return Promise.resolve({ ...trip, id });
+  });
+  const liveA = loadTripReadBundle('user-1', 'group-a');
+  const liveB = loadTripReadBundle('user-1', 'group-b');
+  b.resolve(groupB); expect((await liveB).data?.expenses).toEqual(groupB);
+  a.resolve(groupA); expect((await liveA).data?.expenses).toEqual(groupA);
+  apiMock.mockClear();
+  for (const [id, expected, totals] of [['group-a', groupA, { gross: 1500, refunds: 700, net: 800 }],
+    ['group-b', groupB, { gross: 120, refunds: 5, net: 115 }]] as const) {
+    const cached = await loadTripReadBundle('user-1', id, true);
+    expect(cached).toMatchObject({ source: 'cache', data: { expensesComplete: true, trip: { id } } });
+    expect(cached.data?.expenses).toEqual(expected);
+    expect(buildCategorySummary(cached.data!.expenses as typeof groupA)).toMatchObject(totals);
+    expect((cached.data!.expenses as typeof groupA).map((e) => [e.id, e.category])).toEqual(expected.map((e) => [e.id, e.category]));
+    expect((await loadTripReadBundle('user-2', id, true)).data).toBeNull();
+  }
+  expect(apiMock).not.toHaveBeenCalled();
+  expect(store.getTripReadBundle).toHaveBeenCalledWith('user-2', 'group-b');
 });

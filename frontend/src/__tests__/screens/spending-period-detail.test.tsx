@@ -20,7 +20,7 @@ jest.mock('../../AuthContext', () => ({
   useAuth: () => ({ user: { id: 'u1' }, sessionMode: mockSessionMode }),
 }));
 jest.mock('../../ThemeContext', () => ({
-  useTheme: () => ({ colors: new Proxy({}, { get: () => '#123456' }) }),
+  useTheme: () => ({ mode: 'light', colors: new Proxy({}, { get: () => '#123456' }) }),
 }));
 jest.mock('../../offlineReads', () => ({
   loadTripReadBundle: (...args: any[]) => mockLoad(...args),
@@ -74,7 +74,7 @@ beforeEach(() => {
   mockParams = { id: 't1', period: 'daily', key: '2026-09-08', scope: 'trip' };
   mockSessionMode = 'online';
   mockLoad.mockResolvedValue({
-    data: { trip, expenses, balances: {}, spend: {}, payments: [] },
+    data: { trip, expenses, expensesComplete: true, balances: {}, spend: {}, payments: [] },
     source: 'live', fetchedAt: Date.now(),
   });
 });
@@ -115,7 +115,7 @@ describe('spending period detail', () => {
   it('keeps saved transactions readable offline and disables the online expense screen', async () => {
     mockSessionMode = 'offline';
     mockLoad.mockResolvedValue({
-      data: { trip, expenses, balances: {}, spend: {}, payments: [] },
+      data: { trip, expenses, expensesComplete: true, balances: {}, spend: {}, payments: [] },
       source: 'cache', fetchedAt: Date.now(),
     });
     const renderer = await mount();

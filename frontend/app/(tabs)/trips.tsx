@@ -1,5 +1,6 @@
+import CategoryBadge from '../../src/ui/CategoryBadge';
 import React, { useCallback, useRef, useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '../../src/AuthContext';
 import { loadDashboardOverview, type DashboardOverview, type ReadResult } from '../../src/offlineReads';
@@ -175,6 +176,11 @@ export default function Trips() {
           const display = pendingDisplay(item, trips.find((trip) => trip.id === item.tripId));
           return <Card key={item.clientMutationId}
           testID={`trips-pending-${item.clientMutationId}`}>
+          {item.operation === 'expense_create' && item.payload && typeof item.payload === 'object' ?
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <CategoryBadge name={String((item.payload as Record<string, unknown>).category ?? '')} />
+              <T style={{ flex: 1 }}>{String((item.payload as Record<string, unknown>).category ?? '')}</T>
+            </View> : null}
           <T variant="label">{item.operation === 'expense_create' ? 'Pending transaction' : 'Pending payment'}</T>
           <T variant="caption" muted accessibilityLabel={pendingStatusLabel(item)}>
             {pendingStatusLabel(item)}

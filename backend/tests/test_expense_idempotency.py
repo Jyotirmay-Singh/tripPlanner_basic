@@ -303,3 +303,26 @@ def test_capability_requires_successful_write_transaction_probe(monkeypatch):
     assert asyncio.run(expense_idempotency.verify_expense_transactions()) is True
     assert insert.await_count == delete.await_count == 1
     expense_idempotency.disable_expense_protocol()
+
+
+@pytest.mark.parametrize('category', ['Food', 'Travel', 'Shipping & Delivery', 'Bank Fees & Interest'])
+def test_category_replay_preserves_fingerprint_and_durable_receipt(monkeypatch, category):
+    store = setup(monkeypatch)
+    request = body(store, category=category, amount=-20)
+    fingerprint = expense_idempotency.intent_fingerprint(request)
+    accepted = asyncio.run(create(request))
+    receipt = deepcopy(store.receipts[0])
+    assert receipt['fingerprint'] == fingerprint
+    assert store.expenses[0]['category'] == category
+    # Retry the identical restored intent after a lost response. No recomputation or new identity.
+    hydrated = ExpenseIn(**request.model_dump())
+    assert hydrated.client_mutation_id == request.client_mutation_id
+    assert expense_idempotency.intent_fingerprint(hydrated) == fingerprint
+    assert asyncio.run(create(hydrated)) == accepted
+    assert store.receipts == [receipt]
+    assert len(store.expenses) == len(store.audit) == len(store.notifications) == 1
+    changed = body(store, mutation_id=str(request.client_mutation_id), category='Other', amount=-20)
+    assert expense_idempotency.intent_fingerprint(changed) != fingerprint
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(create(changed))
+    assert error.value.detail['code'] == 'client_mutation_conflict'

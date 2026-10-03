@@ -245,3 +245,13 @@ it('posts exact decimal strings and an optional reviewed quote to the handoff pr
     quote_id: 'quote-reviewed',
   }));
 });
+
+it.each([['true', true], [null, false], ['false', false]])('uses only the explicit completeness marker %s', async (marker, complete) => {
+  process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+  jest.resetModules();
+  const { readExpenses } = require('../api');
+  jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce({ ok: true, status: 200,
+    text: async () => JSON.stringify([{ id: 'oldest', category: 'Food', amount: 1 }]),
+    headers: { get: () => marker } } as any);
+  await expect(readExpenses('t')).resolves.toEqual({ items: [{ id: 'oldest', category: 'Food', amount: 1 }], complete });
+});

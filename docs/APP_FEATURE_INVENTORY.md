@@ -299,8 +299,10 @@ both now have implementation and focused coverage. General offline synchronizati
 - **Backend URL documentation conflict.** [README.md](../README.md#L86) describes a localhost default, while the API client reads `EXPO_PUBLIC_BACKEND_URL` without a fallback ([frontend/src/api.ts](../frontend/src/api.ts#L6)). A missing variable produces an invalid base URL.
 - **Two settlement systems coexist.** `db.settlements` remains functional for compatibility while the current UI uses `db.payments`. Future changes must preserve both ledger overlays or migrate deliberately.
 - **Mixed date representations.** Trips use ISO date ranges; expenses retain `DD-MM-YY` plus optional `HH:MM`. Frontend sorting parses these correctly, but JSON report date ordering is still string-based.
-- **Remaining row cap.** Expense-list responses still cap at 1,000. Balance, settlement/payment-list,
-  and report accounting reads are now unbounded so settlement and exports do not silently lose rows.
+- **Complete category reads (2026-10-03).** Expense-list and payer-summary reads are unbounded;
+  the list response explicitly marks completeness. Older cached arrays remain readable with totals
+  withheld until a complete refresh. All-at-once memory/transfer cost remains a scalability limit;
+  see [category implementation evidence](category-expansion-plan.md).
 - **Multi-currency rollout is guarded.** The implementation is deployed inert unless
   `MULTI_CURRENCY_EXPENSES_ENABLED=true`; enable it only after a compatible client is available.
 - **Live FX integration is unverified.** Ordinary tests mock Frankfurter and MongoDB. A narrowly
@@ -340,3 +342,29 @@ After a feature change:
 5. Reconcile affected `.claude` plans/specs and `CLAUDE.md` checklist items, explicitly noting historical or superseded requirements.
 6. Re-run the smallest relevant unit suites plus TypeScript/lint; run live API/database and device/web checks when the feature depends on them.
 7. Review Known Gaps for resolved or newly introduced risks, without copying secrets or private configuration values.
+
+## Fixed category expansion — local implementation update, 2026-10-03
+
+This update supplements the historical audit above. It records local source and verification, not deployment or release status.
+
+| Feature | Status | Behavior/evidence | Limits |
+|---|---|---|---|
+| Fixed 30-name catalog | Implemented and locally verified | Canonical `shared/category-catalog.json`; deterministic packaged backend/frontend/q outputs and read-only generation check. `/meta/categories` stays an ordered string array. Original seven names/Food default and expense-create v1/string identity retained. All 30 create/update paths tested in isolated local HTTP tests | No category management/IDs/multiple selection |
+| Category chooser | Implemented and locally verified | Add/Edit use compact row, grouped Lucide tiles, local aliases, full-name search results, >=48dp controls, checked/checkmark/border states and wrapping list fallback. Web focus containment/Escape/return inspected | Actual native scaled rendering, TalkBack and keyboard/Back remain device gates; unit tests cover the layout decision and Back handler |
+| Gross/refund/net chart | Implemented and locally verified | Positive-gross slices/legend only; stable theme accents. Two used spending categories produce two entries, fully refunded gross retained, refund-only categories in breakdown. Separate gross/refunds/net; pending/settlement inputs excluded | Whole-trip scope retained; no new accounting or FX rules |
+| Complete read/cache handling | Implemented and locally verified | Removed 1000/5000 caps; response marker and CORS exposure; version-2 expense JSON envelope in existing read kind. Legacy arrays preserved/unverified; failed refresh keeps complete cache. 1001/5001 local fixtures include oldest category/refund | Complete arrays increase transfer/memory; no pagination redesign or SQL migration |
+| Full labels and QA parity | Implemented and locally verified | Trip/pending/category/member/period labels wrap; unknown strings retain neutral fallback. Selective q consumer/catalog mirror preserves QA identity and unrelated differences | Native title/device rendering needs device review |
+| Exports and money invariants | Locally verified without accounting redesign | All 30 text labels present in generated PDF/XLSX; eight PDF pages inspected, XLSX width/wrap/row height checked and affected ranges rendered/inspected. Local isolated tests include splits, FX, shares, reports, balances and replay | Native Excel unverified; bundled XLSX rendering passed; existing narrow PDF columns split long words without obscuring values |
+
+See [the complete handoff and verification record](category-expansion-plan.md) for design tables, contracts, wireframes, measurements, test results and device gates. No release build, publication, deployment, PR or external delivery was performed.
+
+
+### Fixed-category completion evidence — 3 October 2026
+
+The final bounded pass has direct account/trip-scoped request and retained-data regressions, including reversed/overlapping responses and failed-switch retry. Actual CategoryPicker/ExchangeRatePanel integration preserves populated ordinary/EXACT/family/foreign Add/Edit fields and quote counts. Real DonutChart and shared Sheet/CurrencyPicker/UpiPaymentSheet regressions pass; immutable legacy/new-name draft replay and two-group HTTP lists/reports/access are verified. The normal chooser boundary uses the existing textMuted token and clears rendered3:1 contrast in both themes.
+
+Final focused runs passed **140 frontend tests**, **139 QA tests**, both type/lint checks and **20 isolated backend tests**. Retained1057/1033/391 broad logs and the additional30 category-only FX cases are historical evidence, not a new final-source broad run. Authenticated disposable browser sign-in, trip/category navigation, chooser cancellation/selection and account switching passed through normal UI; no browser form save or token injection was used.
+
+Actual native Android font scaling, TalkBack, Back/focus/motion, restart/offline/SQLCipher/account switching and native Excel rendering remain open. Existing QA identity/configuration and pending/display/queue differences are preserved. Future deployment must follow backend-first acceptance and compatible rollback readers, preserving all stored/queued names, legacy arrays and version-2 caches. No rollout was performed.
+
+See [category-expansion-progress.md](category-expansion-progress.md) for the final requirement/evidence matrix, per-file inventory, formal React review, commands and acceptance gates.

@@ -187,7 +187,12 @@ it('replaces all five trip reads atomically and retains the old set after a fail
   expect(await offlineStore.getTripReadBundle('account-a', 'trip-1')).toEqual({
     payload: original, fetchedAt: 10,
   });
-  expect(db.runAsync).toHaveBeenCalledTimes(1); // Identity only; bundle writes use the transaction.
+  failPayments = false;
+  const envelope = { ...original, expenses: { version: 2, complete: true,
+    items: [{ amount: 100, category: 'Subscriptions & Memberships' }, { amount: -20, category: 'Historical label' }] } };
+  await offlineStore.putTripReadBundle('account-a', 'trip-1', { payload: envelope, fetchedAt: 30 });
+  expect(await offlineStore.getTripReadBundle('account-a', 'trip-1')).toEqual({ payload: envelope, fetchedAt: 30 });
+  expect(db.runAsync).toHaveBeenCalledTimes(1); // Identity only; envelope stays in the existing read kind/transaction.
 });
 
 it('commits expense and payment UUIDs durably and retains them after a cold module restart', async () => {

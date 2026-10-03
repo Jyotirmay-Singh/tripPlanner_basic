@@ -250,3 +250,23 @@ def test_reconvert_rejects_stale_expected_version_before_quote(monkeypatch):
 
     assert caught.value.status_code == 409
     converter.assert_not_awaited()
+
+
+@pytest.mark.parametrize("category", expenses.CATEGORIES)
+def test_fixed_category_only_edit_preserves_locked_money_and_fx(monkeypatch, category):
+    document = foreign_expense()
+    collection = setup_route(monkeypatch, document)
+    converter = AsyncMock()
+    monkeypatch.setattr(expenses, "convert_expense", converter)
+
+    result = run(expenses.update_expense(
+        "t1", "e1", ExpenseUpdate(category=category), user={"id": "u1"},
+    ))
+
+    assert result["category"] == category
+    assert result["amount"] == document["amount"]
+    assert result["currency"] == document["currency"]
+    assert result["conversion_version"] == 1
+    assert result["exchange_rate"] == "3.5204"
+    converter.assert_not_awaited()
+    assert collection.mutations[0][1] == {"$set": {"category": category}}

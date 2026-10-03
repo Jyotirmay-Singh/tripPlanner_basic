@@ -30,3 +30,6 @@ export { default as TabScreen } from './TabScreen';
 export { default as FormScreen } from './FormScreen';
 export { default as AuthShell } from './AuthShell';
 export { ToastProvider, useToast } from './Toast';
+
+export { default as CategoryPicker } from './CategoryPicker';
+export { default as CategoryBadge } from './CategoryBadge';

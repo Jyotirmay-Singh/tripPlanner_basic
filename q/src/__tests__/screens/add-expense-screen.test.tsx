@@ -1,4 +1,8 @@
 /* eslint-disable import/first, @typescript-eslint/no-require-imports */
+jest.mock('../../ui/Sheet', () => ({ __esModule: true, default: (p: any) => p.visible ? require('react').createElement('Sheet', p, p.children) : null }));
+jest.mock('../../ui/Icon', () => ({ __esModule: true, default: () => null }));
+jest.mock('../../ui/CategoryBadge', () => ({ __esModule: true, default: () => null }));
+
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 
@@ -12,7 +16,7 @@ const mockListOutbox = jest.fn();
 let mockSearchParams: { id: string; reviewId?: string } = { id: 't1' };
 
 jest.mock('../../api', () => ({
-  api: jest.fn(),
+  api: jest.fn(), quoteExchangeRate: jest.fn(), readExpenses: jest.fn(async (id: string) => ({ items: await require('../../api').api(`/trips/${id}/expenses`), complete: true })),
   uploadReceipt: jest.fn(),
 }));
 jest.mock('../../AuthContext', () => ({
@@ -68,7 +72,7 @@ jest.mock('../../ExactSplitEditor', () => {
   return { __esModule: true, default: (props: any) => R.createElement('ExactSplitEditor', props) };
 });
 jest.mock('../../ReceiptViewer', () => ({ __esModule: true, default: () => null }));
-jest.mock('../../ConfirmModal', () => ({ __esModule: true, default: () => null }));
+jest.mock('../../ConfirmModal', () => ({ __esModule: true, default: (p: any) => require('react').createElement('ConfirmModal', p) }));
 jest.mock('../../ui', () => {
   const R = require('react');
   const stub = (name: string) => (props: any) => R.createElement(name, props, props.children);
@@ -80,13 +84,14 @@ jest.mock('../../ui', () => {
     Button: stub('Button'),
     Input: stub('Input'),
     Pill: stub('Pill'),
+    CategoryPicker: require('../../ui/CategoryPicker').default,
     Icon: stub('Icon'),
     ActionSheet: stub('ActionSheet'),
     SkeletonCard: stub('SkeletonCard'),
     CurrencyPicker: stub('CurrencyPicker'),
     DateField: stub('DateField'),
     TimeField: stub('TimeField'),
-    ExchangeRatePanel: stub('ExchangeRatePanel'),
+    ExchangeRatePanel: require('../../ui/ExchangeRatePanel').default,
     useToast: () => ({ show: mockToastShow }),
   };
 });
@@ -291,4 +296,82 @@ it('rehydrates a rejected family refund and atomically requeues its edited inten
   expect(mockRouterReplace).toHaveBeenCalledWith({
     pathname: '/trip/[id]', params: { id: 't1', tab: 'expenses' },
   });
+});
+
+it('keeps Food as default and submits an approved new category string without changing form state', async () => {
+  mockExpenseCaptureActive.mockReturnValue(true);
+  const renderer = await mountScreen();
+  expect(renderer.root.findByType(require('../../ui/CategoryPicker').default).props.value).toBe('Food');
+  await act(async () => {
+    renderer.root.findByProps({ testID: 'ae-amount' }).props.onChangeText('120');
+    renderer.root.findByType(require('../../ui/CategoryPicker').default).props.onChange('Subscriptions & Memberships');
+  });
+  expect(renderer.root.findByProps({ testID: 'ae-amount' }).props.value).toBe('120');
+  await act(async () => { renderer.root.findByProps({ testID: 'ae-submit' }).props.onPress(); });
+  expect(mockCaptureExpense.mock.calls[0][0].payload).toMatchObject({ category: 'Subscriptions & Memberships', original_amount: '120' });
+});
+
+function formControl(r: any, id: string, event = 'onPress') { return r.root.findAll((n: any) => n.props.testID === id && typeof n.props[event] === 'function')[0]; }
+async function exerciseChooser(r: any, prefix: string) {
+  await act(async () => formControl(r, `${prefix}-category`).props.onPress());
+  await act(async () => formControl(r, `${prefix}-category-search`, 'onChangeText').props.onChangeText('taxi'));
+  expect(formControl(r, `${prefix}-category-option-Local Transportation`).props.accessibilityRole).toBe('radio');
+  await act(async () => r.root.findByType('Sheet' as any).props.onClose());
+  await act(async () => formControl(r, `${prefix}-category`).props.onPress());
+  expect(formControl(r, `${prefix}-category-search`, 'onChangeText').props.value).toBe('');
+  await act(async () => formControl(r, `${prefix}-category-search`, 'onChangeText').props.onChangeText('taxes'));
+  await act(async () => formControl(r, `${prefix}-category-option-Taxes & Government Fees`).props.onPress());
+}
+
+it.each(['ordinary', 'EXACT', 'family', 'foreign'])('preserves a populated %s Add form through cancel/search/select/reopen and budget confirmation', async (kind) => {
+  jest.spyOn(require('react-native'), 'findNodeHandle').mockReturnValue(null);
+  const quote = require('../../api').quoteExchangeRate as jest.Mock;
+  quote.mockResolvedValue({ quote_id: 'stable-quote', source_amount: '120', source_currency: 'USD', target_currency: 'INR', target_amount: '9960', rate: '83', requested_date: '2026-10-03', effective_rate_date: '2026-10-02', provider: 'frankfurter_v2_blended', mode: 'automatic', stale: false, manual: false, provider_sources: [], expires_at: '2099-01-01T00:00:00Z' });
+  require('expo-image-picker').requestMediaLibraryPermissionsAsync.mockResolvedValue({ granted: true });
+  require('expo-image-picker').launchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///populated-receipt.jpg', mimeType: 'image/jpeg', fileName: 'receipt.jpg' }] });
+  apiMock.mockImplementation((path: string, options: any) => {
+    if (options?.method === 'POST') return Promise.resolve(path.includes('force=true') ? { expense: { id: 'saved' } } : { requires_confirmation: true, total: 900, budget: 100, over_by: 800 });
+    if (path === '/trips/t1') return Promise.resolve({ ...FAMILY_TRIP, budget: 100 });
+    if (path.endsWith('/expenses') || path.endsWith('/payments')) return Promise.resolve([]);
+    return Promise.resolve({ net: {}, transfers: [], total: 0, entities: [] });
+  });
+  const r = await mountScreen();
+  await act(async () => {
+    formControl(r, 'ae-amount', 'onChangeText').props.onChangeText('120');
+    formControl(r, 'ae-desc', 'onChangeText').props.onChangeText('Preserved receipt and participants');
+    formControl(r, 'ae-date', 'onChangeText').props.onChangeText('03/10/2026');
+    formControl(r, 'ae-time', 'onChange').props.onChange('14:35');
+    if (kind === 'foreign') formControl(r, 'ae-currency', 'onChange').props.onChange('USD');
+    if (kind === 'family') { r.root.findByType('SplitModeSelector' as any).props.onChange('PER_FAMILY'); formControl(r, 'ae-fammem-family-1-1').props.onPress(); }
+    if (kind === 'EXACT') r.root.findByType('SplitModeSelector' as any).props.onChange('EXACT');
+  });
+  if (kind === 'EXACT') await act(async () => r.root.findByType('ExactSplitEditor' as any).props.onChange([
+    { memberId: 'person-1', entityId: 'family-1', included: true, amount: 80 }, { memberId: 'person-2', entityId: 'family-1', included: true, amount: 40 } ]));
+  await act(async () => formControl(r, 'ae-receipt').props.onPress());
+  await act(async () => r.root.findAllByType('ActionSheet' as any).find((n: any) => n.props.title === 'Add receipt').props.actions.find((a: any) => a.label === 'Choose from library').onPress());
+  if (kind === 'foreign') { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 450)); }); await act(async () => formControl(r, 'ae-exchange-rate-approve').props.onPress()); }
+  const before = ['ae-amount', 'ae-desc', 'ae-date', 'ae-time', 'ae-currency'].map((id) => r.root.findByProps({ testID: id }).props.value);
+  const fxBefore = r.root.findByType(require('../../ui/ExchangeRatePanel').default).props;
+  const requests = quote.mock.calls.length;
+  await exerciseChooser(r, 'ae');
+  await act(async () => formControl(r, 'ae-category').props.onPress());
+  expect(formControl(r, 'ae-category-option-Taxes & Government Fees').props.accessibilityState.checked).toBe(true);
+  await act(async () => r.root.findByType('Sheet' as any).props.onRequestClose());
+  expect(['ae-amount', 'ae-desc', 'ae-date', 'ae-time', 'ae-currency'].map((id) => r.root.findByProps({ testID: id }).props.value)).toEqual(before);
+  expect(r.root.findByProps({ testID: 'receipt-view' })).toBeTruthy();
+  expect(r.root.findByType(require('../../ui/ExchangeRatePanel').default).props).toEqual(fxBefore);
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 450)); });
+  expect(quote).toHaveBeenCalledTimes(requests); expect(requests).toBe(kind === 'foreign' ? 1 : 0);
+  await act(async () => formControl(r, 'ae-submit').props.onPress());
+  expect(mockRouterBack).not.toHaveBeenCalled();
+  const post = apiMock.mock.calls.find((c) => c[1]?.method === 'POST')![1].body;
+  expect(post).toMatchObject({ category: 'Taxes & Government Fees', original_amount: '120', original_currency: kind === 'foreign' ? 'USD' : 'INR', description: 'Preserved receipt and participants', paid_by_member_id: 'family-1', date: '03-10-26', time: '14:35', split_mode: kind === 'family' ? 'PER_FAMILY' : kind === 'EXACT' ? 'EXACT' : 'PER_CAPITA' });
+  if (kind === 'EXACT') expect(post.original_custom_amounts).toEqual({ 'person-1': 80, 'person-2': 40 });
+  if (kind === 'family') expect(post.family_participants).toEqual({ 'family-1': ['person-1'] });
+  if (kind === 'foreign') expect(post.conversion).toMatchObject({ quote_id: 'stable-quote', approved: true });
+  await act(async () => r.root.findAllByType('ConfirmModal' as any).find((n: any) => n.props.visible && n.props.title === 'Budget warning').props.actions[1].onPress());
+  expect(apiMock.mock.calls.filter((c) => c[1]?.method === 'POST')[1][1].body).toEqual(post);
+  expect(require('../../api').uploadReceipt).toHaveBeenCalledWith('t1', 'saved', { uri: 'file:///populated-receipt.jpg', mimeType: 'image/jpeg', fileName: 'receipt.jpg' });
+  expect(mockRouterBack).toHaveBeenCalledTimes(1);
+  await act(async () => r.unmount()); jest.restoreAllMocks();
 });

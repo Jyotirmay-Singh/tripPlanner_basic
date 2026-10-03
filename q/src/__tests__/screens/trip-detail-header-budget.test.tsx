@@ -16,6 +16,8 @@ let mockUser: any = { id: 'u1', email: 'member@gmail.com', is_super_admin: false
 let mockSearchParams = { id: 't1' };
 
 jest.mock('../../api', () => ({
+  readExpenses: jest.fn(async (id: string) => ({ items: await require('../../api').api(`/trips/${id}/expenses`), complete: true })),
+
   api: jest.fn(),
   getTripInviteLink: (...args: any[]) => mockGetTripInviteLink(...args),
   getToken: jest.fn(),
@@ -51,7 +53,7 @@ jest.mock('expo-router', () => {
   return {
     useLocalSearchParams: () => mockSearchParams,
     useRouter: () => ({ push: mockRouterPush, back: jest.fn() }),
-    useFocusEffect: (callback: any) => R.useEffect(() => { callback(); }, []),
+    useFocusEffect: (callback: any) => R.useEffect(callback, [callback]),
   };
 });
 jest.mock('react-native-safe-area-context', () => {
@@ -125,7 +127,7 @@ jest.mock('../../displayNames', () => jest.requireActual('../../displayNames'));
 jest.mock('../../bill', () => ({ billLabel: () => 'Bill not attached' }));
 
 import TripDetail from '../../../app/trip/[id]/index';
-import { api, getToken, spendSummary } from '../../api';
+import { api, getToken, spendSummary, readExpenses } from '../../api';
 
 const apiMock = api as unknown as jest.Mock;
 const getTokenMock = getToken as unknown as jest.Mock;
@@ -183,6 +185,8 @@ async function mountTrip(fixture: Fixture = {}) {
     ...balanceOverrides,
   };
   apiMock.mockImplementation((path: string) => {
+    if (path === '/trips/t2') return Promise.resolve({ ...trip, id: 't2' });
+    if (path.startsWith('/trips/t2/')) return Promise.resolve(path.endsWith('/expenses') || path.endsWith('/payments') ? [] : balances);
     if (path === '/trips/t1') return Promise.resolve(trip);
     if (path === '/trips/t1/expenses') return Promise.resolve(expenses);
     if (path === '/trips/t1/balances') return Promise.resolve(balances);
@@ -226,6 +230,7 @@ function textContent(node: any): string {
 }
 
 beforeEach(() => {
+  (readExpenses as jest.Mock).mockImplementation(async (id: string) => ({ items: await api(`/trips/${id}/expenses`), complete: true }));
   apiMock.mockReset();
   getTokenMock.mockReset();
   getTokenMock.mockResolvedValue('token');
@@ -976,5 +981,123 @@ describe('Budget Used card', () => {
       StyleSheet.flatten(node.props.style)?.gap === SPACING.sm
     ));
     expect(content.length).toBeGreaterThan(0);
+  });
+});
+
+it('withholds every expense-derived total for unverified legacy rows while keeping transactions', async () => {
+  (readExpenses as jest.Mock).mockImplementation(async (id: string) => ({ items: await api(`/trips/${id}/expenses`), complete: false }));
+  const renderer = await mountTrip({ expenses: [expense(500), { ...expense(-200, 'refund'), category: 'Bank Fees & Interest' }] });
+  const cards = renderer.root.findAllByType('StatCard' as any);
+  expect(cards.find((node: any) => node.props.label === 'Transactions').props.value).toBe('Needs refresh');
+  expect(cards.find((node: any) => node.props.label === 'Refunds').props.value).toBe('Needs refresh');
+  expect(renderer.root.findAllByType('DonutChart' as any)).toHaveLength(0);
+  expect(renderer.root.findAllByType('T' as any).map(textContent).join(' ')).toContain('Category totals need a complete refresh');
+  await act(async () => renderer.root.findByType('SegmentedControl' as any).props.onChange('expenses'));
+  expect(renderer.root.findAllByType('T' as any).map(textContent).join(' ')).toContain('Bank Fees & Interest');
+  act(() => renderer.unmount());
+});
+
+it('trip Summary passes only two positive-gross categories to the spending chart', async () => {
+  const renderer = await mountTrip({ expenses: [expense(1000), { ...expense(500, 'travel'), category: 'Travel' },
+    { ...expense(-500, 'travel-refund'), category: 'Travel' }, { ...expense(-200, 'bank-refund'), category: 'Bank Fees & Interest' }] });
+  const chart = renderer.root.findByType('DonutChart' as any);
+  expect(chart.props.data.map((slice: any) => [slice.key, slice.value])).toEqual([['Food', 1000], ['Travel', 500]]);
+  expect(chart.props.centerLabel).toBe('Gross spending');
+  expect(renderer.root.findAllByType('T' as any).map(textContent).join(' ')).toContain('Bank Fees & Interest');
+  act(() => renderer.unmount());
+});
+
+import { groupA, groupB, deferred } from '../fixtures/fixedCategoryGroups';
+import CategorySpendingChart from '../../CategorySpendingChart';
+import ExpenseTrendChart from '../../ExpenseTrendChart';
+import TrendControl from '../../ui/SegmentedControl';
+
+function scopedBundle(id: string, items = groupA, source: 'live' | 'cache' = 'live') {
+  return { source, fetchedAt: 100, data: { trip: { ...BASE_TRIP, id, name: `Group ${id}` },
+    expenses: items, expensesComplete: true, balances: { net: {}, transfers: [], members: [INDIVIDUAL] },
+    spend: { total: items.filter((e) => e.amount > 0).reduce((s, e) => s + e.amount, 0), count: 1, entities: [] }, payments: [] } };
+}
+function refreshTrip(renderer: any) {
+  return renderer.root.findAll((n: any) => typeof n.props.onRefresh === 'function')[0].props.onRefresh();
+}
+function chartRows(renderer: any) { return renderer.root.findByType('DonutChart' as any).props.data.map((r: any) => [r.key, r.value]); }
+
+describe('account and group isolation', () => {
+  let loader: jest.SpyInstance;
+  beforeEach(() => { loader = jest.spyOn(require('../../offlineReads'), 'loadTripReadBundle'); });
+  afterEach(() => { loader.mockRestore(); });
+
+  it('hides Group A immediately, accepts Group B first, and ignores a superseded A success', async () => {
+    const old = deferred(); const next = deferred();
+    loader.mockResolvedValueOnce(scopedBundle('t1')).mockReturnValueOnce(old.promise).mockReturnValueOnce(next.promise);
+    const renderer = await mountTrip();
+    expect(chartRows(renderer)).toEqual([['Food', 1000], ['Travel', 500]]);
+    expect(textContent(hostByTestID(renderer.root, 'T', 'trip-budget-used-spent'))).toBe('₹800');
+    expect(renderer.root.findAllByType('StatCard' as any).find((n: any) => n.props.label === 'Refunds').props.value).toBe('700');
+    act(() => { void refreshTrip(renderer); });
+    act(() => { mockSearchParams = { id: 't2' }; renderer.update(<TripDetail />); });
+    expect(renderer.root.findAllByType(CategorySpendingChart)).toHaveLength(0);
+    expect(JSON.stringify(renderer.toJSON())).not.toMatch(/a-food|a-bank-refund|₹800/);
+    await act(async () => next.resolve(scopedBundle('t2', groupB)));
+    expect(chartRows(renderer)).toEqual([['Groceries', 90], ['Shipping & Delivery', 30]]);
+    expect(textContent(hostByTestID(renderer.root, 'T', 'trip-budget-used-spent'))).toBe('₹115');
+    expect(renderer.root.findAllByType('StatCard' as any).find((n: any) => n.props.label === 'Refunds').props.value).toBe('5');
+    await act(async () => old.resolve(scopedBundle('t1')));
+    expect(chartRows(renderer)).toEqual([['Groceries', 90], ['Shipping & Delivery', 30]]);
+    act(() => renderer.root.findByType(CategorySpendingChart).props.onCategoryPress('Shipping & Delivery'));
+    expect(mockRouterPush).toHaveBeenLastCalledWith('/trip/t2/category/Shipping%20%26%20Delivery');
+    act(() => renderer.root.findByType('SegmentedControl' as any).props.onChange('expenses'));
+    const text = renderer.root.findAllByType('T' as any).map(textContent).join(' ');
+    expect(text).toContain('b-groceries'); expect(text).toContain('b-shipping'); expect(text).toContain('b-refund');
+    expect(text).not.toMatch(/a-food|a-travel|a-bank/);
+    expect(loader.mock.calls.map((c) => c.slice(0, 2))).toEqual([['u1', 't1'], ['u1', 't1'], ['u1', 't2']]);
+    act(() => renderer.unmount());
+  });
+
+  it.each(['success', 'error'])('ignores older overlapping refresh %s and loading completion', async (outcome) => {
+    const older = deferred(); const latest = deferred();
+    loader.mockResolvedValueOnce(scopedBundle('t1')).mockReturnValueOnce(older.promise).mockReturnValueOnce(latest.promise);
+    const renderer = await mountTrip();
+    act(() => { void refreshTrip(renderer); void refreshTrip(renderer); });
+    await act(async () => { if (outcome === 'error') older.reject(new Error('stale error')); else older.resolve(scopedBundle('t1', groupB)); });
+    expect(renderer.root.findAll((n: any) => typeof n.props.onRefresh === 'function')[0].props.refreshing).toBe(true);
+    expect(chartRows(renderer)).toEqual([['Food', 1000], ['Travel', 500]]);
+    await act(async () => latest.resolve(scopedBundle('t1', groupB)));
+    expect(renderer.root.findAll((n: any) => typeof n.props.onRefresh === 'function')[0].props.refreshing).toBe(false);
+    expect(chartRows(renderer)).toEqual([['Groceries', 90], ['Shipping & Delivery', 30]]);
+    expect(mockToastShow).not.toHaveBeenCalled();
+    act(() => renderer.unmount());
+  });
+
+  it('hides a cached account read until the matching account responds and invalidates on unmount', async () => {
+    const account = deferred(); const unmounted = deferred();
+    loader.mockResolvedValueOnce(scopedBundle('t1', groupA, 'cache')).mockReturnValueOnce(account.promise).mockReturnValueOnce(unmounted.promise);
+    const renderer = await mountTrip();
+    expect(renderer.root.findByType(CategorySpendingChart).props.onCategoryPress).toBeUndefined();
+    act(() => { mockUser = { ...mockUser, id: 'u2' }; renderer.update(<TripDetail />); });
+    expect(renderer.root.findAllByType(CategorySpendingChart)).toHaveLength(0);
+    await act(async () => account.resolve(scopedBundle('t1', groupB)));
+    expect(loader).toHaveBeenLastCalledWith('u2', 't1', false);
+    expect(chartRows(renderer)).toEqual([['Groceries', 90], ['Shipping & Delivery', 30]]);
+    act(() => { void refreshTrip(renderer); renderer.unmount(); });
+    await act(async () => unmounted.reject(new Error('after unmount')));
+    expect(mockToastShow).not.toHaveBeenCalled();
+  });
+
+  it('keeps the whole-trip category chart when description search or trend period changes', async () => {
+    loader.mockResolvedValue(scopedBundle('t1'));
+    const renderer = await mountTrip();
+    const baseline = chartRows(renderer);
+    for (const period of ['weekly', 'monthly', 'daily']) {
+      act(() => renderer.root.findByType(ExpenseTrendChart).findByType(TrendControl).props.onChange(period));
+      expect(chartRows(renderer)).toEqual(baseline);
+      expect(renderer.root.findByType(CategorySpendingChart).props.expenses).toEqual(groupA);
+    }
+    act(() => renderer.root.findByType('SegmentedControl' as any).props.onChange('expenses'));
+    act(() => hostByTestID(renderer.root, 'Input', 'expense-search-input').props.onChangeText('a-food'));
+    expect(textContent(hostByTestID(renderer.root, 'T', 'expense-search-count'))).toBe('1 match');
+    act(() => renderer.root.findByType('SegmentedControl' as any).props.onChange('summary'));
+    expect(chartRows(renderer)).toEqual(baseline);
+    act(() => renderer.unmount());
   });
 });

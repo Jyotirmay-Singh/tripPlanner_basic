@@ -1,3 +1,4 @@
+import { categoryIcon, categoryAccent, categoryBadgeColor } from '../../../../../src/categories';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -48,7 +49,7 @@ export default function SpendingPeriodDetail() {
   const scope: TrendScope | null = scopeParam === 'trip' || scopeParam === 'personal' ? scopeParam : null;
   const periodLabel = period && key ? trendPeriodLabel(period, key) : null;
   const { user, sessionMode } = useAuth();
-  const { colors } = useTheme();
+  const { colors, mode } = useTheme();
   const router = useRouter();
   const [read, setRead] = useState<ReadResult<Bundle> | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -131,7 +132,7 @@ export default function SpendingPeriodDetail() {
       ) : (
         <>
           {read?.source === 'cache' ? <OfflineReadStatus result={read} /> : null}
-          <Card testID="spending-period-summary" variant="primary" padding="lg" radius={RADIUS.xl}>
+          {read?.data?.expensesComplete ? <Card testID="spending-period-summary" variant="primary" padding="lg" radius={RADIUS.xl}>
             <T variant="label" color={colors.primaryText} style={styles.cardLabel}>{scopeLabel}</T>
             <T variant="caption" color={colors.primaryText} style={styles.cardSubtitle}>{periodLabel}</T>
             <AmountText value={net} currency={trip.currency} variant="moneyLg" color={colors.primaryText} style={styles.netAmount} />
@@ -147,7 +148,7 @@ export default function SpendingPeriodDetail() {
                 <T variant="h4" color={colors.primaryText}>{formatMoney(refunded, { currency: trip.currency })}</T>
               </View>
             </View>
-          </Card>
+          </Card> : <T muted>Category totals need a complete refresh</T>}
           {offlineView && rows.length > 0 ? (
             <T variant="caption" muted>Reconnect to open a transaction.</T>
           ) : null}
@@ -172,6 +173,10 @@ export default function SpendingPeriodDetail() {
                   : '';
                 return (
                   <ListRow
+              wrapText
+              icon={categoryIcon(expense.category)}
+              iconColor={categoryAccent(expense.category, mode)}
+              iconBg={categoryBadgeColor(expense.category, mode, colors.surface)}
                     key={expense.id}
                     testID={`spending-period-transaction-${expense.id}`}
                     title={expense.description || expense.category}

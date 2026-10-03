@@ -131,12 +131,4 @@ export const ICON_STROKE = 1.5;
 // Max content width on wide (web/tablet) viewports so layouts stay readable.
 export const CONTENT_MAX_WIDTH = 640;
 
-export const CATEGORIES = [
-  'Travel',
-  'Accommodation',
-  'Local Transportation',
-  'Local Sightseeing',
-  'Food',
-  'Shopping',
-  'Other',
-] as const;
+export { CATEGORIES } from './categoryCatalog.generated';

@@ -16,7 +16,8 @@ import { useTheme } from '../../../src/ThemeContext';
 import { SPACING, RADIUS, CONTENT_MAX_WIDTH, COMPONENT_SIZE, FONTS } from '../../../src/theme';
 import T from '../../../src/T';
 import Badge from '../../../src/Badge';
-import DonutChart, { paletteForMode } from '../../../src/DonutChart';
+import CategorySpendingChart from '../../../src/CategorySpendingChart';
+import CategoryBadge from '../../../src/ui/CategoryBadge';
 import SpendBarChart from '../../../src/SpendBarChart';
 import ExpenseTrendChart from '../../../src/ExpenseTrendChart';
 import { trendDetailPath } from '../../../src/expenseTrend';
@@ -243,7 +244,7 @@ export default function TripDetail() {
   } = useLocalSearchParams<{
     id: string; tab?: string; expenseId?: string; messageId?: string;
   }>();
-  const { colors, mode } = useTheme();
+  const { colors } = useTheme();
   const {
     user, sessionMode, chatCapability, handleAuthenticationRequired, inviteLinksEnabled, refreshRuntimeConfig,
   } = useAuth();
@@ -256,14 +257,15 @@ export default function TripDetail() {
   const [balances, setBalances] = useState<Balances | null>(null);
   const [spend, setSpend] = useState<SpendSummary | null>(null);
   const [storedRead, setRead] = useState<ReadResult<CompleteTrip<Trip, Expense, Balances, SpendSummary, unknown>> | null>(null);
-  const [readAccountId, setReadAccountId] = useState<string | null>(null);
+  const [readScope, setReadScope] = useState<{ accountId: string; tripId: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const loadGeneration = useRef(0);
-  const trip = readAccountId === user?.id ? storedTrip : null;
-  const read = readAccountId === user?.id ? storedRead : null;
+  const scopeMatches = readScope?.accountId === user?.id && readScope?.tripId === id;
+  const trip = scopeMatches ? storedTrip : null;
+  const read = scopeMatches ? storedRead : null;
   const pendingExpenses = useMemo(
-    () => readAccountId === user?.id ? storedPendingExpenses : [],
-    [readAccountId, user?.id, storedPendingExpenses],
+    () => scopeMatches ? storedPendingExpenses : [],
+    [scopeMatches, storedPendingExpenses],
   );
   const [tab, setTab] = useState<TabKey>(() => tripTabFromParam(tabParam));
   const [expenseSearchQuery, setExpenseSearchQuery] = useState('');
@@ -329,8 +331,10 @@ export default function TripDetail() {
         user.id, id, sessionMode === 'offline',
       );
       if (generation !== loadGeneration.current) return;
-      setReadAccountId(user.id);
+      setReadScope({ accountId: user.id, tripId: id });
       setRead(result);
+      setPendingExpenses([]);
+      setPendingReadError(false);
       if (result.data) {
         setTrip(result.data.trip);
         setExpenses(result.data.expenses);
@@ -353,7 +357,7 @@ export default function TripDetail() {
       }
     } catch (error: any) {
       if (generation === loadGeneration.current) {
-        setReadAccountId(user.id);
+        setReadScope({ accountId: user.id, tripId: id });
         setRead({ data: null, source: 'unavailable', fetchedAt: null,
           error: error?.message || 'This trip is unavailable.' });
         setTrip(null);
@@ -518,6 +522,7 @@ export default function TripDetail() {
   const displayNames = memberDisplayNames(trip.members);
   const expectedDeleteTripName = normalizedTripDeletionName(trip.name);
   // Signed totals: a negative transaction (money back) nets the total down.
+  const expenseDataComplete = read?.data?.expensesComplete === true;
   const totalSpent = expenses.reduce((s, e) => s + e.amount, 0);
   // Trip-level "Settled" badge signal — reuses the SAME empty-transfers value the settle-up screen
   // uses for "All square!" (display-only; never recomputed). Every transaction card shows the badge
@@ -686,12 +691,6 @@ export default function TripDetail() {
             const expenseCount = expenses.length;
             // Money returned to the group (sum of negative transactions), shown as a positive figure.
             const refundsTotal = expenses.filter((e) => e.amount < 0).reduce((s, e) => s - e.amount, 0);
-            const byCat: Record<string, number> = {};
-            expenses.forEach((e) => { byCat[e.category] = (byCat[e.category] || 0) + e.amount; });
-            // Only positive net categories make sense as donut slices (a fully-refunded category nets <= 0).
-            const sortedCats = Object.entries(byCat).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
-            const palette = paletteForMode(mode);
-            const slices = sortedCats.map(([k, v], i) => ({ key: k, label: k, value: v, color: palette[i % palette.length] }));
             return (
               <View style={{ gap: SPACING.md }}>
                 {myMember && (
@@ -789,21 +788,21 @@ export default function TripDetail() {
                   </View>
                 )}
 
-                <BudgetUsageCard spent={totalSpent} budget={trip.budget} currency={trip.currency} />
+                <BudgetUsageCard spent={expenseDataComplete ? totalSpent : Number.NaN} budget={trip.budget} currency={trip.currency} />
 
                 <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
-                  <StatCard label="Transactions" value={String(expenseCount)} icon="receipt" />
+                  <StatCard label="Transactions" value={expenseDataComplete ? String(expenseCount) : 'Needs refresh'} icon="receipt" />
                   <StatCard
                     label="Refunds"
-                    value={formatMoney(refundsTotal, {
+                    value={expenseDataComplete ? formatMoney(refundsTotal, {
                       currency: trip.currency, showCurrency: false,
-                    })}
+                    }) : 'Needs refresh'}
                     valueColor={colors.success}
                     icon="arrow-down"
                   />
                 </View>
 
-                <Card>
+                {expenseDataComplete ? <Card>
                   <ExpenseTrendChart
                     expenses={expenses}
                     currency={trip.currency}
@@ -811,23 +810,15 @@ export default function TripDetail() {
                     personalKind={myMember?.kind}
                     onOpenPeriod={(selection) => router.push(trendDetailPath(id as string, selection) as Href)}
                   />
+                </Card> : null}
+
+                <Card>
+                  <CategorySpendingChart expenses={expenses} currency={trip.currency}
+                    complete={expenseDataComplete}
+                    onCategoryPress={offlineView ? undefined : (name) => router.push(categoryDetailPath(id as string, name) as Href)} />
                 </Card>
 
-                {slices.length > 0 && (
-                  <Card>
-                    <T variant="label" muted style={{ marginBottom: SPACING.sm }}>Spend by category · tap to drill down</T>
-                    <DonutChart
-                      data={slices}
-                      currency={trip.currency}
-                      centerValue={formatMoney(totalSpent, { currency: trip.currency })}
-                      centerLabel="TOTAL"
-                      centerAccessibilityLabel={`Total spent, ${formatAccessibleMoney(totalSpent, { currency: trip.currency })}`}
-                      onSlicePress={offlineView ? undefined : (s) => router.push(categoryDetailPath(id as string, s.key) as Href)}
-                    />
-                  </Card>
-                )}
-
-                {expenseCount > 0 && (
+                {expenseDataComplete && expenseCount > 0 && (
                   <Card>
                     <SpendBarChart
                       summary={spend}
@@ -900,10 +891,9 @@ export default function TripDetail() {
                     accessibilityLabel={`Pending transaction. ${status}. Saved on this device; confirmed totals unchanged.`}
                     testID={`pending-expense-item-${item.clientMutationId}`}>
                     <View style={styles.rowCard}>
-                      <View style={[styles.catDot,
-                        { backgroundColor: amount < 0 ? colors.success : colors.warning }]} />
+                      <CategoryBadge name={String(payload.category)} />
                       <View style={{ flex: 1, minWidth: 0 }}>
-                        <T variant="h4" numberOfLines={1}>
+                        <T variant="h4">
                           {String(payload.description || payload.category)}
                         </T>
                         <T variant="caption" muted>
@@ -940,10 +930,10 @@ export default function TripDetail() {
                     : undefined}
                   testID={`expense-item-${e.id}`}>
                   <View style={styles.rowCard}>
-                    <View style={[styles.catDot, { backgroundColor: e.amount < 0 ? colors.success : colors.primary }]} />
+                    <CategoryBadge name={e.category} />
                     <View style={{ flex: 1, minWidth: 0 }}>
-                      <T variant="h4" numberOfLines={1}>{e.description || e.category}</T>
-                      <T muted variant="caption" numberOfLines={1}>
+                      <T variant="h4">{e.description || e.category}</T>
+                      <T muted variant="caption">
                         {e.date}{e.time ? ` · ${formatTime12h(e.time)}` : ''} · {e.category} · by {displayNames[e.paid_by_member_id] || '?'}
                       </T>
                       {e.has_receipt ? (

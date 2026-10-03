@@ -122,3 +122,21 @@ it('shows each unsynced UUID once and omits a known confirmed canonical ID', asy
     Object.defineProperty(Platform, 'OS', { configurable: true, value: originalOS });
   }
 });
+
+it.each(['Food', 'Travel', 'Shipping & Delivery', 'Bank Fees & Interest', 'Historical category'])('hydrates an immutable %s draft with its original protocol-v1 identity and account scope', async (category) => {
+  const originalOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  try {
+    const item = makeExpenseOutboxItem('account-1', trip, { ...base, category }, uuid, 100);
+    const frozen = JSON.stringify(item.payload);
+    const hydrated = JSON.parse(JSON.stringify(item));
+    store.listOutbox.mockResolvedValue([hydrated, { ...hydrated, accountId: 'account-2', clientMutationId: 'other' }, { ...hydrated, tripId: 'trip-2', clientMutationId: 'other-trip' }]);
+    const pending = await listPendingExpenses('account-1', 'trip-1', []);
+    expect(pending.map((r) => r.clientMutationId)).toEqual([uuid]);
+    expect(JSON.stringify(pending[0].payload)).toBe(frozen);
+    expect(pending[0].payload.category).toBe(category);
+    await captureExpense(hydrated);
+    expect(store.enqueueOutbox).toHaveBeenCalledWith(hydrated);
+    expect(store.getExpenseProtocolVersion).toHaveBeenCalledWith('account-1');
+  } finally { Object.defineProperty(Platform, 'OS', { configurable: true, value: originalOS }); }
+});

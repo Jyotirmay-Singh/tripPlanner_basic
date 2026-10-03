@@ -1,6 +1,7 @@
+import { isCategoryName } from '../../../src/categories';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, TouchableOpacity, StyleSheet, ScrollView,
+  View, TouchableOpacity, StyleSheet,
   Image, Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -14,7 +15,7 @@ import OfflineReadStatus from '../../../src/OfflineReadStatus';
 import type { ExchangeRateQuote } from '../../../src/api';
 import { useAuth } from '../../../src/AuthContext';
 import { useTheme } from '../../../src/ThemeContext';
-import { SPACING, RADIUS, FONTS, CATEGORIES, CONTENT_MAX_WIDTH } from '../../../src/theme';
+import { SPACING, RADIUS, FONTS, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
 import SplitModeSelector, { SplitMode, splitPreviewLabel } from '../../../src/SplitModeSelector';
 import ExactSplitEditor from '../../../src/ExactSplitEditor';
@@ -32,7 +33,7 @@ import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { formatDDMMYYYY, partsFromLocalDate, ddmmyyyyToDDMMYY, ddmmyyToDDMMYYYY, toISO } from '../../../src/date';
 import {
-  FormScreen, Screen, Card, Button, Input, Pill, Icon, ActionSheet, SkeletonCard, EmptyState, useToast,
+  FormScreen, Screen, Card, Button, Input, CategoryPicker, Icon, ActionSheet, SkeletonCard, EmptyState, useToast,
   CurrencyPicker, DateField, TimeField, ExchangeRatePanel,
 } from '../../../src/ui';
 import type { ApprovedConversion } from '../../../src/ui';
@@ -223,6 +224,7 @@ export default function AddExpense() {
   };
 
   const submit = async (force = false, withoutReceipt = false) => {
+    if (!isCategoryName(cat)) { toast.show('Choose an approved category before saving.', 'error'); return; }
     if (savingRef.current) return;
     if (offlineView && !localCapture) return toast.show('Connect to save this transaction.', 'error');
     if (!trip || !paidBy) return;
@@ -481,13 +483,7 @@ export default function AddExpense() {
             {/* Category */}
             <View>
               <T variant="label" muted>Category *</T>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: SPACING.xs }}>
-                <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
-                  {CATEGORIES.map((c) => (
-                    <Pill key={c} testID={`ae-cat-${c}`} label={c} active={cat === c} onPress={() => setCat(c)} />
-                  ))}
-                </View>
-              </ScrollView>
+              <CategoryPicker value={cat} onChange={setCat} testID="ae-category" />
             </View>
 
             {/* Date (calendar picker) + optional time, side by side */}

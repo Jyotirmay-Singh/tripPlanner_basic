@@ -65,5 +65,4 @@ EMAIL_FEATURES_ENABLED = os.environ.get("EMAIL_FEATURES_ENABLED", "true").strip(
 if RESEND_API_KEY:
     resend.api_key = RESEND_API_KEY
 
-CATEGORIES = ["Travel", "Accommodation", "Local Transportation",
-              "Local Sightseeing", "Food", "Shopping", "Other"]
+from category_names import CATEGORIES

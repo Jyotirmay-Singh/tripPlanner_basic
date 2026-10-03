@@ -1,3 +1,4 @@
+jest.mock('../../ui/CategoryBadge', () => ({ __esModule: true, default: () => null }));
 /* eslint-disable import/first, @typescript-eslint/no-require-imports */
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';

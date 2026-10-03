@@ -6,9 +6,11 @@ import TestRenderer, { act } from 'react-test-renderer';
 const mockPush = jest.fn();
 const mockToast = jest.fn();
 
-jest.mock('../../api', () => ({ api: jest.fn() }));
+jest.mock('../../api', () => ({
+  readExpenses: jest.fn(async (id: string) => ({ items: await require('../../api').api(`/trips/${id}/expenses`), complete: true })),
+   api: jest.fn() }));
 jest.mock('../../ThemeContext', () => ({
-  useTheme: () => ({ colors: new Proxy({}, { get: () => '#123456' }) }),
+  useTheme: () => ({ mode: 'light', colors: new Proxy({}, { get: () => '#123456' }) }),
 }));
 jest.mock('expo-router', () => {
   const R = require('react');
