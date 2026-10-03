@@ -92,7 +92,7 @@ export default function MemberSpendDetail() {
               iconBg={categoryBadgeColor(r.category, mode, colors.surface)}
             key={r.id}
             title={r.description || r.category}
-            subtitle={`${r.date}${r.time ? ` · ${formatTime12h(r.time)}` : ''} · ${r.category} · ${r.split_mode === 'PER_FAMILY' ? 'Per family' : 'Per person'}${r.original_currency && r.original_currency !== trip?.currency && r.original_amount != null ? ` · originally ${formatMoney(Number(r.original_amount), { currency: r.original_currency })}` : ''}`}
+            subtitle={`${r.date}${r.time ? ` · ${formatTime12h(r.time)}` : ''} · ${r.category} · ${r.split_mode === 'PER_FAMILY' ? 'Per family' : 'Per person'}${r.original_currency && r.original_currency !== trip?.currency && r.original_amount != null ? ` · originally ${formatMoney(Number(r.original_amount), { currency: r.original_currency, currencyDisplay: 'code' })}` : ''}`}
             right={<AmountText value={r.amount} currency={trip?.currency} />}
             onPress={() => router.push({ pathname: '/trip/[id]/edit-expense', params: { id: id as string, eid: r.id } })}
             showChevron={false}

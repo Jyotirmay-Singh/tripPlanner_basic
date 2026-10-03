@@ -169,7 +169,7 @@ export default function SpendingPeriodDetail() {
                 const payer = displayNames[expense.paid_by_member_id] || 'Unknown payer';
                 const original = expense.original_currency && expense.original_currency !== trip.currency
                   && expense.original_amount != null
-                  ? ` · originally ${formatMoney(Number(expense.original_amount), { currency: expense.original_currency })}`
+                  ? ` · originally ${formatMoney(Number(expense.original_amount), { currency: expense.original_currency, currencyDisplay: 'code' })}`
                   : '';
                 return (
                   <ListRow

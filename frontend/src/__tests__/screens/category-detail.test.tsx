@@ -85,6 +85,21 @@ beforeEach(() => {
 });
 
 describe('category detail screen', () => {
+  it('shows original LKR codes for expenses and refunds beside canonical INR amounts', async () => {
+    const renderer = await mount((url: string) => Promise.resolve(url === '/trips/t1' ? trip : [
+      { ...expenses[1], amount: 1440, original_currency: 'LKR', original_amount: '4950' },
+      { ...expenses[2], amount: -291, original_currency: 'LKR', original_amount: '-1000' },
+      expenses[0],
+    ]));
+    const transactions = rows(renderer);
+    expect(transactions[0].props.subtitle).toContain('originally LKR 4,950');
+    expect(transactions[2].props.subtitle).toContain('originally LKR -1,000');
+    expect(transactions[1].props.subtitle).not.toContain('originally');
+    expect(transactions.map((row: any) => row.props.right.props.value)).toEqual([1440, 20, -291]);
+    expect(transactions.every((row: any) => row.props.right.props.currency === 'INR')).toBe(true);
+    await act(async () => { renderer.unmount(); });
+  });
+
   it('shows gross/refund reconciliation and a display-only payer breakdown', async () => {
     const renderer = await mount();
     const chart = host(renderer, 'SpendBarChart');

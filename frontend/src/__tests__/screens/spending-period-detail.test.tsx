@@ -80,6 +80,29 @@ beforeEach(() => {
 });
 
 describe('spending period detail', () => {
+  it.each(['live', 'cache'])('shows original LKR codes for %s expenses and refunds', async (source) => {
+    mockLoad.mockResolvedValue({
+      data: { trip, expenses: expenses.map((expense) => (
+        expense.id === 'family-spend'
+          ? { ...expense, amount: 1440, original_currency: 'LKR', original_amount: '4950' }
+          : expense.id === 'family-refund'
+            ? { ...expense, amount: -291, original_currency: 'LKR', original_amount: '-1000' }
+            : expense
+      )), expensesComplete: true, balances: {}, spend: {}, payments: [] },
+      source, fetchedAt: Date.now(),
+    });
+    const renderer = await mount();
+    const spend = byTestID(renderer.root, 'spending-period-transaction-family-spend');
+    const refund = byTestID(renderer.root, 'spending-period-transaction-family-refund');
+    expect(spend.props.subtitle).toContain('originally LKR 4,950');
+    expect(refund.props.subtitle).toContain('originally LKR -1,000');
+    expect(spend.props.right.props).toMatchObject({ value: 1440, currency: 'INR' });
+    expect(refund.props.right.props).toMatchObject({ value: -291, currency: 'INR' });
+    expect(byTestID(renderer.root, 'spending-period-transaction-other-spend').props.subtitle)
+      .not.toContain('originally');
+    await act(async () => { renderer.unmount(); });
+  });
+
   it('shows every expense and refund behind the trip bar with the matching net total', async () => {
     const renderer = await mount();
     const rows = renderer.root.findAll((node) => node.type === 'ListRow');

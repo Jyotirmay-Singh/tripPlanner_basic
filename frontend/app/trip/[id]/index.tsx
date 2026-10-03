@@ -959,7 +959,7 @@ export default function TripDetail() {
                     {e.original_currency && e.original_currency !== trip.currency
                       && e.original_amount != null ? (
                       <T variant="caption" muted testID={`expense-original-${e.id}`}>
-                        originally {formatMoney(Number(e.original_amount), { currency: e.original_currency })}
+                        originally {formatMoney(Number(e.original_amount), { currency: e.original_currency, currencyDisplay: 'code' })}
                       </T>
                     ) : null}
                     </View>

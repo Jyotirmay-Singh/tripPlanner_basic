@@ -70,6 +70,23 @@ beforeEach(() => {
 });
 
 describe('member spending detail screen', () => {
+  it('shows the original LKR code while preserving the canonical INR payment', async () => {
+    const originalApi = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation((url: string) => url === '/trips/t1/expenses'
+      ? Promise.resolve([{
+        id: 'e-lkr', amount: 1440, category: 'Food', description: 'Lunch',
+        date: '25-09-26', paid_by_member_id: 'a', split_mode: 'PER_CAPITA',
+        original_amount: '4950', original_currency: 'LKR',
+      }])
+      : originalApi(url));
+    let renderer: any;
+    await act(async () => { renderer = TestRenderer.create(<MemberSpendDetail />); });
+    const row = renderer.root.findByType('ListRow' as any);
+    expect(row.props.subtitle).toContain('originally LKR 4,950');
+    expect(row.props.right.props).toMatchObject({ value: 1440, currency: 'INR' });
+    await act(async () => { renderer.unmount(); });
+  });
+
   it('uses a professional title and only shows payment history details', async () => {
     let renderer: any;
     await act(async () => { renderer = TestRenderer.create(<MemberSpendDetail />); });

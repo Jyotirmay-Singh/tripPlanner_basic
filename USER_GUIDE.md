@@ -368,6 +368,9 @@ does not include the expense amount, split, receipt, or any account contact deta
 ### 5.2 Edit or delete a transaction
 - The **Expenses** tab lists transactions **newest first**, ordered by each transaction's own **date and time**. A transaction with a time sorts by that time; one with only a date sorts by when it was added, so a freshly added expense appears at the top.
 - **Expenses** tab → tap any transaction → opens the **Edit Transaction** screen with the same form pre-filled.
+- Converted transactions show the original amount with its currency code in Expenses and category,
+  member, and spending-period details, for example **originally LKR 1,000**.
+
 - Converted transactions retain both the original and official-currency values. Editing only the
   description, category, payer, receipt, or participants keeps the locked rate and converted amount.
   Changing the original amount, currency, date, or rate mode requires a new approved preview. Use

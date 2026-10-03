@@ -250,6 +250,41 @@ beforeEach(() => {
   mockSearchParams = { id: 't1' };
 });
 
+it.each([
+  { currency: 'LKR', originalAmount: '1000', amount: 291, label: 'LKR 1,000' },
+  { currency: 'LKR', originalAmount: 4950, amount: 1440, label: 'LKR 4,950' },
+  { currency: 'LKR', originalAmount: '-1000', amount: -291, label: 'LKR -1,000' },
+  { currency: 'LKR', originalAmount: '0', amount: 0, label: 'LKR 0' },
+  { currency: 'USD', originalAmount: '1000', amount: 83000, label: 'USD 1,000' },
+  { currency: 'JPY', originalAmount: '1000', amount: 550, label: 'JPY 1,000' },
+  { currency: 'CNY', originalAmount: '1000', amount: 12000, label: 'CNY 1,000' },
+])('shows the original currency code for $currency $originalAmount', async ({ currency, originalAmount, amount, label }) => {
+  const renderer = await mountTrip({ expenses: [{
+    ...expense(amount, 'converted'), currency: 'INR',
+    original_currency: currency, original_amount: originalAmount,
+  }] });
+  act(() => renderer.root.findByType('SegmentedControl' as any).props.onChange('expenses'));
+
+  expect(textContent(hostByTestID(renderer.root, 'T', 'expense-original-converted')))
+    .toBe('originally ' + label);
+  const transactionAmount = hostByTestID(renderer.root, 'Card', 'expense-item-converted')
+    .findByType('ResponsiveAmountText' as any);
+  expect(transactionAmount.props).toMatchObject({ value: amount, currency: 'INR', showCurrency: false });
+  await act(async () => { renderer.unmount(); });
+});
+
+it('omits original currency labels for same-currency and incomplete legacy transactions', async () => {
+  const renderer = await mountTrip({ expenses: [
+    expense(100, 'legacy'),
+    { ...expense(200, 'same'), original_currency: 'INR', original_amount: '200' },
+    { ...expense(300, 'missing'), original_currency: 'LKR', original_amount: null },
+  ] });
+  act(() => renderer.root.findByType('SegmentedControl' as any).props.onChange('expenses'));
+  expect(renderer.root.findAll((node: any) => node.type === 'T'
+    && node.props.testID?.startsWith('expense-original-'))).toHaveLength(0);
+  await act(async () => { renderer.unmount(); });
+});
+
 it('shows a compact search control in dark mode and clears the query for a new expense target, trip, or account', async () => {
   const renderer = await mountTrip({
     expenses: [{ ...expense(100, 'target'), description: 'Food stall' }],
