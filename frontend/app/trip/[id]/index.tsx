@@ -583,10 +583,10 @@ export default function TripDetail() {
 
       <View style={styles.actionsRow}>
         <View style={styles.actionButton}>
-          <Button label="Expense" icon="plus" onPress={() => router.push(`/trip/${id}/add-expense`)} fullWidth testID="trip-add-expense" style={styles.actionButtonControl} />
+          <Button label="Expense" icon="plus" size="sm" onPress={() => router.push(`/trip/${id}/add-expense`)} fullWidth testID="trip-add-expense" style={styles.actionButtonControl} />
         </View>
         <View style={styles.actionButton}>
-          <Button label="Settle Up" icon="arrow-left-right" variant="secondary" onPress={() => router.push(`/trip/${id}/settle-up`)} fullWidth testID="trip-settle-up" style={styles.actionButtonControl} />
+          <Button label="Settle Up" icon="arrow-left-right" size="sm" variant="secondary" onPress={() => router.push(`/trip/${id}/settle-up`)} fullWidth testID="trip-settle-up" style={styles.actionButtonControl} />
         </View>
         {meCanEditSettings && !offlineView && (
           <IconButton name="pencil" variant="surface" onPress={() => router.push(`/trip/${id}/edit`)} accessibilityLabel="Edit trip" testID="trip-edit" size={18} touchSize={COMPONENT_SIZE.minTouchTarget} />
@@ -1340,10 +1340,10 @@ const styles = StyleSheet.create({
   },
   compositionText: { opacity: 0.85, flex: 1, minWidth: 0 },
   actionsRow: {
-    flexDirection: 'column', gap: SPACING.sm, alignItems: 'stretch',
+    flexDirection: 'row', flexWrap: 'nowrap', gap: SPACING.sm, alignItems: 'center',
   },
-  actionButton: { flexGrow: 1, flexShrink: 0, maxWidth: '100%' },
-  actionButtonControl: { minHeight: COMPONENT_SIZE.minTouchTarget },
+  actionButton: { flex: 1, minWidth: 0 },
+  actionButtonControl: { minHeight: COMPONENT_SIZE.minTouchTarget, paddingHorizontal: SPACING.xs },
   expenseSearchRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   expenseSearchInput: { flex: 1, minWidth: 0 },
   budgetUsageContent: { gap: SPACING.sm },

@@ -701,13 +701,25 @@ export function chatSocketUrl(tripId: string): string {
 }
 
 
-/** Expense bodies remain arrays; only the explicit server marker establishes completeness. */
+// Older servers return at most 1,000 expenses. An unmarked list at that boundary may be truncated.
+const LEGACY_EXPENSE_LIST_LIMIT = 1000;
+
+/** Prefer body metadata so browser header exposure cannot hide complete expense analytics. */
 export async function readExpenses<T = any>(tripId: string): Promise<{ items: T[]; complete: boolean }> {
-  let complete = false;
-  const items = await api<T[]>(`/trips/${tripId}/expenses`, {
+  let marker: string | null = null;
+  const data = await api<unknown>(`/trips/${tripId}/expenses?include_metadata=true`, {
     timeoutMs: 10_000,
-    onResponse: (response) => { complete = response.headers.get('X-Expense-List-Complete') === 'true'; },
+    onResponse: (response) => { marker = response.headers.get('X-Expense-List-Complete'); },
   });
-  if (!Array.isArray(items)) throw new Error('Invalid expense list response');
-  return { items, complete };
+  if (Array.isArray(data)) {
+    return {
+      items: data as T[],
+      complete: marker === 'true' || (marker === null && data.length < LEGACY_EXPENSE_LIST_LIMIT),
+    };
+  }
+  if (data && typeof data === 'object' && 'items' in data && 'complete' in data
+    && Array.isArray(data.items) && typeof data.complete === 'boolean') {
+    return { items: data.items as T[], complete: data.complete };
+  }
+  throw new Error('Invalid expense list response');
 }

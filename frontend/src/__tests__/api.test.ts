@@ -246,12 +246,69 @@ it('posts exact decimal strings and an optional reviewed quote to the handoff pr
   }));
 });
 
-it.each([['true', true], [null, false], ['false', false]])('uses only the explicit completeness marker %s', async (marker, complete) => {
+it.each([['true', true], [null, true], ['false', false], ['invalid', false]])(
+  'honors explicit headers and supports uncapped legacy lists: %s', async (marker, complete) => {
+    process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+    jest.resetModules();
+    const { readExpenses } = require('../api');
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce({ ok: true, status: 200,
+      text: async () => JSON.stringify([{ id: 'oldest', category: 'Food', amount: 1 }]),
+      headers: { get: () => marker } } as any);
+    await expect(readExpenses('t')).resolves.toEqual({ items: [{ id: 'oldest', category: 'Food', amount: 1 }], complete });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toBe('https://api.example.test/api/trips/t/expenses?include_metadata=true');
+  },
+);
+
+it.each([[0, true], [999, true], [1000, false], [1001, false]])(
+  'keeps unmarked legacy expense lists safe at the old row limit: %i', async (size, complete) => {
+    process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+    jest.resetModules();
+    const { readExpenses } = require('../api');
+    const items = Array.from({ length: size }, (_, id) => ({ id: String(id), amount: 1 }));
+    jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce({ ok: true, status: 200,
+      text: async () => JSON.stringify(items), headers: { get: () => null } } as any);
+    await expect(readExpenses('t')).resolves.toEqual({ items, complete });
+  },
+);
+
+it.each([0, 1000, 5001])('accepts body completeness without readable headers for %i expenses', async (size) => {
+  process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+  jest.resetModules();
+  const { readExpenses } = require('../api');
+  const items = Array.from({ length: size }, (_, id) => ({ id: String(id), amount: 1 }));
+  jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce({ ok: true, status: 200,
+    text: async () => JSON.stringify({ items, complete: true }), headers: { get: () => null } } as any);
+  await expect(readExpenses('t')).resolves.toEqual({ items, complete: true });
+});
+
+it('keeps an explicitly incomplete body unverified even with a complete header', async () => {
   process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
   jest.resetModules();
   const { readExpenses } = require('../api');
   jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce({ ok: true, status: 200,
-    text: async () => JSON.stringify([{ id: 'oldest', category: 'Food', amount: 1 }]),
-    headers: { get: () => marker } } as any);
-  await expect(readExpenses('t')).resolves.toEqual({ items: [{ id: 'oldest', category: 'Food', amount: 1 }], complete });
+    text: async () => JSON.stringify({ items: [{ id: 'partial', amount: 1 }], complete: false }),
+    headers: { get: () => 'true' } } as any);
+  await expect(readExpenses('t')).resolves.toMatchObject({ complete: false });
 });
+
+it('accepts an explicitly complete legacy array above the old row limit', async () => {
+  process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+  jest.resetModules();
+  const { readExpenses } = require('../api');
+  const items = Array.from({ length: 1001 }, (_, id) => ({ id: String(id), amount: 1 }));
+  jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce({ ok: true, status: 200,
+    text: async () => JSON.stringify(items), headers: { get: () => 'true' } } as any);
+  await expect(readExpenses('t')).resolves.toEqual({ items, complete: true });
+});
+
+it.each([{}, { items: [], complete: 'true' }, { items: null, complete: true }, null])(
+  'rejects an invalid expense response rather than displaying invented totals: %j', async (data) => {
+    process.env.EXPO_PUBLIC_BACKEND_URL = 'https://api.example.test';
+    jest.resetModules();
+    const { readExpenses } = require('../api');
+    jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce({ ok: true, status: 200,
+      text: async () => JSON.stringify(data), headers: { get: () => null } } as any);
+    await expect(readExpenses('t')).rejects.toThrow('Invalid expense list response');
+  },
+);

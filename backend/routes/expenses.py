@@ -413,7 +413,9 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
 
 
 @router.get("/trips/{trip_id}/expenses")
-async def list_expenses(trip_id: str, response: Response, user=Depends(get_current_user)):
+async def list_expenses(
+    trip_id: str, response: Response, include_metadata: bool = False, user=Depends(get_current_user)
+):
     trip = await _trip_or_404(trip_id, user)
     # Step 22: never return the heavy receipt bytes in the list. Expose a lightweight
     # `has_receipt` flag (true for a GridFS receipt_id OR a legacy inline blob) so the client
@@ -437,7 +439,11 @@ async def list_expenses(trip_id: str, response: Response, user=Depends(get_curre
         # never feeds balances/settle-up. No existing field is removed or changed.
         e["shares"] = expense_share_breakdown(e, trip["members"])
     response.headers["X-Expense-List-Complete"] = "true"
-    return serialize_bson(expenses)
+    items = serialize_bson(expenses)
+    # Opt-in body metadata works even when a browser or proxy cannot expose the legacy header.
+    if include_metadata:
+        return {"items": items, "complete": True}
+    return items
 
 
 @router.get("/trips/{trip_id}/expenses/{expense_id}")
