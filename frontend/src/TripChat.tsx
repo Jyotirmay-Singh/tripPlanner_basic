@@ -143,6 +143,7 @@ export default function TripChat({
     const index = controller.messages.findIndex((message) => message.id === focusMessageId);
     if (index < 0) return;
     focusedMessageId.current = focusMessageId;
+    initialScrollDone.current = true;
     nearBottom.current = index === controller.messages.length - 1;
     requestAnimationFrame(() => listRef.current?.scrollToIndex({
       index, animated: false, viewPosition: 0.5,
@@ -156,8 +157,20 @@ export default function TripChat({
 
   const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    nearBottom.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 120;
+    const isNearBottom = contentSize.height - contentOffset.y - layoutMeasurement.height < 120;
+    if (!initialScrollDone.current && !isNearBottom) return;
+    initialScrollDone.current = true;
+    nearBottom.current = isNearBottom;
     if (nearBottom.current) setShowJump(false);
+  };
+
+  const scrollAfterLayout = () => {
+    if (!controller.messages.length) return;
+    requestAnimationFrame(() => {
+      if (!initialScrollDone.current || nearBottom.current) {
+        listRef.current?.scrollToEnd({ animated: false });
+      }
+    });
   };
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
@@ -434,6 +447,7 @@ export default function TripChat({
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         onScroll={onScroll}
+        onScrollBeginDrag={() => { initialScrollDone.current = true; }}
         scrollEventThrottle={100}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
@@ -442,17 +456,8 @@ export default function TripChat({
             offset: Math.max(0, index * averageItemLength), animated: false,
           });
         }}
-        onContentSizeChange={() => {
-          if (!initialScrollDone.current && controller.messages.length) {
-            initialScrollDone.current = true;
-            listRef.current?.scrollToEnd({ animated: false });
-          }
-        }}
-        onLayout={() => {
-          if (initialScrollDone.current && nearBottom.current) {
-            requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
-          }
-        }}
+        onContentSizeChange={scrollAfterLayout}
+        onLayout={scrollAfterLayout}
         testID="trip-chat-list"
       />
 
