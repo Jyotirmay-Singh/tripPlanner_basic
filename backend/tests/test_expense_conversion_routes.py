@@ -50,7 +50,7 @@ def test_budget_warning_details_expose_whole_overage_and_iso_currency():
     )
 
     assert result == {
-        "warning": "This expense puts you 500 GBP over the trip budget.",
+        "warning": "This expense puts you 500 GBP over the group budget.",
         "budget_overage": 500,
         "currency": "GBP",
     }

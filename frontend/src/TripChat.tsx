@@ -34,7 +34,7 @@ import {
 } from './theme';
 import type { TripChatController } from './useTripChat';
 import { ActionSheet, Button, Icon, IconButton, useToast } from './ui';
-import { KeyboardStickyView, useAppKeyboardState } from './KeyboardController';
+import { KeyboardAvoidingView, useAppKeyboardState } from './KeyboardController';
 
 type Props = {
   header: React.ReactNode;
@@ -74,6 +74,7 @@ export default function TripChat({
   const listRef = useRef<FlatList<LocalChatMessage>>(null);
   const initialScrollDone = useRef(false);
   const nearBottom = useRef(true);
+  const lastScrollOffset = useRef(0);
   const lastMarked = useRef(0);
   const controllerRef = useRef(controller);
   const focusedMessageId = useRef<string | null>(null);
@@ -157,8 +158,12 @@ export default function TripChat({
 
   const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const didScroll = Math.abs(contentOffset.y - lastScrollOffset.current) > 1;
+    lastScrollOffset.current = contentOffset.y;
     const isNearBottom = contentSize.height - contentOffset.y - layoutMeasurement.height < 120;
     if (!initialScrollDone.current && !isNearBottom) return;
+    // Resizing the keyboard or composer changes the bottom distance without scrolling the list.
+    if (!isNearBottom && !didScroll) return;
     initialScrollDone.current = true;
     nearBottom.current = isNearBottom;
     if (nearBottom.current) setShowJump(false);
@@ -429,10 +434,13 @@ export default function TripChat({
     </View>
   );
 
-  const visibleKeyboardHeight = keyboard.isVisible ? keyboard.height : 0;
-
   return (
-    <View style={styles.root} testID="trip-chat-keyboard-view">
+    <KeyboardAvoidingView
+      behavior="padding"
+      automaticOffset
+      style={styles.root}
+      testID="trip-chat-keyboard-view"
+    >
       <FlatList
         ref={listRef}
         style={styles.list}
@@ -440,10 +448,7 @@ export default function TripChat({
         keyExtractor={chatMessageKey}
         renderItem={renderMessage}
         ListHeaderComponent={listHeader}
-        contentContainerStyle={[
-          styles.listContent,
-          visibleKeyboardHeight > 0 && { paddingBottom: visibleKeyboardHeight + SPACING.xl },
-        ]}
+        contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         onScroll={onScroll}
@@ -461,11 +466,7 @@ export default function TripChat({
         testID="trip-chat-list"
       />
 
-      <KeyboardStickyView
-        offset={{ closed: 0, opened: 0 }}
-        style={styles.stickyComposer}
-        testID="trip-chat-keyboard-sticky"
-      >
+      <View style={styles.composerContainer} testID="trip-chat-composer">
         {showJump ? (
           <Pressable
             onPress={() => {
@@ -474,6 +475,7 @@ export default function TripChat({
               setShowJump(false);
             }}
             accessibilityRole="button"
+            accessibilityLabel="Jump to latest messages"
             style={[styles.jump, { backgroundColor: colors.primary }]}
           >
             <T variant="caption" color={colors.primaryText} style={{ fontFamily: FONTS.bodyBold }}>New messages ↓</T>
@@ -570,7 +572,7 @@ export default function TripChat({
           ) : null}
           </View>
         </View>
-      </KeyboardStickyView>
+      </View>
 
       <ActionSheet
         visible={!!selected}
@@ -619,7 +621,7 @@ export default function TripChat({
           },
         ]}
       />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -659,7 +661,7 @@ const styles = StyleSheet.create({
     position: 'absolute', alignSelf: 'center', bottom: 92, zIndex: 2, paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.sm, borderRadius: RADIUS.pill,
   },
-  stickyComposer: { zIndex: 1, elevation: 1 },
+  composerContainer: { zIndex: 1, elevation: 1 },
   composerShell: { borderTopWidth: 1, paddingHorizontal: SPACING.md, paddingTop: SPACING.sm },
   composerInner: { width: '100%', alignSelf: 'center' },
   composer: {

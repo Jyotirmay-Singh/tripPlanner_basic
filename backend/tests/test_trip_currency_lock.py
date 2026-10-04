@@ -18,4 +18,4 @@ def test_official_currency_cannot_change_after_trip_creation(monkeypatch):
         ))
 
     assert caught.value.status_code == 409
-    assert caught.value.detail == "Official currency cannot be changed after trip creation"
+    assert caught.value.detail == "Official currency cannot be changed after group creation"

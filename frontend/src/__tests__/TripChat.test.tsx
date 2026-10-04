@@ -1,6 +1,6 @@
 /* eslint-disable import/first, @typescript-eslint/no-require-imports */
 import React from 'react';
-import { StyleSheet, Text, TextInput } from 'react-native';
+import { FlatList, Platform, StyleSheet, Text, TextInput } from 'react-native';
 import TestRenderer, { act } from 'react-test-renderer';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 
@@ -48,6 +48,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => { jest.runOnlyPendingTimers(); });
   jest.useRealTimers();
+  jest.restoreAllMocks();
 });
 
 const baseController = (): TripChatController => ({
@@ -78,6 +79,16 @@ function textContent(renderer: any): string {
   return renderer.root.findAllByType(Text).map((node: any) => node.props.children).flat(Infinity).join(' ');
 }
 
+function scrollEvent(viewportHeight: number, offsetY: number) {
+  return {
+    nativeEvent: {
+      contentOffset: { x: 0, y: offsetY },
+      contentSize: { width: 360, height: 2000 },
+      layoutMeasurement: { width: 360, height: viewportHeight },
+    },
+  };
+}
+
 it('renders every sender label, family context, edited state, and composer limit', async () => {
   const controller = baseController();
   let renderer: any;
@@ -95,8 +106,11 @@ it('renders every sender label, family context, edited state, and composer limit
   expect(renderer.root.findByProps({ testID: 'chat-composer' }).props.maxLength).toBe(2000);
   expect(renderer.root.findByProps({ testID: 'chat-owner-options' })).toBeTruthy();
   expect(renderer.root.findByProps({ testID: 'trip-chat-keyboard-view' })).toBeTruthy();
-  expect(renderer.root.findByProps({ testID: 'trip-chat-keyboard-sticky' }).props.offset)
-    .toEqual({ closed: 0, opened: 0 });
+  const keyboardView = renderer.root.findByProps({ testID: 'trip-chat-keyboard-view' });
+  expect(keyboardView.props.behavior).toBe('padding');
+  expect(keyboardView.props.automaticOffset).toBe(true);
+  expect(keyboardView.findByProps({ testID: 'trip-chat-list' })).toBeTruthy();
+  expect(keyboardView.findByProps({ testID: 'chat-composer' })).toBeTruthy();
   expect(renderer.root.findByProps({ testID: 'chat-composer' }).props)
     .toEqual(expect.objectContaining({ multiline: true, submitBehavior: 'newline' }));
   act(() => renderer.unmount());
@@ -120,7 +134,7 @@ it('shows the themed composer focus border without changing the draft', async ()
   act(() => renderer.unmount());
 });
 
-it('reserves keyboard space for messages and removes the obsolete bottom safe-area gap', async () => {
+it('uses one keyboard adjustment for the list and composer and removes the bottom safe-area gap', async () => {
   mockUseKeyboardState.mockImplementation((selector: any) => selector({
     height: 320,
     isVisible: true,
@@ -139,8 +153,92 @@ it('reserves keyboard space for messages and removes the obsolete bottom safe-ar
   const shellStyle = StyleSheet.flatten(
     renderer.root.findByProps({ testID: 'chat-composer-shell' }).props.style,
   );
-  expect(listStyle.paddingBottom).toBe(352);
+  expect(listStyle.paddingBottom).toBe(32);
   expect(shellStyle.paddingBottom).toBe(8);
+  act(() => renderer.unmount());
+});
+
+it.each(['ios', 'android'] as const)('keeps following the latest messages as the keyboard and multiline composer resize on %s', async (platform) => {
+  jest.replaceProperty(Platform, 'OS', platform);
+  const scrollToEnd = jest.spyOn(FlatList.prototype, 'scrollToEnd').mockImplementation(() => {});
+  let controller = baseController();
+  const renderChat = () => (
+    <TripChat header={null} controller={controller} currentUserId="u1" isOwner={false} canSend />
+  );
+  let renderer: any;
+  await act(async () => { renderer = TestRenderer.create(renderChat()); });
+  let list = renderer.root.findByProps({ testID: 'trip-chat-list' });
+
+  act(() => list.props.onScroll(scrollEvent(600, 1400)));
+  act(() => {
+    // Native keyboard animation changes the viewport before the JS keyboard state settles.
+    list.props.onScroll(scrollEvent(280, 1400));
+    list.props.onLayout();
+    jest.runOnlyPendingTimers();
+  });
+  expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
+
+  mockUseKeyboardState.mockImplementation((selector: any) => selector({ height: 320, isVisible: true }));
+  act(() => {
+    renderer.root.findByProps({ testID: 'chat-composer' }).props.onChangeText('First line\nSecond line\nThird line');
+    renderer.update(renderChat());
+  });
+  act(() => { jest.runOnlyPendingTimers(); });
+  scrollToEnd.mockClear();
+  list = renderer.root.findByProps({ testID: 'trip-chat-list' });
+  act(() => {
+    list.props.onScroll(scrollEvent(200, 1400));
+    list.props.onLayout();
+    jest.runOnlyPendingTimers();
+  });
+  expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
+
+  scrollToEnd.mockClear();
+  controller = {
+    ...controller,
+    messages: [...controller.messages, {
+      ...controller.messages[0], id: 'm3', client_message_id: 'c3', sequence: 3, text: 'See you there',
+    }],
+  };
+  act(() => renderer.update(renderChat()));
+  act(() => { jest.runOnlyPendingTimers(); });
+  expect(scrollToEnd).toHaveBeenCalledWith({ animated: true });
+  expect(textContent(renderer)).not.toContain('New messages ↓');
+  expect(renderer.root.findByProps({ testID: 'chat-composer' }).props.value).toBe('First line\nSecond line\nThird line');
+  act(() => renderer.unmount());
+});
+
+it('preserves older-message reading while typing and offers an explicit jump for new messages', async () => {
+  const scrollToEnd = jest.spyOn(FlatList.prototype, 'scrollToEnd').mockImplementation(() => {});
+  let controller = baseController();
+  const renderChat = () => (
+    <TripChat header={null} controller={controller} currentUserId="u1" isOwner={false} canSend />
+  );
+  let renderer: any;
+  await act(async () => { renderer = TestRenderer.create(renderChat()); });
+  let list = renderer.root.findByProps({ testID: 'trip-chat-list' });
+  act(() => {
+    list.props.onScroll(scrollEvent(600, 1400));
+    list.props.onScrollBeginDrag();
+    list.props.onScroll(scrollEvent(600, 800));
+  });
+  mockUseKeyboardState.mockImplementation((selector: any) => selector({ height: 320, isVisible: true }));
+  controller = {
+    ...controller,
+    messages: [...controller.messages, { ...controller.messages[0], id: 'm3', client_message_id: 'c3', sequence: 3 }],
+  };
+  act(() => renderer.update(renderChat()));
+  list = renderer.root.findByProps({ testID: 'trip-chat-list' });
+  act(() => {
+    list.props.onLayout();
+    list.props.onContentSizeChange();
+    jest.runOnlyPendingTimers();
+  });
+  expect(scrollToEnd).not.toHaveBeenCalled();
+  expect(textContent(renderer)).toContain('New messages ↓');
+  const jump = renderer.root.findByProps({ accessibilityLabel: 'Jump to latest messages' });
+  act(() => jump.props.onPress());
+  expect(scrollToEnd).toHaveBeenCalledWith({ animated: true });
   act(() => renderer.unmount());
 });
 
