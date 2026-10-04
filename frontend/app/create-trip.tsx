@@ -110,7 +110,6 @@ export default function CreateTrip() {
               value={name}
               onChangeText={(value) => { setName(value); if (fieldError?.field === 'name') setFieldError(null); }}
               placeholder="e.g. Household expenses"
-              icon="plane"
               autoCapitalize="words"
               returnKeyType="next"
               error={fieldError?.field === 'name' ? fieldError.message : null}
