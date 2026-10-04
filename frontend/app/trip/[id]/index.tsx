@@ -893,21 +893,23 @@ export default function TripDetail() {
                     testID={`pending-expense-item-${item.clientMutationId}`}>
                     <View style={styles.expenseCardContent}>
                       <CategoryBadge name={String(payload.category)} />
-                      <View style={{ width: '100%', minWidth: 0 }}>
-                        <T variant="h4">
+                      <View style={styles.expenseDetails}>
+                        <T variant="h4" numberOfLines={2}>
                           {String(payload.description || payload.category)}
                         </T>
-                        <T variant="caption" muted>
+                        <T variant="caption" muted numberOfLines={1}>
                           {String(payload.date)} · {String(payload.category)} · by {pendingMemberName(item, payload.paid_by_member_id, trip)}
                         </T>
                         <T variant="caption" color={colors.warning}
                           accessibilityLabel={`${status}. Saved on this device; not included in confirmed totals.`}
                           testID={`pending-expense-status-${item.clientMutationId}`}>{status}</T>
                       </View>
-                      <ResponsiveAmountText value={amount} currency={pendingCurrency}
-                        showCurrency={foreignCurrency}
-                        currencyDisplay={foreignCurrency ? 'code' : undefined}
-                        label="Pending transaction amount" color={amount < 0 ? colors.success : colors.textMain} />
+                      <View style={styles.expenseAmount}>
+                        <ResponsiveAmountText value={amount} currency={pendingCurrency}
+                          showCurrency={foreignCurrency}
+                          currencyDisplay={foreignCurrency ? 'code' : undefined}
+                          label="Pending transaction amount" color={amount < 0 ? colors.success : colors.textMain} />
+                      </View>
                     </View>
                   </Card>
                 );
@@ -932,9 +934,9 @@ export default function TripDetail() {
                   testID={`expense-item-${e.id}`}>
                   <View style={styles.expenseCardContent}>
                     <CategoryBadge name={e.category} />
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <T variant="h4">{e.description || e.category}</T>
-                      <T muted variant="caption">
+                    <View style={styles.expenseDetails}>
+                      <T variant="h4" numberOfLines={2}>{e.description || e.category}</T>
+                      <T muted variant="caption" numberOfLines={1}>
                         {e.date}{e.time ? ` · ${formatTime12h(e.time)}` : ''} · {e.category} · by {displayNames[e.paid_by_member_id] || '?'}
                       </T>
                       {e.has_receipt ? (
@@ -947,25 +949,25 @@ export default function TripDetail() {
                         <T variant="caption" color={colors.textMuted} style={{ marginTop: 4 }}>{billLabel(e)}</T>
                       )}
                     </View>
-                    <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                    <View style={styles.expenseAmount}>
                       {tripSettled ? <Badge label="Settled" color={colors.success} /> : null}
-                    <ResponsiveAmountText
-                      value={e.amount}
-                      currency={trip.currency}
-                      showCurrency={false}
-                      label="Transaction amount"
-                      color={e.amount < 0 ? colors.success : colors.textMain}
-                    />
-                    {e.original_currency && e.original_currency !== trip.currency
-                      && e.original_amount != null ? (
-                      <T variant="caption" muted testID={`expense-original-${e.id}`}>
-                        originally {formatMoney(Number(e.original_amount), { currency: e.original_currency, currencyDisplay: 'code' })}
-                      </T>
-                    ) : null}
+                      <ResponsiveAmountText
+                        value={e.amount}
+                        currency={trip.currency}
+                        showCurrency={false}
+                        label="Transaction amount"
+                        color={e.amount < 0 ? colors.success : colors.textMain}
+                      />
+                      {e.original_currency && e.original_currency !== trip.currency
+                        && e.original_amount != null ? (
+                        <T variant="caption" muted testID={`expense-original-${e.id}`} style={{ textAlign: 'right' }}>
+                          originally {formatMoney(Number(e.original_amount), { currency: e.original_currency, currencyDisplay: 'code' })}
+                        </T>
+                      ) : null}
+                      {!offlineView && canModifyExpense(e, user?.id, trip, isApplicationAdmin) && (
+                        <IconButton name="trash" onPress={() => deleteExpense(e)} accessibilityLabel="Delete transaction" testID={`expense-del-${e.id}`} size={18} color={colors.danger} />
+                      )}
                     </View>
-                    {!offlineView && canModifyExpense(e, user?.id, trip, isApplicationAdmin) && (
-                      <IconButton name="trash" onPress={() => deleteExpense(e)} accessibilityLabel="Delete transaction" testID={`expense-del-${e.id}`} size={18} color={colors.danger} />
-                    )}
                   </View>
                   {/* DISPLAY-only "Split details": payer fronted the money; participants owe computed
                       shares (negative amounts read as credits via the minus sign). Its own touchable
@@ -1358,7 +1360,9 @@ const styles = StyleSheet.create({
   overBudgetRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.xs },
   overBudgetText: { flex: 1, minWidth: 0 },
   rowCard: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
-  expenseCardContent: { alignItems: 'stretch', gap: SPACING.sm },
+  expenseCardContent: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  expenseDetails: { flex: 1, minWidth: 0 },
+  expenseAmount: { alignItems: 'flex-end', gap: SPACING.xs, maxWidth: '44%', minWidth: 0, flexShrink: 1 },
   familyPerson: { paddingVertical: SPACING.sm, gap: SPACING.xs },
   personHeading: {
     flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: SPACING.sm,

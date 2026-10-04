@@ -40,17 +40,21 @@ A simple, multi-user mobile app to track shared expenses, split costs fairly bet
   empty history. Reconnect and open that view to refresh it. Saved confirmed copies can be removed
   after 30 days. A group copy needed for an unresolved local action is retained. Reopen the group
   online to refresh its copy.
-- The saved Add Expense form lets you review the roster and split preview offline. In ordinary
-  builds, transactions, refunds, receipts, and manual payments **cannot yet be saved offline**:
-  Android offline capture remains disabled pending device verification. Keep a separate note until
-  you can reconnect. A disposable **Trip Splitter QA** APK enables offline expense/refund and manual
-  payment capture for test accounts under a separate Android package ID. A foreign-currency amount
-  stays in its original currency with **Conversion review needed** until reconnecting supplies a
-  server quote and you approve it. Pending entries do not change confirmed totals until the server
-  accepts them. Follow the [Android QA runbook](docs/OFFLINE_ANDROID_QA_RUNBOOK.md) before
-  using it. Settle Up can show saved payment history, but UPI attempt activity and UPI payments
-  require a connection. Web and iOS still require a connection for group data.
-- Android automatic backup is disabled for this app's local financial cache. If a test build has
+- **Android offline saves (enabled in source after build 18; an updated APK is required):** open the
+  group and Settle Up online before leaving coverage so their details and sync support are saved.
+  In the saved Add Expense form, enter an expense or refund in the group's currency, choose the
+  payer and split, and tap **Save on device**. It appears as **Pending sync** and survives reopening
+  the app. Eligible receivers and admins can also **Record payment** against a saved suggestion
+  after money has already been exchanged. When the server becomes reachable while the app is
+  running, or you reopen the app online, these saved entries sync automatically to the same group.
+  Confirmed totals, budgets, and payment suggestions change only after server acceptance.
+  A budget or membership conflict remains saved under **Needs review**. A foreign-currency amount
+  stays in its original currency with **Conversion review needed** until you approve a server quote
+  after reconnecting. Receipt upload is available through **Edit Transaction** after sync.
+  New groups, membership changes, and UPI payments require a connection. Web and iOS require a
+  connection for group data. Build 18 keeps offline capture disabled; this source update does not
+  change an already installed APK. Device verification of the updated build is still pending.
+- Android automatic backup is disabled for this app's local financial cache. If any build has
   pending actions, avoid uninstalling the app or clearing its storage before they sync. Uninstall,
   storage clearing, or an unrecoverable encryption-key loss can remove those unsynced actions. If
   the app says saved data cannot be read, keep the installation and ask for support before resetting it.
@@ -328,14 +332,14 @@ across standalone individuals, family entries, and joined app users.
    - **Manual / card** lets you enter either the bank/card rate or the final charged/refunded amount
      in the group currency (as a positive magnitude; the original minus sign is preserved).
    - Check the original amount, converted amount, rate, effective date, provider/cache status, then
-     tap **Use this conversion**. A foreign transaction cannot be saved without this confirmation.
+     tap **Use this conversion**. A foreign transaction cannot sync without this confirmation.
    - Money fields accept signed whole numbers only, so a pasted decimal is rejected. A manual
      exchange-rate ratio may still contain decimals, while a manual final amount must be whole.
      Calculated conversions round half-up to a whole unit in the group currency.
-   - A same-currency transaction uses rate 1 and never contacts the rate service. In ordinary builds,
-     foreign-currency entry requires an online backend connection, including for a manual rate or
-     final amount. The disposable Android QA build can save the original foreign amount offline;
-     its automatic server quote must be approved after reconnecting before the expense can sync.
+   - A same-currency transaction uses rate 1 and never contacts the rate service. Android builds
+     containing the offline activation update can save the original foreign amount on the device;
+     its server quote must be approved after reconnecting before the expense can sync. Web, iOS,
+     and Android builds with offline capture disabled require an online connection for conversion.
    - The app checks the backend capability before allowing a foreign-currency expense. While it is
      **loading**, the app shows that it is checking. **Enabled** allows quoting and confirmation;
      **disabled** means the rollout switch is off; **unknown** means the server could not be reached

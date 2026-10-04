@@ -5,6 +5,7 @@ jest.mock('../../ui/CategoryBadge', () => ({ __esModule: true, default: () => nu
 
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
+import { Platform } from 'react-native';
 
 const mockRefreshRuntimeConfig = jest.fn().mockResolvedValue(undefined);
 const mockToastShow = jest.fn();
@@ -174,6 +175,41 @@ it('opens a saved roster in airplane mode without claiming the form can save', a
     expect(renderer.root.findByProps({ testID: 'offline-read-status' })).toBeTruthy();
   } finally {
     loader.mockRestore();
+  }
+});
+
+it.each(['40', '-40'])('stages an ordinary Android group-currency %s entry from the cached form', async (amount) => {
+  const originalOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  mockExpenseCaptureActive.mockImplementation(jest.requireActual('../../offlineExpenses').expenseCaptureActive);
+  const bundle = { trip: FAMILY_TRIP, expenses: [], balances: { net: {}, transfers: [] },
+    spend: { total: 120, count: 1, entities: [] }, payments: [] };
+  const loader = jest.spyOn(require('../../offlineReads'), 'loadTripReadBundle').mockResolvedValue({
+    data: bundle, source: 'cache', fetchedAt: 1_700_000_000_000,
+  });
+  let renderer: any;
+  try {
+    renderer = await mountScreen();
+    await act(async () => { renderer.root.findByProps({ testID: 'ae-amount' }).props.onChangeText(amount); });
+    const save = renderer.root.findByProps({ testID: 'ae-submit' });
+    expect(save.props.label).toBe('Save on device');
+    expect(save.props.disabled).toBe(false);
+    await act(async () => { save.props.onPress(); });
+    expect(mockCaptureExpense).toHaveBeenCalledTimes(1);
+    expect(mockCaptureExpense.mock.calls[0][0]).toMatchObject({
+      accountId: 'u1', tripId: 't1', operation: 'expense_create', state: 'queued',
+      lastSafeErrorCode: null,
+      payload: { original_amount: amount, original_currency: 'INR',
+        split_member_ids: ['family-1'], expected_roster: { currency: 'INR' } },
+    });
+    expect(apiMock).not.toHaveBeenCalled();
+    expect(bundle.spend).toEqual({ total: 120, count: 1, entities: [] });
+    expect(mockToastShow).toHaveBeenCalledWith('Saved on this device. Pending sync.', 'success');
+    expect(mockRouterBack).toHaveBeenCalledTimes(1);
+  } finally {
+    if (renderer) await act(async () => { renderer.unmount(); });
+    loader.mockRestore();
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: originalOS });
   }
 });
 

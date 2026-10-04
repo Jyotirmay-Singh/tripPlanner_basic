@@ -1,5 +1,11 @@
 # Android offline expense and manual-payment QA
 
+Activation update on 2026-10-04: ordinary Android source now enables the durable expense/payment
+queue by default and in the development/preview/production build profiles. Live production config
+advertises protocols `1/1`; build 18 still has capture disabled and needs an updated APK. The earlier
+flag-off and production-protocol observations below are historical. Native storage-fault, SQLCipher,
+upgrade, and UI/TalkBack checks remain open. Preserve the existing unapproved QA budget-review row.
+
 Status on 2026-10-01: **The everyday QA save, restart, sync, conversion, and
 post-sync attachment flow passed on the isolated QA build. Final cleanup is
 pending because one unapproved budget review row remains on the phone.

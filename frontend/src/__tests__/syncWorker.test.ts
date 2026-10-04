@@ -1,4 +1,5 @@
 import { ApiError } from '../api';
+import { Platform } from 'react-native';
 import { approvedForeignExpense, conversionQuoteFromItem } from '../offlineConversion';
 import { SyncCoordinator } from '../syncWorker';
 import type { OfflineStore, StoredOutboxItem } from '../offlineStore.shared';
@@ -45,7 +46,7 @@ function foreignExpense(): StoredOutboxItem {
   };
 }
 
-function fixture(items: StoredOutboxItem[] = [expense()]) {
+function fixture(items: StoredOutboxItem[] = [expense()], useBuildActivation = false) {
   const rows = new Map(items.map((item) => [item.clientMutationId, item]));
   const syncMeta = new Map<string, number>();
   const store = {
@@ -101,11 +102,44 @@ function fixture(items: StoredOutboxItem[] = [expense()]) {
     },
   }));
   const coordinator = new SyncCoordinator({ store, request: request as unknown as typeof import('../api').api,
-    token: async () => activeToken, refresh, enabled: () => true, now: () => now, random: () => 0.5 });
+    token: async () => activeToken, refresh, ...(useBuildActivation ? {} : { enabled: () => true }),
+    now: () => now, random: () => 0.5 });
   return { rows, store, serverExpenses, serverPayments, post, quote, request, refresh, coordinator,
     setConfig: (next: Partial<typeof config>) => { config = { ...config, ...next }; },
     setToken: (next: string) => { activeToken = next; }, syncMeta };
 }
+
+it('automatically delivers staged expense and payment on reconnect in an ordinary Android build', async () => {
+  const originalOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  const items = [expense(), payment()];
+  const f = fixture(items, true);
+  try {
+    f.request.mockRejectedValueOnce(new ApiError('Offline', { code: 'network' }));
+    f.coordinator.setAccount('account-a');
+    await f.coordinator.waitForIdle();
+    expect(f.post).not.toHaveBeenCalled();
+    expect([...f.rows.values()].map((row) => row.state)).toEqual(['queued', 'queued']);
+
+    f.coordinator.resume('account-a');
+    await f.coordinator.waitForIdle();
+    expect(f.post).toHaveBeenCalledTimes(2);
+    expect(f.post.mock.calls.map(([path]) => path)).toEqual([
+      '/trips/trip-a/expenses', '/trips/trip-a/payments',
+    ]);
+    expect(f.post.mock.calls.map(([, options]) => options.body)).toEqual(items.map((item) => item.payload));
+    expect([...f.rows.values()].map((row) => row.state)).toEqual(['synced', 'synced']);
+
+    f.coordinator.resume('account-a');
+    await f.coordinator.waitForIdle();
+    expect(f.post).toHaveBeenCalledTimes(2);
+    expect(f.serverExpenses.size).toBe(1);
+    expect(f.serverPayments.size).toBe(1);
+  } finally {
+    f.coordinator.setAccount(null);
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: originalOS });
+  }
+});
 
 it('posts only the transaction payload for expense and payment, retaining local display context', async () => {
   const display = { tripName: 'Coast', memberNames: { 'member-a': 'Asha', 'member-b': 'Meera' } };

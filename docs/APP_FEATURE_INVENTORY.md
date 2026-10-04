@@ -1,5 +1,22 @@
 # App Feature Inventory
 
+## Android offline activation update — 4 October 2026
+
+**Implemented in source; updated APK/device verification pending.** Ordinary Android builds now
+enable the existing encrypted durable expense/refund and manual-payment outbox by default, and
+development/preview/production profiles explicitly enable it. Build 18 has capture disabled; it
+requires an APK update to acquire this behavior. Previously opened groups and verified protocol-v1
+support are required. Same-currency entries stage as Pending sync, survive reopening, and sync on
+reconnect/foreground without another save. Confirmed totals remain unchanged until acceptance;
+foreign currency and business conflicts retain explicit review. Existing receipt attachment after
+sync, account boundaries, permission checks, stable IDs, and replay protection are reused.
+
+The live production API advertises protocols `1/1` and multi-currency `true` as of this change.
+Build/activation, cached-form, and default-worker reconnect regressions were added; final command
+results are in ignored `.release-tmp/offline-activation-20261004/RESULTS.md`. Native storage-fault,
+direct SQLCipher inspection, signed upgrade, and UI/TalkBack checks remain open. Earlier dated
+activation-off entries in this inventory are historical snapshots.
+
 This is a code-first inventory of the repository as it existed on 2026-09-15. Plans, roadmap checkboxes, specs, user guides, and Claude instructions were treated as supporting evidence only. A feature is described as current only when a corresponding code path was found.
 
 Status meanings used below:

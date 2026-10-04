@@ -169,7 +169,7 @@ After resolving or explicitly dispositioning each failure, rerun `pytest -q` aga
 
 ## Deferred release gates
 
-- **R01 — Production backend:** Production `/api/meta/config` last omitted both create protocol versions. Deploy the idempotent expense/payment backend only after its transaction-capable MongoDB checks pass; verify both production versions are `1`. Keep ordinary Android offline writes disabled until then. This is a release blocker, independent of local QA success.
+- **R01 — Production backend:** The read-only check on 2026-10-04 returned expense/payment create protocol versions `1/1`, multi-currency `true`, and health `ok` (revision `3a91b55911f5`). Source now enables ordinary Android capture at the user's request; build 18 keeps it disabled. An updated APK and signed/device verification remain required. The public capability response does not establish a live production money-write test.
 - **R02 — Signed upgrade and download:** A signed APK installed over build 17 without clearing data, repeat device journey, and `/download/android` update/verification remain undone. These require a new APK and publication work and are **excluded by the current instruction**. The QA test key cannot upgrade the user's production package.
 
 For the next conversation, cite one ID (for example, “Run D02 with the connected phone” or “Triage A02 exact split”). Finish that ID's cleanup and record its result before starting another.
