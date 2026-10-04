@@ -446,7 +446,7 @@ export default function SettleUp() {
 
   // ---- Presentational pieces ----
   const Parties = ({ from, to, item }: { from: string; to: string; item?: PendingPayment }) => (
-    <View style={{ minWidth: 0, width: '100%' }}>
+    <View style={styles.flex}>
       <View style={styles.partyRow}>
         <View style={[styles.dot, { backgroundColor: colors.danger + '22' }]}>
           <Icon name="arrow-up" size={14} color={colors.danger} />
@@ -514,7 +514,7 @@ export default function SettleUp() {
           <Card key={`${transfer.from_member_id}-${transfer.to_member_id}-${index}`} style={styles.card}>
             <View style={styles.cardTop}>
               <Parties from={transfer.from_member_id} to={transfer.to_member_id} />
-              <View style={{ alignItems: 'flex-end', gap: SPACING.sm }}>
+              <View style={styles.amountColumn}>
                 <AmountText
                   value={transfer.amount}
                   currency={currency}
@@ -522,32 +522,32 @@ export default function SettleUp() {
                   variant="money"
                   testID={`payable-${index}`}
                 />
-                <View style={styles.recommendationActions}>
-                  {canPayViaUpi(transfer.from_member_id) ? (
-                    <Button
-                      label={activeAttempt ? 'UPI pending' : 'Pay via UPI'}
-                      size="sm"
-                      icon="wallet"
-                      onPress={() => openUpiHandoff(transfer)}
-                      disabled={!!activeAttempt}
-                      accessibilityLabel={activeAttempt
-                        ? 'UPI payment already pending for this payer and recipient'
-                        : 'Pay via UPI'}
-                      testID={`upi-pay-${index}`}
-                    />
-                  ) : null}
-                  {allow(transfer.to_member_id) ? (
-                    <Button
-                      label="Record payment"
-                      variant={canPayViaUpi(transfer.from_member_id) ? 'secondary' : 'primary'}
-                      size="sm"
-                      loading={busy}
-                      onPress={() => openRecord(transfer)}
-                      testID={`record-payment-${index}`}
-                    />
-                  ) : null}
-                </View>
               </View>
+            </View>
+            <View style={styles.recommendationActions}>
+              {canPayViaUpi(transfer.from_member_id) ? (
+                <Button
+                  label={activeAttempt ? 'UPI pending' : 'Pay via UPI'}
+                  size="sm"
+                  icon="wallet"
+                  onPress={() => openUpiHandoff(transfer)}
+                  disabled={!!activeAttempt}
+                  accessibilityLabel={activeAttempt
+                    ? 'UPI payment already pending for this payer and recipient'
+                    : 'Pay via UPI'}
+                  testID={`upi-pay-${index}`}
+                />
+              ) : null}
+              {allow(transfer.to_member_id) ? (
+                <Button
+                  label="Record payment"
+                  variant={canPayViaUpi(transfer.from_member_id) ? 'secondary' : 'primary'}
+                  size="sm"
+                  loading={busy}
+                  onPress={() => openRecord(transfer)}
+                  testID={`record-payment-${index}`}
+                />
+              ) : null}
             </View>
           </Card>
           );
@@ -688,7 +688,9 @@ export default function SettleUp() {
               accessibilityLabel={`${pendingDisplay(item, trip).identity}, ${pendingDisplay(item, trip).amount}, ${pendingStatusLabel(item)}`} style={styles.card}>
               <View style={styles.cardTop}>
                 <Parties from={item.payload.from_member_id} to={item.payload.to_member_id} item={item} />
-                <T variant="h4">{formatMoney(item.payload.amount, { currency: item.payload.expected_currency })}</T>
+                <View style={styles.amountColumn}>
+                  <T variant="h4" style={{ textAlign: 'right' }}>{formatMoney(item.payload.amount, { currency: item.payload.expected_currency })}</T>
+                </View>
               </View>
               <View style={styles.pendingActions}>
                 <Badge
@@ -717,8 +719,8 @@ export default function SettleUp() {
             >
               <View style={styles.cardTop}>
                 <Parties from={payment.from_member_id} to={payment.to_member_id} />
-                <View style={{ alignItems: 'flex-end', gap: SPACING.sm }}>
-                  <T variant="caption" muted>{formatMoney(payment.amount, { currency })}</T>
+                <View style={styles.amountColumn}>
+                  <T variant="caption" muted style={{ textAlign: 'right' }}>{formatMoney(payment.amount, { currency })}</T>
                   <Badge
                     label={payment.source === 'upi_recipient_confirmed'
                       ? 'UPI — recipient confirmed'
@@ -975,7 +977,8 @@ export function AmountModal({
 const styles = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
   card: { gap: SPACING.sm },
-  cardTop: { flexDirection: 'column', gap: SPACING.md, alignItems: 'stretch' },
+  cardTop: { flexDirection: 'row', gap: SPACING.md, alignItems: 'center' },
+  amountColumn: { alignItems: 'flex-end', gap: SPACING.sm, maxWidth: '50%', minWidth: 0, flexShrink: 1 },
   partyRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   dot: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   connector: { height: 12, marginLeft: 13, borderLeftWidth: 2, marginVertical: 2 },

@@ -101,7 +101,9 @@ it.each([1, 1.3])('keeps named rejected pending cards and full actions reachable
   expect(text).toContain('Asha');
   expect(text).toContain('Meera');
   expect(text).toContain('₹20');
-  const top = card.findAll((node: any) => StyleSheet.flatten(node.props.style)?.flexDirection === 'column');
+  const top = card.findAll((node: any) =>
+    StyleSheet.flatten(node.props.style)?.flexDirection === 'row'
+    && node.findAllByType('T').some((child: any) => child.props.children === '₹20'));
   expect(top.length).toBeGreaterThan(0);
   const review = interactive(renderer, 'payment-review-saved-payment');
   expect(review.props.accessibilityLabel).toBe('Review: Asha → Meera, INR 20, Coast');
