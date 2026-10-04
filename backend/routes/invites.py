@@ -61,7 +61,7 @@ async def revoke_trip_invite(trip_id: str, invite_id: str, user=Depends(get_curr
         410,
         detail={
             "code": "invite_endpoint_retired",
-            "message": "Invite history was replaced by the trip's single resettable link.",
+            "message": "Invite history was replaced by the group's single resettable link.",
         },
     )
 

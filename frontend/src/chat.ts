@@ -105,13 +105,13 @@ export function classifyChatError(error: any): ChatFailure {
   if (status === 403) {
     return {
       code: 'permission_denied', status, retryable: false,
-      message: 'You no longer have access to this trip chat.',
+      message: 'You no longer have access to this group chat.',
     };
   }
   if (status === 404) {
     return {
       code: 'unavailable', status, retryable: false,
-      message: 'Trip chat is unavailable on the connected server.',
+      message: 'Group chat is unavailable on the connected server.',
     };
   }
   if (status === 409) {
@@ -130,7 +130,7 @@ export function classifyChatError(error: any): ChatFailure {
   if (status != null && status >= 500) {
     return {
       code: 'server', status, retryable: true,
-      message: 'Trip chat is temporarily unavailable.',
+      message: 'Group chat is temporarily unavailable.',
     };
   }
   if (error?.code === 'timeout') {

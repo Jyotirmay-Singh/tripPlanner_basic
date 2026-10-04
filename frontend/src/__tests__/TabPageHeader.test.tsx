@@ -28,7 +28,7 @@ describe('TabPageHeader', () => {
     act(() => {
       renderer = TestRenderer.create(
         <TabPageHeader
-          title="Trips"
+          title="Groups"
           eyebrow="Welcome"
           action={<View testID="header-action" />}
         />,
@@ -36,7 +36,7 @@ describe('TabPageHeader', () => {
     });
 
     const root = renderer!.root;
-    expect(root.findAllByType('T' as any).map((node: any) => node.props.children)).toEqual(['Welcome', 'Trips']);
+    expect(root.findAllByType('T' as any).map((node: any) => node.props.children)).toEqual(['Welcome', 'Groups']);
     expect(root.findByType('ProfileAvatarButton' as any)).toBeTruthy();
     expect(root.findByProps({ testID: 'header-action' })).toBeTruthy();
   });

@@ -99,7 +99,7 @@ it('shows identity and whole position, confirms departure, then returns to Trips
   act(() => renderer.root.findByProps({ testID: 'membership-leave' }).props.onPress());
   let modal = renderer.root.findByType('ConfirmModal' as any);
   expect(modal.props.visible).toBe(true);
-  expect(modal.props.title).toBe('Leave this trip?');
+  expect(modal.props.title).toBe('Leave this group?');
 
   await act(async () => {
     modal.props.actions.find((action: any) => (

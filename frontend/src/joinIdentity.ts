@@ -83,7 +83,7 @@ export const claimLabel = (match: JoinMatch): string =>
 export const replacementNote = (match: JoinMatch): string =>
   match.member_type === 'family_member'
     ? `This removes your Gmail from ${match.member_name} but keeps that person in ${match.family_name}. Continue?`
-    : `This removes the existing profile ${match.member_name} from the trip. Continue?`;
+    : `This removes the existing profile ${match.member_name} from the group. Continue?`;
 
 // ---- /trips/join request-body builders (asserted in tests so the wire shape stays correct) ----
 export function buildClaimBody(

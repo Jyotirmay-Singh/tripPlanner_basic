@@ -137,7 +137,7 @@ export default function PendingPaymentDetail() {
       </View>
     </ScrollView>
     <ConfirmModal visible={confirmDiscard} title="Discard pending payment?"
-      message="This removes the saved record from this device. It does not undo money already exchanged. Confirmed trip balances are unchanged."
+      message="This removes the saved record from this device. It does not undo money already exchanged. Confirmed group balances are unchanged."
       onRequestClose={() => setConfirmDiscard(false)} actions={[
         { label: 'Keep', variant: 'cancel', onPress: () => setConfirmDiscard(false) },
         { label: 'Discard', variant: 'destructive', onPress: () => { void discard(); } },

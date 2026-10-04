@@ -73,7 +73,7 @@ function Inner() {
         {/* Guaranteed back affordance: trip screens live in this root stack, so the default back
             button is absent when the trip is reached via replace (create/join) or a deep-link /
             web-refresh. HeaderBackButton always shows and falls back to the Trips tab. */}
-        <Stack.Screen name="trip/[id]/index" options={{ title: 'Trip', headerLeft: () => <HeaderBackButton /> }} />
+        <Stack.Screen name="trip/[id]/index" options={{ title: 'Group', headerLeft: () => <HeaderBackButton /> }} />
         <Stack.Screen name="trip/[id]/add-member" options={{ title: 'Add Member', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="trip/[id]/edit-member" options={{ title: 'Edit Member', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="trip/[id]/manage-member" options={{ title: 'Manage Member', presentation: 'modal', headerRight: undefined }} />
@@ -82,13 +82,13 @@ function Inner() {
         <Stack.Screen name="trip/[id]/pending-payment" options={{ title: 'Pending Payment' }} />
         <Stack.Screen name="trip/[id]/edit-expense" options={{ title: 'Edit Transaction', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="trip/[id]/settle-up" options={{ title: 'Settle Up' }} />
-        <Stack.Screen name="trip/[id]/edit" options={{ title: 'Edit Trip', presentation: 'modal', headerRight: undefined }} />
+        <Stack.Screen name="trip/[id]/edit" options={{ title: 'Edit group', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="trip/[id]/category/[name]" options={{ title: 'Category' }} />
         <Stack.Screen name="trip/[id]/member/[mid]" options={{ title: 'Spending details' }} />
         <Stack.Screen name="trip/[id]/spending/[period]/[key]" options={{ title: 'Spending details' }} />
         <Stack.Screen name="add" options={{ title: 'Add Transaction', presentation: 'modal', headerRight: undefined }} />
-        <Stack.Screen name="create-trip" options={{ title: 'Create Trip', presentation: 'modal', headerRight: undefined }} />
-        <Stack.Screen name="join-trip" options={{ title: 'Join Trip', presentation: 'modal', headerRight: undefined }} />
+        <Stack.Screen name="create-trip" options={{ title: 'Create group', presentation: 'modal', headerRight: undefined }} />
+        <Stack.Screen name="join-trip" options={{ title: 'Join group', presentation: 'modal', headerRight: undefined }} />
         <Stack.Screen name="invite/[token]" options={{ headerShown: false }} />
         <Stack.Screen name="change-password" options={{ title: 'Change Password', headerRight: undefined }} />
         <Stack.Screen name="delete-account" options={{ title: 'Delete account', headerRight: undefined }} />

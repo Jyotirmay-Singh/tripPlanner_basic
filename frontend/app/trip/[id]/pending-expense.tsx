@@ -251,7 +251,7 @@ export default function PendingExpenseDetail() {
         </View>
       </ScrollView>
       <ConfirmModal visible={confirmDiscard} title="Discard pending expense?"
-        message="This removes the saved pending expense from this device. Confirmed trip records are unchanged."
+        message="This removes the saved pending expense from this device. Confirmed group records are unchanged."
         onRequestClose={() => setConfirmDiscard(false)} actions={[
           { label: 'Keep', variant: 'cancel', onPress: () => setConfirmDiscard(false) },
           { label: 'Discard', variant: 'destructive', onPress: () => { void discard(); } },
@@ -259,7 +259,7 @@ export default function PendingExpenseDetail() {
       <ConfirmModal visible={confirmBudget} title="Approve budget overage?"
         message={typeof (item.reviewContext as { warning?: unknown } | null)?.warning === 'string'
           ? String((item.reviewContext as { warning: string }).warning)
-          : 'This transaction exceeds the trip budget. Save it anyway?'}
+          : 'This transaction exceeds the group budget. Save it anyway?'}
         onRequestClose={() => setConfirmBudget(false)} actions={[
           { label: 'Keep for review', variant: 'cancel', onPress: () => setConfirmBudget(false) },
           { label: 'Save anyway', variant: 'primary', onPress: () => { void approveBudget(); } },

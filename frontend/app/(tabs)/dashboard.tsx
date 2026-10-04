@@ -58,7 +58,7 @@ export default function Dashboard() {
   const inrBalance = groupBalancesByCurrency(rows ?? [])
     .find((balance) => balance.currency === 'INR')?.value ?? 0;
   const balancesAvailable = rows !== null;
-  const tripCount = `${trips.length} trip${trips.length === 1 ? '' : 's'}`;
+  const tripCount = `${trips.length} group${trips.length === 1 ? '' : 's'}`;
   const offlineView = sessionMode === 'offline' || read?.source === 'cache';
   const stackActions = width <= 360 || fontScale >= 1.3;
 
@@ -92,34 +92,34 @@ export default function Dashboard() {
           />
         )}
         <T color={colors.primaryText} style={styles.balanceSubtitle}>
-          {read?.data ? tripCount : loaded ? 'Trip count unavailable' : 'Loading trips…'}
+          {read?.data ? tripCount : loaded ? 'Group count unavailable' : 'Loading groups…'}
         </T>
       </Card>
 
       <View style={[styles.actions, stackActions && styles.actionsStacked]} testID="dash-actions">
         <View style={stackActions ? styles.fullWidthAction : styles.actionButton}>
-          <Button label="New Trip" icon="plus" onPress={() => router.push('/create-trip')} disabled={offlineView} fullWidth testID="dash-new-trip" />
+          <Button label="Create group" icon="plus" onPress={() => router.push('/create-trip')} disabled={offlineView} fullWidth testID="dash-new-trip" />
         </View>
         <View style={stackActions ? styles.fullWidthAction : styles.actionButton}>
-          <Button label="Join Trip" icon="users" variant="secondary" onPress={() => router.push('/join-trip')} disabled={offlineView} fullWidth testID="dash-join-trip" />
+          <Button label="Join group" icon="users" variant="secondary" onPress={() => router.push('/join-trip')} disabled={offlineView} fullWidth testID="dash-join-trip" />
         </View>
       </View>
 
-      <T variant="label" muted style={{ marginTop: SPACING.sm }}>Recent trips</T>
+      <T variant="label" muted style={{ marginTop: SPACING.sm }}>Recent groups</T>
 
       {!loaded ? (
         <SkeletonCard count={3} />
       ) : !read?.data ? (
-        <EmptyState icon="alert" title="Trips unavailable offline"
-          body={read?.error || 'Open your trips online to save a copy on this device.'}
+        <EmptyState icon="alert" title="Groups unavailable offline"
+          body={read?.error || 'Open your groups online to save a copy on this device.'}
           testID="dash-unavailable" />
       ) : trips.length === 0 ? (
         <EmptyState
           icon="ship"
-          title={offlineView ? 'No trips in saved list' : 'No trips yet'}
-          body={offlineView ? 'Connect to refresh your trip list.'
-            : 'Create your first trip and start splitting expenses with your crew.'}
-          ctaLabel={offlineView ? undefined : 'Create a trip'}
+          title={offlineView ? 'No saved groups' : 'No groups yet'}
+          body={offlineView ? 'Connect to refresh your group list.'
+            : 'Create a group to start tracking and splitting expenses.'}
+          ctaLabel={offlineView ? undefined : 'Create group'}
           ctaIcon={offlineView ? undefined : 'plus'}
           onCta={offlineView ? undefined : () => router.push('/create-trip')}
           testID="dash-empty"

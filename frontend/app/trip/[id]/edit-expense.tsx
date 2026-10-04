@@ -445,7 +445,7 @@ export default function EditExpense() {
               <View testID="expense-readonly-note" style={[styles.readonlyNote, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
                 <Icon name="lock" size={16} color={colors.textMuted} />
                 <T variant="caption" muted style={{ flex: 1 }}>
-                  Only the person who added this transaction or a trip admin can edit it.
+                  Only the person who added this transaction or a group admin can edit it.
                 </T>
               </View>
             )}
@@ -456,7 +456,7 @@ export default function EditExpense() {
               value={expenseCurrency}
               onChange={(value) => { setExpenseCurrency(value); setAmountError(null); }}
               disabled={!canModify}
-              helper={`Official trip currency: ${trip.currency}`}
+              helper={`Official group currency: ${trip.currency}`}
             />
             {currencyBlocked ? (
               <View

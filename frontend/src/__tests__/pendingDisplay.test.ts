@@ -40,7 +40,7 @@ it('gives a rejected payment named parties and readable legacy fallbacks without
   const legacy = { ...row, precondition: {} };
   expect(pendingMemberName(legacy, 'payer', trip)).toBe('Asha');
   expect(pendingMemberName(legacy, '550e8400-e29b-41d4-a716-446655440000')).toBe('Member unavailable');
-  expect(pendingDisplay(legacy).tripName).toBe('Trip unavailable');
+  expect(pendingDisplay(legacy).tripName).toBe('Group unavailable');
 });
 
 it.each([null, [], { amount: null }])('keeps malformed local intent %p reviewable without inventing a zero amount', (payload) => {

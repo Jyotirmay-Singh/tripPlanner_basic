@@ -132,8 +132,8 @@ function TripIdentityHeader({ trip, onShare, sharing = false, secureInvite = fal
             accessibilityRole="button"
             accessibilityLabel={secureInvite
               ? `Share secure invitation to ${trip.name}`
-              : `Share trip code ${trip.code}`}
-            accessibilityHint="Opens sharing options for this trip"
+              : `Share group code ${trip.code}`}
+            accessibilityHint="Opens sharing options for this group"
             style={[styles.codeChip, { backgroundColor: colors.overlayOnPrimary }]}
           >
             {sharing
@@ -360,7 +360,7 @@ export default function TripDetail() {
       if (generation === loadGeneration.current) {
         setReadScope({ accountId: user.id, tripId: id });
         setRead({ data: null, source: 'unavailable', fetchedAt: null,
-          error: error?.message || 'This trip is unavailable.' });
+          error: error?.message || 'This group is unavailable.' });
         setTrip(null);
       }
     } finally {
@@ -412,7 +412,7 @@ export default function TripDetail() {
         freshInviteLinksEnabled = config.inviteLinksEnabled;
       } catch {
         toast.show(
-          'Could not check secure-link availability. Sharing the trip code instead.',
+          'Could not check secure-link availability. Sharing the group code instead.',
           'error',
         );
         await Share.share({ message: tripCodeShareMessage(trip.name, trip.code) });
@@ -421,7 +421,7 @@ export default function TripDetail() {
 
       if (!canShareSecureInvite(trip, user?.id, freshInviteLinksEnabled, isApplicationAdmin)) {
         if (!freshInviteLinksEnabled) {
-          toast.show('Secure invite links are not live yet. Sharing the trip code instead.', 'info');
+          toast.show('Secure invite links are not live yet. Sharing the group code instead.', 'info');
         }
         await Share.share({ message: tripCodeShareMessage(trip.name, trip.code) });
         return;
@@ -433,8 +433,8 @@ export default function TripDetail() {
       });
     } catch (error: any) {
       toast.show(
-        `Could not load the trip link${error.message ? `: ${error.message}` : ''}. `
-          + 'Sharing the trip code instead.',
+        `Could not load the group link${error.message ? `: ${error.message}` : ''}. `
+          + 'Sharing the group code instead.',
         'error',
       );
       await Share.share({ message: tripCodeShareMessage(trip.name, trip.code) });
@@ -448,7 +448,7 @@ export default function TripDetail() {
     setDeleteTripName('');
     setConfirm({
       title: `Delete ${trip.name}?`,
-      message: 'This permanently removes the trip and all related expenses, balances, payments, receipts, invites, and chat data.',
+      message: 'This permanently removes the group and all related expenses, balances, payments, receipts, invites, and chat data.',
       yesId: 'trip-delete-confirm',
       requiresTripName: true,
       onYes: async () => {
@@ -510,8 +510,8 @@ export default function TripDetail() {
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom', 'left', 'right']}>
         <View style={{ padding: SPACING.lg, gap: SPACING.md }}>
           {read?.source === 'unavailable' ? (
-            <EmptyState icon="alert" title="Trip unavailable offline"
-              body={read.error || 'Open this trip online to save a copy on this device.'}
+            <EmptyState icon="alert" title="Group unavailable offline"
+              body={read.error || 'Open this group online to save a copy on this device.'}
               ctaLabel="Try again" onCta={load} testID="trip-unavailable" />
           ) : <SkeletonCard count={4} />}
         </View>
@@ -574,7 +574,7 @@ export default function TripDetail() {
               <T variant="caption" muted>
                 {applicationAdminIsMember
                   ? 'Application-wide controls are active. Privileged changes are recorded in the admin activity log.'
-                  : 'You are maintaining this trip without joining its roster. Its expenses and balances do not affect your account.'}
+                  : 'You are maintaining this group without joining its roster. Its expenses and balances do not affect your account.'}
               </T>
             </View>
           </View>
@@ -589,10 +589,10 @@ export default function TripDetail() {
           <Button label="Settle Up" icon="arrow-left-right" size="sm" variant="secondary" onPress={() => router.push(`/trip/${id}/settle-up`)} fullWidth testID="trip-settle-up" style={styles.actionButtonControl} />
         </View>
         {meCanEditSettings && !offlineView && (
-          <IconButton name="pencil" variant="surface" onPress={() => router.push(`/trip/${id}/edit`)} accessibilityLabel="Edit trip" testID="trip-edit" size={18} touchSize={COMPONENT_SIZE.minTouchTarget} />
+          <IconButton name="pencil" variant="surface" onPress={() => router.push(`/trip/${id}/edit`)} accessibilityLabel="Edit group" testID="trip-edit" size={18} touchSize={COMPONENT_SIZE.minTouchTarget} />
         )}
         {meCanDeleteTrip && !offlineView && (
-          <IconButton name="trash" variant="surface" color={colors.danger} onPress={onDelete} accessibilityLabel="Delete trip" testID="trip-delete" size={18} touchSize={COMPONENT_SIZE.minTouchTarget} />
+          <IconButton name="trash" variant="surface" color={colors.danger} onPress={onDelete} accessibilityLabel="Delete group" testID="trip-delete" size={18} touchSize={COMPONENT_SIZE.minTouchTarget} />
         )}
       </View>
 
@@ -872,7 +872,7 @@ export default function TripDetail() {
                 </T>
               ) : null}
               {sortedExpenseRows.length === 0 ? (
-                <EmptyState icon="receipt" title="No transactions yet" body="Add an expense (or a negative amount for money back) to start tracking this trip." ctaLabel="Add transaction" ctaIcon="plus" onCta={() => router.push(`/trip/${id}/add-expense`)} testID="expenses-empty" />
+                <EmptyState icon="receipt" title="No transactions yet" body="Add an expense (or a negative amount for money back) to start tracking this group." ctaLabel="Add transaction" ctaIcon="plus" onCta={() => router.push(`/trip/${id}/add-expense`)} testID="expenses-empty" />
               ) : matchingExpenseRows.length === 0 ? (
                 <EmptyState icon="search" title="No matching expenses" body="Try different words or clear the search." ctaLabel="Clear search" onCta={() => setExpenseSearchQuery('')} testID="expenses-search-empty" />
               ) : matchingExpenseRows.map((row) => {
@@ -1132,7 +1132,7 @@ export default function TripDetail() {
               ) : (
                 <T testID="members-readonly-note" variant="caption" muted style={{ paddingHorizontal: SPACING.xs }}>
                   {offlineView ? 'Member changes require a connection.'
-                    : 'Only trip admins can add or change members.'}
+                    : 'Only group admins can add or change members.'}
                 </T>
               )}
               {trip.members.map((m) => {

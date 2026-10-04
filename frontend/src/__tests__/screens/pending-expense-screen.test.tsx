@@ -39,7 +39,7 @@ jest.mock('../../offlineExpenses', () => ({
   expenseCaptureActive: () => true,
   captureExpense: (...args: any[]) => mockCaptureExpense(...args),
   pendingStatusLabel: () => 'Needs review · Pending sync',
-  reviewReason: () => 'Trip participants changed. Review the split.',
+  reviewReason: () => 'Group participants changed. Review the split.',
 }));
 jest.mock('../../syncWorker', () => ({ syncCoordinator: {
   subscribe: () => () => {}, retry: (...args: any[]) => mockRetry(...args),

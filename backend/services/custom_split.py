@@ -75,7 +75,7 @@ def validate_original_exact_amounts(
     normalized: dict[str, Decimal] = {}
     for pid, raw in ca.items():
         if pid not in valid:
-            raise ExactSplitValidationError(f"Exact split: '{pid}' is not a member of this trip.")
+            raise ExactSplitValidationError(f"Exact split: '{pid}' is not a member of this group.")
         try:
             value = decimal_money(raw, label="Exact split amount")
         except ValueError as exc:
@@ -163,7 +163,7 @@ def validate_exact_amounts(
     normalized: dict[str, Decimal] = {}
     for pid, amt in ca.items():
         if pid not in valid:
-            raise ValueError(f"Exact split: '{pid}' is not a member of this trip.")
+            raise ValueError(f"Exact split: '{pid}' is not a member of this group.")
         try:
             value = decimal_money(amt, label="Exact split amount")
         except (TypeError, ValueError) as exc:

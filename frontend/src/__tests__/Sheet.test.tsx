@@ -81,7 +81,7 @@ it('keeps real currency selection/cancellation compatible with shared-sheet defa
 
 it('renders the real payment consumer with the same close/back behavior and no financial mutation', async () => {
   const close = jest.fn();
-  const r = await mount(<UpiPaymentSheet visible tripId="t1" tripName="Trip" fromMemberId="payer" fromName="Payer" toMemberId="recipient" toName="Recipient" initialAmount={100} currency="INR" wholeUnit onClose={close} />);
+  const r = await mount(<UpiPaymentSheet visible tripId="t1" tripName="Group" fromMemberId="payer" fromName="Payer" toMemberId="recipient" toName="Recipient" initialAmount={100} currency="INR" wholeUnit onClose={close} />);
   expect(r.root.findByType(Sheet).props).toMatchObject({ title: 'Pay via UPI', testID: 'upi-payment-sheet', closeTestID: 'upi-sheet-close', scrimTestID: 'upi-sheet-scrim' });
   expect(r.root.findByType('IconButton' as any).props.accessibilityLabel).toBe('Close payment sheet');
   act(() => r.root.findByType(Modal).props.onRequestClose());

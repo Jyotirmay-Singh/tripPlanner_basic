@@ -119,7 +119,7 @@ def linked_identities(trip: dict, user_id: str) -> list[dict]:
                 identities.append({
                     "identity_type": "individual",
                     "member_id": member.get("id"),
-                    "member_name": member.get("name") or "Trip member",
+                    "member_name": member.get("name") or "Group member",
                     "family_id": None,
                     "family_name": None,
                     "family_member_id": None,
@@ -141,7 +141,7 @@ def linked_identities(trip: dict, user_id: str) -> list[dict]:
                 "member_name": (
                     names[person_index]
                     if person_index < len(names) and names[person_index]
-                    else member.get("name") or "Trip member"
+                    else member.get("name") or "Group member"
                 ),
                 "family_id": member.get("id"),
                 "family_name": member.get("name") or "Family",
@@ -185,7 +185,7 @@ def visible_linked_users(trip: dict) -> list[dict]:
             user_id = member.get("user_id")
             if user_id and user_id not in seen:
                 seen.add(user_id)
-                visible.append({"user_id": user_id, "name": member.get("name") or "Trip member"})
+                visible.append({"user_id": user_id, "name": member.get("name") or "Group member"})
             continue
         names = member.get("family_members") or []
         for index, user_id in enumerate(member.get("family_member_user_ids") or []):
@@ -195,14 +195,14 @@ def visible_linked_users(trip: dict) -> list[dict]:
             visible.append({
                 "user_id": user_id,
                 "name": names[index] if index < len(names) and names[index]
-                else member.get("name") or "Trip member",
+                else member.get("name") or "Group member",
             })
         legacy_user_id = member.get("user_id")
         if legacy_user_id and legacy_user_id not in seen:
             seen.add(legacy_user_id)
             visible.append({
                 "user_id": legacy_user_id,
-                "name": member.get("name") or "Trip member",
+                "name": member.get("name") or "Group member",
             })
     return visible
 
@@ -356,7 +356,7 @@ async def evaluate_trip(trip: dict, user_id: str, *, session=None) -> dict:
     ownership = await _ownership_outcome(trip, user_id, session=session)
     public = {
         "trip_id": trip_id,
-        "trip_name": trip.get("name") or "Trip",
+        "trip_name": trip.get("name") or "Group",
         "currency": str(trip.get("currency") or "INR").upper(),
         "identity": None,
         "position": None,
@@ -375,7 +375,7 @@ async def evaluate_trip(trip: dict, user_id: str, *, session=None) -> dict:
     if len(identities) != 1 or not identities[0].get("valid"):
         public["blockers"].append(_blocker(
             "eligibility_changed",
-            "Your account is not linked to exactly one person in this trip. Ask a trip admin to repair the roster.",
+            "Your account is not linked to exactly one person in this group. Ask a group admin to repair the roster.",
             "review_membership",
             ("leave", "dissolve_family"),
         ))
@@ -442,8 +442,8 @@ async def evaluate_trip(trip: dict, user_id: str, *, session=None) -> dict:
         else:
             public["blockers"].append(_blocker(
                 "ledger_reconciliation_required",
-                "This trip has an unsettled ledger position with no payable whole-unit transfer. "
-                "Ask a trip admin to reconcile the ledger before leaving.",
+                "This group has an unsettled ledger position with no payable whole-unit transfer. "
+                "Ask a group admin to reconcile the ledger before leaving.",
                 "none",
                 ("leave", "dissolve_family"),
             ))
@@ -458,7 +458,7 @@ async def evaluate_trip(trip: dict, user_id: str, *, session=None) -> dict:
     if ownership.get("requires_trip_deletion"):
         public["blockers"].append(_blocker(
             "owner_trip_requires_deletion",
-            "No linked account can take ownership. Delete this trip first.",
+            "No linked account can take ownership. Delete this group first.",
             "delete_trip_first",
             ("leave", "dissolve_family", "keep"),
         ))
@@ -569,12 +569,12 @@ async def account_deletion_impact(user: dict) -> dict:
             for evaluation in evaluations
         }
         affected = list(dict.fromkeys(
-            trip_names.get(trip_id, "another trip")
+            trip_names.get(trip_id, "another group")
             for trip_id in sorted(active_attempt_trip_ids)
         ))
         if active_account_attempts and not affected:
-            affected = ["another trip"]
-        where = affected[0] if len(affected) == 1 else "your linked trips"
+            affected = ["another group"]
+        where = affected[0] if len(affected) == 1 else "your linked groups"
         account_blockers.append(_blocker(
             "active_payment_attempt",
             f"Resolve the active UPI payment in {where} first.",
@@ -592,7 +592,7 @@ async def account_deletion_impact(user: dict) -> dict:
                 "Live account links and account references",
             ],
             "retained": [
-                "Trip and member names unless you leave or dissolve the family",
+                "Group and member names unless you leave or dissolve the family",
                 "Expenses, balances, payment amounts, reports, and anonymized chat text",
             ],
         },
@@ -609,7 +609,7 @@ def _raise_action_block(evaluation: dict, action: str) -> None:
     if evaluation.get("identity") is None:
         raise _conflict(
             "eligibility_changed",
-            "Your linked trip identity changed. Refresh and review the membership again.",
+            "Your linked group identity changed. Refresh and review the membership again.",
             trip_id=trip_id,
             action=action,
         )
@@ -640,7 +640,7 @@ def _raise_action_block(evaluation: dict, action: str) -> None:
     if public.get("ownership", {}).get("requires_trip_deletion"):
         raise _conflict(
             "owner_trip_requires_deletion",
-            "No linked account can take ownership. Delete this trip first.",
+            "No linked account can take ownership. Delete this group first.",
             trip_id=trip_id,
             action=action,
             retryable=False,
@@ -679,7 +679,7 @@ def _raise_action_block(evaluation: dict, action: str) -> None:
             )
     raise _conflict(
         "eligibility_changed",
-        "Departure eligibility changed. Refresh and review this trip again.",
+        "Departure eligibility changed. Refresh and review this group again.",
         trip_id=trip_id,
         action=action,
     )
@@ -840,7 +840,7 @@ def _roles_after_departure(trip: dict, user_id: str, ownership: dict) -> tuple[l
         if not successor:
             raise _conflict(
                 "owner_trip_requires_deletion",
-                "No linked account can take ownership. Delete this trip first.",
+                "No linked account can take ownership. Delete this group first.",
                 trip_id=trip.get("id"),
                 retryable=False,
             )
@@ -883,7 +883,7 @@ async def _write_trip_membership(evaluation: dict, user_id: str, action: str,
     if matched == 0:
         raise _conflict(
             "eligibility_changed",
-            "This trip changed while eligibility was being checked. Refresh and try again.",
+            "This group changed while eligibility was being checked. Refresh and try again.",
             trip_id=trip["id"],
             action=action,
         )
@@ -1065,7 +1065,7 @@ async def _run_destructive_transaction(callback):
         if is_retryable_transaction_error(exc):
             raise _conflict(
                 "eligibility_changed",
-                "Trip data changed while the request was being committed. Refresh and try again.",
+                "Group data changed while the request was being committed. Refresh and try again.",
             ) from exc
         raise
 
@@ -1078,7 +1078,7 @@ async def leave_membership(trip_id: str, user: dict, *, dissolve_family: bool) -
         if not trip or user["id"] not in (trip.get("user_ids") or []):
             raise _conflict(
                 "eligibility_changed",
-                "This membership changed. Refresh your trips and try again.",
+                "This membership changed. Refresh your groups and try again.",
                 trip_id=trip_id,
                 action=action,
             )
@@ -1144,7 +1144,7 @@ async def delete_account(user: dict, *, confirmation: str, acknowledge_unsettled
         if unknown_trip_ids:
             raise _conflict(
                 "eligibility_changed",
-                "One or more selected trips are no longer linked to this account. Refresh and review again.",
+                "One or more selected groups are no longer linked to this account. Refresh and review again.",
             )
 
         evaluations = []
@@ -1188,7 +1188,7 @@ async def delete_account(user: dict, *, confirmation: str, acknowledge_unsettled
         if retained_unsettled and not acknowledge_unsettled:
             raise _conflict(
                 "unsettled_acknowledgement_required",
-                "Acknowledge that retained trip positions may remain unsettled.",
+                "Acknowledge that retained group positions may remain unsettled.",
                 retryable=False,
             )
 

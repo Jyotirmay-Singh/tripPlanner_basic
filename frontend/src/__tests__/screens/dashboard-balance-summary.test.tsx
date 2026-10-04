@@ -98,7 +98,7 @@ describe('Home Net Position', () => {
     apiMock.mockRejectedValue(new Error('offline'));
     const renderer = await renderDashboard();
     expect(visibleText(renderer)).toContain('Balance unavailable');
-    expect(visibleText(renderer)).toContain('Trip count unavailable');
+    expect(visibleText(renderer)).toContain('Group count unavailable');
     expect(renderer.root.findAll((node: any) => node.props?.testID === 'dash-unavailable').length)
       .toBeGreaterThan(0);
   });
@@ -119,7 +119,7 @@ describe('Home Net Position', () => {
       signed,
     });
     const copy = visibleText(renderer);
-    expect(copy).toContain('1 trip');
+    expect(copy).toContain('1 group');
     expect(copy).not.toMatch(/You come out ahead|You owe overall|All settled up/);
     if (balance === 0) expect(amount.props.signed).toBe(false);
   });
@@ -149,7 +149,7 @@ describe('Home Net Position', () => {
       value: 2000, currency: 'INR', currencyDisplay: 'code', variant: 'moneyLg',
     });
     const copy = visibleText(renderer);
-    expect(copy).toContain('2 trips');
+    expect(copy).toContain('2 groups');
     expect(copy).not.toContain('Balances vary by currency');
   });
 
@@ -163,7 +163,7 @@ describe('Home Net Position', () => {
     const amounts = renderer.root.findAll((node: any) => node.type === 'AmountText');
     expect(amounts).toHaveLength(1);
     expect(amounts[0].props).toMatchObject({ value: 450, currency: 'INR', signed: true });
-    expect(visibleText(renderer)).toContain('3 trips');
+    expect(visibleText(renderer)).toContain('3 groups');
   });
 
   it('shows INR zero when there are no trips', async () => {
@@ -171,7 +171,7 @@ describe('Home Net Position', () => {
     const renderer = await renderDashboard();
     const amount = renderer.root.findAll((node: any) => node.type === 'AmountText')[0];
     expect(amount.props).toMatchObject({ value: 0, currency: 'INR', signed: false });
-    expect(visibleText(renderer)).toContain('0 trips');
+    expect(visibleText(renderer)).toContain('0 groups');
   });
 
   it('shows INR zero when the user has only foreign-currency trips', async () => {
@@ -180,7 +180,7 @@ describe('Home Net Position', () => {
     const amounts = renderer.root.findAll((node: any) => node.type === 'AmountText');
     expect(amounts).toHaveLength(1);
     expect(amounts[0].props).toMatchObject({ value: 0, currency: 'INR', signed: false });
-    expect(visibleText(renderer)).toContain('1 trip');
+    expect(visibleText(renderer)).toContain('1 group');
   });
 
   it('uses the same INR-only summary for a saved offline overview', async () => {
@@ -229,7 +229,7 @@ describe('Home Net Position', () => {
       });
       expect(StyleSheet.flatten(amounts[0].props.style).textAlign).toBe('left');
       expect(renderer.root.findAll((node: any) => node.type === 'Button')
-        .map((node: any) => node.props.label)).toEqual(['New Trip', 'Join Trip']);
+        .map((node: any) => node.props.label)).toEqual(['Create group', 'Join group']);
     });
 
   it('contains no redundant You owe / You\'re owed metric cards', async () => {

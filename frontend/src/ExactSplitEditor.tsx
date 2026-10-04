@@ -128,7 +128,7 @@ export default function ExactSplitEditor({ members, currency, total, initialRows
         keyboardType="number-pad"
         inputMode="numeric"
         placeholder={currencyAmountPlaceholder(currency)}
-        accessibilityLabel={`Exact amount for ${displayNames[mid] || 'trip member'}`}
+        accessibilityLabel={`Exact amount for ${displayNames[mid] || 'group member'}`}
         error={precisionIssues[mid]}
         errorTestID={`exact-precision-${mid}`}
         returnKeyType={visibleAmountIds.at(-1) === mid ? 'done' : 'next'}

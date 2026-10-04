@@ -99,7 +99,7 @@ async def reset_invite_link(trip_id: str) -> dict:
         return_document=ReturnDocument.AFTER,
     )
     if not trip:
-        raise HTTPException(404, "Trip not found")
+        raise HTTPException(404, "Group not found")
     logger.info(
         "invite.reset trip_id=%s generation=%s", trip_id, invite_generation(trip),
     )
@@ -145,7 +145,7 @@ async def retire_legacy_invites() -> None:
 
 def _invite_error(status: str) -> HTTPException:
     messages = {
-        "revoked": "This invitation link was reset. Ask a trip admin for the current link.",
+        "revoked": "This invitation link was reset. Ask a group admin for the current link.",
         "invalid": "This invitation is not valid.",
         "disabled": "Invitation links are temporarily unavailable.",
     }
@@ -184,7 +184,7 @@ async def resolve_join_credential(code: Optional[str], invite_token: Optional[st
         normalized = code.upper().strip()
         trip = await db.trips.find_one({"code": normalized}, {"_id": 0})
         if not trip:
-            raise HTTPException(404, "Trip not found")
+            raise HTTPException(404, "Group not found")
         return trip, None
 
     if not INVITE_LINKS_ENABLED:

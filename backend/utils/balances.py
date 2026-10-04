@@ -32,7 +32,7 @@ async def _compute_balances(
     session_options = {"session": session} if session is not None else {}
     trip = await db.trips.find_one({"id": trip_id}, {"_id": 0}, **session_options)
     if not trip:
-        raise HTTPException(404, "Trip not found")
+        raise HTTPException(404, "Group not found")
     members = trip["members"]
 
     # Canonical expense amounts were fixed when saved. Settlement never calls the FX service and
@@ -76,8 +76,8 @@ async def _compute_balances(
         )
     except SettlementLedgerError as exc:
         generic = (
-            "Settlement is temporarily unavailable because this trip's ledger needs review. "
-            "Ask a trip admin."
+            "Settlement is temporarily unavailable because this group's ledger needs review. "
+            "Ask a group admin."
         )
         detail = f"{generic} [{exc.code}: {exc}]" if diagnostic else generic
         raise HTTPException(status_code=409, detail=detail) from exc

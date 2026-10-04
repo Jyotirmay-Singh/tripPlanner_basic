@@ -151,7 +151,7 @@ export default function SetMobile() {
       brandIcon="phone"
       title={profileMode ? 'Mobile number' : 'Add your number'}
       subtitle={profileMode
-        ? 'Add or update the number friends can use to reach you on a trip.'
+        ? 'Add or update the number friends can use to reach you in a group.'
         : 'Friends can reach you while you travel together.'}
     >
       <MobileNumberInput
@@ -166,7 +166,7 @@ export default function SetMobile() {
       <Card variant="muted" style={styles.privacyCard} testID="mobile-privacy-note">
         <Icon name="shield-check" size={20} color={colors.primary} />
         <T variant="caption" style={styles.privacyCopy}>
-          People in your trips can see this number. You can remove it anytime from Profile.
+          People in your groups can see this number. You can remove it anytime from Profile.
         </T>
       </Card>
 
@@ -218,7 +218,7 @@ export default function SetMobile() {
       <ConfirmModal
         visible={profileMode && removeConfirmationVisible}
         title="Remove mobile number?"
-        message="People in your trips will no longer see this number. You can add it again anytime."
+        message="People in your groups will no longer see this number. You can add it again anytime."
         testID="mobile-remove-confirm-modal"
         onRequestClose={() => {
           if (!mutationInFlight.current) setRemoveConfirmationVisible(false);

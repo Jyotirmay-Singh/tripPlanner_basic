@@ -502,7 +502,7 @@ export default function SettleUp() {
         <EmptyState
           icon="check-circle"
           title="All square!"
-          body="No one owes anything on this trip."
+          body="No one owes anything in this group."
           testID="settle-empty"
         />
       ) : (

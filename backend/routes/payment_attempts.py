@@ -255,14 +255,14 @@ async def create_payment_attempt(
 
     context = quote.get("payment_handoff")
     if not isinstance(context, dict) or context.get("trip_id") != trip_id:
-        raise _error(409, "quote_mismatch", "The reviewed quote is not for this trip")
+        raise _error(409, "quote_mismatch", "The reviewed quote is not for this group")
     from_member_id = context.get("from_member_id")
     to_member_id = context.get("to_member_id")
     members = {member.get("id"): member for member in trip.get("members", [])}
     payer = members.get(from_member_id)
     creditor = members.get(to_member_id)
     if not payer or not creditor:
-        raise _error(409, "member_changed", "The payer or recipient is no longer in this trip")
+        raise _error(409, "member_changed", "The payer or recipient is no longer in this group")
     if not can_initiate_upi_attempt(trip, from_member_id, user):
         raise _error(
             403,
@@ -369,7 +369,7 @@ async def create_payment_attempt(
             raise _error(
                 409,
                 "payable_changed",
-                "The trip changed while this payment was starting; review the latest payable",
+                "The group changed while this payment was starting; review the latest payable",
                 retryable=True,
             )
         await db.payment_attempts.insert_one(document, session=session)
@@ -517,9 +517,9 @@ async def _confirm_received_transaction(
 
         trip = await db.trips.find_one({"id": trip_id}, {"_id": 0}, session=session)
         if not trip:
-            raise HTTPException(404, "Trip not found")
+            raise HTTPException(404, "Group not found")
         if not can_review_upi_attempt(trip, attempt.get("to_member_id"), user):
-            raise HTTPException(403, "Only the recipient or a trip admin can confirm this payment")
+            raise HTTPException(403, "Only the recipient or a group admin can confirm this payment")
 
         balances = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user), session=session)
         payable = _suggested_amount(
@@ -662,7 +662,7 @@ async def update_payment_attempt_recipient(
     await expire_payment_attempts(trip_id)
     attempt = await _attempt_or_404(trip_id, attempt_id)
     if not can_review_upi_attempt(trip, attempt.get("to_member_id"), user):
-        raise HTTPException(403, "Only the recipient or a trip admin can review this payment")
+        raise HTTPException(403, "Only the recipient or a group admin can review this payment")
 
     if body.action == "confirm_received":
         confirmed, event_type, notification_metadata = await _confirm_received_transaction(

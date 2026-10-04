@@ -30,10 +30,10 @@ async def require_super_admin(user=Depends(get_current_user)) -> dict:
 async def _trip_or_404(trip_id: str, viewer) -> dict:
     trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     if not trip:
-        raise HTTPException(404, "Trip not found")
+        raise HTTPException(404, "Group not found")
     user_id = viewer_id(viewer)
     if not is_super_admin(viewer) and user_id not in trip.get("user_ids", []):
-        raise HTTPException(403, "Not a member of this trip")
+        raise HTTPException(403, "Not a member of this group")
     return trip
 
 
@@ -52,7 +52,7 @@ async def _trip_admin_or_403(trip_id: str, viewer) -> dict:
 async def _trip_owner_or_403(trip_id: str, viewer) -> dict:
     trip = await _trip_or_404(trip_id, viewer)
     if role_of(trip, viewer) not in ("super_admin", "owner"):
-        raise HTTPException(403, "Only the trip owner or application admin can perform this action")
+        raise HTTPException(403, "Only the group owner or application admin can perform this action")
     return trip
 
 
@@ -74,7 +74,7 @@ async def _expense_modify_or_403(trip_id: str, expense_id: str, viewer) -> tuple
     trip = await _trip_or_404(trip_id, viewer)
     expense = await _expense_or_404(trip_id, expense_id)
     if not can_modify_expense(trip, expense, viewer):
-        raise HTTPException(403, "Only the expense creator or a trip admin can modify this expense")
+        raise HTTPException(403, "Only the expense creator or a group admin can modify this expense")
     return trip, expense
 
 
@@ -92,7 +92,7 @@ async def _settlement_mark_paid_or_403(trip_id: str, settlement_id: str, viewer)
     if not settlement:
         raise HTTPException(404, "Settlement not found")
     if not can_mark_settlement_paid(trip, settlement, viewer):
-        raise HTTPException(403, "Only the lender or a trip admin can mark this settlement paid")
+        raise HTTPException(403, "Only the lender or a group admin can mark this settlement paid")
     return trip, settlement
 
 
@@ -104,5 +104,5 @@ async def _payment_or_403(trip_id: str, payment_id: str, viewer) -> tuple[dict, 
     if not payment:
         raise HTTPException(404, "Payment not found")
     if not can_record_payment(trip, payment.get("to_member_id"), viewer):
-        raise HTTPException(403, "Only the receiver or a trip admin can modify this payment")
+        raise HTTPException(403, "Only the receiver or a group admin can modify this payment")
     return trip, payment

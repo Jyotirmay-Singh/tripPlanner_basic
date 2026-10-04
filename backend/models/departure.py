@@ -32,7 +32,7 @@ class AccountDeletionIn(BaseModel):
     def _unique_trip_actions(self):
         trip_ids = [item.trip_id for item in self.trip_actions]
         if len(trip_ids) != len(set(trip_ids)):
-            raise ValueError("Each trip may appear only once in trip_actions")
+            raise ValueError("Each group may appear only once in trip_actions")
         return self
 
 

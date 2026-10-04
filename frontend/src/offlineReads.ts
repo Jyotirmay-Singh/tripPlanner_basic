@@ -61,7 +61,7 @@ function sanitizeTrip(value: unknown): Record<string, unknown> {
   const trip = pick(value, tripFields);
   if (typeof trip.id !== 'string' || typeof trip.name !== 'string'
     || typeof trip.currency !== 'string' || !Array.isArray((value as Record<string, unknown>).members)) {
-    throw new Error('Invalid trip response');
+    throw new Error('Invalid group response');
   }
   trip.members = ((value as Record<string, unknown>).members as unknown[])
     .map((member) => pick(member, memberFields));
@@ -102,9 +102,9 @@ function authoritativeError(error: unknown): boolean {
 }
 
 function failureMessage(error: unknown): string {
-  if (isApiError(error) && error.status === 403) return 'Access to this trip is unavailable.';
-  if (isApiError(error) && error.status === 404) return 'This trip is no longer available.';
-  if (isApiError(error) && error.status === 401) return 'Sign in again to open this trip.';
+  if (isApiError(error) && error.status === 403) return 'Access to this group is unavailable.';
+  if (isApiError(error) && error.status === 404) return 'This group is no longer available.';
+  if (isApiError(error) && error.status === 401) return 'Sign in again to open this group.';
   return 'No saved copy is available. Open this view while connected, then try again.';
 }
 
@@ -158,7 +158,7 @@ export async function loadTripList<TTrip>(
   }
   try {
     const response = await request<unknown>('/trips');
-    if (!Array.isArray(response)) throw new Error('Invalid trip list response');
+    if (!Array.isArray(response)) throw new Error('Invalid group list response');
     const trips = response as TTrip[];
     const safeTrips = cacheAvailable() ? response.map(sanitizeTrip) : trips;
     const fetchedAt = Date.now();

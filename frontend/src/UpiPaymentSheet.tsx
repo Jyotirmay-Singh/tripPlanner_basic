@@ -178,11 +178,11 @@ function attemptStatusMessage(attempt: PaymentAttempt): string {
         ? 'The current payable is zero, so no ledger payment was posted. A recipient or admin can retry or close the review.'
         : 'The recipient reported that the payment was not received. A recipient or admin can retry or close the review.';
     case 'settled_recipient_confirmed':
-      return 'The recipient confirmed receipt and the payment was added to the trip ledger.';
+      return 'The recipient confirmed receipt and the payment was added to the group ledger.';
     case 'canceled':
-      return 'This attempt was canceled without changing the trip balance.';
+      return 'This attempt was canceled without changing the group balance.';
     case 'expired':
-      return 'This unresolved attempt expired without changing the trip balance.';
+      return 'This unresolved attempt expired without changing the group balance.';
     case 'closed':
       return 'The review was closed without adding a payment.';
     case 'voided':
@@ -605,7 +605,7 @@ export default function UpiPaymentSheet({
               <T variant="label" muted>UPI ID saved for this attempt</T>
               <T variant="h3" selectable testID="upi-attempt-id">{attempt.upi_id_snapshot}</T>
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
-              <T variant="label" muted>Trip amount</T>
+              <T variant="label" muted>Group amount</T>
               <AmountText
                 value={Number(attempt.source_amount)}
                 currency={attempt.source_currency}
@@ -824,7 +824,7 @@ export default function UpiPaymentSheet({
             ) : (
               <View style={styles.stack} testID="upi-payment-review">
                 <Card style={styles.reviewCard}>
-                  <T variant="label" muted>Trip</T>
+                  <T variant="label" muted>Group</T>
                   <T variant="h4">{preview.trip_name || tripName}</T>
                   <View style={[styles.divider, { backgroundColor: colors.border }]} />
                   <T variant="label" muted>Payer</T>
@@ -834,7 +834,7 @@ export default function UpiPaymentSheet({
                   <T variant="label" muted>Current UPI ID</T>
                   <T variant="h2" selectable testID="upi-reviewed-id">{selectedRecipient?.upi_id}</T>
                   <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                  <T variant="label" muted>Trip amount</T>
+                  <T variant="label" muted>Group amount</T>
                   <AmountText
                     value={Number(preview.source_amount)}
                     currency={preview.source_currency}

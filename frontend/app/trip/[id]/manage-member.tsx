@@ -167,7 +167,7 @@ export default function ManageMember() {
     title: member.kind === 'family'
       ? `Remove ${memberLabel} (family of ${member.family_members.length})?`
       : `Remove ${memberLabel}?`,
-    message: 'Removes them from the trip. Past expenses are kept and balances stay unchanged.',
+    message: 'Removes them from the group. Past expenses are kept and balances stay unchanged.',
     yesId: 'mm-remove-entity-confirm',
     onYes: doRemoveEntity,
   });
@@ -197,7 +197,7 @@ export default function ManageMember() {
         // Phase 27: admin is per-PERSON. List each family member; a linked slot can hold owner/admin,
         // an unlinked one cannot become admin until its account is linked (via join/claim).
         <Card>
-          <T variant="label" muted>Trip roles</T>
+          <T variant="label" muted>Group roles</T>
           <T variant="caption" muted style={{ marginTop: SPACING.sm }}>
             Admin is held by a specific person, not the whole family. Promote a linked family member to
             let them add and change members and expenses.
@@ -224,7 +224,7 @@ export default function ManageMember() {
                 ) : isSmOwner ? (
                   <T variant="caption" muted>Owner · root admin (cannot be removed).</T>
                 ) : !viewerIsOwner ? (
-                  <T variant="caption" muted>Only the trip owner can change admin roles.</T>
+                  <T variant="caption" muted>Only the group owner can change admin roles.</T>
                 ) : (
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm }}>
                     <Button
@@ -253,10 +253,10 @@ export default function ManageMember() {
         </Card>
       ) : (
       <Card>
-        <T variant="label" muted>Trip role</T>
+        <T variant="label" muted>Group role</T>
         {!member.user_id ? (
           <T variant="caption" muted style={{ marginTop: SPACING.sm }}>
-            Only app users who have joined this trip can become admins.
+            Only app users who have joined this group can become admins.
           </T>
         ) : isOwner ? (
           <View style={{ marginTop: SPACING.sm, flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
@@ -265,13 +265,13 @@ export default function ManageMember() {
           </View>
         ) : !viewerIsOwner ? (
           <T testID="mm-admin-owner-note" variant="caption" muted style={{ marginTop: SPACING.sm }}>
-            Only the trip owner can change admin roles.
+            Only the group owner can change admin roles.
           </T>
         ) : (
           <>
             <T variant="caption" muted style={{ marginTop: SPACING.sm, marginBottom: SPACING.sm }}>
               {isMemberAdmin
-                ? 'Admins can add and change members and expenses on this trip.'
+                ? 'Admins can add and change members and expenses in this group.'
                 : 'Promote to let this member add and change members and expenses.'}
             </T>
             <Button
@@ -289,7 +289,7 @@ export default function ManageMember() {
         {canTransferToMember ? (
           <View style={{ marginTop: SPACING.md }}>
             <T variant="caption" muted style={{ marginBottom: SPACING.sm }}>
-              Hand over ownership of this trip. You will remain an admin.
+              Hand over ownership of this group. You will remain an admin.
             </T>
             <Button
               testID="mm-transfer-ownership"
@@ -322,7 +322,7 @@ export default function ManageMember() {
 
       {viewerCanRemove ? (
         <Card>
-          <T variant="label" muted>Remove from trip</T>
+          <T variant="label" muted>Remove from group</T>
 
           {member.kind === 'family' ? (
             <View style={{ marginTop: SPACING.sm, gap: SPACING.xs }}>
@@ -393,8 +393,8 @@ export default function ManageMember() {
         testID="mm-transfer-modal"
         title={`Make ${confirmTransfer?.name ?? memberLabel} the owner?`}
         message={user?.is_super_admin === true
-          ? 'The current owner remains a trip admin. Your application-admin access will not change.'
-          : 'You will become a trip admin. The new owner will control trip admins and deletion.'}
+          ? 'The current owner remains a group admin. Your application-admin access will not change.'
+          : 'You will become a group admin. The new owner will control group admins and deletion.'}
         onRequestClose={() => setConfirmTransfer(null)}
         actions={[
           { label: 'Transfer', variant: 'primary', testID: 'mm-transfer-confirm', onPress: () => confirmTransfer && doTransfer(confirmTransfer.uid) },

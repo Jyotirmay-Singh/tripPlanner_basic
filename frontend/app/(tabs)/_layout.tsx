@@ -66,7 +66,7 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen name="dashboard" options={{ title: 'Home', tabBarIcon: (p) => <TabIcon name="home" {...p} /> }} />
-      <Tabs.Screen name="trips" options={{ title: 'Trips', tabBarIcon: (p) => <TabIcon name="briefcase" {...p} /> }} />
+      <Tabs.Screen name="trips" options={{ title: 'Groups', tabBarIcon: (p) => <TabIcon name="briefcase" {...p} /> }} />
       <Tabs.Screen
         name="admin"
         options={{

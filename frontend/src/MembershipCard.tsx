@@ -27,7 +27,7 @@ function ResolutionButton({ blocker, tripId }: { blocker: DepartureBlocker; trip
     : blocker.resolution === 'settle_up'
       ? 'Settle up'
       : blocker.resolution === 'delete_trip_first'
-        ? 'Delete trip first'
+        ? 'Delete group first'
         : 'Refresh membership';
   const route = blocker.resolution === 'resolve_payment' || blocker.resolution === 'settle_up'
     ? `/trip/${tripId}/settle-up`
@@ -80,7 +80,7 @@ export default function MembershipCard({ tripId }: { tripId: string }) {
       router.replace('/(tabs)/trips');
     } catch (reason: any) {
       setChoice(null);
-      toast.show(reason?.message || 'Could not leave this trip.', 'error');
+      toast.show(reason?.message || 'Could not leave this group.', 'error');
       if (reason?.status === 409) await load();
     } finally {
       setSubmitting(false);
@@ -153,7 +153,7 @@ export default function MembershipCard({ tripId }: { tripId: string }) {
             <T variant="caption" style={styles.flexCopy}>
               {impact.ownership.successor
                 ? `Ownership will transfer to ${impact.ownership.successor.name}.`
-                : 'No linked account can take ownership. Delete this trip first.'}
+                : 'No linked account can take ownership. Delete this group first.'}
             </T>
           </View>
         ) : null}
@@ -170,13 +170,13 @@ export default function MembershipCard({ tripId }: { tripId: string }) {
         <View style={styles.actions}>
           {impact.leave_eligible ? (
             <Button
-              label="Leave trip"
+              label="Leave group"
               variant="secondary"
               size="sm"
               onPress={() => setChoice('leave')}
               disabled={submitting}
               testID="membership-leave"
-              accessibilityLabel="Leave this trip"
+              accessibilityLabel="Leave this group"
             />
           ) : null}
           {impact.dissolve_family_eligible ? (
@@ -198,10 +198,10 @@ export default function MembershipCard({ tripId }: { tripId: string }) {
       <ConfirmModal
         visible={choice !== null}
         testID="membership-leave-confirm"
-        title={choice === 'dissolve_family' ? 'Dissolve this family and leave?' : 'Leave this trip?'}
+        title={choice === 'dissolve_family' ? 'Dissolve this family and leave?' : 'Leave this group?'}
         message={choice === 'dissolve_family'
-          ? 'The settled family will be removed from the roster. Financial history remains in trip records.'
-          : 'Your settled identity will be removed. Financial history remains in trip records.'}
+          ? 'The settled family will be removed from the roster. Financial history remains in group records.'
+          : 'Your settled identity will be removed. Financial history remains in group records.'}
         onRequestClose={() => !submitting && setChoice(null)}
         actions={[
           {
@@ -212,7 +212,7 @@ export default function MembershipCard({ tripId }: { tripId: string }) {
             testID: 'membership-leave-cancel',
           },
           {
-            label: choice === 'dissolve_family' ? 'Dissolve and leave' : 'Leave trip',
+            label: choice === 'dissolve_family' ? 'Dissolve and leave' : 'Leave group',
             variant: 'destructive',
             onPress: () => void confirmDeparture(),
             disabled: submitting,

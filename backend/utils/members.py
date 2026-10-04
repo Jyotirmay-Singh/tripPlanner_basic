@@ -161,7 +161,7 @@ def email_exists(members: list, email: Optional[str], exclude_id: Optional[str] 
 def assert_unique_email(members: list, email: Optional[str], exclude_id: Optional[str] = None) -> None:
     norm = normalize_email(email)
     if norm and email_exists(members, email, exclude_id):
-        raise HTTPException(400, f"A member with email '{norm}' already exists in this trip")
+        raise HTTPException(400, f"A member with email '{norm}' already exists in this group")
 
 
 def assert_unique_family_member_emails(emails: Optional[List[Optional[str]]]) -> None:
@@ -176,7 +176,7 @@ def assert_unique_family_member_emails(emails: Optional[List[Optional[str]]]) ->
         if not norm:
             continue
         if norm in seen:
-            raise HTTPException(400, f"A member with email '{norm}' already exists in this trip")
+            raise HTTPException(400, f"A member with email '{norm}' already exists in this group")
         seen.add(norm)
 
 
@@ -502,7 +502,7 @@ async def assert_unique_email_in_trip(trip: dict, email: Optional[str],
     members = trip.get("members", [])
     # 1) cheap, pure member-doc check (identical behavior + message to assert_unique_email)
     if email_exists(members, norm, exclude_id):
-        raise HTTPException(400, f"A member with email '{norm}' already exists in this trip")
+        raise HTTPException(400, f"A member with email '{norm}' already exists in this group")
     # 2) claimed app users' ACCOUNT emails (db.users stores email normalized at register/google)
     from database import db  # lazy: keep this module server-free for unit tests
     excluded = next((m for m in members if m.get("id") == exclude_id), None)
@@ -517,4 +517,4 @@ async def assert_unique_email_in_trip(trip: dict, email: Optional[str],
     if uids and await db.users.count_documents(
         {"id": {"$in": uids}, "email": norm}, limit=1
     ):
-        raise HTTPException(400, f"A member with email '{norm}' already exists in this trip")
+        raise HTTPException(400, f"A member with email '{norm}' already exists in this group")

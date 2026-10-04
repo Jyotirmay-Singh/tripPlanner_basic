@@ -146,8 +146,8 @@ describe('Android push notification registration', () => {
 
     await expect(firstSync).resolves.toBe('undetermined');
     expect(mockAlert).toHaveBeenCalledWith(
-      'Stay updated on your trips',
-      expect.stringContaining('trip name and activity type'),
+      'Stay updated on your groups',
+      expect.stringContaining('group name and activity type'),
       expect.any(Array),
       { cancelable: false },
     );
@@ -173,8 +173,8 @@ describe('Android push notification registration', () => {
     await expect(sync).resolves.toBe('granted');
     expect(mockRequestPermissions).toHaveBeenCalledTimes(1);
     expect(mockSetNotificationChannel).toHaveBeenCalledWith('trip_activity', expect.objectContaining({
-      name: 'Trip activity',
-      description: 'Private updates for trip activity and join requests',
+      name: 'Group activity',
+      description: 'Private updates for group activity and join requests',
       importance: 4,
       lockscreenVisibility: 0,
     }));

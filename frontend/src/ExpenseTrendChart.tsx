@@ -57,7 +57,7 @@ export default function ExpenseTrendChart({ expenses, currency, personalMemberId
     return (
       <View testID="expense-trend-empty" style={styles.empty}>
         <T variant="h4">Spending over time</T>
-        <T variant="caption" muted>Add an expense to see how spending changes during this trip.</T>
+        <T variant="caption" muted>Add an expense to see how spending changes over time.</T>
       </View>
     );
   }
@@ -100,7 +100,7 @@ export default function ExpenseTrendChart({ expenses, currency, personalMemberId
         testIDPrefix="expense-trend-period"
       />
 
-      <View style={styles.selectedSummary} accessible={!onOpenPeriod} accessibilityLabel={`${selected.detailLabel}, trip net spending ${selectedAccessibleAmount}${personalMemberId ? `, ${personalLabel.toLowerCase()} net ${selectedPersonalAccessibleAmount}` : ''}, ${selected.count} ${selected.count === 1 ? 'transaction' : 'transactions'}`}>
+      <View style={styles.selectedSummary} accessible={!onOpenPeriod} accessibilityLabel={`${selected.detailLabel}, group net spending ${selectedAccessibleAmount}${personalMemberId ? `, ${personalLabel.toLowerCase()} net ${selectedPersonalAccessibleAmount}` : ''}, ${selected.count} ${selected.count === 1 ? 'transaction' : 'transactions'}`}>
         <T variant="caption" muted importantForAccessibility="no">{selected.detailLabel}</T>
         <Pressable
           testID="expense-trend-trip-summary"
@@ -108,10 +108,10 @@ export default function ExpenseTrendChart({ expenses, currency, personalMemberId
           disabled={selected.count === 0 || !onOpenPeriod}
           onPress={onOpenPeriod ? () => openPeriod(selected.key, 'trip') : undefined}
           accessibilityRole={onOpenPeriod && selected.count > 0 ? 'button' : undefined}
-          accessibilityLabel={`${selected.detailLabel}, trip net spending ${selectedAccessibleAmount}${selected.count > 0 ? ', view all transactions' : ''}`}
+          accessibilityLabel={`${selected.detailLabel}, group net spending ${selectedAccessibleAmount}${selected.count > 0 ? ', view all transactions' : ''}`}
         >
           <View style={[styles.metricSwatch, { backgroundColor: selected.total < 0 ? colors.danger : colors.primary }]} />
-          <T variant="caption" muted style={styles.metricLabel} importantForAccessibility="no">Trip net</T>
+          <T variant="caption" muted style={styles.metricLabel} importantForAccessibility="no">Group net</T>
           <T
             testID="expense-trend-selected-amount"
             variant="moneyLg"
@@ -186,7 +186,7 @@ export default function ExpenseTrendChart({ expenses, currency, personalMemberId
                 onBlur={() => setFocusedKey(null)}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active, disabled: bucket.count === 0 }}
-                accessibilityLabel={`${bucket.detailLabel}, trip net spending ${formatAccessibleMoney(bucket.total, { currency })}${personalMemberId ? `, ${personalLabel.toLowerCase()} net ${formatAccessibleMoney(bucket.personalTotal, { currency })}` : ''}, ${bucket.count} ${bucket.count === 1 ? 'transaction' : 'transactions'}${onOpenPeriod && bucket.count > 0 ? ', view all transactions' : ''}`}
+                accessibilityLabel={`${bucket.detailLabel}, group net spending ${formatAccessibleMoney(bucket.total, { currency })}${personalMemberId ? `, ${personalLabel.toLowerCase()} net ${formatAccessibleMoney(bucket.personalTotal, { currency })}` : ''}, ${bucket.count} ${bucket.count === 1 ? 'transaction' : 'transactions'}${onOpenPeriod && bucket.count > 0 ? ', view all transactions' : ''}`}
                 style={({ pressed }: any) => [
                   styles.bucketTapArea,
                   pressed && { opacity: 0.72 },

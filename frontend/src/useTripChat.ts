@@ -211,7 +211,7 @@ export function useTripChat({
     if (capability === 'unsupported') {
       applyConnectionFailure({
         code: 'unavailable', retryable: false,
-        message: 'This server does not support Trip Chat.',
+        message: 'This server does not support Group chat.',
       });
       return;
     }
@@ -327,7 +327,7 @@ export function useTripChat({
     }
     if (capability === 'unsupported' || connectionRef.current.status === 'authentication_required'
       || connectionRef.current.status === 'permission_denied') {
-      return { created: false, sent: false, error: 'Trip chat is not available.' };
+      return { created: false, sent: false, error: 'Group chat is not available.' };
     }
 
     sendLockedRef.current = true;

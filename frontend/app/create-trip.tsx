@@ -52,8 +52,8 @@ export default function CreateTrip() {
 
   const submit = async () => {
     if (!name.trim()) {
-      setFieldError({ field: 'name', message: 'Trip name is required' });
-      return toast.show('Trip name is required', 'error');
+      setFieldError({ field: 'name', message: 'Group name is required' });
+      return toast.show('Group name is required', 'error');
     }
     const startISO = startDate.trim() ? toISO(startDate) : null;
     const endISO = endDate.trim() ? toISO(endDate) : null;
@@ -97,7 +97,7 @@ export default function CreateTrip() {
         },
       });
       router.replace(`/trip/${trip.id}`);
-    } catch (e: any) { toast.show(e.message || 'Could not create trip', 'error'); }
+    } catch (e: any) { toast.show(e.message || 'Could not create group', 'error'); }
     finally { setSaving(false); }
   };
 
@@ -106,10 +106,10 @@ export default function CreateTrip() {
           <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
             <Input
               testID="ct-name"
-              label="Trip name *"
+              label="Group name *"
               value={name}
               onChangeText={(value) => { setName(value); if (fieldError?.field === 'name') setFieldError(null); }}
-              placeholder="e.g. Goa December"
+              placeholder="e.g. Household expenses"
               icon="plane"
               autoCapitalize="words"
               returnKeyType="next"
@@ -151,11 +151,11 @@ export default function CreateTrip() {
               label="Official currency"
               value={currency}
               onChange={setCurrency}
-              helper="Choose carefully — the official currency is locked after the trip is created."
+              helper="Choose carefully — the official currency is locked after the group is created."
             />
 
             <View style={{ gap: SPACING.sm }}>
-              <T variant="label" muted>Who are you on this trip?</T>
+              <T variant="label" muted>Who are you in this group?</T>
               <SegmentedControl
                 segments={[
                   { value: 'individual', label: "I'm an individual", icon: 'user' },
@@ -245,7 +245,7 @@ export default function CreateTrip() {
               </View>
             )}
 
-            <Button label="Create trip" icon="check" onPress={submit} loading={saving} disabled={!!budgetPrecisionIssue} fullWidth size="lg" testID="ct-submit" style={{ marginTop: SPACING.sm }} />
+            <Button label="Create group" icon="check" onPress={submit} loading={saving} disabled={!!budgetPrecisionIssue} fullWidth size="lg" testID="ct-submit" style={{ marginTop: SPACING.sm }} />
           </View>
     </FormScreen>
   );

@@ -54,7 +54,7 @@ export function makeExpenseOutboxItem(
   const members = [...relevantIds].sort().map((id) => {
     const member = trip.members.find((candidate) => candidate.id === id);
     if (!member || (member.kind !== 'individual' && member.kind !== 'family')) {
-      throw new Error('The saved trip roster does not match this split.');
+      throw new Error('The saved group roster does not match this split.');
     }
     return {
       id,
@@ -124,18 +124,18 @@ export async function listPendingExpenses(
 
 export function reviewReason(code: string | null): string {
   switch (code) {
-    case 'expense_roster_changed': return 'Trip participants changed. Review the split.';
-    case 'budget_confirmation_required': return 'The trip budget needs online confirmation.';
+    case 'expense_roster_changed': return 'Group participants changed. Review the split.';
+    case 'budget_confirmation_required': return 'The group budget needs online confirmation.';
     case 'expense_retry_unavailable':
     case 'expense_create_protocol_unavailable':
     case 'manual_payment_create_protocol_unavailable': return 'Sync is temporarily unavailable.';
     case 'permission_lost': return 'Your permission to add this expense changed.';
-    case 'trip_unavailable': return 'This trip is unavailable to your account.';
+    case 'trip_unavailable': return 'This group is unavailable to your account.';
     case 'invalid_write':
     case 'invalid_local_payload': return 'This transaction needs changes before the server can accept it.';
     case 'client_mutation_conflict': return 'This save ID conflicts with an earlier server request.';
     case 'eligibility_changed':
-    case 'business_conflict': return 'Trip details changed. Review this transaction.';
+    case 'business_conflict': return 'Group details changed. Review this transaction.';
     case 'payment_recommendation_changed': return 'The suggested payment changed. Keep this record for review.';
     case 'conversion_review_needed': return 'Conversion review needed. Approve a current server quote before sync.';
     case 'multi_currency_disabled': return 'Currency conversion is unavailable on the server. Keep this expense for review.';

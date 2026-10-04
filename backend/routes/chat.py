@@ -104,7 +104,7 @@ async def create_chat_message(
             "sender_family_name": None,
         }
     if not sender:
-        raise HTTPException(409, "Your account is not linked to a person in this trip")
+        raise HTTPException(409, "Your account is not linked to a person in this group")
 
     client_message_id = str(body.client_message_id)
     existing = await db.chat_messages.find_one(
@@ -302,7 +302,7 @@ async def mark_chat_read(trip_id: str, body: ChatReadIn, user=Depends(get_curren
             {"trip_id": trip_id, "sequence": body.through_sequence}, {"_id": 0, "id": 1}
         )
         if not exists:
-            raise HTTPException(400, "Read position is not a message in this trip")
+            raise HTTPException(400, "Read position is not a message in this group")
     through = max(body.through_sequence, state.get("cleared_through_sequence", 0))
     await db.chat_reads.update_one(
         {"trip_id": trip_id, "user_id": user["id"]},

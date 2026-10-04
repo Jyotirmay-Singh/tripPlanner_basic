@@ -211,7 +211,7 @@ export default function JoinTrip() {
 
   const loadPreview = useCallback(async (credential: JoinCredential = activeCredential) => {
     if ('code' in credential && credential.code.length !== 6) {
-      setError('Trip code is 6 characters');
+      setError('Group code is 6 characters');
       return;
     }
     setBusy(true);
@@ -219,7 +219,7 @@ export default function JoinTrip() {
     try {
       applyPreview(await previewJoin<Preview>(credential));
     } catch (requestError: any) {
-      setError(requestError.message || 'Could not find this trip');
+      setError(requestError.message || 'Could not find this group');
       if ('invite_token' in credential) {
         setUseInviteCredential(false);
         if (['invite_expired', 'invite_revoked', 'invite_invalid'].includes(requestError.detailCode)) {
@@ -375,7 +375,7 @@ export default function JoinTrip() {
       const trip = await joinTrip<{ id: string }>(body);
       goToTrip(trip.id);
     } catch (requestError: any) {
-      setError(requestError.message || 'Could not join this trip');
+      setError(requestError.message || 'Could not join this group');
     } finally {
       setBusy(false);
     }
@@ -410,8 +410,8 @@ export default function JoinTrip() {
         <View style={[styles.brand, { backgroundColor: colors.primary }]}>
           <Icon name="key" size={26} color={colors.primaryText} strokeWidth={2} />
         </View>
-        <T variant="h1" style={styles.titleTop}>Join a trip</T>
-        <T muted>Enter the 6-character code shared by the trip organizer.</T>
+        <T variant="h1" style={styles.titleTop}>Join group</T>
+        <T muted>Enter the 6-character code shared by the group organizer.</T>
         <Input
           testID="jt-code"
           value={code}
@@ -427,7 +427,7 @@ export default function JoinTrip() {
           autoComplete="off"
           textContentType="none"
           editable={!busy}
-          accessibilityLabel="Trip code"
+          accessibilityLabel="Group code"
           error={error}
           errorTestID="jt-error"
           focusOnError={!!error}
@@ -463,7 +463,7 @@ export default function JoinTrip() {
           onPress={backToCode}
           disabled={busy}
           accessibilityRole="button"
-          accessibilityLabel="Back to trip code"
+          accessibilityLabel="Back to group code"
           style={styles.back}
         >
           <Icon name="chevron-left" size={18} color={colors.textMuted} />
@@ -494,8 +494,8 @@ export default function JoinTrip() {
           <View style={[styles.noteCard, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
             <Icon name="info" size={18} color={colors.textMuted} />
             <T variant="caption" muted style={styles.noteCopy}>
-              This identity has trip history and cannot be safely replaced. If it is incorrect,
-              ask a trip admin to update the roster.
+              This identity has group history and cannot be safely replaced. If it is incorrect,
+              ask a group admin to update the roster.
             </T>
           </View>
         ) : null}
@@ -535,7 +535,7 @@ export default function JoinTrip() {
           onPress={backToCode}
           disabled={busy}
           accessibilityRole="button"
-          accessibilityLabel="Back to trip code"
+          accessibilityLabel="Back to group code"
           style={styles.back}
         >
           <Icon name="chevron-left" size={18} color={colors.textMuted} />
@@ -624,13 +624,13 @@ export default function JoinTrip() {
     }> = {
       pending: {
         title: 'Waiting for approval',
-        description: 'A trip owner or admin needs to confirm that this is you. You do not have trip access yet.',
+        description: 'A group owner or admin needs to confirm that this is you. You do not have group access yet.',
         icon: 'clock',
         color: colors.warning,
       },
       approved: {
         title: 'Request approved',
-        description: 'Your account is now linked. Opening the trip…',
+        description: 'Your account is now linked. Opening the group…',
         icon: 'check-circle',
         color: colors.success,
       },
@@ -648,7 +648,7 @@ export default function JoinTrip() {
       },
       obsolete: {
         title: 'Request no longer available',
-        description: 'The trip roster changed. Check the current list before trying again.',
+        description: 'The group roster changed. Check the current list before trying again.',
         icon: 'info',
         color: colors.textMuted,
       },
@@ -664,7 +664,7 @@ export default function JoinTrip() {
           onPress={backToCode}
           disabled={busy}
           accessibilityRole="button"
-          accessibilityLabel="Back to trip code"
+          accessibilityLabel="Back to group code"
           style={styles.back}
         >
           <Icon name="chevron-left" size={18} color={colors.textMuted} />
@@ -748,7 +748,7 @@ export default function JoinTrip() {
 
   const replacementCopy = match && replacementNeeded(match, 'join_new')
     ? (match.member_type === 'family_member'
-      ? `Creating a new profile will remove your Gmail from ${match.member_name}, but keep that family member and their trip history.`
+      ? `Creating a new profile will remove your Gmail from ${match.member_name}, but keep that family member and their group history.`
       : `Creating a new profile will remove the unused ${match.member_name} profile.`)
     : joinRequest?.status === 'pending'
       ? 'Creating a new profile will cancel your pending request.'
@@ -858,7 +858,7 @@ export default function JoinTrip() {
         ) : null}
         {error ? <T testID="jt-error" variant="caption" color={colors.danger}>{error}</T> : null}
         <Button
-          label="Join trip"
+          label="Join group"
           icon="check"
           onPress={submitNew}
           loading={busy}

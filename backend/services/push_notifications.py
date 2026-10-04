@@ -34,7 +34,7 @@ ACTOR_NAME_MAX_LENGTH = 60
 EXPENSE_HEADING_MAX_LENGTH = 80
 PARTY_NAME_MAX_LENGTH = 60
 NOTIFICATION_AMOUNT_MAX_LENGTH = 80
-TRIP_NAME_FALLBACK = "One of your trips"
+TRIP_NAME_FALLBACK = "One of your groups"
 
 # Keep this presentation-only map aligned with frontend/src/currencies.ts. The ISO code and exact
 # decimal text are snapshotted in the outbox; formatting is deterministic and locale-independent.

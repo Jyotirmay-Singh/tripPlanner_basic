@@ -150,9 +150,9 @@ const BASE_TRIP = {
   members: [INDIVIDUAL],
 };
 const APK_DOWNLOAD_URL = 'https://tripsplitter-web.vercel.app/download/android';
-const CODE_FALLBACK_MESSAGE = 'You have been invited to join the trip "Lakshadweep" on Trip Splitter.\n\n'
-  + 'Trip code: UCK3RZ\n'
-  + 'Enter this code in Trip Splitter to join the trip.\n\n'
+const CODE_FALLBACK_MESSAGE = 'You have been invited to join the group "Lakshadweep" on Trip Splitter.\n\n'
+  + 'Group code: UCK3RZ\n'
+  + 'Enter this code in Trip Splitter to join the group.\n\n'
   + 'Download Trip Splitter for Android:\n'
   + APK_DOWNLOAD_URL;
 
@@ -717,7 +717,7 @@ describe('Trip identity header', () => {
 
     const share = hostByTestID(header, 'TouchableOpacity', 'trip-share')
       ?? header.findAll((node: any) => node.props.testID === 'trip-share').at(-1);
-    expect(share.props.accessibilityLabel).toBe(`Share trip code ${longCode}`);
+    expect(share.props.accessibilityLabel).toBe(`Share group code ${longCode}`);
     expect(StyleSheet.flatten(share.props.style)).toEqual(expect.objectContaining({
       minHeight: COMPONENT_SIZE.minTouchTarget,
       maxWidth: '100%',
@@ -751,13 +751,13 @@ describe('Trip identity header', () => {
     expect(mockRefreshRuntimeConfig).toHaveBeenCalledTimes(1);
     expect(mockGetTripInviteLink).toHaveBeenCalledWith('t1');
     expect(nativeShare).toHaveBeenCalledWith({
-      message: 'You have been invited to join the trip "Lakshadweep" on Trip Splitter.\n\n'
+      message: 'You have been invited to join the group "Lakshadweep" on Trip Splitter.\n\n'
         + `Open the invitation link:\n${url}\n\n`
-        + 'Trip code: UCK3RZ\n'
+        + 'Group code: UCK3RZ\n'
         + 'You can also enter this code in Trip Splitter to join manually.\n\n'
         + 'Download Trip Splitter for Android:\n'
         + `${APK_DOWNLOAD_URL}\n\n`
-        + 'A trip admin can reset this private invitation link at any time.',
+        + 'A group admin can reset this private invitation link at any time.',
     });
     nativeShare.mockRestore();
   });
@@ -779,7 +779,7 @@ describe('Trip identity header', () => {
     expect(nativeShare).toHaveBeenCalledTimes(1);
     expect(nativeShare).toHaveBeenCalledWith({ message: CODE_FALLBACK_MESSAGE });
     expect(mockToastShow).toHaveBeenCalledWith(
-      'Could not load the trip link: offline. Sharing the trip code instead.',
+      'Could not load the group link: offline. Sharing the group code instead.',
       'error',
     );
     nativeShare.mockRestore();
@@ -799,7 +799,7 @@ describe('Trip identity header', () => {
     expect(mockGetTripInviteLink).not.toHaveBeenCalled();
     expect(nativeShare).toHaveBeenCalledWith({ message: CODE_FALLBACK_MESSAGE });
     expect(mockToastShow).toHaveBeenCalledWith(
-      'Secure invite links are not live yet. Sharing the trip code instead.',
+      'Secure invite links are not live yet. Sharing the group code instead.',
       'info',
     );
     nativeShare.mockRestore();
@@ -821,7 +821,7 @@ describe('Trip identity header', () => {
       message: CODE_FALLBACK_MESSAGE,
     });
     expect(mockToastShow).toHaveBeenCalledWith(
-      'Could not check secure-link availability. Sharing the trip code instead.',
+      'Could not check secure-link availability. Sharing the group code instead.',
       'error',
     );
     nativeShare.mockRestore();
@@ -857,7 +857,7 @@ describe('Trip identity header', () => {
     expect(StyleSheet.flatten(add.props.style).minHeight).toBe(COMPONENT_SIZE.minTouchTarget);
     expect(StyleSheet.flatten(settle.props.style).minHeight).toBe(COMPONENT_SIZE.minTouchTarget);
     expect(edit.props).toEqual(expect.objectContaining({
-      accessibilityLabel: 'Edit trip',
+      accessibilityLabel: 'Edit group',
       touchSize: COMPONENT_SIZE.minTouchTarget,
     }));
     expect(tabs.props).toEqual(expect.objectContaining({ layout: 'scrollable', testIDPrefix: 'trip-tab' }));

@@ -45,7 +45,7 @@ function BlockerAction({ blocker, tripId }: { blocker: DepartureBlocker; tripId:
     : blocker.resolution === 'settle_up'
       ? 'Settle up'
       : blocker.resolution === 'delete_trip_first'
-        ? 'Delete trip first'
+        ? 'Delete group first'
         : 'Review membership';
   if (blocker.resolution === 'keep_family' || blocker.resolution === 'none') return null;
   return (
@@ -55,7 +55,7 @@ function BlockerAction({ blocker, tripId }: { blocker: DepartureBlocker; tripId:
       size="sm"
       onPress={() => router.push(route as Href)}
       testID={`deletion-trip-${tripId}-${blocker.resolution}`}
-      accessibilityLabel={`${label} for this trip`}
+      accessibilityLabel={`${label} for this group`}
     />
   );
 }
@@ -134,7 +134,7 @@ function TripReviewCard({
           <T variant="caption" style={styles.flexCopy}>
             {trip.ownership.successor
               ? `Ownership will transfer to ${trip.ownership.successor.name}.`
-              : 'No linked account can take ownership. Delete this trip first.'}
+              : 'No linked account can take ownership. Delete this group first.'}
           </T>
         </View>
       ) : null}
@@ -278,7 +278,7 @@ export default function DeleteAccountScreen() {
           <View style={styles.flexCopy}>
             <T variant="h2">Delete account</T>
             <T muted>
-              Review each trip before permanently removing your login and personal account data.
+              Review each group before permanently removing your login and personal account data.
             </T>
           </View>
         </View>
@@ -294,7 +294,7 @@ export default function DeleteAccountScreen() {
             ))}
           </Card>
           <Card style={styles.summaryCard}>
-            <T variant="h4">Kept as trip history</T>
+            <T variant="h4">Kept as group history</T>
             {impact.privacy.retained.map((line) => (
               <View key={line} style={styles.bulletRow}>
                 <Icon name="check" size={15} color={colors.success} />
@@ -317,8 +317,8 @@ export default function DeleteAccountScreen() {
         ) : null}
 
         <View style={styles.sectionHeading}>
-          <T variant="h3">Trip review</T>
-          <T variant="caption" muted>Trips are preserved unless you choose an eligible departure.</T>
+          <T variant="h3">Group review</T>
+          <T variant="caption" muted>Groups are preserved unless you choose an eligible departure.</T>
         </View>
         {impact.trips.length ? impact.trips.map((trip) => (
           <TripReviewCard
@@ -331,8 +331,8 @@ export default function DeleteAccountScreen() {
           />
         )) : (
           <Card testID="delete-account-no-trips">
-            <T variant="h4">No linked trips</T>
-            <T variant="caption" muted>Your account can be removed without changing trip history.</T>
+            <T variant="h4">No linked groups</T>
+            <T variant="caption" muted>Your account can be removed without changing group history.</T>
           </Card>
         )}
 
@@ -341,7 +341,7 @@ export default function DeleteAccountScreen() {
             onPress={() => setAcknowledged((value) => !value)}
             accessibilityRole="checkbox"
             accessibilityState={{ checked: acknowledged }}
-            accessibilityLabel="Acknowledge retained unsettled trip positions"
+            accessibilityLabel="Acknowledge retained unsettled group positions"
             testID="delete-account-unsettled-ack"
             style={({ pressed, focused }: any) => [
               styles.acknowledgement,
@@ -358,7 +358,7 @@ export default function DeleteAccountScreen() {
             <Icon name={acknowledged ? 'checkbox-on' : 'checkbox-off'} size={23}
               color={acknowledged ? colors.primary : colors.warning} />
             <T style={styles.flexCopy}>
-              I understand that positions in trips I keep may remain unsettled after my account is deleted.
+              I understand that positions in groups I keep may remain unsettled after my account is deleted.
             </T>
           </Pressable>
         ) : null}
@@ -391,7 +391,7 @@ export default function DeleteAccountScreen() {
         visible={finalVisible}
         testID="delete-account-final-modal"
         title="Permanently delete this account?"
-        message="This cannot be undone. Retained trip history will no longer be linked to this login."
+        message="This cannot be undone. Retained group history will no longer be linked to this login."
         onRequestClose={() => !submitting && setFinalVisible(false)}
         actions={[
           {

@@ -97,10 +97,10 @@ export default function NotificationSettingsRow() {
     : settings.permission === 'unavailable'
       ? 'Notifications are unavailable on this device.'
       : enabled
-        ? 'Trip activity and join request updates are on.'
+        ? 'Group activity and join request updates are on.'
         : blocked
           ? 'Blocked by Android. Tap the switch for help.'
-          : 'Turn on updates for trip activity and join requests.';
+          : 'Turn on updates for group activity and join requests.';
 
   const changeEnabled = useCallback(async (nextEnabled: boolean) => {
     if (!available || actionInFlight.current) return;
@@ -125,10 +125,10 @@ export default function NotificationSettingsRow() {
   const accessibilityHint = !available
     ? status
     : enabled
-      ? 'Turns off trip activity and join request updates on this device.'
+      ? 'Turns off group activity and join request updates on this device.'
       : blocked
         ? 'Shows help for allowing notifications in Android settings.'
-        : 'Requests permission and turns on trip activity and join request updates.';
+        : 'Requests permission and turns on group activity and join request updates.';
 
   return (
     <Card
@@ -151,7 +151,7 @@ export default function NotificationSettingsRow() {
         value={enabled}
         disabled={!available || busy}
         onValueChange={changeEnabled}
-        accessibilityLabel="Trip notifications"
+        accessibilityLabel="Group notifications"
         accessibilityHint={accessibilityHint}
         trackColor={{ false: colors.border, true: colors.primary }}
         thumbColor={colors.surface}

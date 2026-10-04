@@ -193,7 +193,7 @@ async def update_trip(trip_id: str, body: TripUpdate, user=Depends(get_current_u
     # API boundary as well as rendering it read-only in the client so older clients cannot mutate it.
     if "currency" in updates:
         if updates["currency"] != trip.get("currency", "INR"):
-            raise HTTPException(409, "Official currency cannot be changed after trip creation")
+            raise HTTPException(409, "Official currency cannot be changed after group creation")
         updates.pop("currency")
     if "budget" in updates:
         submitted_budget = updates["budget"]
@@ -281,7 +281,7 @@ async def _claim_member(trip, members, user, user_email, body):
     if normalize_email(target.get("email")) != user_email:
         raise HTTPException(403, "You can only claim the profile matching your email")
     reservation = await reserve_linked_mobile(
-        trip, user, member_id=target["id"], member_name=target.get("name") or "Trip member",
+        trip, user, member_id=target["id"], member_name=target.get("name") or "Group member",
     )
     try:
         # Atomic claim: succeeds only while the row is still unclaimed (closes the TOCTOU race).
@@ -343,7 +343,7 @@ async def _claim_sub_member(trip, members, user, user_email, body):
         user,
         member_id=family["id"],
         family_member_id=body.family_member_id,
-        member_name=names[idx] if idx < len(names) else family.get("name") or "Trip member",
+        member_name=names[idx] if idx < len(names) else family.get("name") or "Group member",
     )
     try:
         # Atomic: only while this exact slot is still unclaimed (null or absent). Set just the one
@@ -418,7 +418,7 @@ async def _resolve_clean_stub_for_join_new(trip, own_stubs, user_email, body):
             }),
         )
         if result.modified_count == 0:
-            raise HTTPException(409, "This family member changed. Enter the trip code again.")
+            raise HTTPException(409, "This family member changed. Enter the group code again.")
         return
     if len(own_stubs) > 1:
         # Legacy duplicate-email data: surface + warn, never auto-destroy.
@@ -449,7 +449,7 @@ async def _apply_mode(trip, members, user, user_email, body):
         if stub:
             reservation = await reserve_linked_mobile(
                 trip, user, member_id=stub["id"],
-                member_name=stub.get("name") or "Trip member",
+                member_name=stub.get("name") or "Group member",
             )
             try:
                 result = await db.trips.update_one(
@@ -501,7 +501,7 @@ async def _apply_mode(trip, members, user, user_email, body):
                 fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
                 if not fresh or user["id"] not in fresh.get("user_ids", []):
                     await rollback_claim(reservation)
-                    raise HTTPException(409, "The trip changed before you could join")
+                    raise HTTPException(409, "The group changed before you could join")
 
     elif mode == "individual":
         if user_email:
@@ -530,7 +530,7 @@ async def _apply_mode(trip, members, user, user_email, body):
             fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
             if not fresh or user["id"] not in fresh.get("user_ids", []):
                 await rollback_claim(reservation)
-                raise HTTPException(409, "The trip changed before you could join")
+                raise HTTPException(409, "The group changed before you could join")
 
     elif mode == "family":
         # Phase 27: "join existing family" links the caller to a specific UNCLAIMED member SLOT
@@ -569,7 +569,7 @@ async def _apply_mode(trip, members, user, user_email, body):
             user,
             member_id=target["id"],
             family_member_id=body.family_member_id,
-            member_name=names[idx] if idx < len(names) else target.get("name") or "Trip member",
+            member_name=names[idx] if idx < len(names) else target.get("name") or "Group member",
         )
         try:
             # Atomic: only while this exact slot is still unclaimed (null matches null OR missing),
@@ -638,7 +638,7 @@ async def _apply_mode(trip, members, user, user_email, body):
             fresh = await db.trips.find_one({"id": trip["id"]}, {"_id": 0})
             if not fresh or user["id"] not in fresh.get("user_ids", []):
                 await rollback_claim(reservation)
-                raise HTTPException(409, "The trip changed before you could join")
+                raise HTTPException(409, "The group changed before you could join")
 
 
 @router.post("/trips/join")
@@ -676,7 +676,7 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
             trip,
             user,
             member_id=f"pending:{user['id']}",
-            member_name=user.get("name") or "Trip member",
+            member_name=user.get("name") or "Group member",
         )
         try:
             await _resolve_clean_stub_for_join_new(trip, own_stubs, user_email, body)
@@ -712,7 +712,7 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
                            len(own_stubs), user_email, trip["id"])
         raise HTTPException(
             409,
-            "Your email already has a profile on this trip. Claim it, or choose "
+            "Your email already has a profile in this group. Claim it, or choose "
             "'join as someone new' to replace it.",
         )
     await _apply_mode(trip, members, user, user_email, body)
@@ -849,7 +849,7 @@ async def add_admin(trip_id: str, body: AdminGrant, user=Depends(get_current_use
     # Step 23: only the trip owner or application admin can manage trip admins.
     trip = await _trip_owner_or_403(trip_id, user)
     if body.user_id not in trip.get("user_ids", []):
-        raise HTTPException(400, "User is not a member of this trip")
+        raise HTTPException(400, "User is not a member of this group")
     result = await db.trips.update_one(
         {"id": trip_id}, {"$addToSet": {"admin_ids": body.user_id}}
     )
@@ -887,7 +887,7 @@ async def transfer_ownership(trip_id: str, body: OwnershipTransfer, user=Depends
     if body.user_id == trip["owner_id"]:
         raise HTTPException(400, "Already the owner")
     if body.user_id not in trip.get("user_ids", []):
-        raise HTTPException(400, "User is not a member of this trip")
+        raise HTTPException(400, "User is not a member of this group")
     await db.trips.update_one(
         {"id": trip_id},
         {"$set": {"owner_id": body.user_id}, "$addToSet": {"admin_ids": body.user_id}},

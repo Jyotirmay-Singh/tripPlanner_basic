@@ -278,7 +278,7 @@ class TestMemberRemoval:
         # admin -> owner member row -> 403
         resp = self._delete_member(api_client, admin_token, tid, owner_member["id"])
         assert resp.status_code == 403, resp.text
-        assert resp.json()["detail"] == "Cannot remove the trip owner"
+        assert resp.json()["detail"] == "Cannot remove the group owner"
 
         # admin -> a settled plain member -> 200 (admin-on-admin/plain removal allowed)
         plain = self._add_member(api_client, owner_token, tid, "TEST_Plain")

@@ -157,7 +157,7 @@ export default function Profile() {
         <Icon name="trash" size={20} color={colors.danger} />
         <View style={styles.paymentCopy}>
           <T color={colors.danger} style={{ fontWeight: '700' }}>Delete account</T>
-          <T muted variant="caption">Review trips and permanently remove your login</T>
+          <T muted variant="caption">Review groups and permanently remove your login</T>
         </View>
         <Icon name="chevron-right" size={18} color={colors.textMuted} />
       </Card>

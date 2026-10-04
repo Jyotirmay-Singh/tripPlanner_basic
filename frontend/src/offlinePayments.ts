@@ -38,7 +38,7 @@ export function makePaymentOutboxItem(
 ): PendingPayment {
   if (!accountId || !trip.id || !Number.isFinite(fetchedAt)
     || balances.currency !== trip.currency || transfer.from_member_id === transfer.to_member_id) {
-    throw new Error('The saved payment suggestion is unavailable. Refresh the trip.');
+    throw new Error('The saved payment suggestion is unavailable. Refresh the group.');
   }
   const suggested = balances.transfers.find((row) =>
     row.from_member_id === transfer.from_member_id && row.to_member_id === transfer.to_member_id);

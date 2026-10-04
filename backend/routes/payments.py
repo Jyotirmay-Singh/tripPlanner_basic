@@ -187,7 +187,7 @@ async def payment_recipient_details(
         raise HTTPException(404, "Member not found")
 
     if not can_inspect_upi_recipient_details(trip, from_member_id, user):
-        raise HTTPException(403, "Only the payer or a trip admin can view payment details")
+        raise HTTPException(403, "Only the payer or a group admin can view payment details")
 
     balances = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
     active = any(
@@ -226,7 +226,7 @@ async def preview_payment_handoff(
     payer = members_by_id.get(body.from_member_id)
     recipient = members_by_id.get(body.to_member_id)
     if payer is None or recipient is None:
-        raise _handoff_error(404, "member_not_found", "Payer or recipient is no longer in this trip")
+        raise _handoff_error(404, "member_not_found", "Payer or recipient is no longer in this group")
     if not can_initiate_upi_attempt(trip, body.from_member_id, user):
         raise _handoff_error(
             403,
@@ -391,17 +391,17 @@ async def _create_retryable_payment(trip_id: str, body: PaymentCreate, user: dic
             return replay_or_conflict(receipt, trip_id, fingerprint), False
         trip = await db.trips.find_one({"id": trip_id}, {"_id": 0}, session=session)
         if trip is None:
-            raise HTTPException(404, "Trip not found")
+            raise HTTPException(404, "Group not found")
         if not is_super_admin(user) and user["id"] not in trip.get("user_ids", []):
-            raise HTTPException(403, "Not a member of this trip")
+            raise HTTPException(403, "Not a member of this group")
         if not can_record_payment(trip, body.to_member_id, user):
-            raise HTTPException(403, "Only the receiver or a trip admin can record this payment")
+            raise HTTPException(403, "Only the receiver or a group admin can record this payment")
         amount, audit_fields = validate_new_amount(trip, body.amount)
         if body.from_member_id == body.to_member_id:
             raise HTTPException(400, "A payment cannot be from and to the same member")
         member_ids = {member["id"] for member in trip.get("members", [])}
         if body.from_member_id not in member_ids or body.to_member_id not in member_ids:
-            raise HTTPException(400, "Both members must belong to this trip")
+            raise HTTPException(400, "Both members must belong to this group")
 
         balances = await _compute_balances(
             trip_id, diagnostic=is_trip_admin(trip, user), session=session,
@@ -513,13 +513,13 @@ async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: Ba
     trip = await _trip_or_404(trip_id, user)
     current_version = trip.get("version", 0)
     if not can_record_payment(trip, body.to_member_id, user):
-        raise HTTPException(403, "Only the receiver or a trip admin can record this payment")
+        raise HTTPException(403, "Only the receiver or a group admin can record this payment")
     amount, audit_fields = validate_new_amount(trip, body.amount)
     if body.from_member_id == body.to_member_id:
         raise HTTPException(400, "A payment cannot be from and to the same member")
     member_ids = {m["id"] for m in trip.get("members", [])}
     if body.from_member_id not in member_ids or body.to_member_id not in member_ids:
-        raise HTTPException(400, "Both members must belong to this trip")
+        raise HTTPException(400, "Both members must belong to this group")
 
     # Recommendations already include prior payments and may be rerouted after any ledger change.
     bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))

@@ -27,21 +27,21 @@ it('allows the application super-admin to share without joining the trip', () =>
 it('builds the exact secure invitation message with link, code, APK, and expiry', () => {
   const url = `https://tripsplitter-web.vercel.app/invite/${'a'.repeat(43)}`;
   expect(tripInviteShareMessage('Coast trip', 'ABC123', url)).toBe(
-    `You have been invited to join the trip "Coast trip" on Trip Splitter.\n\n`
+    `You have been invited to join the group "Coast trip" on Trip Splitter.\n\n`
     + `Open the invitation link:\n${url}\n\n`
-    + 'Trip code: ABC123\n'
+    + 'Group code: ABC123\n'
     + 'You can also enter this code in Trip Splitter to join manually.\n\n'
     + 'Download Trip Splitter for Android:\n'
     + 'https://tripsplitter-web.vercel.app/download/android\n\n'
-    + 'A trip admin can reset this private invitation link at any time.',
+    + 'A group admin can reset this private invitation link at any time.',
   );
 });
 
 it('builds the exact code fallback with the Android-only APK download', () => {
   expect(tripCodeShareMessage('Coast trip', 'ABC123')).toBe(
-    'You have been invited to join the trip "Coast trip" on Trip Splitter.\n\n'
-    + 'Trip code: ABC123\n'
-    + 'Enter this code in Trip Splitter to join the trip.\n\n'
+    'You have been invited to join the group "Coast trip" on Trip Splitter.\n\n'
+    + 'Group code: ABC123\n'
+    + 'Enter this code in Trip Splitter to join the group.\n\n'
     + 'Download Trip Splitter for Android:\n'
     + 'https://tripsplitter-web.vercel.app/download/android',
   );

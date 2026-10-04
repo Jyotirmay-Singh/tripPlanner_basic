@@ -493,7 +493,7 @@ def test_trip_name_is_single_line_bounded_and_has_a_generic_fallback():
     }
     message = notifications.build_expo_message(event, {"token": VALID_TOKEN})
     assert message["title"] == "Expense added"
-    assert message["body"] == "(One of your trips)"
+    assert message["body"] == "(One of your groups)"
 
     event["actor_name"] = "Ravi"
     assert notifications.build_expo_message(event, {"token": VALID_TOKEN})["title"] \

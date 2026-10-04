@@ -37,8 +37,8 @@ if (Platform.OS === 'android') {
 
 async function ensureChannel(): Promise<void> {
   await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
-    name: 'Trip activity',
-    description: 'Private updates for trip activity and join requests',
+    name: 'Group activity',
+    description: 'Private updates for group activity and join requests',
     importance: Notifications.AndroidImportance.HIGH,
     sound: 'default',
     vibrationPattern: [0, 250, 250, 250],
@@ -146,8 +146,8 @@ async function showRationaleOnce(): Promise<boolean> {
 
   return new Promise((resolve) => {
     Alert.alert(
-      'Stay updated on your trips',
-      'Trip Splitter alerts may appear on your lock screen. They can show the trip name and activity type; a chat sender; an expense creator and description or category; or payment parties, amount, and currency. Payment notes, UPI details, email addresses, receipts, message text, credentials, and rejection reasons are never included.',
+      'Stay updated on your groups',
+      'Trip Splitter alerts may appear on your lock screen. They can show the group name and activity type; a chat sender; an expense creator and description or category; or payment parties, amount, and currency. Payment notes, UPI details, email addresses, receipts, message text, credentials, and rejection reasons are never included.',
       [
         {
           text: 'Not now',

@@ -97,30 +97,30 @@ export default function TripChat({
     || (connection.status === 'unavailable' && connection.attempt > 0);
   const connectionDescription = (() => {
     switch (connection.status) {
-      case 'connecting': return 'Connecting to the trip conversation.';
+      case 'connecting': return 'Connecting to the group conversation.';
       case 'connected': return canModerateMessages
-        ? 'You are connected in privileged admin mode. Trip members can continue using this conversation normally.'
-        : 'Everyone linked to this trip can join the conversation.';
+        ? 'You are connected in privileged admin mode. Group members can continue using this conversation normally.'
+        : 'Everyone linked to this group can join the conversation.';
       case 'reconnecting': return 'Connection interrupted. Messages remain available while chat reconnects.';
       case 'offline': return 'You are offline. Unsent messages stay on this device for retry.';
-      case 'authentication_required': return 'Sign in again to continue using Trip Chat.';
-      case 'permission_denied': return 'Your account no longer has access to this trip conversation.';
+      case 'authentication_required': return 'Sign in again to continue using Group chat.';
+      case 'permission_denied': return 'Your account no longer has access to this group conversation.';
       case 'unavailable': return connection.reason === 'configuration'
-        ? 'The connected server does not support this version of Trip Chat.'
+        ? 'The connected server does not support this version of Group chat.'
         : 'The chat service could not be reached. You can try connecting again.';
       default: return canModerateMessages
         ? 'You are connected in privileged admin mode.'
-        : 'Everyone linked to this trip can join the conversation.';
+        : 'Everyone linked to this group can join the conversation.';
     }
   })();
   const composerNotice = !canSend
-    ? 'Your account is not linked to a named person in this trip.'
+    ? 'Your account is not linked to a named person in this group.'
     : connection.status === 'authentication_required'
       ? 'Sign in again before sending a message.'
       : connection.status === 'permission_denied'
-        ? 'You no longer have permission to send messages in this trip.'
+        ? 'You no longer have permission to send messages in this group.'
         : permanentlyUnavailable
-          ? 'Trip Chat is unavailable on the connected server.'
+          ? 'Group chat is unavailable on the connected server.'
           : null;
 
   controllerRef.current = controller;
@@ -359,7 +359,7 @@ export default function TripChat({
       <View style={[styles.chatHeader, { maxWidth: CONTENT_MAX_WIDTH }]}>
         <View style={{ flex: 1 }}>
           <View style={styles.chatTitleRow}>
-            <T variant="h3">Trip chat</T>
+            <T variant="h3">Group chat</T>
             <View style={[
               styles.liveDot,
               { backgroundColor: controller.connected ? colors.success : composerBlocked ? colors.danger : colors.textMuted },
@@ -369,7 +369,7 @@ export default function TripChat({
               <Pressable
                 onPress={controller.reconnect}
                 accessibilityRole="button"
-                accessibilityLabel="Try connecting to Trip Chat again"
+                accessibilityLabel="Try connecting to Group chat again"
                 testID="chat-reconnect"
               >
                 <T variant="caption" color={colors.primary} style={{ fontFamily: FONTS.bodyBold }}>Try again</T>
@@ -407,7 +407,7 @@ export default function TripChat({
           <View style={[styles.emptyMark, { backgroundColor: colors.surfaceMuted }]}>
             <Icon name="chat" size={28} color={colors.primary} />
           </View>
-          <T variant="h3" style={{ marginTop: SPACING.md }}>Start the trip conversation</T>
+          <T variant="h3" style={{ marginTop: SPACING.md }}>Start the group conversation</T>
           <T muted style={{ textAlign: 'center', marginTop: SPACING.xs }}>
             Coordinate arrivals, plans, and reminders in one place.
           </T>
@@ -519,13 +519,13 @@ export default function TripChat({
             <TextInput
               value={draft}
               onChangeText={setDraft}
-              placeholder="Message the trip…"
+              placeholder="Message the group…"
               placeholderTextColor={colors.textMuted}
               multiline
               submitBehavior="newline"
               maxLength={2000}
               editable={composerEnabled}
-              accessibilityLabel={editing ? 'Edit message' : 'Message the trip'}
+              accessibilityLabel={editing ? 'Edit message' : 'Message the group'}
               accessibilityHint="Type a message. Use the send button when it is ready."
               accessibilityState={{ disabled: !composerEnabled }}
               cursorColor={colors.primary}
@@ -588,7 +588,7 @@ export default function TripChat({
         visible={showOwnerActions}
         onClose={() => setShowOwnerActions(false)}
         title="Chat options"
-        message="Trip owners and application administrators can clear the conversation for everyone."
+        message="Group owners and application administrators can clear the conversation for everyone."
         actions={[
           {
             label: 'Clear chat history', icon: 'trash', variant: 'destructive',
@@ -602,7 +602,7 @@ export default function TripChat({
         visible={!!confirm}
         title={confirm?.kind === 'history' ? 'Clear chat history?' : 'Delete message?'}
         message={confirm?.kind === 'history'
-          ? 'This permanently removes every existing message for all trip members.'
+          ? 'This permanently removes every existing message for all group members.'
           : 'The original text will be removed and replaced with “Message deleted”.'}
         onRequestClose={() => setConfirm(null)}
         actions={[

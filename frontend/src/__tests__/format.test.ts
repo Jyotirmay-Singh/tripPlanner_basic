@@ -63,11 +63,11 @@ describe('whole-unit money formatting', () => {
       budget_overage: 4_125,
       currency: 'INR',
       warning: 'Legacy INR warning',
-    })).toBe('This expense puts you ₹4,125 over the trip budget.');
+    })).toBe('This expense puts you ₹4,125 over the group budget.');
     expect(formatBudgetWarning({
       budget_overage: 400,
       currency: 'SGD',
-    })).toBe('This expense puts you S$400 over the trip budget.');
+    })).toBe('This expense puts you S$400 over the group budget.');
   });
 
   it('falls back to legacy or generic budget warnings for older or invalid responses', () => {
@@ -78,7 +78,7 @@ describe('whole-unit money formatting', () => {
       currency: 'INR',
       warning: 'Invalid structured response fallback.',
     })).toBe('Invalid structured response fallback.');
-    expect(formatBudgetWarning(undefined)).toBe('This exceeds the trip budget.');
+    expect(formatBudgetWarning(undefined)).toBe('This exceeds the group budget.');
   });
 });
 

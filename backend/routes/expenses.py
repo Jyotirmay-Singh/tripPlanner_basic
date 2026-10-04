@@ -57,7 +57,7 @@ def _delete_changed(result) -> bool:
 def _trip_changed() -> HTTPException:
     return HTTPException(409, detail={
         "code": "eligibility_changed",
-        "message": "The trip changed while this transaction was being saved. Refresh and try again.",
+        "message": "The group changed while this transaction was being saved. Refresh and try again.",
         "retryable": True,
     })
 
@@ -92,7 +92,7 @@ def _conversion_http_error(exc: Exception):
 def _foreign_disabled():
     raise HTTPException(409, {
         "code": "multi_currency_disabled",
-        "message": "Exchange rate support is required to use a currency other than the trip's official currency",
+        "message": "Exchange rate support is required to use a currency other than the group's official currency",
         "retryable": False,
     })
 
@@ -177,7 +177,7 @@ def _budget_warning_details(
     if over <= 0:
         return None
     return {
-        "warning": f"This expense puts you {over:,} {currency} over the trip budget.",
+        "warning": f"This expense puts you {over:,} {currency} over the group budget.",
         "budget_overage": over,
         "currency": currency,
     }
@@ -220,9 +220,9 @@ async def _create_retryable_expense(trip_id, body, user, doc, converted, force,
     async def transactional_write(session):
         live_trip = await db.trips.find_one({"id": trip_id}, {"_id": 0}, session=session)
         if live_trip is None:
-            raise HTTPException(404, "Trip not found")
+            raise HTTPException(404, "Group not found")
         if not is_super_admin(user) and user["id"] not in live_trip.get("user_ids", []):
-            raise HTTPException(403, "Not a member of this trip")
+            raise HTTPException(403, "Not a member of this group")
         verify_roster(live_trip, body)
 
         current = await _trip_spend(trip_id, session=session) if live_trip.get("budget") is not None else 0.0

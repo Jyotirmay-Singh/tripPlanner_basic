@@ -57,7 +57,7 @@ describe('tab navigator layout', () => {
   it.each([1, 1.3])('renders complete navigation labels with growing space at scale %s', (fontScale) => {
     jest.spyOn(require('react-native'), 'useWindowDimensions').mockReturnValue({ width: 320, height: 640, scale: 1, fontScale });
     const options = renderTabs().findByType('Tabs' as any).props.screenOptions;
-    for (const title of ['Home', 'Trips', 'Reports']) {
+    for (const title of ['Home', 'Groups', 'Reports']) {
       let label: any;
       act(() => { label = TestRenderer.create(options.tabBarLabel({ children: title, color: '#123', focused: true })); });
       const text = label.root.findByType(RN.Text);

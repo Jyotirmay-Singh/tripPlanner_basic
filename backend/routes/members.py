@@ -289,7 +289,7 @@ async def delete_member(trip_id: str, member_id: str, user=Depends(get_current_u
     owner_id = trip.get("owner_id")
     member_uids = {target.get("user_id"), *(target.get("family_member_user_ids") or [])}
     if owner_id and owner_id in member_uids:
-        raise HTTPException(403, "Cannot remove the trip owner")
+        raise HTTPException(403, "Cannot remove the group owner")
 
     reason = await _settlement_block_reason(trip_id, target)
     if reason:
@@ -369,7 +369,7 @@ async def delete_family_member(trip_id: str, family_id: str, fm_id: str,
     # Phase 26: the owner may be linked to a family SUB-member slot; that slot is the trip root and
     # can't be removed (mirrors the whole-member owner guard in delete_member).
     if removed_uid and removed_uid == trip.get("owner_id"):
-        raise HTTPException(403, "Cannot remove the trip owner")
+        raise HTTPException(403, "Cannot remove the group owner")
     new_user_ids = [u for i, u in enumerate(fam_user_ids) if i != idx]
     old_weight = _weight_of_member(family)
     new_weight = _weight_of_member({**family, "family_members": new_names})

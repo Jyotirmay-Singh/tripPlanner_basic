@@ -140,7 +140,7 @@ export default function Trips() {
   return (
     <TabScreen refreshing={refreshing} onRefresh={load}>
       <TabPageHeader
-        title="Trips"
+        title="Groups"
         action={(
           <Button
             label="New"
@@ -148,7 +148,7 @@ export default function Trips() {
             size="sm"
             onPress={() => router.push('/create-trip')}
             disabled={offlineView}
-            accessibilityLabel="Create new trip"
+            accessibilityLabel="Create group"
             testID="trips-new-btn"
             style={styles.headerAction}
           />
@@ -159,7 +159,7 @@ export default function Trips() {
             variant="primary"
             onPress={() => router.push('/create-trip')}
             disabled={offlineView}
-            accessibilityLabel="Create new trip"
+            accessibilityLabel="Create group"
             testID="trips-new-btn-compact"
             touchSize={COMPONENT_SIZE.minTouchTarget}
           />
@@ -217,22 +217,22 @@ export default function Trips() {
       </Card> : null}
       <Card onPress={offlineView ? undefined : () => router.push('/join-trip')} testID="trips-join-btn" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm }}>
         <Icon name="key" size={18} color={colors.primary} />
-        <T color={colors.primary} style={{ fontWeight: '700' }}>Join a trip with code</T>
+        <T color={colors.primary} style={{ fontWeight: '700' }}>Join with code</T>
       </Card>
 
       {!loaded ? (
         <SkeletonCard count={4} />
       ) : !read?.data ? (
-        <EmptyState icon="alert" title="Trips unavailable offline"
-          body={read?.error || 'Open your trips online to save a copy on this device.'}
+        <EmptyState icon="alert" title="Groups unavailable offline"
+          body={read?.error || 'Open your groups online to save a copy on this device.'}
           testID="trips-unavailable" />
       ) : trips.length === 0 ? (
         <EmptyState
           icon="briefcase"
-          title={offlineView ? 'No trips in saved list' : 'No trips yet'}
-          body={offlineView ? 'Connect to refresh your trip list.'
-            : 'Start a new trip or join one with a code your friend shares.'}
-          ctaLabel={offlineView ? undefined : 'Create a trip'}
+          title={offlineView ? 'No saved groups' : 'No groups yet'}
+          body={offlineView ? 'Connect to refresh your group list.'
+            : 'Create a group or join with a code shared with you.'}
+          ctaLabel={offlineView ? undefined : 'Create group'}
           ctaIcon={offlineView ? undefined : 'plus'}
           onCta={offlineView ? undefined : () => router.push('/create-trip')}
           testID="trips-empty"

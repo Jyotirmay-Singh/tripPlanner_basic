@@ -44,7 +44,7 @@ export function isValidUpiId(value: string): boolean {
 // server is authoritative; this only gives inline UX feedback on the member create/edit forms.
 // `taken` is the set of emails already on the trip (member linked emails), excluding the row being
 // edited. Empty input is deferred to the required/format checks.
-export const DUPLICATE_EMAIL_MESSAGE = 'This email is already used by someone on this trip';
+export const DUPLICATE_EMAIL_MESSAGE = 'This email is already used by someone in this group';
 
 export function isEmailTaken(email: string, taken: (string | null | undefined)[]): boolean {
   const e = email.trim().toLowerCase();

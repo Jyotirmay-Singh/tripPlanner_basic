@@ -39,13 +39,13 @@ def _slot_value(values: list, index: int):
 def resolve_target(trip: dict, member_id: str, family_member_id: Optional[str] = None) -> dict:
     root = next((m for m in trip.get("members", []) if m.get("id") == member_id), None)
     if not root:
-        _fail(404, "join_target_not_found", "This person is no longer on the trip")
+        _fail(404, "join_target_not_found", "This person is no longer in the group")
     if family_member_id:
         if root.get("kind") != "family":
             _fail(400, "invalid_join_target", "The selected person is not in a family")
         ids = padded_family_member_ids(root)
         if family_member_id not in ids:
-            _fail(404, "join_target_not_found", "This family member is no longer on the trip")
+            _fail(404, "join_target_not_found", "This family member is no longer in the group")
         index = ids.index(family_member_id)
         names = root.get("family_members") or []
         emails = root.get("family_member_emails") or []
@@ -200,7 +200,7 @@ async def active_request(trip_id: str, requester_user_id: str) -> Optional[dict]
 async def create_request(trip: dict, user: dict, member_id: str,
                          family_member_id: Optional[str], invite_id: Optional[str] = None) -> dict:
     if user["id"] in trip.get("user_ids", []):
-        _fail(409, "already_joined", "You already belong to this trip")
+        _fail(409, "already_joined", "You already belong to this group")
     target = resolve_target(trip, member_id, family_member_id)
     if target.get("user_id"):
         _fail(409, "join_target_taken", "This person is already linked to an account")
@@ -278,7 +278,7 @@ async def create_request(trip: dict, user: dict, member_id: str,
         current = await active_request(trip["id"], user["id"])
         if current and _same_target(current, member_id, family_member_id):
             return current
-        _fail(409, "active_join_request", "You already have a pending request for this trip")
+        _fail(409, "active_join_request", "You already have a pending request for this group")
     document.pop("_id", None)
     return document
 
@@ -383,9 +383,9 @@ async def approve_request(request_id: str, admin_user_id: str) -> tuple[dict, di
     if not trip or not requester:
         await db.join_requests.update_one({"id": request_id, "status": "approving"}, {"$set": {
             "status": "obsolete", "active": False, "updated_at": timestamp,
-            "decided_at": timestamp, "rejection_reason": "The trip or account no longer exists.",
+            "decided_at": timestamp, "rejection_reason": "The group or account no longer exists.",
         }})
-        _fail(409, "join_request_obsolete", "The trip or requester no longer exists")
+        _fail(409, "join_request_obsolete", "The group or requester no longer exists")
 
     try:
         target = resolve_target(trip, document["member_id"], document.get("family_member_id"))
@@ -416,7 +416,7 @@ async def approve_request(request_id: str, admin_user_id: str) -> tuple[dict, di
         await db.join_requests.update_one({"id": request_id, "status": "approving"}, {"$set": {
             "status": "obsolete", "active": False, "updated_at": timestamp,
             "decided_at": timestamp,
-            "rejection_reason": "This Gmail is now assigned to another person on the trip.",
+            "rejection_reason": "This Gmail is now assigned to another person in the group.",
         }})
         _fail(409, "join_request_obsolete", "The requester Gmail now belongs to another person")
 
@@ -426,7 +426,7 @@ async def approve_request(request_id: str, admin_user_id: str) -> tuple[dict, di
             "status": "obsolete", "active": False, "updated_at": timestamp,
             "decided_at": timestamp, "rejection_reason": "The requester joined another way.",
         }})
-        _fail(409, "join_request_obsolete", "The requester has already joined this trip")
+        _fail(409, "join_request_obsolete", "The requester has already joined this group")
 
     if target.get("user_id") and not target_owned_by_requester:
         await db.join_requests.update_one({"id": request_id, "status": "approving"}, {"$set": {
@@ -441,7 +441,7 @@ async def approve_request(request_id: str, admin_user_id: str) -> tuple[dict, di
             requester,
             member_id=target["member_id"],
             family_member_id=target.get("family_member_id"),
-            member_name=target.get("name") or "Trip member",
+            member_name=target.get("name") or "Group member",
         )
     except HTTPException as exc:
         if exc.status_code == 409 and isinstance(exc.detail, dict) \

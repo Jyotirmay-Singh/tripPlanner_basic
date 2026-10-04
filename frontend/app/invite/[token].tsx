@@ -34,15 +34,15 @@ const APP_LOGO = require('../../assets/images/icon.png');
 const failureCopy: Record<LandingFailure, { title: string; body: string }> = {
   invalid: {
     title: 'This invite is not valid',
-    body: 'Check that the complete link was opened, or ask a trip admin to share a new one.',
+    body: 'Check that the complete link was opened, or ask a group admin to share a new one.',
   },
   revoked: {
     title: 'This invite is no longer active',
-    body: 'A trip admin reset this link. Ask them to share the current invitation.',
+    body: 'A group admin reset this link. Ask them to share the current invitation.',
   },
   disabled: {
     title: 'Invite links are temporarily unavailable',
-    body: 'Try again later, or ask the organizer for the six-character trip code.',
+    body: 'Try again later, or ask the organizer for the six-character group code.',
   },
   offline: {
     title: 'Could not check this invite',
@@ -201,7 +201,7 @@ export default function InviteLanding() {
                   </View>
                   <T variant="h1" testID="invite-trip-name">Join {invite.trip_name}</T>
                   <T muted>
-                    Your place in this trip is ready to confirm. We’ll match you with the right
+                    Your place in this group is ready to confirm. We’ll match you with the right
                     person or ask an admin to approve your request.
                   </T>
                   {Platform.OS === 'web' ? (
@@ -279,7 +279,7 @@ export default function InviteLanding() {
 
           <Button label="Not now" variant="ghost" onPress={dismiss} haptic={false} />
           <T variant="caption" muted style={styles.privacy}>
-            Only continue if you recognize the trip and the person who shared this link.
+            Only continue if you recognize the group and the person who shared this link.
           </T>
         </View>
       </ScrollView>

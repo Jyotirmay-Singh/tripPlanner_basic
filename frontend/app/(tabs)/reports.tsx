@@ -37,7 +37,7 @@ export default function Reports() {
   return (
     <TabScreen refreshing={refreshing} onRefresh={load}>
       <TabPageHeader title="Reports" />
-      <T muted>Download an expense report for any trip as XLSX or PDF.</T>
+      <T muted>Download an expense report for any group as XLSX or PDF.</T>
 
       {!loaded ? (
         <SkeletonCard count={3} />
@@ -45,7 +45,7 @@ export default function Reports() {
         <EmptyState
           icon="spreadsheet"
           title="Nothing to report yet"
-          body="Once you have a trip with expenses, you can export it as a spreadsheet here."
+          body="Once you have a group with expenses, you can export it as a spreadsheet here."
           testID="reports-empty"
         />
       ) : (

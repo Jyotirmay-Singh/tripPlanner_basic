@@ -37,7 +37,7 @@ def linked_identity(trip: dict, user_id: str) -> Optional[dict]:
                 return {
                     "member_id": member.get("id"),
                     "family_member_id": None,
-                    "member_name": member.get("name") or "Trip member",
+                    "member_name": member.get("name") or "Group member",
                 }
             continue
 
@@ -50,7 +50,7 @@ def linked_identity(trip: dict, user_id: str) -> Optional[dict]:
                     "member_id": member.get("id"),
                     "family_member_id": ids[index] if index < len(ids) else None,
                     "member_name": names[index] if index < len(names)
-                    else member.get("name") or "Trip member",
+                    else member.get("name") or "Group member",
                 }
 
         # Tolerate a legacy family entity link until the startup migration demotes it.
@@ -58,7 +58,7 @@ def linked_identity(trip: dict, user_id: str) -> Optional[dict]:
             return {
                 "member_id": member.get("id"),
                 "family_member_id": None,
-                "member_name": member.get("name") or "Trip member",
+                "member_name": member.get("name") or "Group member",
             }
     return None
 
@@ -73,7 +73,7 @@ def _claim_document(trip: dict, user: dict, identity: Optional[dict]) -> Optiona
         "mobile_number": mobile_number,
         "member_id": identity.get("member_id"),
         "family_member_id": identity.get("family_member_id"),
-        "member_name": identity.get("member_name") or "Trip member",
+        "member_name": identity.get("member_name") or "Group member",
         "updated_at": now_utc().isoformat(),
     }
 
@@ -99,7 +99,7 @@ def _member_name_for_claim(trip: dict, claim: Optional[dict]) -> str:
 
 def _mobile_conflict(trip: dict, claim: Optional[dict]) -> HTTPException:
     member_name = _member_name_for_claim(trip, claim)
-    trip_name = trip.get("name") or "this trip"
+    trip_name = trip.get("name") or "this group"
     return HTTPException(409, detail={
         "code": "trip_mobile_conflict",
         "message": f"This mobile number is already used by {member_name} in {trip_name}.",

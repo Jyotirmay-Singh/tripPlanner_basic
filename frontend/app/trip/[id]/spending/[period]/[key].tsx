@@ -102,21 +102,21 @@ export default function SpendingPeriodDetail() {
   const isPersonal = scope === 'personal';
   const scopeLabel = isPersonal
     ? personalMember?.kind === 'family' ? 'Your family paid' : 'You paid'
-    : 'Trip net spend';
+    : 'Group net spend';
   const offlineView = sessionMode === 'offline' || read?.source === 'cache';
 
   return (
     <Screen edges={['left', 'right', 'bottom']} refreshing={refreshing} onRefresh={load} testID="spending-period-screen">
       <Stack.Screen options={{ title: 'Spending details' }} />
       {!periodLabel || !scope ? (
-        <EmptyState icon="alert" title="Invalid spending period" body="Return to the trip and choose a bar again." testID="spending-period-invalid" />
+        <EmptyState icon="alert" title="Invalid spending period" body="Return to the group and choose a bar again." testID="spending-period-invalid" />
       ) : !loaded ? (
         <SkeletonCard count={4} />
       ) : !trip ? (
         <EmptyState
           icon="alert"
           title="Could not load spending"
-          body={read?.error || 'Try again when your trip is available.'}
+          body={read?.error || 'Try again when your group is available.'}
           ctaLabel="Try again"
           ctaIcon="refresh"
           onCta={load}
@@ -126,7 +126,7 @@ export default function SpendingPeriodDetail() {
         <EmptyState
           icon="user"
           title="No linked member"
-          body="Your account is not linked to a person or family in this trip."
+          body="Your account is not linked to a person or family in this group."
           testID="spending-period-unlinked"
         />
       ) : (
@@ -156,7 +156,7 @@ export default function SpendingPeriodDetail() {
             <EmptyState
               icon="receipt"
               title="No transactions in this period"
-              body={isPersonal ? 'You or your family did not pay for any transactions here.' : 'This trip has no expenses or refunds here.'}
+              body={isPersonal ? 'You or your family did not pay for any transactions here.' : 'This group has no expenses or refunds here.'}
               testID="spending-period-empty"
             />
           ) : (

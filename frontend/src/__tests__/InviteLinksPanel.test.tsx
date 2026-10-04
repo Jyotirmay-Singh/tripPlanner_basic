@@ -91,7 +91,7 @@ describe('InviteLinksPanel', () => {
     });
 
     expect(mockReset).toHaveBeenCalledWith('trip-1');
-    expect(mockToastShow).toHaveBeenCalledWith('New trip link ready.', 'success');
+    expect(mockToastShow).toHaveBeenCalledWith('New group link ready.', 'success');
 
     await act(async () => {
       renderer.root.findByProps({ testID: 'invite-copy-link' }).props.onPress();

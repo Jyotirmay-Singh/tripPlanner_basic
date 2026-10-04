@@ -22,4 +22,4 @@ export function refundExceedsSpend(amount: number, netSpendExcludingThis: number
 }
 
 export const REFUND_WARNING =
-  "This money-back is larger than the trip's total spend so far — you can still save.";
+  "This money-back is larger than the group's total spend so far — you can still save.";

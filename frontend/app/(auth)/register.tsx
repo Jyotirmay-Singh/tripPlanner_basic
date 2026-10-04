@@ -71,7 +71,7 @@ export default function Register() {
       nativeHeader
       brandImage={require('../../assets/images/wordmark.png')}
       title="Let's get started"
-      subtitle="Your trips, shared seamlessly."
+      subtitle="Shared expenses, made simple."
     >
       <Input
         testID="reg-name"

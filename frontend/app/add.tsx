@@ -45,22 +45,22 @@ export default function AddTab() {
 
   return (
     <Screen edges={['left', 'right', 'bottom']} refreshing={refreshing} onRefresh={load}>
-      <T muted>Choose a trip for this transaction.</T>
+      <T muted>Choose a group for this transaction.</T>
       {read ? <OfflineReadStatus result={read} /> : null}
 
       {!loaded ? (
         <SkeletonCard count={3} />
       ) : !read?.data ? (
-        <EmptyState icon="alert" title="Trip picker unavailable offline"
-          body={read?.error || 'Open your trips online to save a list on this device.'}
+        <EmptyState icon="alert" title="Group picker unavailable offline"
+          body={read?.error || 'Open your groups online to save a list on this device.'}
           testID="add-unavailable" />
       ) : trips.length === 0 ? (
         <EmptyState
           icon="wallet"
-          title={offlineView ? 'No trips in saved list' : 'No trips to add to'}
-          body={offlineView ? 'Connect to refresh your trip list.'
-            : 'Create a trip first, then you can start tracking expenses against it.'}
-          ctaLabel={offlineView ? undefined : 'Create trip'}
+          title={offlineView ? 'No saved groups' : 'No groups available'}
+          body={offlineView ? 'Connect to refresh your group list.'
+            : 'Create a group first, then start tracking expenses in it.'}
+          ctaLabel={offlineView ? undefined : 'Create group'}
           ctaIcon={offlineView ? undefined : 'plus'}
           onCta={offlineView ? undefined : () => router.push('/create-trip')}
           testID="add-empty"

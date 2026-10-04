@@ -36,8 +36,8 @@ export default function OfflineReadStatus({ result }: {
 
   if (!offline || noticeDismissed) return null;
   const details = offlineWritesActive()
-    ? 'In saved trips, add expenses and refunds or record suggested payments. They show Pending sync and reach others when you reconnect. Foreign-currency entries need approval.'
-    : 'You can view trips you opened before. Adding expenses and payments needs a connection.';
+    ? 'In saved groups, add expenses and refunds or record suggested payments. They show Pending sync and reach others when you reconnect. Foreign-currency entries need approval.'
+    : 'You can view groups you opened before. Adding expenses and payments needs a connection.';
 
   return (
     <>

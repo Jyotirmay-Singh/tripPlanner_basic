@@ -542,7 +542,7 @@ def build_report_pdf(trip: dict, members: list, expenses: list, currency: str,
     doc = SimpleDocTemplate(
         buf, pagesize=landscape(A4),
         leftMargin=12 * mm, rightMargin=12 * mm, topMargin=11 * mm, bottomMargin=14 * mm,
-        title=f"{trip.get('name', 'Trip')} - Report",
+        title=f"{trip.get('name', 'Group')} - Report",
     )
     base = getSampleStyleSheet()
     title_style = ParagraphStyle("rTitle", parent=base["Title"], fontSize=18, spaceAfter=1,
@@ -552,7 +552,7 @@ def build_report_pdf(trip: dict, members: list, expenses: list, currency: str,
 
     # ---------- Cover / title block ----------
     story = [
-        Paragraph(trip.get("name", "Trip"), title_style),
+        Paragraph(trip.get("name", "Group"), title_style),
         Paragraph(f"{composition_label(members)} &middot; {trip_date_label(trip)} &middot; {currency}",
                   sub_style),
         HRFlowable(width="100%", thickness=1.4, color=_BRAND, spaceBefore=3, spaceAfter=10),
@@ -591,7 +591,7 @@ def build_report_pdf(trip: dict, members: list, expenses: list, currency: str,
         story.append(Spacer(1, 8 * mm))
         story += _payments_section(base, payments, members, currency)
 
-    footer = trip.get("name", "Trip")
+    footer = trip.get("name", "Group")
     doc.build(story, canvasmaker=partial(NumberedCanvas, footer_left=footer))
     buf.seek(0)
     return buf.getvalue()

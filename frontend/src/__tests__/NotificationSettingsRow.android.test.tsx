@@ -130,17 +130,17 @@ describe('Profile notification settings row', () => {
   it.each([
     [
       settings({ permission: 'granted', enabled: true }),
-      'Trip activity and join request updates are on.',
+      'Group activity and join request updates are on.',
       true,
     ],
     [
       settings({ userPreference: false, permission: 'granted' }),
-      'Turn on updates for trip activity and join requests.',
+      'Turn on updates for group activity and join requests.',
       false,
     ],
     [
       settings({ userPreference: true, permission: 'denied', canAskAgain: true }),
-      'Turn on updates for trip activity and join requests.',
+      'Turn on updates for group activity and join requests.',
       false,
     ],
     [
@@ -161,7 +161,7 @@ describe('Profile notification settings row', () => {
     expect(toggle.props.disabled).toBe(false);
     expect(toggle.props.onValueChange).toEqual(expect.any(Function));
     expect(toggle.props.pointerEvents).toBeUndefined();
-    expect(toggle.props.accessibilityLabel).toBe('Trip notifications');
+    expect(toggle.props.accessibilityLabel).toBe('Group notifications');
     expect(toggle.props.accessibilityHint).toEqual(expect.any(String));
     expect(row.props.onPress).toBeUndefined();
   });
@@ -207,7 +207,7 @@ describe('Profile notification settings row', () => {
     expect(mockOpenSettings).not.toHaveBeenCalled();
     expect(mockAlert).not.toHaveBeenCalled();
     expect(notificationSwitch(renderer).props.value).toBe(true);
-    expect(statuses(renderer)).toContain('Trip activity and join request updates are on.');
+    expect(statuses(renderer)).toContain('Group activity and join request updates are on.');
   });
 
   it('turns off directly without confirmation or Android settings', async () => {
@@ -234,7 +234,7 @@ describe('Profile notification settings row', () => {
     await act(async () => { await notificationSwitch(renderer).props.onValueChange(true); });
 
     expect(mockAlert).not.toHaveBeenCalled();
-    expect(statuses(renderer)).toContain('Turn on updates for trip activity and join requests.');
+    expect(statuses(renderer)).toContain('Turn on updates for group activity and join requests.');
   });
 
   it('offers Android Settings only when permission requests are permanently blocked', async () => {
@@ -308,7 +308,7 @@ describe('Profile notification settings row', () => {
     });
 
     expect(notificationSwitch(renderer).props.value).toBe(true);
-    expect(statuses(renderer)).toContain('Trip activity and join request updates are on.');
+    expect(statuses(renderer)).toContain('Group activity and join request updates are on.');
   });
 
   it('ignores non-active AppState changes and removes its listener on cleanup', async () => {

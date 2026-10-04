@@ -163,7 +163,7 @@ export default function AddExpense() {
                   }),
               );
             if (!rosterMatches) {
-              setReviewError('Trip participants changed. Choose the payer and split again before saving.');
+              setReviewError('Group participants changed. Choose the payer and split again before saving.');
               setSplitSel([]);
               setExactRows(buildExactRows(t.members));
               setFamilyExcluded({});
@@ -186,7 +186,7 @@ export default function AddExpense() {
         if (active) {
           setReadAccountId(user.id);
           setRead({ data: null, source: 'unavailable', fetchedAt: null,
-            error: 'This trip is unavailable.' });
+            error: 'This group is unavailable.' });
         }
       });
     return () => { active = false; };
@@ -359,7 +359,7 @@ export default function AddExpense() {
       <Screen edges={['left', 'right', 'bottom']}>
         {read?.source === 'unavailable' ? (
           <EmptyState icon="alert" title="Expense form unavailable offline"
-            body={read.error || 'Open this trip online to save its roster on this device.'}
+            body={read.error || 'Open this group online to save its roster on this device.'}
             testID="ae-unavailable" />
         ) : <SkeletonCard count={4} />}
       </Screen>
@@ -395,7 +395,7 @@ export default function AddExpense() {
               label="Expense currency"
               value={expenseCurrency}
               onChange={(value) => { setExpenseCurrency(value); setAmountError(null); }}
-              helper={`Official trip currency: ${trip.currency}`}
+              helper={`Official group currency: ${trip.currency}`}
             />
             {localCapture && isForeign ? (
               <T variant="caption" color={colors.warning} testID="ae-foreign-offline">

@@ -58,6 +58,6 @@ export function pendingDisplay(item: StoredOutboxItem, trip?: DisplayTrip | null
   const currency = typeof rawCurrency === 'string' ? rawCurrency : '';
   const amount = Number.isFinite(value)
     ? formatAccessibleMoney(value, { currency }) : 'Amount unavailable';
-  const tripName = savedDisplay(item)?.tripName || trip?.name || 'Trip unavailable';
+  const tripName = savedDisplay(item)?.tripName || trip?.name || 'Group unavailable';
   return { identity, amount, tripName, actionLabel: (action: string) => `${action}: ${identity}, ${amount}, ${tripName}` };
 }

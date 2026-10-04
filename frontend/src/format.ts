@@ -57,12 +57,12 @@ export function formatBudgetWarning(payload: BudgetWarningPayload | null | undef
       && hasSupportedCurrency) {
     return `This expense puts you ${formatMoney(overage, {
       currency: normalizedCurrency,
-    })} over the trip budget.`;
+    })} over the group budget.`;
   }
   if (typeof payload?.warning === 'string' && payload.warning.trim()) {
     return payload.warning;
   }
-  return 'This exceeds the trip budget.';
+  return 'This exceeds the group budget.';
 }
 
 /** Compatibility alias while callers migrate to the application-wide whole-unit formatter. */

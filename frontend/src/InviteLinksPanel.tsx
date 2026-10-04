@@ -37,7 +37,7 @@ export default function InviteLinksPanel({ tripId, canReset, onShare }: Props) {
       setError(null);
     } catch (requestError: any) {
       setInvite(null);
-      setError(requestError.message || 'Could not load the trip link');
+      setError(requestError.message || 'Could not load the group link');
     } finally {
       setLoading(false);
     }
@@ -71,9 +71,9 @@ export default function InviteLinksPanel({ tripId, canReset, onShare }: Props) {
     try {
       setInvite(await resetTripInviteLink(tripId));
       setError(null);
-      toast.show('New trip link ready.', 'success');
+      toast.show('New group link ready.', 'success');
     } catch (requestError: any) {
-      toast.show(requestError.message || 'Could not reset the trip link.', 'error');
+      toast.show(requestError.message || 'Could not reset the group link.', 'error');
     } finally {
       setResetting(false);
     }
@@ -82,7 +82,7 @@ export default function InviteLinksPanel({ tripId, canReset, onShare }: Props) {
   return (
     <>
       <Card testID="trip-invite-link" style={styles.panel}>
-        <T variant="h3">Trip invite link</T>
+        <T variant="h3">Group invite link</T>
 
         {loading ? null : error ? (
           <View testID="trip-invite-link-error" style={styles.errorState}>
@@ -130,8 +130,8 @@ export default function InviteLinksPanel({ tripId, canReset, onShare }: Props) {
 
       <ConfirmModal
         visible={confirmReset}
-        title="Reset trip link?"
-        message="The current link will stop working immediately. Existing trip members will keep their access."
+        title="Reset group link?"
+        message="The current link will stop working immediately. Existing group members will keep their access."
         onRequestClose={() => setConfirmReset(false)}
         actions={[
           { label: 'Reset link', variant: 'destructive', onPress: () => { void reset(); }, testID: 'invite-reset-confirm' },

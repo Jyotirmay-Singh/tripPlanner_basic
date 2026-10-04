@@ -1,6 +1,6 @@
 # Trip Expense Splitter
 
-A mobile app for tracking trip expenses, splitting costs between individuals and
+A mobile app for tracking shared expenses, splitting costs between individuals and
 families, settling balances, and exporting reports.
 
 - **Frontend:** Expo SDK 54 / React Native (file-based routing via `expo-router`)
@@ -12,16 +12,16 @@ See [`USER_GUIDE.md`](USER_GUIDE.md) for full feature documentation and
 
 ## Features
 
-- Create trips and invite members with a seven-day, revocable Android App Link or the
+- Create groups and invite members with a private, resettable Android App Link or the
   backward-compatible join code (as an individual, into an existing family, or by starting one).
 - Split expenses two ways: **per person** (divide by total people) or **per family**
   (divide by entity), selectable per transaction.
 - Deterministic, conserving whole-unit settle-up for every supported currency, with exact
   minimum-payment routing for bounded groups and an efficient deterministic fallback for large ones.
-- Role-based access: trip admins manage members/families; expenses are editable by
-  their creator or a trip admin.
+- Role-based access: group admins manage members/families; expenses are editable by
+  their creator or a group admin.
 - A fixed application administrator (`jyotirmaysingh03@gmail.com`) has a dedicated Admin tab for
-  reviewing every trip and its transactions, performing trip-scoped maintenance, and reviewing an
+  reviewing every group and its transactions, performing group-scoped maintenance, and reviewing an
   append-only activity trail. Financial validation and settlement safeguards still apply.
 - Retroactive rebalancing when a family's size changes.
 - Receipt photo capture and save-to-gallery.
@@ -85,7 +85,7 @@ or admin login is unavailable.
 | `ADMIN_PASSWORD` | Required when seeding the fixed application admin `jyotirmaysingh03@gmail.com`; existing credentials are preserved |
 | `RESEND_API_KEY`, `SENDER_EMAIL`, `APP_URL` | Verification/password-reset email. If `RESEND_API_KEY` is unset, development links are logged instead of emailed |
 | `GOOGLE_CLIENT_ID` | Comma-separated accepted Google ID-token audiences for `POST /api/auth/google`; include the Web client (web + Android Credential Manager) and iOS client when iOS sign-in is enabled |
-| `INVITE_LINKS_ENABLED` | Runtime rollout/kill switch for secure trip links; enable only after the App-Link-capable APK is published |
+| `INVITE_LINKS_ENABLED` | Runtime rollout/kill switch for secure group links; enable only after the App-Link-capable APK is published |
 | `INVITE_BASE_URL` | Canonical HTTPS host used in generated invite links; initially `https://tripsplitter-web.vercel.app` |
 
 ## Frontend

@@ -51,12 +51,12 @@ async def settle(trip_id: str, body: SettleIn, background_tasks: BackgroundTasks
     # only — a debtor must never be able to self-settle their own debt. Validate the roster too so
     # ghost ids can't poison the ledger (amount>0 is enforced by the SettleIn schema).
     if not can_record_payment(trip, body.to_member_id, user):
-        raise HTTPException(403, "Only the receiver or a trip admin can record this settlement")
+        raise HTTPException(403, "Only the receiver or a group admin can record this settlement")
     if body.from_member_id == body.to_member_id:
         raise HTTPException(400, "A settlement cannot be from and to the same member")
     member_ids = {m["id"] for m in trip.get("members", [])}
     if body.from_member_id not in member_ids or body.to_member_id not in member_ids:
-        raise HTTPException(400, "Both members must belong to this trip")
+        raise HTTPException(400, "Both members must belong to this group")
     ts = now_utc().isoformat()
     doc = {"id": gen_id(), "trip_id": trip_id,
            "from_member_id": body.from_member_id,
@@ -132,7 +132,7 @@ async def create_settlement(trip_id: str, body: SettlementCreate, user=Depends(g
         raise HTTPException(400, "A settlement cannot be from and to the same member")
     member_ids = {m["id"] for m in trip.get("members", [])}
     if body.from_member_id not in member_ids or body.to_member_id not in member_ids:
-        raise HTTPException(400, "Both members must belong to this trip")
+        raise HTTPException(400, "Both members must belong to this group")
     doc = {"id": gen_id(), "trip_id": trip_id,
            "from_member_id": body.from_member_id,
            "to_member_id": body.to_member_id,

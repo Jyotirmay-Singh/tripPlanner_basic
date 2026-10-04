@@ -114,7 +114,7 @@ export default function EditTrip() {
               label="Official currency"
               value={currency}
               disabled
-              helper="Locked when the trip was created so balances and settlements stay consistent."
+              helper="Locked when the group was created so balances and settlements stay consistent."
             />
 
             <Button label="Save" icon="check" onPress={save} loading={saving} disabled={!!budgetPrecisionIssue} fullWidth size="lg" testID="et-save" style={{ marginTop: SPACING.sm }} />

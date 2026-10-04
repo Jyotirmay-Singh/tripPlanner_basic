@@ -256,7 +256,7 @@ def expense_entity_shares_scaled(expense: dict, members: Iterable[dict]) -> tupl
     member_list = list(members)
     members_by_id = {str(member["id"]): member for member in member_list}
     if len(members_by_id) != len(member_list):
-        raise SettlementLedgerError("Trip contains duplicate member IDs", code="duplicate_member")
+        raise SettlementLedgerError("Group contains duplicate member IDs", code="duplicate_member")
     expense_id = expense.get("id", "?")
     amount = to_scaled(expense.get("amount"), field=f"expense '{expense_id}' amount")
     payer_id = str(expense.get("paid_by_member_id", ""))
@@ -330,7 +330,7 @@ def build_precise_net(
     member_list = list(members)
     members_by_id = {str(member["id"]): member for member in member_list}
     if len(members_by_id) != len(member_list):
-        raise SettlementLedgerError("Trip contains duplicate member IDs", code="duplicate_member")
+        raise SettlementLedgerError("Group contains duplicate member IDs", code="duplicate_member")
     net = {member_id: 0 for member_id in sorted(members_by_id)}
 
     for expense in expenses:

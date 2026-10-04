@@ -63,11 +63,11 @@ describe('tab page headers', () => {
 
   it('keeps the Trips new-trip action in the shared header', () => {
     const header = renderHeader(Trips);
-    expect(header.props.title).toBe('Trips');
+    expect(header.props.title).toBe('Groups');
     expect(header.props.action.props.testID).toBe('trips-new-btn');
-    expect(header.props.action.props.accessibilityLabel).toBe('Create new trip');
+    expect(header.props.action.props.accessibilityLabel).toBe('Create group');
     expect(header.props.compactAction.props.testID).toBe('trips-new-btn-compact');
-    expect(header.props.compactAction.props.accessibilityLabel).toBe('Create new trip');
+    expect(header.props.compactAction.props.accessibilityLabel).toBe('Create group');
     expect(header.props.compactAction.props.touchSize).toBe(48);
   });
 

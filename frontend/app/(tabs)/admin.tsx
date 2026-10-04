@@ -31,7 +31,7 @@ import {
 type AdminView = 'trips' | 'activity' | 'money';
 
 const ADMIN_VIEWS = [
-  { value: 'trips' as const, label: 'Trips', icon: 'briefcase' as const },
+  { value: 'trips' as const, label: 'Groups', icon: 'briefcase' as const },
   { value: 'activity' as const, label: 'Activity', icon: 'document' as const },
   { value: 'money' as const, label: 'Money audit', icon: 'shield' as const },
 ];
@@ -146,7 +146,7 @@ export default function AdminScreen() {
         title="Admin"
         action={view === 'trips' ? (
           <Button
-            label="New trip"
+            label="Create group"
             icon="plus"
             size="sm"
             onPress={() => router.push('/create-trip')}
@@ -166,7 +166,7 @@ export default function AdminScreen() {
           </View>
         </View>
         <T color={colors.primaryText} style={styles.identityCopy}>
-          Review and maintain every trip without becoming part of its balances.
+          Review and maintain every group without becoming part of its balances.
         </T>
       </Card>
 
@@ -186,16 +186,16 @@ export default function AdminScreen() {
         <Input
           value={query}
           onChangeText={setQuery}
-          placeholder="Search trip, code, owner name or Gmail"
+          placeholder="Search group, code, owner name or Gmail"
           icon="search"
           returnKeyType="search"
           testID="admin-trip-search"
-          accessibilityLabel="Search all trips"
+          accessibilityLabel="Search all groups"
         />
       ) : null}
 
       <View style={styles.sectionHeading}>
-        <T variant="label">{view === 'trips' ? 'All trips' : view === 'activity' ? 'Admin activity' : 'Money policy audit'}</T>
+        <T variant="label">{view === 'trips' ? 'All groups' : view === 'activity' ? 'Admin activity' : 'Money policy audit'}</T>
         {loaded ? <T variant="caption" muted>{total} total</T> : null}
       </View>
 
@@ -209,9 +209,9 @@ export default function AdminScreen() {
       ) : rows.length === 0 ? (
         <EmptyState
           icon={view === 'trips' ? 'briefcase' : 'document'}
-          title={view === 'trips' ? 'No matching trips' : view === 'activity' ? 'No admin activity yet' : 'No money audit records yet'}
+          title={view === 'trips' ? 'No matching groups' : view === 'activity' ? 'No admin activity yet' : 'No money audit records yet'}
           body={view === 'trips'
-            ? 'Try another trip name, code, owner name, or Gmail address.'
+            ? 'Try another group name, code, owner name, or Gmail address.'
             : view === 'activity'
               ? 'Privileged changes will appear here after they are completed.'
               : 'API normalizations and whole-unit migration records will appear here.'}
