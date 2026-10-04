@@ -36,6 +36,7 @@ import { memberDisplayNames, familyMemberDisplayNames } from '../../../src/displ
 import { billLabel } from '../../../src/bill';
 import { sortExpenseRowsDesc } from '../../../src/expenseSort';
 import { matchesExpenseDescription } from '../../../src/expenseSearch';
+import ExpenseSearchScreen, { type ExpenseSearchScreenRef } from '../../../src/ExpenseSearchScreen';
 import { hasShareBreakdown, shareVerbs, type ExpenseShares } from '../../../src/expenseShares';
 import { tripTabFromParam, type TripTabKey } from '../../../src/tripTabs';
 import { isTripSettled } from '../../../src/tripSettled';
@@ -53,7 +54,7 @@ import InviteLinksPanel from '../../../src/InviteLinksPanel';
 import MembershipCard from '../../../src/MembershipCard';
 import { normalizedTripDeletionName } from '../../../src/departure';
 import {
-  Card, Button, IconButton, Icon, Input, SegmentedControl, StatCard, ProgressBar,
+  Card, Button, IconButton, Icon, SegmentedControl, StatCard, ProgressBar,
   ActionSheet, EmptyState, ResponsiveAmountText, SkeletonCard, useToast,
 } from '../../../src/ui';
 
@@ -285,7 +286,6 @@ export default function TripDetail() {
       row.kind === 'pending' ? row.item.payload.description : row.expense.description,
       expenseSearchQuery,
     )), [sortedExpenseRows, expenseSearchQuery]);
-  const expenseSearchActive = expenseSearchQuery.trim().length > 0;
 
   // Handles both a cold notification launch and a tap while this trip screen is already mounted.
   useEffect(() => {
@@ -296,8 +296,7 @@ export default function TripDetail() {
   // Per-expense "Split details" disclosure state (collapsed by default), keyed by expense id.
   const [expandedShares, setExpandedShares] = useState<Record<string, boolean>>({});
   const [paymentDetailsExpanded, setPaymentDetailsExpanded] = useState(false);
-  const notificationScrollRef = useRef<ScrollView>(null);
-  const expensesSectionY = useRef(0);
+  const notificationScrollRef = useRef<ExpenseSearchScreenRef>(null);
   const focusedExpenseId = useRef<string | null>(null);
 
   useEffect(() => {
@@ -628,6 +627,163 @@ export default function TripDetail() {
     />
   );
 
+  const expensesContent = tab === 'expenses' ? (
+    <View style={{ gap: SPACING.sm }}>
+      {sortedExpenseRows.length === 0 ? (
+        <EmptyState icon="receipt" title="No transactions yet" body="Add an expense (or a negative amount for money back) to start tracking this group." ctaLabel="Add transaction" ctaIcon="plus" onCta={() => router.push(`/trip/${id}/add-expense`)} testID="expenses-empty" />
+      ) : matchingExpenseRows.length === 0 ? (
+        <EmptyState icon="search" title="No matching expenses" body="Try different words or clear the search." ctaLabel="Clear search" onCta={() => setExpenseSearchQuery('')} testID="expenses-search-empty" />
+      ) : matchingExpenseRows.map((row) => {
+        if (row.kind === 'pending') {
+        const item = row.item;
+        const payload = item.payload;
+        const amount = Number(payload.original_amount ?? payload.amount ?? 0);
+        const pendingCurrency = typeof payload.original_currency === 'string'
+          ? payload.original_currency
+          : typeof payload.currency === 'string' ? payload.currency : trip.currency;
+        const foreignCurrency = pendingCurrency !== trip.currency;
+        const status = pendingStatusLabel(item);
+        return (
+          <Card key={item.clientMutationId}
+            onPress={() => router.push(
+              `/trip/${id}/pending-expense?mutationId=${encodeURIComponent(item.clientMutationId)}` as Href)}
+            accessibilityLabel={`${pendingDisplay(item, trip).actionLabel('Review')}. ${status}. Saved on this device; confirmed totals unchanged.`}
+            testID={`pending-expense-item-${item.clientMutationId}`}>
+            <View style={styles.expenseCardContent}>
+              <CategoryBadge name={String(payload.category)} />
+              <View style={styles.expenseDetails}>
+                <T variant="h4" numberOfLines={2}>
+                  {String(payload.description || payload.category)}
+                </T>
+                <T variant="caption" muted numberOfLines={1}>
+                  {String(payload.date)} · {String(payload.category)} · by {pendingMemberName(item, payload.paid_by_member_id, trip)}
+                </T>
+                <T variant="caption" color={colors.warning}
+                  accessibilityLabel={`${status}. Saved on this device; not included in confirmed totals.`}
+                  testID={`pending-expense-status-${item.clientMutationId}`}>{status}</T>
+              </View>
+              <View style={styles.expenseAmount}>
+                <ResponsiveAmountText value={amount} currency={pendingCurrency}
+                  showCurrency={foreignCurrency}
+                  currencyDisplay={foreignCurrency ? 'code' : undefined}
+                  label="Pending transaction amount" color={amount < 0 ? colors.success : colors.textMain} />
+              </View>
+            </View>
+          </Card>
+        );
+        }
+        const e = row.expense;
+        return (
+        <View
+          key={e.id}
+          onLayout={(event) => {
+            if (e.id !== notificationExpenseId || focusedExpenseId.current === e.id) return;
+            focusedExpenseId.current = e.id;
+            const y = event.nativeEvent.layout.y;
+            requestAnimationFrame(() => notificationScrollRef.current?.scrollToResult(y));
+          }}
+        >
+        <Card onPress={offlineView ? undefined : () => router.push({ pathname: '/trip/[id]/edit-expense', params: { id: id as string, eid: e.id } })}
+          style={e.id === notificationExpenseId
+            ? { borderColor: colors.primary, borderWidth: 2 }
+            : undefined}
+          testID={`expense-item-${e.id}`}>
+          <View style={styles.expenseCardContent}>
+            <CategoryBadge name={e.category} />
+            <View style={styles.expenseDetails}>
+              <T variant="h4" numberOfLines={2}>{e.description || e.category}</T>
+              <T muted variant="caption" numberOfLines={1}>
+                {e.date}{e.time ? ` · ${formatTime12h(e.time)}` : ''} · {e.category} · by {displayNames[e.paid_by_member_id] || '?'}
+              </T>
+              {e.has_receipt ? (
+                token && !offlineView ? (
+                  <TouchableOpacity testID={`expense-bill-${e.id}`} onPress={() => setViewerUri(receiptUrl(id as string, e.id, token))} style={{ marginTop: 6 }} accessibilityLabel="View bill">
+                    <Image source={{ uri: receiptUrl(id as string, e.id, token) }} style={[styles.billThumb, { borderColor: colors.border }]} />
+                  </TouchableOpacity>
+                ) : <T variant="caption" muted>Receipt available online</T>
+              ) : (
+                <T variant="caption" color={colors.textMuted} style={{ marginTop: 4 }}>{billLabel(e)}</T>
+              )}
+            </View>
+            <View style={styles.expenseAmount}>
+              {tripSettled ? <Badge label="Settled" color={colors.success} /> : null}
+              <ResponsiveAmountText
+                value={e.amount}
+                currency={trip.currency}
+                showCurrency={false}
+                label="Transaction amount"
+                color={e.amount < 0 ? colors.success : colors.textMain}
+              />
+              {e.original_currency && e.original_currency !== trip.currency
+                && e.original_amount != null ? (
+                <T variant="caption" muted testID={`expense-original-${e.id}`} style={{ textAlign: 'right' }}>
+                  originally {formatMoney(Number(e.original_amount), { currency: e.original_currency, currencyDisplay: 'code' })}
+                </T>
+              ) : null}
+              {!offlineView && canModifyExpense(e, user?.id, trip, isApplicationAdmin) && (
+                <IconButton name="trash" onPress={() => deleteExpense(e)} accessibilityLabel="Delete transaction" testID={`expense-del-${e.id}`} size={18} color={colors.danger} />
+              )}
+            </View>
+          </View>
+          {/* DISPLAY-only "Split details": payer fronted the money; participants owe computed
+              shares (negative amounts read as credits via the minus sign). Its own touchable
+              so tapping it toggles instead of navigating to the edit screen. */}
+          {hasShareBreakdown(e.shares) && (() => {
+            const sh = e.shares as ExpenseShares;
+            const verbs = shareVerbs();
+            const open = !!expandedShares[e.id];
+            return (
+              <View style={{ marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
+                <TouchableOpacity
+                  testID={`expense-split-toggle-${e.id}`}
+                  onPress={() => setExpandedShares((s) => ({ ...s, [e.id]: !s[e.id] }))}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${open ? 'Hide' : 'Show'} split details`}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                >
+                  <Icon name={open ? 'chevron-down' : 'chevron-right'} size={14} color={colors.primary} />
+                  <T variant="caption" color={colors.primary} style={{ fontWeight: '700' }}>Split details</T>
+                </TouchableOpacity>
+                {open && (
+                  <View style={{ marginTop: SPACING.sm, gap: 4 }}>
+                    <T variant="caption" muted>
+                      {displayNames[sh.payer_id] || '?'} {verbs.payerVerb} {formatMoney(sh.amount, { currency: trip.currency })}
+                    </T>
+                    {sh.entities.map((ent) => (
+                      <View key={ent.id} style={{ gap: 2 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.sm }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+                            <T variant="caption" numberOfLines={1}>{ent.name}</T>
+                            {ent.is_payer ? <Badge label={verbs.payerVerb} color={colors.textMuted} /> : null}
+                          </View>
+                          <T variant="caption" muted>
+                            {verbs.participantVerb} {formatMoney(ent.share, {
+                              currency: trip.currency, showCurrency: false,
+                            })}
+                          </T>
+                        </View>
+                        {ent.members.map((sub) => (
+                          <View key={sub.id} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: SPACING.sm, paddingLeft: SPACING.md }}>
+                            <T variant="caption" muted numberOfLines={1} style={{ flex: 1, minWidth: 0 }}>↳ {sub.name}</T>
+                            <T variant="caption" muted>{formatMoney(sub.share, {
+                              currency: trip.currency, showCurrency: false,
+                            })}</T>
+                          </View>
+                        ))}
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            );
+          })()}
+        </Card>
+        </View>
+        );
+      })}
+    </View>
+  ) : null;
+
   if (tab === 'chat') {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['left', 'right']}>
@@ -651,8 +807,21 @@ export default function TripDetail() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom', 'left', 'right']}>
+      {tab === 'expenses' ? (
+        <ExpenseSearchScreen
+          ref={notificationScrollRef}
+          header={tripHeader}
+          query={expenseSearchQuery}
+          onChangeQuery={setExpenseSearchQuery}
+          matchCount={matchingExpenseRows.length}
+          transactionCount={sortedExpenseRows.length}
+          refreshing={refreshing}
+          onRefresh={load}
+        >
+          {expensesContent}
+        </ExpenseSearchScreen>
+      ) : (
       <ScrollView
-        ref={notificationScrollRef}
         contentContainerStyle={{ padding: SPACING.lg, alignItems: 'center' }}
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={load} tintColor={colors.primary} />}
@@ -835,198 +1004,6 @@ export default function TripDetail() {
               </View>
             );
           })()}
-
-          {tab === 'expenses' && (
-            <View
-              style={{ gap: SPACING.sm }}
-              onLayout={(event) => { expensesSectionY.current = event.nativeEvent.layout.y; }}
-            >
-              <View style={styles.expenseSearchRow}>
-                <Input
-                  value={expenseSearchQuery}
-                  onChangeText={setExpenseSearchQuery}
-                  placeholder="Search expense descriptions"
-                  icon="search"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="search"
-                  accessibilityLabel="Search expense descriptions"
-                  testID="expense-search-input"
-                  containerStyle={styles.expenseSearchInput}
-                />
-                {expenseSearchActive ? (
-                  <IconButton
-                    name="close"
-                    variant="surface"
-                    size={18}
-                    touchSize={COMPONENT_SIZE.minTouchTarget}
-                    onPress={() => setExpenseSearchQuery('')}
-                    accessibilityLabel="Clear expense search"
-                    testID="expense-search-clear"
-                  />
-                ) : null}
-              </View>
-              {expenseSearchActive && sortedExpenseRows.length > 0 ? (
-                <T variant="caption" muted testID="expense-search-count">
-                  {matchingExpenseRows.length} {matchingExpenseRows.length === 1 ? 'match' : 'matches'}
-                </T>
-              ) : null}
-              {sortedExpenseRows.length === 0 ? (
-                <EmptyState icon="receipt" title="No transactions yet" body="Add an expense (or a negative amount for money back) to start tracking this group." ctaLabel="Add transaction" ctaIcon="plus" onCta={() => router.push(`/trip/${id}/add-expense`)} testID="expenses-empty" />
-              ) : matchingExpenseRows.length === 0 ? (
-                <EmptyState icon="search" title="No matching expenses" body="Try different words or clear the search." ctaLabel="Clear search" onCta={() => setExpenseSearchQuery('')} testID="expenses-search-empty" />
-              ) : matchingExpenseRows.map((row) => {
-                if (row.kind === 'pending') {
-                const item = row.item;
-                const payload = item.payload;
-                const amount = Number(payload.original_amount ?? payload.amount ?? 0);
-                const pendingCurrency = typeof payload.original_currency === 'string'
-                  ? payload.original_currency
-                  : typeof payload.currency === 'string' ? payload.currency : trip.currency;
-                const foreignCurrency = pendingCurrency !== trip.currency;
-                const status = pendingStatusLabel(item);
-                return (
-                  <Card key={item.clientMutationId}
-                    onPress={() => router.push(
-                      `/trip/${id}/pending-expense?mutationId=${encodeURIComponent(item.clientMutationId)}` as Href)}
-                    accessibilityLabel={`${pendingDisplay(item, trip).actionLabel('Review')}. ${status}. Saved on this device; confirmed totals unchanged.`}
-                    testID={`pending-expense-item-${item.clientMutationId}`}>
-                    <View style={styles.expenseCardContent}>
-                      <CategoryBadge name={String(payload.category)} />
-                      <View style={styles.expenseDetails}>
-                        <T variant="h4" numberOfLines={2}>
-                          {String(payload.description || payload.category)}
-                        </T>
-                        <T variant="caption" muted numberOfLines={1}>
-                          {String(payload.date)} · {String(payload.category)} · by {pendingMemberName(item, payload.paid_by_member_id, trip)}
-                        </T>
-                        <T variant="caption" color={colors.warning}
-                          accessibilityLabel={`${status}. Saved on this device; not included in confirmed totals.`}
-                          testID={`pending-expense-status-${item.clientMutationId}`}>{status}</T>
-                      </View>
-                      <View style={styles.expenseAmount}>
-                        <ResponsiveAmountText value={amount} currency={pendingCurrency}
-                          showCurrency={foreignCurrency}
-                          currencyDisplay={foreignCurrency ? 'code' : undefined}
-                          label="Pending transaction amount" color={amount < 0 ? colors.success : colors.textMain} />
-                      </View>
-                    </View>
-                  </Card>
-                );
-                }
-                const e = row.expense;
-                return (
-                <View
-                  key={e.id}
-                  onLayout={(event) => {
-                    if (e.id !== notificationExpenseId || focusedExpenseId.current === e.id) return;
-                    focusedExpenseId.current = e.id;
-                    const y = expensesSectionY.current + event.nativeEvent.layout.y;
-                    requestAnimationFrame(() => notificationScrollRef.current?.scrollTo({
-                      y: Math.max(0, y - SPACING.lg), animated: false,
-                    }));
-                  }}
-                >
-                <Card onPress={offlineView ? undefined : () => router.push({ pathname: '/trip/[id]/edit-expense', params: { id: id as string, eid: e.id } })}
-                  style={e.id === notificationExpenseId
-                    ? { borderColor: colors.primary, borderWidth: 2 }
-                    : undefined}
-                  testID={`expense-item-${e.id}`}>
-                  <View style={styles.expenseCardContent}>
-                    <CategoryBadge name={e.category} />
-                    <View style={styles.expenseDetails}>
-                      <T variant="h4" numberOfLines={2}>{e.description || e.category}</T>
-                      <T muted variant="caption" numberOfLines={1}>
-                        {e.date}{e.time ? ` · ${formatTime12h(e.time)}` : ''} · {e.category} · by {displayNames[e.paid_by_member_id] || '?'}
-                      </T>
-                      {e.has_receipt ? (
-                        token && !offlineView ? (
-                          <TouchableOpacity testID={`expense-bill-${e.id}`} onPress={() => setViewerUri(receiptUrl(id as string, e.id, token))} style={{ marginTop: 6 }} accessibilityLabel="View bill">
-                            <Image source={{ uri: receiptUrl(id as string, e.id, token) }} style={[styles.billThumb, { borderColor: colors.border }]} />
-                          </TouchableOpacity>
-                        ) : <T variant="caption" muted>Receipt available online</T>
-                      ) : (
-                        <T variant="caption" color={colors.textMuted} style={{ marginTop: 4 }}>{billLabel(e)}</T>
-                      )}
-                    </View>
-                    <View style={styles.expenseAmount}>
-                      {tripSettled ? <Badge label="Settled" color={colors.success} /> : null}
-                      <ResponsiveAmountText
-                        value={e.amount}
-                        currency={trip.currency}
-                        showCurrency={false}
-                        label="Transaction amount"
-                        color={e.amount < 0 ? colors.success : colors.textMain}
-                      />
-                      {e.original_currency && e.original_currency !== trip.currency
-                        && e.original_amount != null ? (
-                        <T variant="caption" muted testID={`expense-original-${e.id}`} style={{ textAlign: 'right' }}>
-                          originally {formatMoney(Number(e.original_amount), { currency: e.original_currency, currencyDisplay: 'code' })}
-                        </T>
-                      ) : null}
-                      {!offlineView && canModifyExpense(e, user?.id, trip, isApplicationAdmin) && (
-                        <IconButton name="trash" onPress={() => deleteExpense(e)} accessibilityLabel="Delete transaction" testID={`expense-del-${e.id}`} size={18} color={colors.danger} />
-                      )}
-                    </View>
-                  </View>
-                  {/* DISPLAY-only "Split details": payer fronted the money; participants owe computed
-                      shares (negative amounts read as credits via the minus sign). Its own touchable
-                      so tapping it toggles instead of navigating to the edit screen. */}
-                  {hasShareBreakdown(e.shares) && (() => {
-                    const sh = e.shares as ExpenseShares;
-                    const verbs = shareVerbs();
-                    const open = !!expandedShares[e.id];
-                    return (
-                      <View style={{ marginTop: SPACING.sm, paddingTop: SPACING.sm, borderTopWidth: 1, borderTopColor: colors.border }}>
-                        <TouchableOpacity
-                          testID={`expense-split-toggle-${e.id}`}
-                          onPress={() => setExpandedShares((s) => ({ ...s, [e.id]: !s[e.id] }))}
-                          accessibilityRole="button"
-                          accessibilityLabel={`${open ? 'Hide' : 'Show'} split details`}
-                          style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                        >
-                          <Icon name={open ? 'chevron-down' : 'chevron-right'} size={14} color={colors.primary} />
-                          <T variant="caption" color={colors.primary} style={{ fontWeight: '700' }}>Split details</T>
-                        </TouchableOpacity>
-                        {open && (
-                          <View style={{ marginTop: SPACING.sm, gap: 4 }}>
-                            <T variant="caption" muted>
-                              {displayNames[sh.payer_id] || '?'} {verbs.payerVerb} {formatMoney(sh.amount, { currency: trip.currency })}
-                            </T>
-                            {sh.entities.map((ent) => (
-                              <View key={ent.id} style={{ gap: 2 }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.sm }}>
-                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
-                                    <T variant="caption" numberOfLines={1}>{ent.name}</T>
-                                    {ent.is_payer ? <Badge label={verbs.payerVerb} color={colors.textMuted} /> : null}
-                                  </View>
-                                  <T variant="caption" muted>
-                                    {verbs.participantVerb} {formatMoney(ent.share, {
-                                      currency: trip.currency, showCurrency: false,
-                                    })}
-                                  </T>
-                                </View>
-                                {ent.members.map((sub) => (
-                                  <View key={sub.id} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: SPACING.sm, paddingLeft: SPACING.md }}>
-                                    <T variant="caption" muted numberOfLines={1} style={{ flex: 1, minWidth: 0 }}>↳ {sub.name}</T>
-                                    <T variant="caption" muted>{formatMoney(sub.share, {
-                                      currency: trip.currency, showCurrency: false,
-                                    })}</T>
-                                  </View>
-                                ))}
-                              </View>
-                            ))}
-                          </View>
-                        )}
-                      </View>
-                    );
-                  })()}
-                </Card>
-                </View>
-                );
-              })}
-            </View>
-          )}
 
           {tab === 'balances' && balances && (
             <View style={{ gap: SPACING.sm }}>
@@ -1276,6 +1253,7 @@ export default function TripDetail() {
           )}
         </View>
       </ScrollView>
+      )}
 
       <ReceiptViewer uri={viewerUri} visible={!!viewerUri} onClose={() => setViewerUri(null)} />
 
@@ -1346,8 +1324,6 @@ const styles = StyleSheet.create({
   },
   actionButton: { flex: 1, minWidth: 0 },
   actionButtonControl: { minHeight: COMPONENT_SIZE.minTouchTarget, paddingHorizontal: SPACING.xs },
-  expenseSearchRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
-  expenseSearchInput: { flex: 1, minWidth: 0 },
   budgetUsageContent: { gap: SPACING.sm },
   budgetUsageValues: {
     flexDirection: 'row',

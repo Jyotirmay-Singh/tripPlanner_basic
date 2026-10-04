@@ -291,11 +291,11 @@ it('shows a compact search control in dark mode and clears the query for a new e
   });
   act(() => renderer.root.findByType('SegmentedControl' as any).props.onChange('expenses'));
 
-  const searchInput = () => hostByTestID(renderer.root, 'Input', 'expense-search-input');
+  const searchInput = () => renderer.root.findByProps({ testID: 'expense-search-input' });
   act(() => searchInput().props.onChangeText('food'));
   expect(searchInput().props.containerStyle).toEqual({ flex: 1, minWidth: 0 });
   expect(textContent(hostByTestID(renderer.root, 'T', 'expense-search-count'))).toBe('1 match');
-  expect(hostByTestID(renderer.root, 'IconButton', 'expense-search-clear').props.touchSize)
+  expect(renderer.root.findByProps({ testID: 'expense-search-clear' }).props.touchSize)
     .toBe(COMPONENT_SIZE.minTouchTarget);
 
   await act(async () => {
@@ -328,7 +328,7 @@ it('keeps the no-transactions state distinct from an empty search result', async
   const renderer = await mountTrip({ expenses: [] });
   act(() => renderer.root.findByType('SegmentedControl' as any).props.onChange('expenses'));
 
-  expect(hostByTestID(renderer.root, 'Input', 'expense-search-input')).toBeTruthy();
+  expect(renderer.root.findByProps({ testID: 'expense-search-input' })).toBeTruthy();
   expect(hostByTestID(renderer.root, 'EmptyState', 'expenses-empty')).toBeTruthy();
   expect(hostByTestID(renderer.root, 'EmptyState', 'expenses-search-empty')).toBeUndefined();
   await act(async () => { renderer.unmount(); });
@@ -1129,7 +1129,7 @@ describe('account and group isolation', () => {
       expect(renderer.root.findByType(CategorySpendingChart).props.expenses).toEqual(groupA);
     }
     act(() => renderer.root.findByType('SegmentedControl' as any).props.onChange('expenses'));
-    act(() => hostByTestID(renderer.root, 'Input', 'expense-search-input').props.onChangeText('a-food'));
+    act(() => renderer.root.findByProps({ testID: 'expense-search-input' }).props.onChangeText('a-food'));
     expect(textContent(hostByTestID(renderer.root, 'T', 'expense-search-count'))).toBe('1 match');
     act(() => renderer.root.findByType('SegmentedControl' as any).props.onChange('summary'));
     expect(chartRows(renderer)).toEqual(baseline);

@@ -373,6 +373,10 @@ does not include the expense amount, split, receipt, or any account contact deta
 
 ### 5.2 Edit or delete a transaction
 - The **Expenses** tab lists transactions **newest first**, ordered by each transaction's own **date and time**. A transaction with a time sorts by that time; one with only a date sorts by when it was added, so a freshly added expense appears at the top.
+- Use **Search expense descriptions** to filter saved and pending transactions as you type.
+  The overview folds away while searching, and the search field and match count stay above the
+  scrollable results. **Done** hides the keyboard and restores the overview while keeping your
+  search; the **×** button clears it. You can also scroll to dismiss the Android keyboard.
 - **Expenses** tab → tap any transaction → opens the **Edit Transaction** screen with the same form pre-filled.
 - Converted transactions show the original amount with its currency code in Expenses and category,
   member, and spending-period details, for example **originally LKR 1,000**.

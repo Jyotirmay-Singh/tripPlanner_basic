@@ -10,6 +10,7 @@
 // helpers, theme, heavy UI components) is stubbed so the test stays focused and deterministic.
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
+import { Keyboard, StyleSheet, TextInput } from 'react-native';
 
 const mockRouterPush = jest.fn();
 
@@ -223,6 +224,77 @@ describe('Expenses tab — trip-level "Settled" badge', () => {
 });
 
 describe('Expenses tab search', () => {
+  it('makes room for results while typing and keeps the filter after Done', async () => {
+    const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
+    const r = await openExpenses([]);
+    const input = r.root.findByType(TextInput);
+    const overview = () => r.root.findByProps({ testID: 'expense-search-overview' });
+
+    try {
+      act(() => { input.props.onFocus({ nativeEvent: {} }); });
+      expect(StyleSheet.flatten(overview().props.style).display).toBe('none');
+      expect(overview().props.importantForAccessibility).toBe('no-hide-descendants');
+      // Focusing and collapsing the overview keeps the same input mounted.
+      expect(r.root.findByType(TextInput)).toBe(input);
+
+      act(() => { input.props.onChangeText('food'); });
+      expect(r.root.findAll((node: any) => node.props?.testID === 'expense-item-i1'))
+        .toHaveLength(0);
+      const done = r.root.findByProps({ testID: 'expense-search-done' });
+      act(() => { done.props.onPress(); });
+
+      expect(dismiss).toHaveBeenCalledTimes(1);
+      expect(StyleSheet.flatten(overview().props.style).display).toBeUndefined();
+      expect(r.root.findByType(TextInput).props.value).toBe('food');
+      expect(r.root.findAll((node: any) => node.props?.testID === 'expense-item-i1'))
+        .toHaveLength(0);
+    } finally {
+      act(() => r.unmount());
+      dismiss.mockRestore();
+    }
+  });
+
+  it('dismisses the keyboard on Search while leaving matching results in the focused view', async () => {
+    const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
+    const r = await openExpenses([]);
+    try {
+      const input = r.root.findByType(TextInput);
+      act(() => { input.props.onFocus({ nativeEvent: {} }); input.props.onChangeText('food'); });
+      act(() => { input.props.onSubmitEditing({ nativeEvent: { text: 'food' } }); });
+
+      expect(dismiss).toHaveBeenCalledTimes(1);
+      expect(r.root.findByType(TextInput).props.value).toBe('food');
+      expect(StyleSheet.flatten(r.root.findByProps({ testID: 'expense-search-overview' }).props.style).display)
+        .toBe('none');
+      expect(r.root.findAll((node: any) => node.props?.testID === 'expense-item-e1'))
+        .not.toHaveLength(0);
+    } finally {
+      act(() => r.unmount());
+      dismiss.mockRestore();
+    }
+  });
+
+  it('clears a filter without taking the user out of the focused results view', async () => {
+    const r = await openExpenses([]);
+    try {
+      const input = r.root.findByType(TextInput);
+      act(() => { input.props.onFocus({ nativeEvent: {} }); input.props.onChangeText('no match'); });
+      expect(r.root.findAll((node: any) => node.props?.testID === 'expense-item-e1'))
+        .toHaveLength(0);
+      act(() => { r.root.findByProps({ testID: 'expense-search-clear' }).props.onPress(); });
+
+      expect(r.root.findByType(TextInput).props.value).toBe('');
+      expect(StyleSheet.flatten(r.root.findByProps({ testID: 'expense-search-overview' }).props.style).display)
+        .toBe('none');
+      expect(r.root.findAll((node: any) => node.props?.testID === 'expense-item-e1'))
+        .not.toHaveLength(0);
+      expect(r.root.findAll((node: any) => node.props?.testID === 'expense-item-i1'))
+        .not.toHaveLength(0);
+    } finally {
+      act(() => r.unmount());
+    }
+  });
+
   it('keeps the query when switching away from and back to Expenses', async () => {
     const r = await openExpenses([]);
     const input = r.root.find((node: any) => node.props?.testID === 'expense-search-input');
