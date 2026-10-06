@@ -277,7 +277,20 @@ async def update_account_mobile(
             {"id": user["id"]}, {"_id": 0, "password_hash": 0, "pin_hash": 0}
         )
 
-    updated = await run_optional_transaction(transactional, standalone)
+    from services.settlement_write_guard import activated
+    if any(activated(trip) for trip in trips):
+        from services.coverage_journal import run_snapshot_transaction
+        async def protected_update(session):
+            current_trips = await db.trips.find({"user_ids": user["id"]}, {"_id": 0}, session=session).to_list(None)
+            for current in current_trips:
+                await sync_mobile_claim(current, candidate, session=session)
+                if activated(current):
+                    await db.trips.update_one({"id": current["id"]}, {"$inc": {"version": 1}}, session=session)
+            await db.users.update_one({"id": user["id"]}, update, session=session)
+            return await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0, "pin_hash": 0}, session=session)
+        updated = await run_snapshot_transaction(protected_update)
+    else:
+        updated = await run_optional_transaction(transactional, standalone)
     if not updated:
         raise HTTPException(401, "User not found")
     return updated
@@ -323,13 +336,18 @@ async def enrich_trip_mobile_numbers(trip: dict) -> dict:
 async def reconcile_mobile_claims() -> dict:
     """Idempotently repair claims after standalone interruption or a legacy rollout."""
     trips = await db.trips.find(
-        {}, {"_id": 0, "id": 1, "name": 1, "members": 1, "user_ids": 1}
+        {}, {"_id": 0, "id": 1, "name": 1, "members": 1, "user_ids": 1,
+             "expense_settlement_activation_version": 1, "financial_write_guard_version": 1}
     ).to_list(length=None)
+    from services.settlement_write_guard import activated
+    protected_ids = {trip["id"] for trip in trips if activated(trip)}
     desired: dict[tuple[str, str], Optional[dict]] = {}
     conflicts = 0
     repaired = 0
 
     for trip in sorted(trips, key=lambda row: row.get("id", "")):
+        if trip["id"] in protected_ids:
+            continue
         identities: list[tuple[str, dict]] = []
         for user_id in trip.get("user_ids", []) or []:
             identity = linked_identity(trip, user_id)
@@ -357,6 +375,8 @@ async def reconcile_mobile_claims() -> dict:
 
     existing = await db.trip_mobile_claims.find({}, {"_id": 0}).to_list(length=None)
     for claim in existing:
+        if claim.get("trip_id") in protected_ids:
+            continue
         expected = desired.get((claim.get("trip_id"), claim.get("user_id")))
         fields = ("mobile_number", "member_id", "family_member_id")
         if expected is not None and all(

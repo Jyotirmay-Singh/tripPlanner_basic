@@ -533,6 +533,7 @@ def test_migration_adjustment_settles_removed_historical_member_before_omission(
 
 
 def test_account_deletion_requires_acknowledgement_then_runs_scoped_and_global_cleanup(monkeypatch):
+    monkeypatch.setattr(departure, "_unprotected_financial_scope", AsyncMock(return_value={}))
     user = {"id": "user-1", "email": "ada@gmail.com", "role": "user"}
     trip = individual_trip()
     identity = departure.resolve_linked_identity(trip, "user-1")
@@ -593,7 +594,7 @@ def test_account_deletion_requires_acknowledgement_then_runs_scoped_and_global_c
         {"actor_user_id": "user-1"}, session="session",
     )
     fake_db.payment_mutation_receipts.delete_many.assert_awaited_once_with(
-        {"actor_user_id": "user-1", "operation": {"$not": {"$regex": "^settlement[.]"}}}, session="session",
+        {"actor_user_id": "user-1", "operation": {"$not": {"$regex": "^(settlement|correction)[.]"}}}, session="session",
     )
     users.delete_one.assert_awaited_once_with({"id": "user-1"}, session="session")
 
@@ -639,6 +640,7 @@ def test_confirmation_model_and_transaction_unavailable_errors_are_structured(mo
 
 
 def test_payment_attempt_scrub_clears_snapshots_for_any_direct_account_role(monkeypatch):
+    monkeypatch.setattr(departure, "_unprotected_financial_scope", AsyncMock(return_value={"trip_id": "trip-1"}))
     update_many = AsyncMock()
     monkeypatch.setattr(
         departure,
@@ -665,6 +667,7 @@ def test_payment_attempt_scrub_clears_snapshots_for_any_direct_account_role(monk
 
 
 def test_account_reference_scrub_covers_every_personal_data_collection(monkeypatch):
+    monkeypatch.setattr(departure, "_unprotected_financial_scope", AsyncMock(return_value={}))
     def update_collection():
         return SimpleNamespace(update_many=AsyncMock())
 

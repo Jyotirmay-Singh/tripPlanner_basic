@@ -1,9 +1,11 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Body
 
 from database import db
-from services.settlement_write_guard import reject_legacy_write
+from services.settlement_write_guard import reject_legacy_write, activated
+from models.financial_correction import CorrectionCreate
+from services import financial_corrections
 from models.trip import TripIn, TripUpdate, AdminGrant, OwnershipTransfer
 from models.join import JoinRequest, JoinPreviewRequest
 from utils.common import gen_id, gen_trip_code
@@ -237,7 +239,10 @@ async def update_trip(trip_id: str, body: TripUpdate, user=Depends(get_current_u
 
 
 @router.delete("/trips/{trip_id}")
-async def delete_trip(trip_id: str, user=Depends(get_current_user)):
+async def delete_trip(trip_id: str, user=Depends(get_current_user), body: CorrectionCreate | None = None):
+    if body:
+        return await financial_corrections.create(trip_id, body, user,
+            binding={"target_id": trip_id, "operations": {"archive_trip"}})
     # Step 23: deleting a trip is owner-or-application-admin only.
     trip = await _trip_owner_or_403(trip_id, user)
     reject_legacy_write(trip, code="settlement_correction_required")
@@ -850,9 +855,13 @@ async def list_admins(trip_id: str, user=Depends(get_current_user)):
 
 
 @router.post("/trips/{trip_id}/admins")
-async def add_admin(trip_id: str, body: AdminGrant, user=Depends(get_current_user)):
+async def add_admin(trip_id: str, body: CorrectionCreate | AdminGrant, user=Depends(get_current_user)):
+    if isinstance(body, CorrectionCreate):
+        return await financial_corrections.create(trip_id, body, user,
+            binding={"target_id": None, "operations": {"grant_admin"}})
     # Step 23: only the trip owner or application admin can manage trip admins.
     trip = await _trip_owner_or_403(trip_id, user)
+    reject_legacy_write(trip, code="settlement_correction_required")
     if body.user_id not in trip.get("user_ids", []):
         raise HTTPException(400, "User is not a member of this group")
     result = await db.trips.update_one(
@@ -868,9 +877,13 @@ async def add_admin(trip_id: str, body: AdminGrant, user=Depends(get_current_use
 
 
 @router.delete("/trips/{trip_id}/admins/{user_id}")
-async def remove_admin(trip_id: str, user_id: str, user=Depends(get_current_user)):
+async def remove_admin(trip_id: str, user_id: str, user=Depends(get_current_user), body: CorrectionCreate | None = None):
+    if body:
+        return await financial_corrections.create(trip_id, body, user,
+            binding={"target_id": user_id, "operations": {"revoke_admin"}})
     # Step 23: only the trip owner or application admin can manage trip admins.
     trip = await _trip_owner_or_403(trip_id, user)
+    reject_legacy_write(trip, code="settlement_correction_required")
     if user_id == trip["owner_id"]:
         raise HTTPException(400, "Cannot remove the root admin")
     result = await db.trips.update_one({"id": trip_id}, {"$pull": {"admin_ids": user_id}, "$inc": {"version": 1}})
@@ -884,11 +897,15 @@ async def remove_admin(trip_id: str, user_id: str, user=Depends(get_current_user
 
 
 @router.post("/trips/{trip_id}/transfer-ownership")
-async def transfer_ownership(trip_id: str, body: OwnershipTransfer, user=Depends(get_current_user)):
+async def transfer_ownership(trip_id: str, body: CorrectionCreate | OwnershipTransfer, user=Depends(get_current_user)):
+    if isinstance(body, CorrectionCreate):
+        return await financial_corrections.create(trip_id, body, user,
+            binding={"target_id": None, "operations": {"transfer_owner"}})
     # Step 23: owner-or-application-admin only. Reassigns owner_id and keeps the new owner in admin_ids; the
     # previous owner stays an admin (never dropped to plain member). Touches only the
     # owner_id / admin_ids fields — no member, family, or split data changes.
     trip = await _trip_owner_or_403(trip_id, user)
+    reject_legacy_write(trip, code="settlement_correction_required")
     if body.user_id == trip["owner_id"]:
         raise HTTPException(400, "Already the owner")
     if body.user_id not in trip.get("user_ids", []):

@@ -40,7 +40,9 @@ async def get_config():
         "invite_links_enabled": INVITE_LINKS_ENABLED,
         "multi_currency_expenses_enabled": MULTI_CURRENCY_EXPENSES_ENABLED,
         "expense_settlement_enabled": EXPENSE_SETTLEMENT_ENABLED,
-        "expense_settlement_protocol_version": 1,
+        "expense_settlement_protocol_version": 2,
+        "expense_settlement_read_versions": [1, 2],
+        "financial_correction_guard_version": 2,
         "expense_settlement_actions_ready": EXPENSE_SETTLEMENT_ENABLED and actions_ready(),
         # Compatibility field for old clients. It is permanently true under whole_unit_v1.
         "whole_unit_settlements_enabled": True,

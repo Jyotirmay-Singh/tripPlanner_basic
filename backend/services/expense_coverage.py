@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 
 from services.coverage_support import (
     CONVERSION_EVIDENCE_FIELDS, CoverageError, HISTORY_VERSION, POLICY_VERSION, SOURCE_KINDS, add_vector,
-    cash_fingerprint, financial_fingerprint, fingerprint, money, record_errors, stable_id, timestamp, timestamp_key,
+    cash_fingerprint, financial_fingerprint, fingerprint, money, record_errors, stable_id, timestamp, timestamp_key, source_fingerprint_matches,
 )
 from services.expense_shares import person_shares_for_entity
 from services.member_breakdown import family_member_ids
@@ -17,7 +17,7 @@ from services.settlement_engine import SCALE, SettlementLedgerError, build_preci
 
 
 @record_errors("invalid_share_revision")
-def make_share_revision(expense, members, trip_id, *, recorded_at=None, historical=False):
+def make_share_revision(expense, members, trip_id, *, recorded_at=None, historical=False, legacy=False):
     """Freeze a validated new expense; historical read-time reconstruction stays conservative.
 
     A persisted new revision MUST use the transaction's actual recorded_at, not a backdated bill date.
@@ -26,7 +26,7 @@ def make_share_revision(expense, members, trip_id, *, recorded_at=None, historic
     if amount and (not entities or sum(entities.values()) != amount):
         raise CoverageError("historical_participants_unknown")
     by_id = {str(member["id"]): member for member in members}
-    revision_hash = financial_fingerprint(expense)
+    revision_hash = financial_fingerprint(expense, legacy=legacy)
     revision_id = stable_id(trip_id, expense["id"], revision_hash)
     funding_member = by_id.get(funding_wallet, {})
     funding_person = expense.get("paid_by_person_id")
@@ -112,6 +112,7 @@ class CoverageSnapshot:
     pending_reports: list = field(default_factory=list)
     precise_net: dict = field(default_factory=dict)
     snapshot_id: str = ""
+    historical_revisions: list = field(default_factory=list)
 
     def remaining(self, share_id):
         row = self.shares[share_id]
@@ -183,7 +184,7 @@ def _apply_lines(snapshot, lines, sign=1):
 def _cash_uses(snapshot, uses, sign=1):
     for use in uses:
         source = snapshot.sources.get(use["source_id"])
-        if source is None or source["fingerprint"] != use["source_fingerprint"]:
+        if source is None or not source_fingerprint_matches(source, use["source_fingerprint"]):
             raise CoverageError("cash_source_changed")
         amount = to_scaled(use["amount"])
         claimed = snapshot.claimed.get(source["id"], 0) + sign * amount
@@ -222,11 +223,11 @@ def _read_events(snapshot):
                 for leg in event["plan"]["cash_legs"]:
                     if leg["id"] not in leg_ids:
                         continue
-                    use = next(use for use in event["cash_uses"] if use["leg_id"] == leg["id"])
-                    source = snapshot.sources[use["source_id"]]
-                    cash_legs.append({**deepcopy(leg), "source_id": use["source_id"],
-                                      "actual_payer_person_id": source["row"].get("actual_payer_person_id"),
-                                      "actual_receiver_person_id": source["row"].get("actual_receiver_person_id")})
+                    for use in [use for use in event["cash_uses"] if use["leg_id"] == leg["id"]]:
+                        source = snapshot.sources[use["source_id"]]
+                        cash_legs.append({**deepcopy(leg), "source_id": use["source_id"], "source_amount": use["amount"],
+                                          "actual_payer_person_id": source["row"].get("actual_payer_person_id"),
+                                          "actual_receiver_person_id": source["row"].get("actual_receiver_person_id")})
                 explained.append({**line, "bundle_id": event["id"], "paths": deepcopy(paths), "cash_legs": cash_legs})
             _apply_lines(snapshot, explained)
             _cash_uses(snapshot, event.get("cash_uses", []))
@@ -334,6 +335,9 @@ def _pending(snapshot):
         plan = intent.get("plan") or {}
         lines = (plan.get("allocation_lines") or []) if isinstance(plan, dict) else []
         selected = {line.get("share_id") for line in lines if isinstance(line, dict)} & set(snapshot.shares)
+        retired_expenses = {revision["expense_id"] for revision in snapshot.historical_revisions
+                            if revision["id"] in {line.get("revision_id") for line in lines}}
+        selected |= {row["id"] for row in snapshot.shares.values() if row["expense_id"] in retired_expenses}
         try:
             validate_plan(snapshot, plan, historical=True)
             if plan.get("reservation_intent_id") not in {None, intent["id"]} or (
@@ -376,7 +380,7 @@ def _pending(snapshot):
                 _review(snapshot, "unattributed_payment_attempt", _components(snapshot, (
                     attempt.get("from_member_id"), attempt.get("to_member_id"))) or snapshot.shares)
     for row in snapshot.ledger.settlements:
-        if row.get("status") == "pending":
+        if row.get("status") == "pending" and not row.get("reviewed_intent_id"):
             snapshot.pending_reports.append({"id": row["id"], "kind": "legacy_settlement",
                                              "status": "pending", "share_ids": [], "attributed": False})
 
@@ -397,8 +401,10 @@ def build_coverage_snapshot(ledger, *, infer_history=True):
         saved.setdefault(revision["expense_id"], []).append(revision)
     for expense in sorted(ledger.expenses, key=lambda row: (timestamp_key(row.get("created_at")), row["id"])):
         current = financial_fingerprint(expense)
+        legacy_current = financial_fingerprint(expense, legacy=True)
         candidates = [revision for revision in saved.get(expense["id"], [])
-                      if revision["financial_fingerprint"] == current]
+                      if (revision["id"] == expense["active_revision_id"] if expense.get("active_revision_id")
+                          else revision["financial_fingerprint"] in {current, legacy_current})]
         if len(candidates) > 1 or (saved.get(expense["id"]) and not candidates):
             raise CoverageError("share_revision_changed")
         revision = deepcopy(candidates[0]) if candidates else make_share_revision(
@@ -408,11 +414,16 @@ def build_coverage_snapshot(ledger, *, infer_history=True):
         if revision.get("policy_version") != POLICY_VERSION or revision.get("trip_id") != ledger.trip["id"]:
             raise CoverageError("unsupported_share_revision")
         if candidates:
-            expected = make_share_revision(expense, revision.get("members_snapshot") or [], ledger.trip["id"],
-                                           recorded_at=revision.get("effective_from"),
-                                           historical=revision.get("evidence") == "read_time")
-            if expected != revision:
-                raise CoverageError("invalid_share_revision")
+            if revision.get("schema_version") == 2:
+                from services.financial_ledger import validate_revision
+                validate_revision(revision)
+            else:
+                expected = make_share_revision(expense, revision.get("members_snapshot") or [], ledger.trip["id"],
+                                               recorded_at=revision.get("effective_from"),
+                                               historical=revision.get("evidence") == "read_time",
+                                               legacy=revision["financial_fingerprint"] != current)
+                if expected != revision:
+                    raise CoverageError("invalid_share_revision")
         if {key: to_scaled(value) for key, value in revision["entity_shares"].items()} != authoritative:
             raise CoverageError("roster_reallocation_required")
         snapshot.revisions.append(revision)
@@ -433,8 +444,40 @@ def build_coverage_snapshot(ledger, *, infer_history=True):
                 _review(snapshot, "legacy_precision_review", [row["id"]])
         if {key: value for key, value in totals.items()} != authoritative:
             raise CoverageError("person_share_mismatch")
+    active_share_ids = set(snapshot.shares)
+    active_revision_ids = {row["id"] for row in snapshot.revisions}
+    for saved_revision in ledger.revisions:
+        if saved_revision["id"] in active_revision_ids:
+            continue
+        revision = deepcopy(saved_revision)
+        from services.financial_ledger import validate_revision
+        validate_revision(revision)
+        snapshot.historical_revisions.append(revision)
+        for row in revision["shares"]:
+            row["coverage_units"] = {kind: 0 for kind in SOURCE_KINDS}
+            row["coverage_explanations"], row["reservations"] = [], {}
+            if row["wallet_id"] == revision["funding_wallet_id"]:
+                row["coverage_units"]["wallet_funding"] = abs(to_scaled(row["original_share"]))
+            if row["id"] in snapshot.shares:
+                raise CoverageError("invalid_share_revision")
+            snapshot.shares[row["id"]] = row
     snapshot.sources = _effective_sources(ledger)
+    effective_sources = dict(snapshot.sources)
+    for source_id, row in ledger.historical_sources.items():
+        if source_id not in snapshot.sources:
+            snapshot.sources[source_id] = {"id": source_id, "from_member_id": row["from_member_id"],
+                "to_member_id": row["to_member_id"], "amount": money(to_scaled(row["amount"])),
+                "currency": row.get("currency") or ledger.trip.get("currency", "INR"),
+                "fingerprint": cash_fingerprint(row, ledger.trip.get("currency", "INR")),
+                "effective_at": row.get("paid_at") or row.get("created_at"), "row": row}
     _read_events(snapshot)
+    for share_id in set(snapshot.shares) - active_share_ids:
+        if any(value for kind, value in snapshot.shares[share_id]["coverage_units"].items() if kind != "wallet_funding"):
+            raise CoverageError("retired_revision_still_covered")
+        del snapshot.shares[share_id]
+    if any(snapshot.claimed.get(key, 0) for key in set(snapshot.sources) - set(effective_sources)):
+        raise CoverageError("retired_source_still_claimed")
+    snapshot.sources = effective_sources
     _pending(snapshot)
     # Suspected duplicate effective rows still both affect balances, but neither is
     # silently attributed to people during inference.
@@ -447,9 +490,14 @@ def build_coverage_snapshot(ledger, *, infer_history=True):
             attempt_ids[attempt_id] = source["id"]
     if any(to_scaled(amount) for amount in ledger.adjustments.values()):
         _review(snapshot, "accounting_adjustment_review", snapshot.shares)
-    if infer_history:
+    if infer_history and ledger.trip.get("expense_settlement_schema_version", 1) == 1:
         preview_historical_reconciliation(snapshot)
-    snapshot.precise_net = build_precise_net(ledger.trip["members"], ledger.expenses,
+    elif infer_history:
+        for source_id, source in snapshot.sources.items():
+            if to_scaled(source["amount"]) > snapshot.claimed.get(source_id, 0):
+                _review(snapshot, "confirmed_credit_unallocated", _components(snapshot, (
+                    source["from_member_id"], source["to_member_id"])), source_id=source_id)
+    snapshot.precise_net = build_precise_net(ledger.accounting_members or ledger.trip["members"], ledger.expenses,
                                             ledger.settlements, ledger.payments, ledger.adjustments)
     rebuilt = {}
     for share in snapshot.shares.values():
@@ -474,5 +522,7 @@ def build_coverage_snapshot(ledger, *, infer_history=True):
         "intents": sorted((row["id"], fingerprint(row)) for row in ledger.intents),
         "attempts": sorted((row["id"], fingerprint(row)) for row in ledger.attempts),
         "adjustments": ledger.adjustments,
+        "corrections": [(row["id"], fingerprint(row)) for row in ledger.corrections],
+        "identities": [(row["id"], fingerprint(row)) for row in ledger.identities],
     })
     return snapshot

@@ -515,9 +515,13 @@ def build_split_math_rows(expenses: list, members: list, currency: str = "INR") 
     sorted_expenses = sorted(expenses, key=lambda x: x.get("date", ""))
     blocks: list = []
     for e in sorted_expenses:
+        expense_members = e.get("_revision_members_snapshot") or members
+        names = _names(expense_members)
+        kind_by_label = {names[m["id"]]: ("Family" if m.get("kind") == "family" else "Individual")
+                         for m in expense_members}
         mode = e.get("split_mode") or "PER_CAPITA"
         if mode == "PER_FAMILY":
-            prows = build_per_family_rows([e], members, currency)
+            prows = build_per_family_rows([e], expense_members, currency)
             parts = [{"participant": r["member_name"],
                       "ptype": kind_by_label.get(r["member_name"], "Individual"),
                       "units": 1, "allocated": r["member_share"], "_raw_weight": 1}
@@ -538,7 +542,7 @@ def build_split_math_rows(expenses: list, members: list, currency: str = "INR") 
                      for eid in raw]
             divisor = len(parts)
         else:
-            prows = build_per_capita_rows([e], members, currency)
+            prows = build_per_capita_rows([e], expense_members, currency)
             parts = [{"participant": r["member_name"],
                       "ptype": kind_by_label.get(r["member_name"], "Individual"),
                       "units": r["member_weight"], "allocated": r["member_share"],
@@ -638,6 +642,10 @@ def build_expense_member_rows(expenses: list, members: list, currency: str = "IN
         cell["total"] += share
 
     for e in sorted_expenses:
+        expense_members = e.get("_revision_members_snapshot") or members
+        names = _names(expense_members)
+        fam_roster = {m["id"]: list(zip(family_member_ids(m), family_member_display_names(m)))
+                      for m in expense_members if m.get("kind") == "family"}
         raw = entity_shares_raw(e, members)
         if not raw:
             continue  # H<=0 / E<=0: the ledger skips this expense, so do we
@@ -650,7 +658,7 @@ def build_expense_member_rows(expenses: list, members: list, currency: str = "IN
         exact_amounts = e.get("custom_amounts") or {}
         row_specs: list = []
         raw_person_shares: dict = {}
-        for m in members:
+        for m in expense_members:
             mid = m["id"]
             if m.get("kind") == "family":
                 fam_label = names.get(mid, "?")

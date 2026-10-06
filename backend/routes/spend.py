@@ -14,7 +14,12 @@ async def spend_summary(trip_id: str, user=Depends(get_current_user)):
     # by _trip_or_404 (same gate as /balances): 404 unknown trip, 403 non-member. Reuses the pure
     # services.spend_summary.aggregate_spend — split/settlement-independent, refunds excluded.
     trip = await _trip_or_404(trip_id, user)
-    expenses = await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(None)
-    out = aggregate_spend(trip["members"], expenses, trip.get("currency", "INR"))
+    from services.ledger_snapshot import load_ledger
+    if trip.get("expense_settlement_schema_version") == 2:
+        from services.effective_reads import read_effective_ledger
+        ledger = await read_effective_ledger(trip_id, user, db)
+    else:
+        ledger = await load_ledger(trip_id, db, trip=trip)
+    out = aggregate_spend(ledger.accounting_members or trip["members"], ledger.expenses, trip.get("currency", "INR"))
     out["currency"] = trip.get("currency", "INR")
     return out

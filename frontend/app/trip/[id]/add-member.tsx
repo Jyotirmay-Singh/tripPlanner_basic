@@ -10,6 +10,8 @@ import {
   FamilyRow, rowsToPayload, firstFamilyEmailIssue, tripMemberEmails,
 } from '../../../src/familyParticipation';
 import { FormScreen, Input, Button, SegmentedControl, useToast } from '../../../src/ui';
+import FinancialReviewSheet from '../../../src/FinancialReviewSheet';
+import { guardedTrip, type ReviewRequest } from '../../../src/financialReview';
 
 export default function AddMember() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -20,6 +22,9 @@ export default function AddMember() {
   const [kind, setKind] = useState<'individual' | 'family'>('individual');
   const [familyRows, setFamilyRows] = useState<FamilyRow[]>([{ id: null, name: '' }]);
   const [saving, setSaving] = useState(false);
+  const [guarded, setGuarded] = useState(false);
+  const [currency, setCurrency] = useState('');
+  const [review, setReview] = useState<ReviewRequest | null>(null);
   // Existing trip linked-emails, to mirror the server's one-email-per-trip rule (UX only).
   const [takenEmails, setTakenEmails] = useState<(string | null | undefined)[]>([]);
   const [nameSubmitError, setNameSubmitError] = useState<string | null>(null);
@@ -31,6 +36,7 @@ export default function AddMember() {
       try {
         const trip: any = await api(`/trips/${id}`);
         setTakenEmails(tripMemberEmails(trip.members || []));
+        setGuarded(guardedTrip(trip)); setCurrency(trip.currency);
       } catch { /* the server still enforces uniqueness on submit */ }
     })();
   }, [id]);
@@ -75,6 +81,13 @@ export default function AddMember() {
     setNameSubmitError(null);
     setEmailSubmitError(null);
     setFamilyValidationIssue(null);
+    if (guarded) {
+      setReview({ operation: 'add_member', target_id: id, changes: {
+        name: name.trim(), kind, family_members, family_member_ids, family_member_emails,
+        email: kind === 'individual' ? (email.trim() || null) : null,
+      } });
+      return;
+    }
     setSaving(true);
     try {
       await api(`/trips/${id}/members`, {
@@ -149,6 +162,8 @@ export default function AddMember() {
 
             <Button label="Add member" icon="plus" onPress={submit} loading={saving} fullWidth size="lg" testID="mem-submit" style={{ marginTop: SPACING.sm }} />
           </View>
+          <FinancialReviewSheet tripId={id} request={review} currency={currency} onClose={() => setReview(null)}
+            onComplete={() => { setReview(null); router.back(); }} />
     </FormScreen>
   );
 }

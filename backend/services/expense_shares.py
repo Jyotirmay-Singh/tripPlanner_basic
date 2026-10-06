@@ -14,6 +14,10 @@ def person_shares_for_entity(expense: dict, entity: dict, entity_share: object) 
     The entity amount comes from the authoritative split engine; this never changes it.
     Callers doing historical accounting must separately verify the roster's provenance.
     """
+    frozen = [row for row in expense.get("_frozen_share_rows", []) if row["wallet_id"] == entity["id"]]
+    if frozen:
+        return ({row["person_id"]: scaled_number(to_scaled(row["original_share"])) for row in frozen},
+                [row["person_id"] for row in frozen if row["participating"]])
     if entity.get("kind") != "family":
         person_id = str(entity["id"])
         exact = expense.get("original_custom_amounts") or expense.get("custom_amounts") or {}
@@ -51,6 +55,7 @@ def entity_shares_raw(expense: dict, members: list) -> dict:
 def expense_share_breakdown(expense: dict, members: list) -> dict:
     """Build the read-time entity/family-member share payload shown by the app."""
 
+    members = expense.get("_revision_members_snapshot") or members
     members_by_id = {member["id"]: member for member in members}
     names = member_display_names(members)
     raw = entity_shares_raw(expense, members)

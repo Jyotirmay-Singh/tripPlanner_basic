@@ -37,7 +37,8 @@ def fake_users(monkeypatch):
         update_one=AsyncMock(return_value=None),
         find_one=AsyncMock(return_value=dict(CURRENT_USER)),
     )
-    monkeypatch.setattr(auth_module, "db", SimpleNamespace(users=users))
+    trips = SimpleNamespace(find=lambda *args, **kwargs: SimpleNamespace(to_list=AsyncMock(return_value=[])))
+    monkeypatch.setattr(auth_module, "db", SimpleNamespace(users=users, trips=trips))
     return users
 
 
@@ -170,7 +171,7 @@ def test_explicit_null_clears_both_fields(client, fake_users, as_user):
     assert response.json()["upi_updated_at"] is None
     assert fake_users.update_one.await_args.args == (
         {"id": CURRENT_USER["id"]},
-        {"$unset": {"upi_id": "", "upi_updated_at": ""}},
+        {"$unset": {"upi_id": "", "upi_updated_at": ""}, "$inc": {"recipient_account_revision": 1}},
     )
 
 

@@ -54,6 +54,7 @@ class Mutation(Contract):
 
 
 class SettlementIntentCreate(Mutation):
+    submission_action: Literal["propose", "report_paid"] = "report_paid"
     quote_id: UUID
     quote_hash: StrictStr
     transaction_reference: StrictStr | None = None

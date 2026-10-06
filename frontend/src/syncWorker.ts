@@ -62,6 +62,7 @@ function safeCode(error: ApiError): string {
     const known = new Set([
       'expense_roster_changed', 'payment_recommendation_changed', 'client_mutation_conflict',
       'eligibility_changed', 'multi_currency_disabled',
+      'settlement_client_upgrade_required', 'settlement_correction_required', 'group_not_ready',
     ]);
     return error.detailCode && known.has(error.detailCode) ? error.detailCode : 'business_conflict';
   }
@@ -382,6 +383,14 @@ export class SyncCoordinator {
     this.controller = new AbortController();
     try {
       const encodedTrip = encodeURIComponent(item.tripId);
+      const currentTrip = await this.deps.request<{ expense_settlement_activation_version?: number; financial_write_guard_version?: number }>(
+        `/trips/${encodedTrip}`, { timeoutMs: 12000, signal: this.controller.signal, authToken: token, suppressUnauthorized: true });
+      if (!this.stillActive(item.accountId, generation) || this.controller.signal.aborted) return;
+      if (currentTrip.expense_settlement_activation_version || currentTrip.financial_write_guard_version) {
+        await this.update(item, ['sending'], { state: 'needs_review', nextRetryAt: null,
+          lastSafeErrorCode: 'settlement_client_upgrade_required', reviewContext: { onlineFinancialReviewRequired: true } });
+        return;
+      }
       const force = item.operation === 'expense_create' && item.budgetApproved === true;
       const path = item.operation === 'expense_create'
         ? `/trips/${encodedTrip}/expenses${force ? '?force=true' : ''}`

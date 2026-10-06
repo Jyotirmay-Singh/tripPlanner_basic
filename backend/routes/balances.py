@@ -2,6 +2,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from database import db
 from services.settlement_write_guard import reject_legacy_write
+from models.financial_correction import ReviewedWrite, CorrectionCreate
+from services import reviewed_adapters
 from models.settlement import SettleIn, SettlementCreate, SettlementPatch
 from utils.common import gen_id, now_utc
 from utils.deps import (
@@ -37,12 +39,18 @@ def _balances_changed() -> HTTPException:
 @router.get("/trips/{trip_id}/balances")
 async def balances(trip_id: str, user=Depends(get_current_user)):
     trip = await _trip_or_404(trip_id, user)
+    if trip.get("expense_settlement_schema_version") == 2:
+        from services.effective_reads import read_effective_ledger
+        from utils.balances import project_ledger_balances
+        return project_ledger_balances(await read_effective_ledger(trip_id, user, db), diagnostic=is_trip_admin(trip, user))
     return await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
 
 
 @router.post("/trips/{trip_id}/settle")
-async def settle(trip_id: str, body: SettleIn, background_tasks: BackgroundTasks,
+async def settle(trip_id: str, body: ReviewedWrite | SettleIn, background_tasks: BackgroundTasks,
                  user=Depends(get_current_user)):
+    if isinstance(body, ReviewedWrite):
+        return await reviewed_adapters.submit(trip_id, body, user)
     # Legacy one-shot "record a completed payment". Kept for backward compatibility; the doc is
     # now stamped status:"paid"/paid_at so it offsets balances (unchanged behavior) and renders
     # in the Phase 10 settlement history. New clients use POST/PATCH /settlements instead.
@@ -125,7 +133,9 @@ async def list_settlements(trip_id: str, user=Depends(get_current_user)):
 
 
 @router.post("/trips/{trip_id}/settlements")
-async def create_settlement(trip_id: str, body: SettlementCreate, user=Depends(get_current_user)):
+async def create_settlement(trip_id: str, body: ReviewedWrite | SettlementCreate, user=Depends(get_current_user)):
+    if isinstance(body, ReviewedWrite):
+        return await reviewed_adapters.submit(trip_id, body, user)
     # Record a suggested transfer as a durable PENDING settlement (does not offset balances until
     # marked paid). Any trip member may record — it moves no money. Status is server-controlled.
     trip = await _trip_or_404(trip_id, user)
@@ -168,9 +178,13 @@ async def create_settlement(trip_id: str, body: SettlementCreate, user=Depends(g
 
 
 @router.patch("/trips/{trip_id}/settlements/{settlement_id}")
-async def mark_settlement_paid(trip_id: str, settlement_id: str, body: SettlementPatch,
+async def mark_settlement_paid(trip_id: str, settlement_id: str, body: ReviewedWrite | CorrectionCreate | SettlementPatch,
                                background_tasks: BackgroundTasks,
                                user=Depends(get_current_user)):
+    if isinstance(body, CorrectionCreate):
+        return await reviewed_adapters.correct(trip_id, f"settlements:{settlement_id}", {"replace_cash", "void_cash"}, body, user)
+    if isinstance(body, ReviewedWrite):
+        return await reviewed_adapters.submit(trip_id, body, user, legacy_settlement_id=settlement_id)
     # Flip pending -> paid (offsets balances). Gated to the lender (creditor's app user) or a trip
     # admin. Idempotent: a settlement already paid is returned unchanged.
     trip, settlement = await _settlement_mark_paid_or_403(trip_id, settlement_id, user)

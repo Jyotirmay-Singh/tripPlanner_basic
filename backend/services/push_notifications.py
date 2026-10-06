@@ -62,6 +62,16 @@ _PAYMENT_EVENT_TYPES = frozenset((
 # This map is the notification contract. Callers provide an event type and source id; routing,
 # lock-screen copy, and the type-specific payload key are derived here so they cannot drift apart.
 _EVENT_DEFINITIONS = {
+    "settlement.review_required": {
+        "title": "Payment review updated",
+        "target": "settle_up",
+        "id_key": "intentId",
+    },
+    "financial_review.updated": {
+        "title": "Financial review updated",
+        "target": "settle_up",
+        "id_key": "correctionId",
+    },
     "expense.created": {
         "title": "Expense added",
         "target": "trip_expenses",

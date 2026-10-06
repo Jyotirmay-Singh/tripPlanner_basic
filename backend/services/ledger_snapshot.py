@@ -14,14 +14,25 @@ class LedgerSnapshot:
     events: list = field(default_factory=list)
     intents: list = field(default_factory=list)
     attempts: list = field(default_factory=list)
+    corrections: list = field(default_factory=list)
+    identities: list = field(default_factory=list)
+    reconciliation_cases: list = field(default_factory=list)
+    historical_sources: dict = field(default_factory=dict)
+    accounting_members: list | None = None
+    raw_payments: list | None = None
+    raw_settlements: list | None = None
+    raw_expenses: list | None = None
 
 
-async def load_ledger(trip_id: str, database, *, session=None, coverage=False, trip=None) -> LedgerSnapshot:
+async def load_ledger(trip_id: str, database, *, session=None, coverage=False, trip=None, effective=True) -> LedgerSnapshot:
     options = {"session": session} if session is not None else {}
     trip = trip or await database.trips.find_one({"id": trip_id}, {"_id": 0}, **options)
     if not trip:
         from fastapi import HTTPException
         raise HTTPException(404, "Group not found")
+    if effective and trip.get("expense_settlement_schema_version", 1) not in {1, 2}:
+        from services.coverage_support import CoverageError
+        raise CoverageError("unsupported_accounting_schema")
 
     async def rows(collection, query=None, projection=None):
         return await getattr(database, collection).find(
@@ -40,11 +51,22 @@ async def load_ledger(trip_id: str, database, *, session=None, coverage=False, t
     adjustment = await adjustment_collection.find_one({"trip_id": trip_id}, {"_id": 0}, **options) \
         if adjustment_collection is not None else None
     result = LedgerSnapshot(trip, expenses, settlements, payments, (adjustment or {}).get("vector") or {})
-    if coverage:
+    from copy import deepcopy
+    result.raw_expenses = deepcopy(expenses)
+    versioned = trip.get("expense_settlement_schema_version") == 2 or trip.get("financial_write_guard_version") == 2
+    if coverage or versioned:
         result.revisions = await rows("expense_share_revisions")
+    if coverage:
         result.events = await rows("expense_coverage_events")
         result.intents = await rows("settlement_intents", projection={"_id": 0,
             "cash_legs.upi_id_snapshot": 0, "cash_legs.upi_updated_at_snapshot": 0,
             "cash_legs.conversion_snapshot": 0, "cash_legs.payer.user_id": 0, "cash_legs.recipient.user_id": 0})
         result.attempts = await rows("payment_attempts", projection=evidence_projection)
+    if versioned:
+        result.corrections = await rows("financial_correction_events")
+        result.identities = await rows("ledger_identity_snapshots")
+        result.reconciliation_cases = await rows("reconciliation_cases", {"trip_id": trip_id, "status": "open"})
+        from services.financial_ledger import apply_effective_ledger
+        if effective:
+            apply_effective_ledger(result)
     return result

@@ -59,6 +59,14 @@ async def store_new_share_revision(expense, members, trip_id, *, session):
     """
     revision = make_share_revision(expense, members, trip_id,
                                    recorded_at=datetime.now(timezone.utc).isoformat())
+    trip = await db.trips.find_one({"id": trip_id}, {"_id": 0}, session=session)
+    if trip and trip.get("expense_settlement_schema_version") == 2:
+        from services.financial_ledger import versioned_revision
+        revision = versioned_revision(expense, members, trip_id, 1, None, expense["id"],
+                                      datetime.now(timezone.utc).isoformat())
+        await db.expenses.update_one({"id": expense["id"], "trip_id": trip_id},
+                                    {"$set": {"active_revision_id": revision["id"]}}, session=session)
+        expense["active_revision_id"] = revision["id"]
     existing = await db.expense_share_revisions.find_one({"id": revision["id"]}, {"_id": 0}, session=session)
     if existing:
         if existing["financial_fingerprint"] != revision["financial_fingerprint"]:
@@ -92,7 +100,10 @@ async def append_coverage_event(trip_id, *, plan=None, cash_uses=(), approvals=(
 
     async def commit(session):
         trip = await db.trips.find_one({"id": trip_id}, {"_id": 0}, session=session)
-        if not trip or trip.get("expense_settlement_activation_version") != 1 or trip.get("financial_write_guard_version") != 1:
+        if (not trip or (trip.get("expense_settlement_activation_version") != 1 and not
+                        (resolving_existing and trip.get("financial_write_guard_version") == 2)) or
+                trip.get("financial_write_guard_version") not in {1, 2} or
+                trip.get("expense_settlement_schema_version", 1) not in {1, 2}):
             raise CoverageError("group_not_ready")
         actor_ids = {actor_user_id, *(approval.get("actor_user_id") for approval in approvals)} - {None}
         actors = {user["id"]: user for user in await db.users.find(

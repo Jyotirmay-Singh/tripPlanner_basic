@@ -13,7 +13,7 @@ def _public_explanation(line):
         "debtor_wallet_id", "creditor_wallet_id", "original_funding_person_id", "reversed", "bundle_id",
     ) if key in line}
     result["cash_legs"] = [{key: leg.get(key) for key in (
-        "id", "from_member_id", "to_member_id", "amount", "source_id",
+        "id", "from_member_id", "to_member_id", "amount", "source_id", "source_amount",
         "actual_payer_person_id", "actual_receiver_person_id",
     )}
                            for leg in line.get("cash_legs", [])]
@@ -24,7 +24,7 @@ def _public_explanation(line):
 
 
 def unavailable_response(trip, status, *, reasons=()):
-    return {"protocol_version": PROTOCOL_VERSION, "policy_version": POLICY_VERSION,
+    return {"protocol_version": trip.get("expense_settlement_schema_version", PROTOCOL_VERSION), "policy_version": POLICY_VERSION,
             "history_policy_version": HISTORY_VERSION, "money_policy_version": "whole_unit_v1",
             "currency": trip.get("currency", "INR"), "ledger_version": trip.get("version", 0),
             "generated_at": datetime.now(timezone.utc).isoformat(), "snapshot_id": None,
@@ -43,7 +43,7 @@ def coverage_response(snapshot, viewer, detail_ids=(), *, capability=False, acti
                   member.get("user_id") == actor_id or actor_id in (member.get("family_member_user_ids") or [])}
     uncertain = {share_id for case in snapshot.review_cases if case["code"] != "allocation_pending"
                  for share_id in case["share_ids"]}
-    ready = capability and actions_ready and role_of(snapshot.ledger.trip, viewer) is not None
+    ready = capability and actions_ready and not snapshot.ledger.trip.get("archived_at") and role_of(snapshot.ledger.trip, viewer) is not None
     summaries, details = [], {}
     by_expense = {}
     for row in snapshot.shares.values():
@@ -85,7 +85,8 @@ def coverage_response(snapshot, viewer, detail_ids=(), *, capability=False, acti
                 left = snapshot.remaining(row["id"])
                 reserved = sum(row["reservations"].values())
                 reliable = row["id"] not in uncertain and row["person_id"] is not None
-                permitted = row["debtor_wallet_id"] in my_wallets and row["participating"] is not False
+                permitted = (row["debtor_wallet_id"] in my_wallets or role_of(snapshot.ledger.trip, viewer) in
+                             {"owner", "admin", "super_admin"}) and row["participating"] is not False
                 eligible = max(0, left - reserved) if reliable and row["id"] not in snapshot.blocked and permitted else None
                 shown.append({key: row.get(key) for key in (
                     "id", "person_id", "person_name", "wallet_id", "participating", "original_share",
@@ -104,7 +105,7 @@ def coverage_response(snapshot, viewer, detail_ids=(), *, capability=False, acti
                 "actual_receiver_person_id": source["row"].get("actual_receiver_person_id")}
                for key, source in sorted(snapshot.sources.items())
                if to_scaled(source["amount"]) > snapshot.claimed.get(key, 0)]
-    return {"protocol_version": PROTOCOL_VERSION, "policy_version": POLICY_VERSION,
+    return {"protocol_version": snapshot.ledger.trip.get("expense_settlement_schema_version", PROTOCOL_VERSION), "policy_version": POLICY_VERSION,
             "history_policy_version": HISTORY_VERSION, "money_policy_version": "whole_unit_v1",
             "currency": snapshot.ledger.trip.get("currency", "INR"), "ledger_version": snapshot.ledger.trip.get("version", 0),
             "generated_at": datetime.now(timezone.utc).isoformat(), "snapshot_id": snapshot.snapshot_id,

@@ -95,7 +95,7 @@ def test_enabled_flag_does_not_activate_group_and_new_routes_validate_contract(m
     assert client.post("/api/trips/t/settlement-intents", json={}).status_code == 422
     config = client.get("/api/meta/config").json()
     assert config["expense_settlement_actions_ready"] is False
-    assert config["expense_settlement_protocol_version"] == 1
+    assert config["expense_settlement_protocol_version"] == 2
 
 
 @pytest.mark.parametrize("count", [1, 1101])

@@ -2,7 +2,7 @@
 
 ## Expense coverage, payment reports, and receipt review — 6 October 2026
 
-**Backend Sessions 2–3 implemented and locally verified; disabled and not activated.** The expense
+**Protocol 2 safeguards and financial-review UI implemented locally; production rollout and activation pending.** The expense
 coverage engine preserves authoritative wallet/person shares, separates funding/direct/group/offset/
 historically inferred coverage, reconciles both payments and legacy settlements, and leaves uncertain
 history as guarded credit. Deterministic allocation plans and an internal transactional journal do
@@ -13,9 +13,9 @@ APIs now post exact cash and eligible coverage in one snapshot transaction. Dire
 use gross outstanding shares even at zero net debt; group starts retain recommendation validation.
 Confirmed cash stays as credit when an allocation is stale or awaits receipts/consent. Shared share
 reservations coordinate direct/group attempts and linked family payers. Legacy financial/roster writes
-are blocked for activated groups until correction support exists; new expense creates freeze revisions
+require reviewed contracts in protected groups; new expense creates freeze revisions
 with their permanent retry receipts. Reported/disputed attempts retain evidence without a timeout.
-`EXPENSE_SETTLEMENT_ENABLED` defaults false; `/meta/config` advertises protocol 1 and readiness only
+`EXPENSE_SETTLEMENT_ENABLED` defaults false; `/meta/config` advertises protocol 2 and readiness only
 when the flag and verified transaction capability permit starts. Every trip also needs activation
 and financial-write-guard markers. Unactivated groups remain disabled; activated history stays readable
 with new starts disabled.
@@ -26,9 +26,20 @@ actual API startup with unchanged balances and XLSX/PDF exports, authenticated r
 simultaneous receiver/admin approval, direct/group and family races, dependent bundles, revocation,
 rollback at financial/journal/status/audit/receipt/outbox boundaries, and standalone failure. The
 implementation handoff and final test totals are in [expense-settlement-plan.md](expense-settlement-plan.md).
-Correction and activation tools; coverage UI/cache/report additions; production history
-review; and deployment remain later-session work. Existing expense badges and family net breakdowns
-are not evidence of individual expense coverage.
+Audited corrections now supersede expense revisions, tombstone deletions, compensate recorded cash,
+reverse whole conserving bundles, and reopen obligations without silently reallocating retained money.
+Versioned receipts and historical identities preserve evidence while current permissions govern actions.
+Reviewed family edits preserve earlier allocations by default; bulk removals and departures check gross
+obligations, credit and pending review even at zero net. Recipient revisions stop obsolete sending.
+Protected Settle Up writes and older URLs share adapters; old payloads fail before financial effects.
+Offline drafts remain queued for explicit online review. Balances, expense progress and XLSX/PDF use
+the effective ledger. Financial review includes previews, approval/reversal, late evidence, credit/offset
+mapping and historical diagnostics, using existing sheets and accessible controls.
+
+Explicit-target historical dry-run/staging tooling and additive prerequisite checks are implemented.
+The maintained [writer inventory](financial-writer-inventory.md) covers routes, helpers, startup and
+scripts. Production history/index inspection, migration, activation and deployment remain separately
+authorized work. Native UPI/device and manual assistive-technology acceptance remain unverified.
 
 ## Android offline activation update — 4 October 2026
 

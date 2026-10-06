@@ -46,15 +46,19 @@ def starts_enabled():
         raise error("settlement_transactions_unavailable", 503)
 
 
-async def context(trip_id, user, session):
+async def context(trip_id, user, session, *, require_activation=True):
     trip = await db.trips.find_one({"id": trip_id}, {"_id": 0}, session=session)
     actor = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0, "pin_hash": 0}, session=session)
     if not trip:
         raise error("trip_not_found", 404)
     if not _current_access(trip, actor):
         raise error("insufficient_authority", 403)
-    if trip.get("expense_settlement_activation_version") != 1 or trip.get("financial_write_guard_version") != 1:
+    if ((require_activation and trip.get("expense_settlement_activation_version") != 1) or
+            trip.get("financial_write_guard_version") not in {1, 2} or
+            trip.get("expense_settlement_schema_version", 1) not in {1, 2}):
         raise error("group_not_ready")
+    if require_activation and trip.get("archived_at"):
+        raise error("group_archived")
     return trip, actor
 
 
@@ -90,12 +94,23 @@ def person(trip, wallet_id, person_id):
 
 
 async def parties(trip, binding, method, session):
-    payer = person(trip, binding["from_member_id"], binding["payer_person_id"])
-    receiver = person(trip, binding["to_member_id"], binding["recipient_person_id"])
+    async def resolve(wallet_id, person_id):
+        try:
+            return person(trip, wallet_id, person_id)
+        except CoverageError:
+            if method == "upi" or trip.get("expense_settlement_schema_version") != 2:
+                raise
+            ledger = await load_ledger(trip["id"], db, trip=trip, session=session)
+            archived = person({"members": ledger.accounting_members}, wallet_id, person_id)
+            archived["user_id"] = None
+            archived["historical"] = True
+            return archived
+    payer = await resolve(binding["from_member_id"], binding["payer_person_id"])
+    receiver = await resolve(binding["to_member_id"], binding["recipient_person_id"])
     result = {"payer": payer, "recipient": receiver}
     if method == "upi":
         profile = await db.users.find_one({"id": receiver["user_id"]},
-            {"_id": 0, "upi_id": 1, "upi_updated_at": 1}, session=session) if receiver["user_id"] else None
+            {"_id": 0, "upi_id": 1, "upi_updated_at": 1, "recipient_account_revision": 1}, session=session) if receiver["user_id"] else None
         if not profile:
             raise CoverageError("recipient_unavailable")
         try:
@@ -105,6 +120,7 @@ async def parties(trip, binding, method, session):
         if not result["upi_id_snapshot"]:
             raise CoverageError("recipient_upi_unavailable")
         result["upi_updated_at_snapshot"] = profile.get("upi_updated_at")
+        result["recipient_account_revision"] = profile.get("recipient_account_revision", 0)
     return result
 
 
@@ -130,7 +146,7 @@ def public_intent(intent):
 
 async def detail(trip_id, intent_id, user):
     async def read(session):
-        trip, actor = await context(trip_id, user, session)
+        trip, actor = await context(trip_id, user, session, require_activation=False)
         intent = await db.settlement_intents.find_one({"id": intent_id, "trip_id": trip_id}, {"_id": 0}, session=session)
         if not intent:
             raise error("intent_not_found", 404)
@@ -155,7 +171,7 @@ async def detail(trip_id, intent_id, user):
 
 async def list_intents(trip_id, user):
     async def read(session):
-        await context(trip_id, user, session)
+        await context(trip_id, user, session, require_activation=False)
         rows = await db.settlement_intents.find({"trip_id": trip_id}, {"_id": 0}, session=session).sort("created_at", -1).to_list(None)
         return [public_intent(row) for row in rows]
     return await transaction(read)
@@ -192,6 +208,8 @@ async def quote(trip_id, body, user):
         for leg in plan["cash_legs"]:
             selection = bindings[(leg["from_member_id"], leg["to_member_id"])]
             binding = await parties(trip, selection, body.method, session)
+            if (binding["payer"].get("historical") or binding["recipient"].get("historical")) and role_of(trip, actor) not in ADMIN_ROLES:
+                raise error("historical_identity_admin_review_required", 403)
             if not leg["dependency"]:
                 if body.method == "upi" and binding["payer"]["user_id"] != actor["id"]:
                     raise error("wrong_payer", 403)
@@ -321,7 +339,7 @@ def attempt_document(intent, leg, actor, *, report=False, reference=None, note=N
         "active_key": f"intent:{intent['id']}:{leg['id']}"}
 
 
-async def create(trip_id, body, user):
+async def create(trip_id, body, user, *, legacy_settlement_id=None):
     async def commit(trip, actor, session):
         starts_enabled()
         document = await db.settlement_quotes.find_one({"id": str(body.quote_id), "trip_id": trip_id}, {"_id": 0}, session=session)
@@ -331,10 +349,19 @@ async def create(trip_id, body, user):
             raise error("quote_not_owned", 403)
         if document["quote_hash"] != body.quote_hash:
             raise CoverageError("quote_changed")
+        alias = None
+        if legacy_settlement_id is not None:
+            alias = await db.settlements.find_one({"id": legacy_settlement_id, "trip_id": trip_id}, {"_id": 0}, session=session)
+            selected = [leg for leg in document["cash_legs"] if not leg["dependency"]]
+            if (not alias or alias.get("status") != "pending" or len(selected) != 1
+                    or (alias["from_member_id"], alias["to_member_id"], to_scaled(alias["amount"])) !=
+                       (selected[0]["from_member_id"], selected[0]["to_member_id"], to_scaled(selected[0]["amount"]))
+                    or alias.get("reviewed_intent_id") not in {None, document["intent_id"]}):
+                raise CoverageError("legacy_settlement_binding_changed")
         existing = await db.settlement_intents.find_one({"id": document["intent_id"]}, {"_id": 0}, session=session)
         submission_hash = fingerprint(body.model_dump(mode="json", exclude={"client_mutation_id"}))
         if existing:
-            if existing.get("submission_fingerprint") != submission_hash:
+            if existing.get("submission_fingerprint") != submission_hash or existing.get("legacy_settlement_id") != legacy_settlement_id:
                 raise CoverageError("quote_already_used")
             return existing, None
         if timestamp(document["expires_at"]) <= now_utc():
@@ -350,14 +377,19 @@ async def create(trip_id, body, user):
             "created_by": actor["id"],
             "allocation_status": "pending", "created_at": at.isoformat(),
             "expires_at": (at + PAYMENT_ATTEMPT_LIFETIME).isoformat(), "approvals": [], "review_reasons": [], "cash_legs": []}
+        if alias:
+            intent["legacy_settlement_id"] = legacy_settlement_id
+            await db.settlements.update_one({"id": legacy_settlement_id, "trip_id": trip_id, "status": "pending"},
+                {"$set": {"reviewed_intent_id": intent["id"], "reviewed_at": at.isoformat()}}, session=session)
         reported = False
         for binding in document["cash_legs"]:
             selection = {"from_member_id": binding["from_member_id"], "to_member_id": binding["to_member_id"],
                 "payer_person_id": binding["actual_payer_person_id"], "recipient_person_id": binding["actual_receiver_person_id"]}
             if await parties(trip, selection, intent["method"], session) != {k: binding[k] for k in
-                    ("payer", "recipient", "upi_id_snapshot", "upi_updated_at_snapshot") if k in binding}:
+                    ("payer", "recipient", "upi_id_snapshot", "upi_updated_at_snapshot", "recipient_account_revision") if k in binding}:
                 raise CoverageError("recipient_changed")
-            report = intent["method"] in {"cash", "bank"} and not binding["dependency"]
+            report = (body.submission_action == "report_paid" and intent["method"] in {"cash", "bank"}
+                      and not binding["dependency"])
             if report and not may_report(trip, binding, actor):
                 raise error("insufficient_authority", 403)
             leg = {**binding, "payment_attempt_id": str(uuid4()), "receipt_status": "awaiting_review" if report else "initiated"}
@@ -369,7 +401,8 @@ async def create(trip_id, body, user):
             intent.update(status="awaiting_confirmation", expires_at=None)
         await db.settlement_intents.insert_one(deepcopy(intent), session=session)
         return intent, "reported" if reported else "initiated"
-    return await mutate(trip_id, body, user, "settlement.intent.create", commit)
+    return await mutate(trip_id, body, user, "settlement.intent.create", commit,
+                        binding={"legacy_settlement_id": legacy_settlement_id} if legacy_settlement_id is not None else None)
 
 
 async def load_intent(trip_id, intent_id, session):
@@ -528,7 +561,21 @@ async def leg_action(trip_id, intent_id, leg_id, body, user):
         await db.payment_attempts.replace_one({"id": attempt["id"]}, attempt, session=session)
         await save_intent(intent, session)
         return intent, event
-    return await mutate(trip_id, body, user, f"settlement.leg.{body.action}", commit, binding={"intent_id": intent_id, "leg_id": leg_id})
+    result = await mutate(trip_id, body, user, f"settlement.leg.{body.action}", commit, binding={"intent_id": intent_id, "leg_id": leg_id})
+    if body.action == "start":
+        async def read_handoff(session):
+            trip, actor = await context(trip_id, user, session)
+            intent = await load_intent(trip_id, intent_id, session)
+            leg = next(row for row in intent["cash_legs"] if row["id"] == leg_id)
+            if _accounts(trip).get(leg["actual_payer_person_id"]) != actor["id"] or leg["payer"]["user_id"] != actor["id"]:
+                raise error("wrong_payer", 403)
+            if (leg["receipt_status"] != "initiated" or await allocation_issue(trip, intent, session)
+                    or timestamp(leg["conversion_snapshot"]["expires_at"]) <= now_utc()):
+                raise CoverageError("sending_review_required")
+            return {"upi_id": leg["upi_id_snapshot"], "inr_amount": leg["inr_amount"],
+                    "recipient_name": leg["recipient"]["name"], "recipient_account_revision": leg.get("recipient_account_revision", 0)}
+        result = {**result, "handoff": await transaction(read_handoff)}
+    return result
 
 
 async def try_apply(trip, intent, actor, mutation_id, session):
@@ -669,7 +716,7 @@ async def approve(trip_id, intent_id, body, user):
     return await mutate(trip_id, body, user, f"settlement.approval.{body.action}", commit, binding={"intent_id": intent_id})
 
 
-async def ensure_indexes(database):
+async def ensure_indexes(database, *, replace_incompatible_quote_index=False):
     await database.settlement_quotes.create_index("id", unique=True)
     await database.settlement_quotes.create_index([("trip_id", 1), ("expires_at", 1)])
     await database.settlement_intent_actions.create_index("id", unique=True)
@@ -681,6 +728,8 @@ async def ensure_indexes(database):
     indexes = await database.payment_attempts.index_information()
     old = indexes.get("quote_id_1")
     if old and not old.get("partialFilterExpression"):
+        if not replace_incompatible_quote_index:
+            raise RuntimeError("UPI quote index requires an explicitly authorized compatibility upgrade")
         await database.payment_attempts.drop_index("quote_id_1")
     await database.payment_attempts.create_index("quote_id", unique=True,
         partialFilterExpression={"quote_id": {"$type": "string"}})

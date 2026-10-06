@@ -4,7 +4,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pymongo.errors import DuplicateKeyError
 
 from database import db
-from services.settlement_write_guard import reject_legacy_write
+from services.settlement_write_guard import reject_legacy_write, activated
+from models.financial_correction import ReviewedWrite, CorrectionCreate
+from services import reviewed_adapters
 from models.payment import (
     PaymentCreate,
     PaymentHandoffPreview,
@@ -498,8 +500,10 @@ async def list_payments(trip_id: str, user=Depends(get_current_user)):
 
 
 @router.post("/trips/{trip_id}/payments")
-async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: BackgroundTasks,
+async def record_payment(trip_id: str, body: ReviewedWrite | PaymentCreate, background_tasks: BackgroundTasks,
                          user=Depends(get_current_user)):
+    if isinstance(body, ReviewedWrite):
+        return await reviewed_adapters.submit(trip_id, body, user)
     # Record a (possibly partial) payment along a CURRENTLY SUGGESTED debtor->creditor pair. The
     # receiver (creditor's app user) or a trip admin may record; the payer never self-records.
     if body.client_mutation_id is not None:
@@ -596,12 +600,17 @@ async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: Ba
 
 
 @router.patch("/trips/{trip_id}/payments/{payment_id}")
-async def edit_payment(trip_id: str, payment_id: str, body: PaymentPatch,
+async def edit_payment(trip_id: str, payment_id: str, body: CorrectionCreate | PaymentPatch,
                        user=Depends(get_current_user)):
+    if isinstance(body, CorrectionCreate):
+        return await reviewed_adapters.correct(trip_id, f"payments:{payment_id}", {"replace_cash"}, body, user)
     # Edit amount/note (direction fixed). Receiver-or-admin only. A new amount may not over-settle the
     # direction: cap = current pair payable + this payment's own effect (i.e. the payable as if this
     # payment didn't exist), so create and edit share one rule.
     trip, payment = await _payment_or_403(trip_id, payment_id, user)
+    if activated(trip):
+        from services.harmless_updates import payment_note
+        return await payment_note(trip_id, payment_id, body, user)
     if payment.get("settlement_intent_id") and body.amount is not None:
         raise _handoff_error(409, "settlement_correction_required", "Reviewed payment amounts are immutable")
     if body.amount is not None:
@@ -699,7 +708,10 @@ async def edit_payment(trip_id: str, payment_id: str, body: PaymentPatch,
 
 
 @router.delete("/trips/{trip_id}/payments/{payment_id}")
-async def delete_payment(trip_id: str, payment_id: str, user=Depends(get_current_user)):
+async def delete_payment(trip_id: str, payment_id: str, user=Depends(get_current_user),
+                         body: CorrectionCreate | None = None):
+    if body is not None:
+        return await reviewed_adapters.correct(trip_id, f"payments:{payment_id}", {"void_cash"}, body, user)
     # Delete a recorded payment (balances self-heal on the next recompute). Receiver-or-admin only.
     trip, payment = await _payment_or_403(trip_id, payment_id, user)
     reject_legacy_write(trip)

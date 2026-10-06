@@ -601,3 +601,224 @@ claims or applying a replacement resolution plan is not yet a public correction 
 review, offline coverage/cache semantics, shared export explanations, screenshot support, native UPI
 device QA, deployment and production activation remain separate stages. Legacy unactivated-group
 recommended-payment behavior remains compatible, including its existing capped confirmation rule.
+
+---
+
+## Correction implementation handoff — 6 October 2026
+
+This implementation extends Sessions 2–3 with protocol/schema 2 corrections, effective historical
+replay, reviewed legacy adapters, financial-review interfaces, and explicit historical reconciliation
+tooling. This section supersedes earlier statements that public correction support and the app review
+interfaces are missing. Deployment, production reads/index changes/migrations, and group activation
+were not performed. `EXPENSE_SETTLEMENT_ENABLED=false` remains the default. Native UPI/device and
+manual assistive-technology acceptance remain rollout gates.
+
+### Evidence, corrections and current permissions
+
+`financial_ledger.py` replays immutable cash compensations and authoritative current expense pointers
+while retaining original sources/revisions for journal verification. Revision IDs bind a distinct
+operation, sequence and complete frozen roster/allocation/FX snapshot; repeated financial content
+never revives an old revision ID. Version-1 historical hashes, including their persisted datetime
+representation, remain replayable. Unknown schemas fail closed.
+
+`financial_corrections.py` and `correction_planner.py` provide immutable previews, durable proposals,
+current-authority approval, complete conserving bundle reversal, and compensating reversal of earlier
+corrections. Financial changes preserve prior expense, receipt, source, approval, reason and identity
+evidence. Replacing or deleting an expense retires its obligations; reversal reopens every affected
+share and releases source claims. Exact confirmed cash remains credit until explicitly reconciled.
+Correcting/voiding a payment changes the recorded assertion with a signed compensation and optional
+replacement source; it does not assert a physical refund. Actual returned money uses a distinct
+reported/confirmed transfer. No new cash is posted during reversal or credit reconciliation.
+Public previews explain affected expense names, before/after shares, prior reservations, complete
+dependent coverage, retained approval counts, source-claim releases, and recorded-money changes.
+Private payment references and recipient addresses are excluded from these effects.
+
+The creator/admin can apply an uncovered financial expense change. Existing external allocations,
+reservations or reported claims require current admin approval. Intrinsic paying-wallet coverage
+alone does not require an admin. Zero-money offset reversals require every affected person's current
+consent or a reasoned current-admin approval, bound to the exact plan. Receiving-family receipt
+authority never substitutes for another person's consent.
+
+Harmless description/category/time/payment-note edits compare effective values before any legacy
+normalization or conversion. Receipt changes append immutable versions and change the visible
+pointer. A financial preview cannot overwrite subsequently updated metadata or attachment pointers.
+Prior receipt references remain in correction evidence; old GridFS/inline attachment evidence is
+retained. Unreported bundles may be canceled/released; reported/disputed/confirmed work remains
+`needs_review` against its original amounts, parties, recipient/FX and dependencies. Exact late
+receipt confirmation can record credit without approving obsolete allocations.
+
+`roster_corrections.py` preserves stable people and archived wallets. Family edits/reassignment affect
+future allocations by default; `reallocate_history` is an explicit separate correction. Bulk-array
+removal checks the same gross blockers as individual removal. Departures check obligations, credit,
+reports, reservations and durable review cases even at zero net. Owners explicitly transfer ownership
+before leaving; last-person family dissolution must be selected. Account deletion requires reviewed
+departure from protected groups first. Group deletion becomes archival after blockers clear. Later
+reversal can reopen historical wallets without restoring account access or consent.
+
+UPI profiles carry monotonic `recipient_account_revision`; linked-account and recipient-address
+changes synchronously invalidate obsolete sending. Pending links/role approvals use current
+authorization, and applied approvals stay historical. Binding invalidation, expiry and protected
+expired-report recovery append system action and notification outbox evidence inside their required
+transactions. Financial actions claim the current user record to serialize role/profile changes.
+
+### Public contracts and legacy behavior
+
+All paths are trip-scoped beneath `/api/trips/{trip_id}`. Correction previews expire after five minutes
+or the earlier FX deadline. A changed financial basis requires a renewed preview; submitted proposal
+and action evidence never expire. Matching permanent mutation UUID retries replay; altered requests
+or substituted paths conflict before effects.
+
+| Contract | Implemented behavior |
+|---|---|
+| `POST /correction-previews` | Expected snapshot, operation/target/changes/reason; immutable ID/hash, effects and authority requirements. No allocation/cash effects. |
+| `POST /corrections` | `protocol_version=2`, preview ID/hash, mutation UUID; apply an authorized uncovered change or create an awaiting-approval proposal. |
+| `GET /corrections` and `GET /corrections/{id}` | Current trip access; public effects/history, attributed actions, restricted renewal request for creator/admin. Payment references/UPI details are excluded. |
+| `POST /corrections/{id}/actions` | Expected version/hash and mutation UUID; `approve`, person `consent`, `reject`, `withdraw`, `renew`. Approval/rejection require an admin reason. Reversal uses a new `reverse_correction` preview/proposal. |
+| `POST /reconciliation-previews`, `POST /reconciliations` | Direct retained-source mapping, conserving group mapping, or zero-money offset; explicit current-admin reason, exact snapshot/hash and mutation UUID. No invented receipt/cash. |
+| `GET /historical-reconciliation` | Current-admin read-only redacted diagnostics, plan hash, prerequisites and staged-run summaries. Malformed v2 evidence returns guarded diagnostics. It never upgrades or activates. |
+
+Correction operations are `replace_expense`, `void_expense`, `replace_cash`, `void_cash`,
+`reverse_allocation`, `reverse_correction`, `update_member`, `remove_member`, `reassign_family`,
+`reallocate_history`, `add_member`, `link_person`, `grant_admin`, `revoke_admin`, `transfer_owner`,
+`archive_trip`, and `leave_group`. Source corrections use canonical `payments:{id}` or
+`settlements:{id}` bindings. New amounts are whole-unit decimal strings, signed for refunds.
+
+Existing `/payments`, `/settle`, `/settlements` and pending-settlement PATCH accept `ReviewedWrite`
+(`protocol_version=2`, quote ID/hash, mutation UUID, explicit submission action). They create one
+canonical intent/cash result. A transitioned pending settlement retains `status=pending` and
+`reviewed_intent_id`; it cannot become a second effective source or a pending-progress blocker.
+Permanent mutation and unique alias binding reject substitution of another settlement URL.
+Expense PATCH/reconvert/DELETE, payment PATCH/DELETE, member/family mutations, membership leave,
+admin grant/revoke, ownership transfer and trip archival accept path-bound `CorrectionCreate`.
+Family-submember DELETE verifies that the reviewed roster actually removes that person from that
+family. Harmless expense/payment-note/receipt contracts remain available.
+
+Old protected financial payloads return structured upgrade/correction errors. Settlement-bound old
+attempt actions require the reviewed version/hash/mutation fields. Legacy unbound attempts and
+protected join/claim/clean-stub/join-request approval are blocked: preserve their evidence and use
+reviewed `link_person` or administrative reconciliation; do not replace historical person IDs.
+Unprotected groups retain legacy behavior, including capped legacy UPI confirmation. They expose
+no expense coverage until reconciliation. The persistent guard survives disabling new starts.
+
+The [writer inventory](financial-writer-inventory.md) and its
+[function catalog](financial-writer-inventory.json) document 177 explicit policies across routes,
+helpers, startup, background jobs, GridFS, and scripts. Its AST maintenance check flags new writers.
+Legacy whole-unit/income/reallocation tools reject protected groups; protected startup financial,
+identity and admin backfills are excluded. The v2 installer/backfill is never run at startup.
+
+Settle Up, expense/member editing and Financial review expose before/after effects, retained credit,
+approval/reversal, late evidence, payment-note updates, reasoned admin mappings and historical
+diagnostics. Financial actions require a live connection; offline drafts retain their frozen payload
+and require explicit online review. Account/route switches clear review state and abort reads.
+Balances, spend, progress, XLSX and PDF consume the effective ledger; exports include correction,
+pending-review and retained-credit explanations.
+
+### Additive collections and exact index prerequisites
+
+Authoritative schema definitions/installers are `models/financial_correction.py`,
+`financial_corrections.INDEXES`, `ensure_indexes`, `index_prerequisites`, and `inspect_index_data`.
+New evidence collections are `financial_correction_previews`, `financial_corrections`,
+`financial_correction_events`, `financial_correction_actions`, `cash_source_versions`,
+`ledger_identity_snapshots`, `receipt_versions`, `reconciliation_previews`, `reconciliation_runs`,
+`reconciliation_staging`, and `reconciliation_cases`. Expense current/deletion pointers, recipient
+revision, group schema/guard and membership revisions are additive. Historical rows remain evidence.
+
+| Index | Required definition |
+|---|---|
+| Every new collection's named ID index | Unique `id`; no TTL |
+| `financial_revision_number` | Unique `(trip_id, expense_id, revision_number)`; partial `schema_version=2` |
+| `cash_source_version_number` | Unique `(trip_id, root_source_id, version_number)` |
+| `financial_correction_reversal` | Unique `reverses_correction_id`; partial string type |
+| `financial_legacy_settlement_alias` | Unique `legacy_settlement_id`; partial string type |
+| `correction_trip_status` | `(trip_id, status)` |
+| `correction_event_trip` | `(trip_id, sequence)` |
+| `ledger_identity_trip` | `(trip_id, member_id)` |
+| `receipt_version_expense` | `(trip_id, expense_id)` |
+| `reconciliation_stage_position` | Unique `(run_id, position)` |
+| `reconciliation_case_status` | `(trip_id, status)` |
+
+Existing permanent uniqueness prerequisites are verified by exact key, uniqueness, partial-filter
+and absence of TTL: share `id` and `(trip_id, expense_id, revision)`; journal `id`,
+`(trip_id, actor_user_id, client_mutation_id)`, reversal reference, reservation-intent reference;
+expense/payment mutation receipts `(actor_user_id, operation, client_mutation_id)`; intent/quote/action
+`id`; payment `(settlement_intent_id, settlement_leg_id)` and `payment_attempt_id`; attempt `id` and
+partial-string `quote_id`; and outbox `event_key`. Receipt/evidence and permanent retry receipts
+must not have TTL. Ordinary delivery cleanup does not delete financial action evidence.
+
+Inspect duplicate/malformed keys and exact definitions before installation. The legacy unique
+nonpartial `payment_attempts.quote_id_1` is incompatible with cash/bank attempts lacking quote IDs.
+`settlement_intents.ensure_indexes` rejects it by default. A separately authorized, reviewed
+maintenance action may invoke its explicit `replace_incompatible_quote_index=True` upgrade after
+checking data and quiescing writes. Never perform this destructive replacement automatically at
+startup. The historical CLI's v2 installer does not silently repair missing/incompatible v1 indexes.
+
+### Migration order, unresolved cases and activation gates
+
+`backend/scripts/reconcile_expense_history.py` requires an explicit task-specific connection-variable
+name, database and trip ID. It refuses ambient `MONGO_URL`/`DATABASE_URL`, defaults to dry-run, and
+does not print credentials, private references or UPI addresses. Nonloopback reads require separate
+read authorization. Duplicate-key prerequisite inspection is database-wide; authorization must cover
+that scope. Index installation, migration application and activation have separate explicit flags;
+flags document authorization and are not substitutes for human approval.
+
+1. Obtain authorization for the exact environment and read scope. Pause legacy writers/clients for
+   maintenance. Verify a compatible server/client build, snapshot transactions and majority writes.
+2. Run the dry-run and prerequisite/data audit. Review baseline wallet vectors, exact differences,
+   all effective payments/settlements, direct-link evidence, aliases/duplicates, pending attempts,
+   missing identities, precision/adjustments, planned snapshots, blockers, record counts and plan hash.
+3. Separately authorize index changes. Install additive v2 indexes and separately resolve the UPI
+   compatibility prerequisite. Existing duplicate/malformed evidence requires explicit review.
+4. Accept the current deterministic plan hash and authorize backfill application with current admin
+   actor/reason. Staged batches use stable IDs/manifest hashes and are invisible to ledger readers.
+   Final snapshot rechecks the original group/plan, actor access/authority, manifest, and prerequisites
+   before exposing frozen pointers and `expense_settlement_schema_version=2` /
+   `financial_write_guard_version=2`. Interrupted staging is resumable; stale history needs a new run.
+5. Correct/reconcile guarded historical cases explicitly before activation. Corrections and credit
+   mappings work in a guarded v2 group while new quotes/intents remain blocked. No backfill invents
+   a receipt, consent, payment or automatic allocation. Evidenced links are reviewed suggestions.
+6. Repeat dry-run. Source-baseline IDs are stable across runs; accepted-run retries have no additional
+   effects. Only evidenced explicit allocations/retirements/voids resolve supported durable cases,
+   preserving action/actor/reason. Unknown cash, missing people, suspected duplicate rows, unresolved
+   attempts, legacy precision and migration adjustments remain visible blockers. There is no generic
+   “ignore case” bypass. Unexplained wallet differences or any credit/review/pending work block activation.
+7. Obtain separate activation authorization after the zero-difference/blocker-free report and runtime
+   prerequisites pass. The final accepted run may set activation version 1. New starts also require
+   the runtime flag/capability and a nonarchived group. Disabling starts retains review/history and
+   all guards. Rollback after v2 adoption uses a compatible build or this kill switch; an older server
+   must never resume writes to a v2 ledger. Resume maintenance traffic only after these checks.
+
+### Validation evidence
+
+The proportional backend regression gate passed **813 tests**, zero skipped, against explicit
+task-owned loopback replica-set and standalone MongoDB processes. The selection includes correction
+domain/route/Mongo suites, writer inventory, coverage/journal/workflows, share/balance/EXACT/family/
+currency/conversion/migration, legacy payment/settlement routes, departure/join/mobile/profile,
+idempotency, notification and XLSX/PDF tests. It ran `.venv/Scripts/python.exe -m pytest ... -q` with
+safe test-only environment overrides; fixtures removed only UUID-named disposable databases.
+
+New acceptance coverage includes ₹100→₹120/₹80, covered deletion/reversal, refund/payer/split/FX
+replacement, ₹20 cash plus offsets, ₹100→₹60/void compensation, current offset quorum and reversal,
+competing edits/reports/receipts/approvals, harmless edits and attachment-version races, historical
+wallet reopening without access, zero-net gross blockers, stale/revoked authority, reviewed alias
+binding, lost-response retries, failure rollback, interrupted/stale/repeated backfills, malformed
+history/indexes and standalone fail-closed behavior. Actual XLSX/PDF output uses compensated ₹60
+while preserving the original ₹100 receipt.
+
+The final backend gate passed **105 tests**, zero skipped, including actual isolated API startup,
+exports, standalone rejection, and guarded pre-activation corrections while new settlement starts
+remain blocked. A subsequent **39-test** domain/correction-route gate passed after the final preview
+fields were added. Reviewed admin-revocation and account-relink regressions preserve historical
+approval/recipient evidence, deny former authority, stop obsolete sending, and retain exact late
+receipt confirmation as credit. Dependent-bundle previews retain the correct historical approval
+counts and explain recorded ₹100→₹60/void effects without claiming a physical refund.
+
+The final full frontend gate passed **132 suites / 1,167 tests**. Account/trip switches while sign-in
+is pending suppress obsolete actions; switching away and back suppresses a previous visit's report.
+Offline draft preservation, explicit review submission, retry identity, proposal renewal, dependent
+expense/reservation/approval explanations, and accessible sheet/focus contracts are covered. `npx tsc --noEmit`,
+`npx eslint src app`, and `git diff --check` passed. The reconciliation CLI's `--help` was verified;
+the CLI was not used to read or migrate a database.
+
+No production data, provider network, notification delivery, production migration, group activation
+or deployment was exercised. Local renderer accessibility/focus-contract tests do not establish
+native screen-reader, supported-device or external UPI acceptance; those remain explicit release gates.

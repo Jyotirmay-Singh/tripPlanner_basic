@@ -53,6 +53,7 @@ import {
 import type { BalanceResponse } from '../../../src/settlementProjection';
 import { formatMoney } from '../../../src/format';
 import { formatIST } from '../../../src/istTime';
+import { guardedTrip } from '../../../src/financialReview';
 import { currencyAmountPlaceholder } from '../../../src/currencies';
 import {
   Screen, Card, Button, Icon, IconButton, Input, EmptyState, AmountText, SkeletonCard, useToast,
@@ -67,7 +68,8 @@ type Member = {
   family_member_user_ids?: (string | null)[];
 };
 type Balances = BalanceResponse<Member>;
-type Trip = RoleTrip & { id: string; name: string; currency: string; members: Member[] };
+type Trip = RoleTrip & { id: string; name: string; currency: string; members: Member[];
+  expense_settlement_activation_version?: number; financial_write_guard_version?: number };
 
 const attemptStatusLabel = (status: PaymentAttempt['status']) => ({
   initiated: 'Waiting for payer',
@@ -328,6 +330,7 @@ export default function SettleUp() {
     attempt: PaymentAttempt,
     action: PaymentAttemptRecipientAction,
   ) => {
+    if (guardedTrip(trip)) { router.push(`/trip/${id}/financial-review`); return; }
     setBusy(true);
     try {
       const updated = await updatePaymentAttemptRecipient(id, attempt.id, action);
@@ -348,7 +351,8 @@ export default function SettleUp() {
   };
 
   // ---- Flows: editor -> guard-rail -> mutation ----
-  const openRecord = (transfer: Transfer) =>
+  const openRecord = (transfer: Transfer) => {
+    if (guardedTrip(trip)) { router.push(`/trip/${id}/financial-review`); return; }
     setEditor({
       mode: 'record', fromId: transfer.from_member_id, toId: transfer.to_member_id,
       fromName: nameOf(transfer.from_member_id), toName: nameOf(transfer.to_member_id),
@@ -356,25 +360,33 @@ export default function SettleUp() {
       max: transfer.amount, note: reviewItem?.payload.note,
       transfer: { ...transfer }, fetchedAt: read?.fetchedAt ?? Date.now(),
     });
+  };
 
-  const openUpiHandoff = (transfer: Transfer) => setHandoff({
+  const openUpiHandoff = (transfer: Transfer) => {
+    if (guardedTrip(trip)) { router.push(`/trip/${id}/financial-review`); return; }
+    setHandoff({
     fromId: transfer.from_member_id,
     fromName: nameOf(transfer.from_member_id),
     toId: transfer.to_member_id,
     toName: nameOf(transfer.to_member_id),
     amount: transfer.amount,
-  });
+    });
+  };
 
-  const resumeUpiAttempt = (attempt: PaymentAttempt) => setHandoff({
+  const resumeUpiAttempt = (attempt: PaymentAttempt) => {
+    if (guardedTrip(trip)) { router.push(`/trip/${id}/financial-review`); return; }
+    setHandoff({
     fromId: attempt.from_member_id,
     fromName: attempt.from_name_snapshot || nameOf(attempt.from_member_id),
     toId: attempt.to_member_id,
     toName: attempt.to_name_snapshot || nameOf(attempt.to_member_id),
     amount: Number(attempt.source_amount),
     attempt,
-  });
+    });
+  };
 
-  const openEdit = (payment: Payment) =>
+  const openEdit = (payment: Payment) => {
+    if (guardedTrip(trip)) { router.push(`/trip/${id}/financial-review`); return; }
     setEditor({
       mode: 'edit', fromId: payment.from_member_id, toId: payment.to_member_id,
       fromName: nameOf(payment.from_member_id), toName: nameOf(payment.to_member_id),
@@ -388,6 +400,7 @@ export default function SettleUp() {
       originalAmount: payment.amount,
       amountLocked: payment.source === 'upi_recipient_confirmed',
     });
+  };
 
   const onEditorSubmit = (amount: number, note: string) => {
     const e = editor;
@@ -434,7 +447,8 @@ export default function SettleUp() {
     });
   };
 
-  const askDelete = (payment: Payment) =>
+  const askDelete = (payment: Payment) => {
+    if (guardedTrip(trip)) { router.push(`/trip/${id}/financial-review`); return; }
     setConfirm({
       title: 'Remove this payment?',
       message: `This deletes "${nameOf(payment.from_member_id)} paid ${formatMoney(payment.amount, { currency })} to ${nameOf(payment.to_member_id)}" and re-opens that much of the balance.`,
@@ -443,6 +457,7 @@ export default function SettleUp() {
       yesId: `payment-delete-${payment.id}`,
       onYes: () => { setConfirm(null); doDelete(payment.id); },
     });
+  };
 
   // ---- Presentational pieces ----
   const Parties = ({ from, to, item }: { from: string; to: string; item?: PendingPayment }) => (
@@ -478,6 +493,8 @@ export default function SettleUp() {
 
   return (
     <Screen edges={['left', 'right', 'bottom']}>
+      {guardedTrip(trip) && <Button label="Financial review, corrections and offsets" variant="secondary"
+        onPress={() => router.push(`/trip/${id}/financial-review`)} testID="open-financial-review" />}
       {read ? <OfflineReadStatus result={read} /> : null}
       {reviewId ? <T variant="caption" color={colors.warning} testID="payment-review-banner">
         {reviewReady

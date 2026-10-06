@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, Response
 
 from models.departure import AccountDeletionIn, MembershipDepartureIn
+from models.financial_correction import CorrectionCreate
+from services import financial_corrections
 from services.chat_realtime import chat_connections
 from services.departure import (
     account_deletion_impact,
@@ -51,9 +53,12 @@ async def get_membership_leave_impact(
 @router.delete("/trips/{trip_id}/membership")
 async def remove_membership(
     trip_id: str,
-    body: MembershipDepartureIn,
+    body: CorrectionCreate | MembershipDepartureIn,
     user=Depends(get_current_user),
 ):
+    if isinstance(body, CorrectionCreate):
+        return await financial_corrections.create(trip_id, body, user,
+            binding={"target_id": None, "operations": {"leave_group"}})
     # Preserve the normal 403/404 access contract, then rebuild everything inside the transaction.
     await _trip_or_404(trip_id, user)
     result = await leave_membership(

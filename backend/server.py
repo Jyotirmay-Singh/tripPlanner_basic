@@ -186,20 +186,23 @@ async def lifespan(app: FastAPI):
     # Password-only auth migration. Removing obsolete hashes and raw PIN-reset tokens is
     # idempotent and ensures the retired credential cannot be used or recovered after cutover.
     await _remove_retired_pin_data()
+    protected_filter = {"expense_settlement_activation_version": {"$in": [None, 0]},
+                        "financial_write_guard_version": {"$in": [None, 0]}}
     # backfill admin_ids for legacy trips (root admin = owner)
     await db.trips.update_many(
-        {"$or": [{"admin_ids": {"$exists": False}}, {"admin_ids": None}, {"admin_ids": []}]},
+        {**protected_filter, "$or": [{"admin_ids": {"$exists": False}}, {"admin_ids": None}, {"admin_ids": []}]},
         [{"$set": {"admin_ids": ["$owner_id"]}}],
     )
     # Phase 20 concurrency guard: every trip carries a `version` int that the optimistic
     # payment-write guard filters on ({"version": current} + $inc). Backfill legacy trips so the
     # guard can match them. Idempotent — only touches rows missing the field.
-    await db.trips.update_many({"version": {"$exists": False}}, {"$set": {"version": 0}})
+    await db.trips.update_many({**protected_filter, "version": {"$exists": False}}, {"$set": {"version": 0}})
     # Phase 10: legacy settlements (from the old offset-always /settle) carry no `status`.
     # Stamp them paid (paid_at = created_at) so they keep offsetting and render in history.
     # Idempotent — only touches rows missing the field.
+    legacy_trip_ids = [row["id"] for row in await db.trips.find(protected_filter, {"id": 1}).to_list(None)]
     await db.settlements.update_many(
-        {"status": {"$exists": False}},
+        {"trip_id": {"$in": legacy_trip_ids}, "status": {"$exists": False}},
         [{"$set": {"status": "paid", "paid_at": "$created_at"}}],
     )
     # Reconstruct the recoverable activity baseline after legacy settlements have been classified.
@@ -219,7 +222,9 @@ async def lifespan(app: FastAPI):
     # Every expense now records the currency it was entered in. Legacy rows predate that field and
     # were always interpreted as their trip's single currency, so stamp that code explicitly. The
     # migration is idempotent and preserves any already-recorded expense currency.
-    async for t in db.trips.find({}, {"id": 1, "currency": 1}):
+    protected_filter = {"expense_settlement_activation_version": {"$in": [None, 0]},
+                        "financial_write_guard_version": {"$in": [None, 0]}}
+    async for t in db.trips.find(protected_filter, {"id": 1, "currency": 1}):
         await db.expenses.update_many(
             {
                 "trip_id": t["id"],
@@ -230,7 +235,7 @@ async def lifespan(app: FastAPI):
     # Intra-family per-member ids: backfill stable ids parallel to each family's family_members so
     # per-expense member participation survives roster edits. Idempotent — a trip is rewritten only
     # when a family member is missing ids or the parallel array length drifted.
-    async for t in db.trips.find({"members.kind": "family"}, {"id": 1, "members": 1}):
+    async for t in db.trips.find({**protected_filter, "members.kind": "family"}, {"id": 1, "members": 1}):
         members_list = t.get("members", [])
         changed = False
         for m in members_list:
@@ -250,7 +255,7 @@ async def lifespan(app: FastAPI):
     # ENTITY-level email or linked account down onto a member slot (first slot whose email + account
     # are both free), preserving the linked account's trip access. Idempotent — demote_family_entity_email
     # returns None once a family is clean, so each family is rewritten at most once.
-    async for t in db.trips.find({"members.kind": "family"}, {"id": 1, "members": 1}):
+    async for t in db.trips.find({**protected_filter, "members.kind": "family"}, {"id": 1, "members": 1}):
         members_list = t.get("members", [])
         changed = False
         for i, m in enumerate(members_list):

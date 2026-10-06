@@ -33,6 +33,8 @@ import {
 } from '../../../src/currencies';
 import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
+import FinancialReviewSheet from '../../../src/FinancialReviewSheet';
+import { guardedTrip, type ReviewRequest } from '../../../src/financialReview';
 import { ddmmyyToDDMMYYYY, ddmmyyyyToDDMMYY, toISO } from '../../../src/date';
 import {
   FormScreen, Screen, Card, Button, Input, CategoryPicker, Icon, ActionSheet, SkeletonCard, useToast,
@@ -41,7 +43,8 @@ import {
 import type { ApprovedConversion, LockedConversion } from '../../../src/ui';
 
 type Member = { id: string; name: string; kind: string; family_members: string[]; family_member_ids?: string[] };
-type Trip = { id: string; name: string; currency: string; owner_id: string; admin_ids: string[]; members: Member[] };
+type Trip = { id: string; name: string; currency: string; owner_id: string; admin_ids: string[]; members: Member[];
+  expense_settlement_activation_version?: number; financial_write_guard_version?: number };
 type Expense = {
   id: string; amount: number; currency?: string; category: string;
   description?: string; date: string; time?: string | null; paid_by_member_id: string;
@@ -100,6 +103,7 @@ export default function EditExpense() {
   const router = useRouter();
   const { show: showToast } = useToast();
   const [trip, setTrip] = useState<Trip | null>(null);
+  const [financialRequest, setFinancialRequest] = useState<ReviewRequest | null>(null);
   const [createdBy, setCreatedBy] = useState<string | null | undefined>(undefined);
   const [loadedExpense, setLoadedExpense] = useState<Expense | null>(null);
   const [lockedConversion, setLockedConversion] = useState<LockedConversion | null>(null);
@@ -359,7 +363,17 @@ export default function EditExpense() {
         expectedConversionVersion: loadedExpense.conversion_version ?? 0,
       });
       if (force) body.force = true;
-      const result = await api<any>(`/trips/${id}/expenses/${eid}`, { method: 'PATCH', body });
+      let result: any;
+      try {
+        result = await api<any>(`/trips/${id}/expenses/${eid}`, { method: 'PATCH', body });
+      } catch (failure: any) {
+        if (guardedTrip(trip) && failure.detailCode === 'settlement_correction_required') {
+          setFinancialRequest({ operation: 'replace_expense', target_id: eid,
+            changes: Object.fromEntries(Object.entries(body).filter(([key]) => !['force', 'description', 'category', 'time'].includes(key))) });
+          return;
+        }
+        throw failure;
+      }
       if (result?.requires_confirmation) {
         setSaving(false);
         setBudgetWarn(formatBudgetWarning(result));
@@ -377,6 +391,10 @@ export default function EditExpense() {
 
   const doDelete = async () => {
     setConfirmDelete(false);
+    if (guardedTrip(trip)) {
+      setFinancialRequest({ operation: 'void_expense', target_id: eid, changes: {} });
+      return;
+    }
     try { await api(`/trips/${id}/expenses/${eid}`, { method: 'DELETE' }); router.back(); }
     catch (e: any) { showToast(e.message || 'Delete failed', 'error'); }
   };
@@ -734,13 +752,27 @@ export default function EditExpense() {
       <ConfirmModal
         visible={confirmDelete}
         title="Delete transaction?"
-        message="This permanently removes the transaction and its bill."
+        message={guardedTrip(trip) ? 'Review the obligations to retire and coverage to reverse. Prior financial and receipt evidence stays in history.' : 'This permanently removes the transaction and its bill.'}
         onRequestClose={() => setConfirmDelete(false)}
         actions={[
           { label: 'Cancel', variant: 'cancel', onPress: () => setConfirmDelete(false) },
           { label: 'Delete', variant: 'destructive', onPress: doDelete, testID: 'ee-delete-confirm' },
         ]}
       />
+      <FinancialReviewSheet tripId={id} request={financialRequest} currency={trip.currency}
+        names={memberDisplayNames(trip.members)} onClose={() => setFinancialRequest(null)}
+        onComplete={async result => {
+          setFinancialRequest(null);
+          try {
+            if (result.operation !== 'void_expense') {
+              await api(`/trips/${id}/expenses/${eid}`, { method: 'PATCH', body: { description: desc, category: cat, time: time || null } });
+              if (newAsset) await uploadReceipt(id, eid, newAsset);
+              else if (hadReceipt && !receiptUri) await deleteReceipt(id, eid);
+            }
+            showToast(result.status === 'applied' ? 'Correction applied; prior evidence retained.' : 'Correction submitted for approval.', 'success');
+            router.back();
+          } catch (error: any) { showToast(error.message || 'Correction saved. Refresh to update the description or receipt.', 'error'); }
+        }} />
       <ConfirmModal
         visible={!!budgetWarn}
         title="Budget warning"

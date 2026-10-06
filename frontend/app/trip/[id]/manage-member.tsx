@@ -16,6 +16,8 @@ import T from '../../../src/T';
 import Badge from '../../../src/Badge';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { Screen, Card, Button, IconButton, Icon, useToast } from '../../../src/ui';
+import FinancialReviewSheet from '../../../src/FinancialReviewSheet';
+import { guardedTrip, type ReviewRequest } from '../../../src/financialReview';
 
 type Member = {
   id: string; name: string; kind: 'individual' | 'family'; family_members: string[];
@@ -24,7 +26,8 @@ type Member = {
   family_member_user_ids?: (string | null)[] | null;
   user_id?: string | null; email?: string | null;
 };
-type Trip = { id: string; name: string; currency: string; owner_id: string; admin_ids: string[]; user_ids?: string[]; members: Member[] };
+type Trip = { id: string; name: string; currency: string; owner_id: string; admin_ids: string[]; user_ids?: string[]; members: Member[];
+  expense_settlement_activation_version?: number; financial_write_guard_version?: number };
 type FamRow = { id: string; name: string; net: number };
 type Balances = { net: Record<string, number>; per_person: { member_id: string; members?: FamRow[] }[] };
 
@@ -43,6 +46,7 @@ export default function ManageMember() {
   const [confirmTransfer, setConfirmTransfer] = useState<null | { uid: string; name: string }>(null);
   // One themed confirm dialog drives both whole-entity removal and per-family-member removal.
   const [confirm, setConfirm] = useState<null | { title: string; message?: string; onYes: () => void; yesId?: string }>(null);
+  const [review, setReview] = useState<ReviewRequest | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -111,6 +115,7 @@ export default function ManageMember() {
 
   const toggleAdmin = async (uid: string | null | undefined, currentlyAdmin: boolean) => {
     if (!uid) return;
+    if (guardedTrip(trip)) { setReview({ operation: currentlyAdmin ? 'revoke_admin' : 'grant_admin', target_id: uid, changes: {} }); return; }
     setBusy(true); setError(null);
     try {
       if (currentlyAdmin) {
@@ -128,6 +133,7 @@ export default function ManageMember() {
 
   const doTransfer = async (uid: string) => {
     setConfirmTransfer(null);
+    if (guardedTrip(trip)) { setReview({ operation: 'transfer_owner', target_id: uid, changes: {} }); return; }
     setBusy(true); setError(null);
     try {
       await api(`/trips/${id}/transfer-ownership`, { method: 'POST', body: { user_id: uid } });
@@ -142,6 +148,7 @@ export default function ManageMember() {
 
   const doRemoveEntity = async () => {
     setConfirm(null);
+    if (guardedTrip(trip)) { setReview({ operation: 'remove_member', target_id: member.id, changes: {} }); return; }
     setBusy(true); setError(null);
     try {
       await api(`/trips/${id}/members/${member.id}`, { method: 'DELETE' });
@@ -154,6 +161,14 @@ export default function ManageMember() {
 
   const doRemoveFamilyMember = async (fmId: string) => {
     setConfirm(null);
+    if (guardedTrip(trip)) {
+      const ids = member.family_member_ids ?? [];
+      const keep = ids.map((pid, index) => ({ pid, index })).filter(row => row.pid !== fmId);
+      setReview({ operation: 'update_member', target_id: member.id, changes: {
+        family_member_ids: keep.map(row => row.pid), family_members: keep.map(row => member.family_members[row.index]),
+        family_member_emails: keep.map(row => member.family_member_emails?.[row.index] ?? null), reweight_past: false,
+      } }); return;
+    }
     setBusy(true); setError(null);
     try {
       await api(`/trips/${id}/members/${member.id}/family-members/${fmId}`, { method: 'DELETE' });
@@ -413,6 +428,8 @@ export default function ManageMember() {
           { label: 'Remove', variant: 'destructive', onPress: () => confirm?.onYes(), testID: confirm?.yesId },
         ]}
       />
+      <FinancialReviewSheet tripId={id} request={review} currency={trip.currency} onClose={() => setReview(null)}
+        onComplete={() => { setReview(null); void load(); }} />
     </Screen>
   );
 }

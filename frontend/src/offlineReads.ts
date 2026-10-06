@@ -42,6 +42,7 @@ function pick(value: unknown, keys: readonly string[]): Record<string, unknown> 
 const tripFields = [
   'id', 'name', 'code', 'start_date', 'end_date', 'travel_date', 'budget', 'currency',
   'last_activity_at', 'owner_id', 'admin_ids', 'user_ids',
+  'expense_settlement_activation_version', 'financial_write_guard_version', 'expense_settlement_schema_version',
 ] as const;
 const memberFields = [
   'id', 'name', 'kind', 'family_members', 'family_member_ids',

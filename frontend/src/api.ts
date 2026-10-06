@@ -65,6 +65,7 @@ export type OwnershipOutcome = {
 };
 
 export type TripDeletionImpact = {
+  reviewed_workflow_required?: boolean;
   trip_id: string;
   trip_name: string;
   currency: string;

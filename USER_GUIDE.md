@@ -419,13 +419,10 @@ Inside a group, the **Balances** tab shows:
   Currency selectors, field labels, accessibility text, APIs, and reports continue to use ISO codes.
 
 ### 7.2 Settle Up screen
-Expense-by-expense confirmed payment progress is still under development and is not available in
-the app. Current balances, family breakdowns, and settlement suggestions describe net group
-positions; they do not establish which individual expense shares have been paid.
-The backend now supports reviewed expense-payment reports and receiver/admin receipt approval,
-including partial shares and family payments. This feature remains disabled and has no app interface
-yet. For that future workflow, reporting a payment does not settle a share; confirmed money can remain
-as credit while an allocation needs review or other people’s approval.
+The reviewed financial workflow is implemented in source and awaits rollout and deliberate group
+activation. Protected groups use **Financial review**, described below. The rest of this subsection
+describes the existing workflow for groups that have not been upgraded. Net balances and suggestions
+alone do not establish which individual expense shares have been paid.
 
 Open via the group's **Settle Up** button. It shows the current backend-authoritative *Pays → Receives*
 recommendations. Every supported currency uses whole major units, such as **LKR 1,250**, never
@@ -511,6 +508,49 @@ The screen labels the route **Minimum payment plan** when bounded exact optimiza
 Payments are durable: adding new expenses later never voids them — a recorded payment keeps offsetting
 the recomputed balance (and can even flip who owes whom if someone has now overpaid). Settlement never
 fetches a new exchange rate; it uses the canonical group-currency amount locked onto each expense.
+
+### 7.3 Financial review in upgraded groups
+
+Open **Financial review** from Settle Up or member management. Financial actions require a live
+connection. Existing offline payment/expense drafts are preserved and need explicit online review;
+they are not automatically submitted after an upgrade. Older clients show an upgrade or correction
+message before changing a protected group's finances.
+
+- **Review payment** selects an expense share and actual paying/receiving people. Group payments
+  preview the cash and all dependent expenses. A report records a claim; the receiver or authorized
+  reviewer confirms the exact received money separately. Confirmed money may remain credit while
+  allocation is stale or waits for other approvals. Receipt confirmation never shrinks reported money.
+- **Review financial change** shows before/after balances, reopened shares, affected bundles and
+  retained credit. The creator or admin can apply an uncovered expense correction. Once there is
+  approved external coverage or payment work, a current admin must approve. Amount, payer, people,
+  split, refund sign and conversion edits create a new revision. Older revisions and FX evidence remain.
+- **Reverse coverage** reopens the whole affected bundle and releases its source claims. Confirmed
+  money remains recorded once as credit. **Correct payment record** changes the recorded assertion
+  with a reason and preserves the original receipt. It does not mean money was physically returned;
+  actual returned money needs a separately reported and confirmed transfer.
+- **Preview zero-money offset** changes no coverage. Applying it needs every affected person's
+  approval or a reasoned current-admin override. Receiving-family receipt authority does not approve
+  another person's shares. Reversal restores all obligations and posts no cash.
+- **Correction history** shows attributed actions and effects. Expired or changed reviews need a
+  renewed preview. A compensating reversal is a newly reviewed correction; it never erases history.
+- **Retained received money** can be explicitly mapped to current shares or a conserving group plan
+  by an admin. Reviewing a recommendation never applies it. Unknown history stays visible for review.
+
+Description, category, time, payment-note and receipt updates remain available under existing
+permissions. Receipt replacement/removal changes the visible attachment and retains earlier evidence.
+Financial edits cancel entirely unreported starts; reported, disputed and confirmed work stays in
+review against its original amount, parties and recipient. Late evidence can be recorded without
+restoring obsolete sending instructions.
+
+Family edits and reassignment preserve historical wallets and person allocations by default.
+Retroactive reallocation needs a separate correction. Removing people or leaving checks gross
+obligations, credit, reports, reservations and review cases even when the net balance is zero.
+Owners must transfer ownership before leaving. Leave each protected group through reviewed departure
+before deleting an account. A group deletion archives its financial history after blockers clear.
+A later reversal can reopen a historical wallet without restoring the former member's access.
+
+Historical reconciliation reports are read-only. Migration and activation are separate operator
+actions. Exports use the same effective amounts and explain financial corrections and retained credit.
 
 ---
 

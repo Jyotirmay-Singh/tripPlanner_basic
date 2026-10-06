@@ -44,8 +44,23 @@ def record_errors(code):
 
 
 def fingerprint(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
+    def canonical(item):
+        if isinstance(item, datetime):
+            # MongoDB stores millisecond UTC instants; previews must hash the persisted precision.
+            item = item.replace(tzinfo=timezone.utc) if item.tzinfo is None else item.astimezone(timezone.utc)
+            return item.isoformat(timespec="milliseconds")
+        if isinstance(item, dict):
+            return {key: canonical(value) for key, value in item.items()}
+        if isinstance(item, (list, tuple)):
+            return [canonical(value) for value in item]
+        return item
+    return hashlib.sha256(json.dumps(canonical(value), sort_keys=True, separators=(",", ":"),
                                      default=str).encode()).hexdigest()
+
+
+def legacy_fingerprint(value):
+    """Version-1 immutable records used JSON's datetime string representation."""
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
 
 
 def stable_id(*parts):
@@ -79,20 +94,24 @@ def timestamp_key(value):
     return parsed.isoformat() if parsed else ""
 
 
-def financial_fingerprint(expense):
+def financial_fingerprint(expense, *, legacy=False):
     fields = ("id", "paid_by_member_id", "paid_by_person_id", "split_mode", "split_member_ids",
               "weight_snapshots", "family_participants", "family_member_entity_snapshots",
               "custom_amounts", "created_at", *CONVERSION_EVIDENCE_FIELDS)
-    return fingerprint({**{key: expense.get(key) for key in fields},
+    return (legacy_fingerprint if legacy else fingerprint)({**{key: expense.get(key) for key in fields},
                         "amount": money(to_scaled(expense.get("amount")))})
 
 
-def cash_fingerprint(row, currency):
-    return fingerprint({key: row.get(key) for key in (
+def cash_fingerprint(row, currency, *, legacy=False):
+    return (legacy_fingerprint if legacy else fingerprint)({key: row.get(key) for key in (
         "id", "from_member_id", "to_member_id", "amount", "created_at", "paid_at",
         "status", "payment_attempt_id", "settlement_intent_id",
         "expense_share_refs", "actual_payer_person_id", "actual_receiver_person_id",
     )} | {"currency": row.get("currency") or currency})
+
+
+def source_fingerprint_matches(source, expected):
+    return expected in {source["fingerprint"], cash_fingerprint(source["row"], source["currency"], legacy=True)}
 
 
 def add_vector(vector, debtor, creditor, amount):

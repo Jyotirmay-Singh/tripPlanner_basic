@@ -251,6 +251,12 @@ def _exact_entity_shares(expense: dict, members: list[dict], amount: int) -> dic
 
 
 def expense_entity_shares_scaled(expense: dict, members: Iterable[dict]) -> tuple[int, str, dict[str, int]]:
+    if "_frozen_entity_shares" in expense:
+        amount = to_scaled(expense["amount"])
+        shares = {key: to_scaled(value) for key, value in expense["_frozen_entity_shares"].items()}
+        if sum(shares.values()) != amount:
+            raise SettlementLedgerError("Frozen shares do not conserve", code="invalid_share_revision")
+        return amount, expense["paid_by_member_id"], shares
     """Return ``(amount, payer_id, shares)`` using the authoritative scaled split math."""
 
     member_list = list(members)

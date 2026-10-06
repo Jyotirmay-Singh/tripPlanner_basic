@@ -3,7 +3,7 @@ from fastapi import HTTPException
 
 
 def activated(trip):
-    return bool(trip.get("expense_settlement_activation_version"))
+    return bool(trip.get("expense_settlement_activation_version") or trip.get("financial_write_guard_version"))
 
 
 def reject_legacy_write(trip, *, code="settlement_client_upgrade_required"):

@@ -15,6 +15,8 @@ from services.receipts import (
     decode_data_uri,
 )
 from services.admin_audit import record_admin_action
+from services.settlement_write_guard import activated
+from services.receipt_versions import switch
 
 router = APIRouter()
 
@@ -49,6 +51,10 @@ async def upload_receipt(trip_id: str, expense_id: str, file: UploadFile = File(
     trip, _expense = await _expense_modify_or_403(trip_id, expense_id, user)
     data = await file.read()
     validate_receipt_upload(file.content_type, len(data))
+    if activated(trip):
+        receipt_id = await store_receipt(expense_id=expense_id, trip_id=trip_id, user_id=user["id"],
+            filename=file.filename, content_type=file.content_type, data=data)
+        return await switch(trip_id, expense_id, receipt_id, user)
     # Replace semantics: drop any previous GridFS receipt for this expense first.
     await delete_receipts_for_expense(expense_id)
     receipt_id = await store_receipt(
@@ -69,11 +75,16 @@ async def upload_receipt(trip_id: str, expense_id: str, file: UploadFile = File(
 
 @router.get("/trips/{trip_id}/expenses/{expense_id}/receipt")
 async def get_receipt(trip_id: str, expense_id: str, token: Optional[str] = None,
-                      authorization: Optional[str] = Header(None)):
+                      authorization: Optional[str] = Header(None), version_id: Optional[str] = None):
     # Any trip member may view; auth accepted via header or ?token= query.
     user = await _resolve_user(token, authorization)
     await _trip_or_404(trip_id, user)
     expense = await _expense_or_404(trip_id, expense_id)
+    if version_id:
+        version = await db.receipt_versions.find_one({"id": version_id, "expense_id": expense_id, "trip_id": trip_id}, {"_id": 0})
+        if not version:
+            raise HTTPException(404, "Receipt version not found")
+        expense = {"receipt_id": version.get("receipt_id"), "receipt_base64": version.get("legacy_inline")}
 
     receipt_id = expense.get("receipt_id")
     if receipt_id:
@@ -95,6 +106,8 @@ async def get_receipt(trip_id: str, expense_id: str, token: Optional[str] = None
 async def remove_receipt(trip_id: str, expense_id: str, user=Depends(get_current_user)):
     # RBAC (Step 10): only the expense creator or a trip admin may remove. Idempotent.
     trip, expense = await _expense_modify_or_403(trip_id, expense_id, user)
+    if activated(trip):
+        return await switch(trip_id, expense_id, None, user)
     had_receipt = bool(expense.get("receipt_id") or expense.get("receipt_base64"))
     await delete_receipts_for_expense(expense_id)
     await db.expenses.update_one(

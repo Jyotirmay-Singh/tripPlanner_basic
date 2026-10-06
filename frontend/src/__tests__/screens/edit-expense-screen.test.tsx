@@ -11,6 +11,7 @@ jest.mock('../../api', () => ({ api: jest.fn(), quoteExchangeRate: jest.fn(), ge
 jest.mock('../../AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1', role: 'user' }, sessionMode: 'online', multiCurrencyCapability: 'enabled', multiCurrencyExpensesEnabled: true, refreshRuntimeConfig: async () => {} }) }));
 jest.mock('../../ThemeContext', () => ({ useTheme: () => ({ colors: new Proxy({}, { get: () => '#123456' }), mode: 'light' }) }));
 jest.mock('../../ReceiptViewer', () => ({ __esModule: true, default: () => null }));
+jest.mock('../../FinancialReviewSheet', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../ConfirmModal', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../SplitModeSelector', () => ({ __esModule: true, default: (props: any) => require('react').createElement('SplitModeSelector', props), splitPreviewLabel: () => '' }));
 jest.mock('../../ExactSplitEditor', () => ({ __esModule: true, default: (props: any) => require('react').createElement('ExactSplitEditor', props) }));

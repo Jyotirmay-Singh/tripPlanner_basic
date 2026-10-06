@@ -53,13 +53,15 @@ import JoinRequestsPanel from '../../../src/JoinRequestsPanel';
 import InviteLinksPanel from '../../../src/InviteLinksPanel';
 import MembershipCard from '../../../src/MembershipCard';
 import { normalizedTripDeletionName } from '../../../src/departure';
+import FinancialReviewSheet from '../../../src/FinancialReviewSheet';
+import { guardedTrip, type ReviewRequest } from '../../../src/financialReview';
 import {
   Card, Button, IconButton, Icon, SegmentedControl, StatCard, ProgressBar,
   ActionSheet, EmptyState, ResponsiveAmountText, SkeletonCard, useToast,
 } from '../../../src/ui';
 
 type Member = { id: string; name: string; kind: 'individual' | 'family'; family_members: string[]; family_member_ids?: string[] | null; family_member_emails?: (string | null)[] | null; family_member_user_ids?: (string | null)[] | null; family_member_mobile_numbers?: (string | null)[] | null; user_id?: string | null; email?: string | null; mobile_number?: string | null };
-type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number | null; currency: string; owner_id: string; admin_ids: string[]; user_ids: string[]; members: Member[] };
+type Trip = { id: string; name: string; code: string; start_date?: string; end_date?: string; travel_date?: string; budget?: number | null; currency: string; owner_id: string; admin_ids: string[]; user_ids: string[]; members: Member[]; expense_settlement_activation_version?: number; financial_write_guard_version?: number };
 type Expense = { id: string; amount: number; currency?: string; original_amount?: string | number | null; original_currency?: string | null; category: string; description?: string; date: string; time?: string | null; created_at?: string | null; paid_by_member_id: string; split_member_ids: string[]; created_by?: string | null; has_receipt?: boolean; receipt_id?: string; shares?: ExpenseShares };
 type Balances = { net: Record<string, number>; transfers: { from_member_id: string; to_member_id: string; amount: number }[]; members: Member[]; currency: string; settlement_projection?: SettlementProjection; per_person: { member_id: string; member_name: string; kind: string; people_count: number; net_total: number; net_per_person: number; family_members: string[]; members?: { id: string; name: string; net: number }[] }[] };
 
@@ -315,6 +317,7 @@ export default function TripDetail() {
     requiresTripName?: boolean;
   }>(null);
   const [deleteTripName, setDeleteTripName] = useState('');
+  const [financialReview, setFinancialReview] = useState<ReviewRequest | null>(null);
   const [sharingInvite, setSharingInvite] = useState(false);
   const [mobileContact, setMobileContact] = useState<null | {
     number: string;
@@ -444,6 +447,7 @@ export default function TripDetail() {
 
   const onDelete = () => {
     if (!trip) return;
+    if (guardedTrip(trip)) { setFinancialReview({ operation: 'archive_trip', target_id: id, changes: {} }); return; }
     setDeleteTripName('');
     setConfirm({
       title: `Delete ${trip.name}?`,
@@ -460,6 +464,7 @@ export default function TripDetail() {
   };
 
   const deleteExpense = (e: Expense) => {
+    if (guardedTrip(trip)) { setFinancialReview({ operation: 'void_expense', target_id: e.id, changes: {} }); return; }
     setConfirm({
       title: 'Delete transaction?',
       message: `${e.description || e.category} · ${formatMoney(e.amount, { currency: trip?.currency })}`,
@@ -1280,6 +1285,8 @@ export default function TripDetail() {
       />
 
       {tripConfirmModal}
+      <FinancialReviewSheet tripId={id} request={financialReview} currency={trip?.currency ?? ''}
+        onClose={() => setFinancialReview(null)} onComplete={() => { setFinancialReview(null); void load(); }} />
     </SafeAreaView>
   );
 }

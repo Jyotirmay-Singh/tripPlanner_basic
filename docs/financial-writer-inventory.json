@@ -1,0 +1,742 @@
+{
+  "schema_version": 2,
+  "reviewed_date": "2026-10-06",
+  "policies": {
+    "reviewed_money": "Protected groups delegate to snapshot-transaction settlement intents/corrections; old contracts fail before effects. Unprotected legacy behavior remains.",
+    "reviewed_expense": "Protected creation saves authoritative revisions; financial changes use correction plans; harmless metadata delegates to its transactional service. Legacy branch is unprotected only.",
+    "reviewed_roster": "Protected roster/access mutations use reviewed corrections, current owner/admin authority and gross departure checks; stable historical IDs survive. Legacy payloads are blocked.",
+    "guarded_identity": "Protected join/claim/clean-stub/join-approval writers are blocked. Use the reviewed link_person/add_member workflow instead; no automatic identity substitution.",
+    "request_only": "Join requests and invites do not grant membership or financial authority; protected final linking is blocked or reviewed.",
+    "recipient_binding": "Protected recipient-profile changes require snapshot transactions, monotonic recipient revision, durable binding invalidation and trip version; reported evidence remains.",
+    "mobile_claim": "Protected mobile claim/profile changes use required transactions; startup claim repair excludes protected groups. Optional/compensated fallback applies only to unprotected claims.",
+    "departure": "Protected leave delegates to reviewed corrections. Account deletion requires reviewed departures first; legacy destructive cleanup excludes protected financial rows/evidence.",
+    "receipt": "Protected receipt writes stage immutable blobs and transactionally switch versioned pointers. Destructive replacement/cascade is allowed only for unprotected groups.",
+    "journal": "Required snapshot transactions conserve complete bundles and source claims; immutable revisions/events/reversals, current authority, durable mutation receipts and trip versions. No cash is invented.",
+    "correction": "Reviewed preview/proposal/action and compensation service; snapshot transactions reload authority/dependencies and commit evidence, status, mutation receipt, trip version and notification together.",
+    "reconciliation": "Explicit reviewed conserving allocation of existing credit/offset; no new cash or consent inference; current admin and plan hash required.",
+    "historical_migration": "Explicit-target reviewed staging/final snapshot transaction; dry-run by default, accepted hash/actor/reason required; separate authorization for reads/index installation/application/activation.",
+    "legacy_migration": "Whole-unit/income/reallocation writers reject protected trip markers. Use explicit reviewed historical or financial corrections instead.",
+    "binding_invalidation": "Called within the owning financial transaction; cancel only entirely unreported work, retain reported/confirmed work, append action and outbox event.",
+    "lifecycle": "Protected intent expiry/recovery uses required snapshot transactions, trip revisions and audit/outbox. Reported evidence does not expire; legacy sweep excludes protected unreported attempts.",
+    "indexes": "Default additive prerequisite creation. Never drop incompatible UPI quote indexes automatically; the opt-in compatibility upgrade requires separate reviewed authorization. The v2 installer is explicit and not called at startup.",
+    "metadata": "Group display/budget/date or activity metadata cannot change currency, people or financial allocations. Current route permission checks apply; no coverage mutation.",
+    "new_group": "Creates a new unactivated group only; no existing accounting evidence is changed.",
+    "startup": "Protected groups are excluded from financial/roster/admin/identity legacy backfills. Display/activity/auth housekeeping is harmless. Operator-role promotion serializes on the user document, as do final financial approvals. No v2 upgrade or activation runs at startup.",
+    "audit": "Append-only audit/normalization evidence invoked by the owning route or transaction. Never changes financial allocation or cash.",
+    "outbox": "Notification/device delivery state only; financial callers enqueue inside their transaction. Current access is rechecked before delivery; no payment evidence in notification text.",
+    "auth": "Account authentication/credential maintenance only; no trip person reassignment or receipt/allocation mutation. Account role changes serialize on the user record with final approvals.",
+    "chat": "Chat text/read counters/tombstones only; no financial or roster state.",
+    "fx": "Rate cache and unused quote evidence only; cannot reconvert saved expenses or confirm cash. Approved expense conversion goes through the financial writer.",
+    "probe": "Transaction-capability probe in an isolated collection; no ledger data or group activation."
+  },
+  "writers": [
+    {
+      "function": "routes/auth.py:change_password",
+      "policy": "auth"
+    },
+    {
+      "function": "routes/auth.py:google_auth",
+      "policy": "auth"
+    },
+    {
+      "function": "routes/auth.py:login",
+      "policy": "auth"
+    },
+    {
+      "function": "routes/auth.py:register",
+      "policy": "auth"
+    },
+    {
+      "function": "routes/auth.py:request_password_reset",
+      "policy": "auth"
+    },
+    {
+      "function": "routes/auth.py:resend_verification",
+      "policy": "auth"
+    },
+    {
+      "function": "routes/auth.py:reset_password",
+      "policy": "auth"
+    },
+    {
+      "function": "routes/auth.py:set_credentials",
+      "policy": "auth"
+    },
+    {
+      "function": "routes/auth.py:update_me",
+      "policy": "recipient_binding"
+    },
+    {
+      "function": "routes/auth.py:update_me.change_profile",
+      "policy": "recipient_binding"
+    },
+    {
+      "function": "routes/auth.py:update_mobile",
+      "policy": "mobile_claim"
+    },
+    {
+      "function": "routes/auth.py:verify_email",
+      "policy": "auth"
+    },
+    {
+      "function": "routes/balances.py:create_settlement",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/balances.py:mark_settlement_paid",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/balances.py:mark_settlement_paid.standalone_write",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/balances.py:mark_settlement_paid.transactional_write",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/balances.py:settle",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/balances.py:settle.standalone_write",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/balances.py:settle.transactional_write",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/chat.py:clear_chat_history",
+      "policy": "chat"
+    },
+    {
+      "function": "routes/chat.py:create_chat_message",
+      "policy": "chat"
+    },
+    {
+      "function": "routes/chat.py:delete_chat_message",
+      "policy": "chat"
+    },
+    {
+      "function": "routes/chat.py:mark_chat_read",
+      "policy": "chat"
+    },
+    {
+      "function": "routes/chat.py:update_chat_message",
+      "policy": "chat"
+    },
+    {
+      "function": "routes/departure.py:remove_account",
+      "policy": "departure"
+    },
+    {
+      "function": "routes/departure.py:remove_membership",
+      "policy": "departure"
+    },
+    {
+      "function": "routes/expense_settlement.py:correction_action",
+      "policy": "correction"
+    },
+    {
+      "function": "routes/expense_settlement.py:correction_create",
+      "policy": "correction"
+    },
+    {
+      "function": "routes/expense_settlement.py:correction_preview",
+      "policy": "correction"
+    },
+    {
+      "function": "routes/expense_settlement.py:reconciliation_apply",
+      "policy": "correction"
+    },
+    {
+      "function": "routes/expense_settlement.py:reconciliation_preview",
+      "policy": "correction"
+    },
+    {
+      "function": "routes/expense_settlement.py:settlement_intent_approval",
+      "policy": "correction"
+    },
+    {
+      "function": "routes/expense_settlement.py:settlement_intent_create",
+      "policy": "correction"
+    },
+    {
+      "function": "routes/expense_settlement.py:settlement_leg_action",
+      "policy": "correction"
+    },
+    {
+      "function": "routes/expense_settlement.py:settlement_quote",
+      "policy": "correction"
+    },
+    {
+      "function": "routes/expenses.py:_claim_trip_version",
+      "policy": "reviewed_expense"
+    },
+    {
+      "function": "routes/expenses.py:_create_retryable_expense.transactional_write",
+      "policy": "reviewed_expense"
+    },
+    {
+      "function": "routes/expenses.py:add_expense",
+      "policy": "reviewed_expense"
+    },
+    {
+      "function": "routes/expenses.py:add_expense.standalone_write",
+      "policy": "reviewed_expense"
+    },
+    {
+      "function": "routes/expenses.py:add_expense.transactional_write",
+      "policy": "reviewed_expense"
+    },
+    {
+      "function": "routes/expenses.py:delete_expense",
+      "policy": "reviewed_expense"
+    },
+    {
+      "function": "routes/expenses.py:delete_expense.standalone_write",
+      "policy": "reviewed_expense"
+    },
+    {
+      "function": "routes/expenses.py:delete_expense.transactional_write",
+      "policy": "reviewed_expense"
+    },
+    {
+      "function": "routes/expenses.py:reconvert_expense",
+      "policy": "reviewed_expense"
+    },
+    {
+      "function": "routes/expenses.py:reconvert_expense.standalone_write",
+      "policy": "reviewed_expense"
+    },
+    {
+      "function": "routes/expenses.py:reconvert_expense.transactional_write",
+      "policy": "reviewed_expense"
+    },
+    {
+      "function": "routes/expenses.py:update_expense",
+      "policy": "reviewed_expense"
+    },
+    {
+      "function": "routes/expenses.py:update_expense.standalone_write",
+      "policy": "reviewed_expense"
+    },
+    {
+      "function": "routes/expenses.py:update_expense.transactional_write",
+      "policy": "reviewed_expense"
+    },
+    {
+      "function": "routes/invites.py:issue_trip_invite",
+      "policy": "request_only"
+    },
+    {
+      "function": "routes/invites.py:reset_trip_invite_link",
+      "policy": "request_only"
+    },
+    {
+      "function": "routes/invites.py:revoke_trip_invite",
+      "policy": "request_only"
+    },
+    {
+      "function": "routes/join_requests.py:approve_join_request",
+      "policy": "guarded_identity"
+    },
+    {
+      "function": "routes/join_requests.py:cancel_own_join_request",
+      "policy": "request_only"
+    },
+    {
+      "function": "routes/join_requests.py:reject_join_request",
+      "policy": "request_only"
+    },
+    {
+      "function": "routes/join_requests.py:request_existing_person",
+      "policy": "request_only"
+    },
+    {
+      "function": "routes/members.py:add_member",
+      "policy": "reviewed_roster"
+    },
+    {
+      "function": "routes/members.py:delete_family_member",
+      "policy": "reviewed_roster"
+    },
+    {
+      "function": "routes/members.py:delete_member",
+      "policy": "reviewed_roster"
+    },
+    {
+      "function": "routes/members.py:update_member",
+      "policy": "reviewed_roster"
+    },
+    {
+      "function": "routes/payment_attempts.py:_confirm_received_transaction.callback",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/payment_attempts.py:create_payment_attempt",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/payment_attempts.py:create_payment_attempt.standalone_write",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/payment_attempts.py:create_payment_attempt.transactional_write",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/payment_attempts.py:update_payment_attempt_recipient",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/payment_attempts.py:update_payment_attempt_sender",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/payments.py:_create_retryable_payment.transactional_write",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/payments.py:delete_payment",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/payments.py:delete_payment.standalone_delete",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/payments.py:delete_payment.transactional_delete",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/payments.py:delete_payment.void_confirmed_payment",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/payments.py:edit_payment",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/payments.py:edit_payment.update_payment",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/payments.py:preview_payment_handoff",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/payments.py:record_payment",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/payments.py:record_payment.standalone_write",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/payments.py:record_payment.transactional_write",
+      "policy": "reviewed_money"
+    },
+    {
+      "function": "routes/push.py:register_push_device",
+      "policy": "outbox"
+    },
+    {
+      "function": "routes/push.py:unregister_push_device",
+      "policy": "outbox"
+    },
+    {
+      "function": "routes/receipts.py:remove_receipt",
+      "policy": "receipt"
+    },
+    {
+      "function": "routes/receipts.py:upload_receipt",
+      "policy": "receipt"
+    },
+    {
+      "function": "routes/trips.py:_apply_mode",
+      "policy": "guarded_identity"
+    },
+    {
+      "function": "routes/trips.py:_claim_member",
+      "policy": "guarded_identity"
+    },
+    {
+      "function": "routes/trips.py:_claim_sub_member",
+      "policy": "guarded_identity"
+    },
+    {
+      "function": "routes/trips.py:_resolve_clean_stub_for_join_new",
+      "policy": "guarded_identity"
+    },
+    {
+      "function": "routes/trips.py:add_admin",
+      "policy": "reviewed_roster"
+    },
+    {
+      "function": "routes/trips.py:create_trip",
+      "policy": "new_group"
+    },
+    {
+      "function": "routes/trips.py:delete_trip",
+      "policy": "reviewed_roster"
+    },
+    {
+      "function": "routes/trips.py:join_preview",
+      "policy": "request_only"
+    },
+    {
+      "function": "routes/trips.py:join_trip",
+      "policy": "guarded_identity"
+    },
+    {
+      "function": "routes/trips.py:remove_admin",
+      "policy": "reviewed_roster"
+    },
+    {
+      "function": "routes/trips.py:transfer_ownership",
+      "policy": "reviewed_roster"
+    },
+    {
+      "function": "routes/trips.py:update_trip",
+      "policy": "metadata"
+    },
+    {
+      "function": "scripts/migrate_income_to_negative.py:apply",
+      "policy": "legacy_migration"
+    },
+    {
+      "function": "scripts/migrate_income_to_negative.py:revert",
+      "policy": "legacy_migration"
+    },
+    {
+      "function": "server.py:_ensure_super_admin",
+      "policy": "startup"
+    },
+    {
+      "function": "server.py:_remove_retired_pin_data",
+      "policy": "startup"
+    },
+    {
+      "function": "server.py:lifespan",
+      "policy": "startup"
+    },
+    {
+      "function": "services/admin_audit.py:record_admin_action",
+      "policy": "audit"
+    },
+    {
+      "function": "services/coverage_journal.py:append_coverage_event.commit",
+      "policy": "journal"
+    },
+    {
+      "function": "services/coverage_journal.py:ensure_coverage_indexes",
+      "policy": "indexes"
+    },
+    {
+      "function": "services/coverage_journal.py:store_new_share_revision",
+      "policy": "journal"
+    },
+    {
+      "function": "services/departure.py:_anonymize_chat",
+      "policy": "departure"
+    },
+    {
+      "function": "services/departure.py:_apply_reallocation",
+      "policy": "departure"
+    },
+    {
+      "function": "services/departure.py:_scrub_account_references",
+      "policy": "departure"
+    },
+    {
+      "function": "services/departure.py:_scrub_notification_records",
+      "policy": "departure"
+    },
+    {
+      "function": "services/departure.py:_scrub_payment_attempts",
+      "policy": "departure"
+    },
+    {
+      "function": "services/departure.py:_snapshot_exact_family_people",
+      "policy": "departure"
+    },
+    {
+      "function": "services/departure.py:_snapshot_implicit_split_roster",
+      "policy": "departure"
+    },
+    {
+      "function": "services/departure.py:_write_trip_membership",
+      "policy": "departure"
+    },
+    {
+      "function": "services/departure.py:delete_account.transaction",
+      "policy": "departure"
+    },
+    {
+      "function": "services/exchange_rates.py:_store_alias",
+      "policy": "fx"
+    },
+    {
+      "function": "services/exchange_rates.py:_store_rate",
+      "policy": "fx"
+    },
+    {
+      "function": "services/exchange_rates.py:create_quote",
+      "policy": "fx"
+    },
+    {
+      "function": "services/expense_idempotency.py:verify_expense_transactions.probe",
+      "policy": "probe"
+    },
+    {
+      "function": "services/financial_bindings.py:invalidate_bindings",
+      "policy": "binding_invalidation"
+    },
+    {
+      "function": "services/financial_corrections.py:apply",
+      "policy": "correction"
+    },
+    {
+      "function": "services/financial_corrections.py:ensure_indexes",
+      "policy": "indexes"
+    },
+    {
+      "function": "services/financial_corrections.py:mutate.commit",
+      "policy": "correction"
+    },
+    {
+      "function": "services/financial_corrections.py:preview.read",
+      "policy": "correction"
+    },
+    {
+      "function": "services/financial_reconciliation.py:apply.commit",
+      "policy": "reconciliation"
+    },
+    {
+      "function": "services/financial_reconciliation.py:preview.read",
+      "policy": "reconciliation"
+    },
+    {
+      "function": "services/harmless_updates.py:expense_metadata.commit",
+      "policy": "reviewed_expense"
+    },
+    {
+      "function": "services/harmless_updates.py:payment_note.commit",
+      "policy": "reviewed_expense"
+    },
+    {
+      "function": "services/historical_reconciliation.py:stage_and_apply.batch",
+      "policy": "historical_migration"
+    },
+    {
+      "function": "services/historical_reconciliation.py:stage_and_apply.commit",
+      "policy": "historical_migration"
+    },
+    {
+      "function": "services/historical_reconciliation.py:stage_and_apply.prepare",
+      "policy": "historical_migration"
+    },
+    {
+      "function": "services/invites.py:reset_invite_link",
+      "policy": "request_only"
+    },
+    {
+      "function": "services/invites.py:retire_legacy_invites",
+      "policy": "request_only"
+    },
+    {
+      "function": "services/invites.py:revoke_trip_invites",
+      "policy": "request_only"
+    },
+    {
+      "function": "services/join_requests.py:approve_request",
+      "policy": "guarded_identity"
+    },
+    {
+      "function": "services/join_requests.py:cancel_pending_after_join",
+      "policy": "request_only"
+    },
+    {
+      "function": "services/join_requests.py:cancel_request",
+      "policy": "request_only"
+    },
+    {
+      "function": "services/join_requests.py:create_request",
+      "policy": "request_only"
+    },
+    {
+      "function": "services/join_requests.py:reject_request",
+      "policy": "request_only"
+    },
+    {
+      "function": "services/mobile_claims.py:reconcile_mobile_claims",
+      "policy": "mobile_claim"
+    },
+    {
+      "function": "services/mobile_claims.py:release_trip_claims",
+      "policy": "mobile_claim"
+    },
+    {
+      "function": "services/mobile_claims.py:release_user_claims",
+      "policy": "mobile_claim"
+    },
+    {
+      "function": "services/mobile_claims.py:rollback_claim",
+      "policy": "mobile_claim"
+    },
+    {
+      "function": "services/mobile_claims.py:sync_mobile_claim",
+      "policy": "mobile_claim"
+    },
+    {
+      "function": "services/mobile_claims.py:update_account_mobile.protected_update",
+      "policy": "mobile_claim"
+    },
+    {
+      "function": "services/mobile_claims.py:update_account_mobile.standalone",
+      "policy": "mobile_claim"
+    },
+    {
+      "function": "services/mobile_claims.py:update_account_mobile.transactional",
+      "policy": "mobile_claim"
+    },
+    {
+      "function": "services/money_audit.py:record_money_normalizations",
+      "policy": "audit"
+    },
+    {
+      "function": "services/payment_attempts.py:expire_payment_attempts",
+      "policy": "lifecycle"
+    },
+    {
+      "function": "services/payment_attempts.py:expire_settlement_intents.expire",
+      "policy": "lifecycle"
+    },
+    {
+      "function": "services/payment_attempts.py:recover_expired_sent_reports.recover",
+      "policy": "lifecycle"
+    },
+    {
+      "function": "services/payment_idempotency.py:verify_payment_transactions.probe",
+      "policy": "probe"
+    },
+    {
+      "function": "services/push_notifications.py:_claim_due_event",
+      "policy": "outbox"
+    },
+    {
+      "function": "services/push_notifications.py:_deactivate_delivery_device",
+      "policy": "outbox"
+    },
+    {
+      "function": "services/push_notifications.py:_finalize_event",
+      "policy": "outbox"
+    },
+    {
+      "function": "services/push_notifications.py:_persist_delivery_state",
+      "policy": "outbox"
+    },
+    {
+      "function": "services/push_notifications.py:_prepare_deliveries",
+      "policy": "outbox"
+    },
+    {
+      "function": "services/push_notifications.py:enqueue_notification_event",
+      "policy": "outbox"
+    },
+    {
+      "function": "services/reallocation.py:apply_reallocation",
+      "policy": "legacy_migration"
+    },
+    {
+      "function": "services/reallocation.py:freeze_and_remove_member._do",
+      "policy": "legacy_migration"
+    },
+    {
+      "function": "services/reallocation.py:run_member_update_with_reallocation._do",
+      "policy": "legacy_migration"
+    },
+    {
+      "function": "services/receipt_versions.py:switch.commit",
+      "policy": "receipt"
+    },
+    {
+      "function": "services/receipts.py:delete_receipt",
+      "policy": "receipt"
+    },
+    {
+      "function": "services/receipts.py:store_receipt",
+      "policy": "receipt"
+    },
+    {
+      "function": "services/reconciliation_cases.py:resolve_evidenced_cases",
+      "policy": "reconciliation"
+    },
+    {
+      "function": "services/roster_corrections.py:apply_roster_change",
+      "policy": "reviewed_roster"
+    },
+    {
+      "function": "services/settlement_intents.py:approve.commit",
+      "policy": "journal"
+    },
+    {
+      "function": "services/settlement_intents.py:cancel_intent",
+      "policy": "journal"
+    },
+    {
+      "function": "services/settlement_intents.py:create.commit",
+      "policy": "journal"
+    },
+    {
+      "function": "services/settlement_intents.py:ensure_indexes",
+      "policy": "indexes"
+    },
+    {
+      "function": "services/settlement_intents.py:leg_action.commit",
+      "policy": "journal"
+    },
+    {
+      "function": "services/settlement_intents.py:mutate.commit",
+      "policy": "journal"
+    },
+    {
+      "function": "services/settlement_intents.py:quote.save",
+      "policy": "journal"
+    },
+    {
+      "function": "services/settlement_intents.py:save_intent",
+      "policy": "journal"
+    },
+    {
+      "function": "services/settlement_intents.py:try_apply",
+      "policy": "journal"
+    },
+    {
+      "function": "services/trip_activity.py:backfill_trip_activity",
+      "policy": "metadata"
+    },
+    {
+      "function": "services/trip_activity.py:touch_trip_activity",
+      "policy": "metadata"
+    },
+    {
+      "function": "services/whole_unit_migration.py:apply_trip_migration.callback",
+      "policy": "legacy_migration"
+    },
+    {
+      "function": "services/whole_unit_migration.py:revert_trip_migration.callback",
+      "policy": "legacy_migration"
+    },
+    {
+      "function": "utils/auth_tokens.py:consume_token",
+      "policy": "auth"
+    },
+    {
+      "function": "utils/auth_tokens.py:issue_token",
+      "policy": "auth"
+    }
+  ]
+}

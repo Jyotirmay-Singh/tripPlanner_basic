@@ -291,7 +291,7 @@ async def _active_attempt_flags(trip_id: str, user_id: str, identity: dict,
     references_family = identity.get("identity_type") == "family_member" and any(
         _attempt_references_family(row, identity) for row in attempts
     )
-    if trip and trip.get("expense_settlement_activation_version") == 1:
+    if trip and (trip.get("expense_settlement_activation_version") == 1 or trip.get("financial_write_guard_version")):
         from services.ledger_snapshot import load_ledger
         from services.expense_coverage import build_coverage_snapshot
         from services.coverage_support import CoverageError
@@ -397,6 +397,9 @@ async def evaluate_trip(trip: dict, user_id: str, *, session=None) -> dict:
         "ownership": ownership,
         "blockers": [],
     }
+    from services.settlement_write_guard import activated
+    protected = activated(trip)
+    public["reviewed_workflow_required"] = protected
     if len(identities) != 1 or not identities[0].get("valid"):
         public["blockers"].append(_blocker(
             "eligibility_changed",
@@ -487,8 +490,12 @@ async def evaluate_trip(trip: dict, user_id: str, *, session=None) -> dict:
             "delete_trip_first",
             ("leave", "dissolve_family", "keep"),
         ))
+    if protected and trip.get("owner_id") == user_id:
+        public["blockers"].append(_blocker(
+            "ownership_transfer_required", "Review and transfer ownership before leaving this protected group.",
+            "review_membership", ("leave", "dissolve_family")))
 
-    ownership_ok = not ownership.get("requires_trip_deletion")
+    ownership_ok = not ownership.get("requires_trip_deletion") and not (protected and trip.get("owner_id") == user_id)
     base_leave = public["settled"] and not active_user_attempt and ownership_ok
     public["leave_eligible"] = base_leave and not public["requires_family_dissolution"]
 
@@ -566,6 +573,11 @@ async def account_deletion_impact(user: dict) -> dict:
             ("delete_account",),
         ))
     for evaluation in evaluations:
+        if evaluation["public"].get("reviewed_workflow_required"):
+            account_blockers.append(_blocker(
+                "reviewed_departure_required",
+                f"Use Financial review to leave {evaluation['public']['trip_name']} before deleting this account. Historical evidence will remain.",
+                "review_membership", ("delete_account",)))
         if evaluation["identity"] is None:
             account_blockers.append(_blocker(
                 "eligibility_changed",
@@ -625,6 +637,13 @@ async def account_deletion_impact(user: dict) -> dict:
 
 
 async def membership_leave_impact(trip: dict, user_id: str) -> dict:
+    if trip.get("expense_settlement_schema_version") == 2:
+        async def read(session):
+            current = await db.trips.find_one({"id": trip["id"]}, {"_id": 0}, session=session)
+            if not current or user_id not in current.get("user_ids", []):
+                raise HTTPException(403, "Group access unavailable")
+            return (await evaluate_trip(current, user_id, session=session))["public"]
+        return await _run_destructive_transaction(read)
     return (await evaluate_trip(trip, user_id))["public"]
 
 
@@ -976,7 +995,7 @@ async def _scrub_notification_records(user_id: str, *, trip_id: Optional[str], s
 
 async def _scrub_payment_attempts(user_id: str, identity: Optional[dict], *,
                                   trip_id: Optional[str], session) -> None:
-    scope = _scoped(trip_id)
+    scope = await _unprotected_financial_scope(trip_id, session)
     snapshot_conditions: list[dict] = [
         {field: user_id} for field in ACCOUNT_REFERENCE_FIELDS
     ]
@@ -1004,45 +1023,45 @@ async def _scrub_account_references(user: dict, *, trip_id: Optional[str],
     user_id = user["id"]
     email = user.get("email")
     scope = _scoped(trip_id)
+    financial_scope = await _unprotected_financial_scope(trip_id, session)
     await _anonymize_chat(user_id, trip_id=trip_id, session=session)
     await db.chat_reads.delete_many({**scope, "user_id": user_id}, session=session)
     await db.trip_mobile_claims.delete_many({**scope, "user_id": user_id}, session=session)
 
     await db.expenses.update_many(
-        {**scope, "created_by": user_id}, {"$unset": {"created_by": ""}}, session=session,
+        {**financial_scope, "created_by": user_id}, {"$unset": {"created_by": ""}}, session=session,
     )
     await db.settlements.update_many(
-        {**scope, "$or": [
+        {**financial_scope, "$or": [
             {"recorded_by": user_id}, {"marked_paid_by": user_id},
         ]},
         {"$unset": {"recorded_by": "", "marked_paid_by": ""}},
         session=session,
     )
     await db.payments.update_many(
-        {**scope, "recorded_by": user_id}, {"$unset": {"recorded_by": ""}}, session=session,
+        {**financial_scope, "recorded_by": user_id}, {"$unset": {"recorded_by": ""}}, session=session,
     )
     await _scrub_payment_attempts(
         user_id, identity, trip_id=trip_id, session=session,
     )
     await db["receipts.files"].update_many(
-        ({"metadata.trip_id": trip_id, "metadata.uploaded_by": user_id}
-         if trip_id is not None else {"metadata.uploaded_by": user_id}),
+        {**({"metadata.trip_id": financial_scope["trip_id"]} if "trip_id" in financial_scope else {}), "metadata.uploaded_by": user_id},
         {"$unset": {"metadata.uploaded_by": ""}},
         session=session,
     )
 
     await db.money_normalization_audits.update_many(
-        {**scope, "actor_user_id": user_id},
+        {**financial_scope, "actor_user_id": user_id},
         {"$unset": {"actor_user_id": ""}},
         session=session,
     )
     await db.admin_audit_logs.update_many(
-        {**scope, "actor_user_id": user_id},
+        {**financial_scope, "actor_user_id": user_id},
         {"$unset": {"actor_user_id": "", "actor_email": ""}},
         session=session,
     )
     await db.admin_audit_logs.update_many(
-        {**scope, "resource_id": user_id},
+        {**financial_scope, "resource_id": user_id},
         {"$unset": {"resource_id": ""}},
         session=session,
     )
@@ -1069,9 +1088,19 @@ async def _scrub_account_references(user: dict, *, trip_id: Optional[str],
         )
 
     quote_query = {"user_id": user_id}
-    if trip_id is not None:
-        quote_query["payment_handoff.trip_id"] = trip_id
+    if "trip_id" in financial_scope:
+        quote_query["payment_handoff.trip_id"] = financial_scope["trip_id"]
     await db.exchange_rate_quotes.delete_many(quote_query, session=session)
+
+
+async def _unprotected_financial_scope(trip_id, session):
+    """Account deletion cannot redact immutable evidence belonging to a protected ledger."""
+    protected = [row["id"] for row in await db.trips.find({"$or": [
+        {"expense_settlement_activation_version": {"$exists": True, "$nin": [None, 0]}},
+        {"financial_write_guard_version": {"$exists": True, "$nin": [None, 0]}}]}, {"_id": 0, "id": 1}, session=session).to_list(None)]
+    if trip_id is not None:
+        return {"trip_id": {"$in": []} if trip_id in protected else trip_id}
+    return {"trip_id": {"$nin": protected}} if protected else {}
 
 
 async def _run_destructive_transaction(callback):
@@ -1166,6 +1195,11 @@ async def delete_account(user: dict, *, confirmation: str, acknowledge_unsettled
             )
 
         trips = await _linked_trips(user["id"], session=session)
+        from services.settlement_write_guard import activated
+        if any(activated(trip) for trip in trips):
+            raise _conflict("reviewed_departure_required",
+                "Use Financial review to leave protected groups before deleting this account. Historical evidence will remain.",
+                retryable=False)
         linked_trip_ids = {trip["id"] for trip in trips}
         unknown_trip_ids = sorted(set(requested_actions) - linked_trip_ids)
         if unknown_trip_ids:
@@ -1245,10 +1279,11 @@ async def delete_account(user: dict, *, confirmation: str, acknowledge_unsettled
         await db.password_reset_tokens.delete_many({"user_id": user["id"]}, session=session)
         await db.push_devices.delete_many({"user_id": user["id"]}, session=session)
         await db.expense_mutation_receipts.delete_many(
-            {"actor_user_id": user["id"]}, session=session,
+            {**await _unprotected_financial_scope(None, session), "actor_user_id": user["id"]}, session=session,
         )
         await db.payment_mutation_receipts.delete_many(
-            {"actor_user_id": user["id"], "operation": {"$not": {"$regex": "^settlement[.]"}}}, session=session,
+            {**await _unprotected_financial_scope(None, session), "actor_user_id": user["id"],
+             "operation": {"$not": {"$regex": "^(settlement|correction)[.]"}}}, session=session,
         )
         deleted = await db.users.delete_one({"id": user["id"]}, session=session)
         if getattr(deleted, "deleted_count", 1) == 0:

@@ -4,6 +4,8 @@ from pymongo.errors import DuplicateKeyError
 from config import CATEGORIES, MULTI_CURRENCY_EXPENSES_ENABLED
 from database import db
 from services.settlement_write_guard import reject_legacy_write, activated
+from models.financial_correction import CorrectionCreate
+from services import reviewed_adapters
 from services.coverage_journal import store_new_share_revision
 from models.expense import ExpenseIn, ExpenseUpdate
 from models.exchange_rate import ConversionRequest, ReconvertIn
@@ -151,7 +153,7 @@ def _conversion_write_filter(trip_id: str, expense_id: str, expense: dict,
 
 async def _trip_spend(trip_id: str, *, excluding_expense_id: str | None = None,
                       session=None) -> float:
-    match = {"trip_id": trip_id}
+    match = {"trip_id": trip_id, "deleted_at": None}
     if excluding_expense_id:
         match["id"] = {"$ne": excluding_expense_id}
     options = {"session": session} if session is not None else {}
@@ -225,6 +227,10 @@ async def _create_retryable_expense(trip_id, body, user, doc, converted, force,
             raise HTTPException(404, "Group not found")
         if not is_super_admin(user) and user["id"] not in live_trip.get("user_ids", []):
             raise HTTPException(403, "Not a member of this group")
+        if activated(live_trip):
+            from services import settlement_intents as workflow
+            live_trip, current_actor = await workflow.context(trip_id, user, session)
+            await db.users.update_one({"id": current_actor["id"]}, {"$inc": {"settlement_action_version": 1}}, session=session)
         verify_roster(live_trip, body)
 
         current = await _trip_spend(trip_id, session=session) if live_trip.get("budget") is not None else 0.0
@@ -309,7 +315,7 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
 
     trip = await _trip_or_404(trip_id, user)
     if activated(trip):
-        if trip.get("expense_settlement_activation_version") != 1 or trip.get("financial_write_guard_version") != 1:
+        if trip.get("expense_settlement_activation_version") != 1 or trip.get("financial_write_guard_version") not in {1, 2}:
             raise HTTPException(409, detail={"code": "group_not_ready"})
         if not body.client_mutation_id:
             raise HTTPException(428, detail={"code": "settlement_client_upgrade_required"})
@@ -447,6 +453,9 @@ async def list_expenses(
         {"$project": {"_id": 0, "receipt_base64": 0, "conversion_history": 0}},
     ])
     expenses = await cur.to_list(None)
+    if trip.get("expense_settlement_schema_version") == 2:
+        from services.effective_reads import read_effective_ledger
+        expenses = (await read_effective_ledger(trip_id, user, db)).expenses
     for e in expenses:
         e["currency"] = e.get("currency") or trip.get("currency", "INR")
         e["split_mode"] = e.get("split_mode", "PER_CAPITA")
@@ -456,7 +465,7 @@ async def list_expenses(
         # never feeds balances/settle-up. No existing field is removed or changed.
         e["shares"] = expense_share_breakdown(e, trip["members"])
     response.headers["X-Expense-List-Complete"] = "true"
-    items = serialize_bson(expenses)
+    items = serialize_bson([{key: value for key, value in row.items() if not key.startswith("_")} for row in expenses])
     # Opt-in body metadata works even when a browser or proxy cannot expose the legacy header.
     if include_metadata:
         return {"items": items, "complete": True}
@@ -471,20 +480,26 @@ async def get_expense(trip_id: str, expense_id: str, user=Depends(get_current_us
     )
     if not expense:
         raise HTTPException(404, "Expense not found")
+    if trip.get("expense_settlement_schema_version") == 2 and not expense.get("deleted_at"):
+        from services.effective_reads import read_effective_ledger
+        expense = next(row for row in (await read_effective_ledger(trip_id, user, db)).expenses if row["id"] == expense_id)
     expense["currency"] = expense.get("currency") or trip.get("currency", "INR")
     expense["split_mode"] = expense.get("split_mode", "PER_CAPITA")
     expense["has_receipt"] = bool(expense.get("receipt_id") or expense.get("receipt_base64"))
     expense.pop("receipt_base64", None)
-    expense["shares"] = expense_share_breakdown(expense, trip["members"])
-    return serialize_bson(expense)
+    expense["shares"] = None if expense.get("deleted_at") else expense_share_breakdown(expense, trip["members"])
+    return serialize_bson({key: value for key, value in expense.items() if not key.startswith("_")})
 
 
 @router.patch("/trips/{trip_id}/expenses/{expense_id}")
-async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
+async def update_expense(trip_id: str, expense_id: str, body: CorrectionCreate | ExpenseUpdate,
                          user=Depends(get_current_user)):
+    if isinstance(body, CorrectionCreate):
+        return await reviewed_adapters.correct(trip_id, expense_id, {"replace_expense"}, body, user)
     trip, expense = await _expense_modify_or_403(trip_id, expense_id, user)
-    if set(body.model_dump(exclude_unset=True)) - {"description", "category", "force"}:
-        reject_legacy_write(trip, code="settlement_correction_required")
+    if activated(trip):
+        from services.harmless_updates import expense_metadata
+        return await expense_metadata(trip_id, expense_id, body, user)
     raw = body.model_dump(exclude_unset=True)
     force = bool(raw.pop("force", False))
     if not raw:
@@ -755,8 +770,10 @@ async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
 
 
 @router.post("/trips/{trip_id}/expenses/{expense_id}/reconvert")
-async def reconvert_expense(trip_id: str, expense_id: str, body: ReconvertIn,
+async def reconvert_expense(trip_id: str, expense_id: str, body: CorrectionCreate | ReconvertIn,
                             user=Depends(get_current_user)):
+    if isinstance(body, CorrectionCreate):
+        return await reviewed_adapters.correct(trip_id, expense_id, {"replace_expense"}, body, user)
     trip, expense = await _expense_modify_or_403(trip_id, expense_id, user)
     reject_legacy_write(trip, code="settlement_correction_required")
     if not MULTI_CURRENCY_EXPENSES_ENABLED:
@@ -846,7 +863,10 @@ async def reconvert_expense(trip_id: str, expense_id: str, body: ReconvertIn,
 
 
 @router.delete("/trips/{trip_id}/expenses/{expense_id}")
-async def delete_expense(trip_id: str, expense_id: str, user=Depends(get_current_user)):
+async def delete_expense(trip_id: str, expense_id: str, user=Depends(get_current_user),
+                         body: CorrectionCreate | None = None):
+    if body is not None:
+        return await reviewed_adapters.correct(trip_id, expense_id, {"void_expense"}, body, user)
     # Step 10: only the expense creator or a trip admin may delete (404 if missing, 403 otherwise).
     trip, _expense = await _expense_modify_or_403(trip_id, expense_id, user)
     reject_legacy_write(trip, code="settlement_correction_required")

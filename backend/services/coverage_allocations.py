@@ -4,7 +4,7 @@ from collections import deque
 from copy import deepcopy
 
 from services.coverage_support import (
-    CoverageError, POLICY_VERSION, add_vector, fingerprint, money, record_errors, stable_id, whole_units,
+    CoverageError, POLICY_VERSION, add_vector, fingerprint, money, record_errors, stable_id, whole_units, source_fingerprint_matches,
 )
 from services.settlement_engine import build_settlement_projection, to_scaled
 
@@ -360,20 +360,24 @@ def cash_uses_for_plan(snapshot, plan, source_ids):
 @record_errors("invalid_cash_use")
 def validate_cash_uses(snapshot, plan, uses):
     legs = {leg["id"]: leg for leg in plan["cash_legs"]}
-    used_legs, amounts = set(), {}
+    used_pairs, amounts, leg_amounts = set(), {}, {}
     for use in uses:
         leg = legs.get(use["leg_id"])
         source = snapshot.sources.get(use["source_id"])
-        if (leg is None or source is None or use["leg_id"] in used_legs
-                or source["fingerprint"] != use["source_fingerprint"]
+        pair = (use["leg_id"], use["source_id"])
+        if (leg is None or source is None or pair in used_pairs
+                or not source_fingerprint_matches(source, use["source_fingerprint"])
                 or source["currency"] != snapshot.ledger.trip.get("currency", "INR")
-                or use["amount"] != leg["amount"]
                 or (source["from_member_id"], source["to_member_id"]) != (leg["from_member_id"], leg["to_member_id"])):
             raise CoverageError("cash_source_changed")
-        used_legs.add(use["leg_id"])
-        amounts[source["id"]] = amounts.get(source["id"], 0) + whole_units(use["amount"])
-    if used_legs != set(legs):
+        used_pairs.add(pair)
+        units = whole_units(use["amount"])
+        amounts[source["id"]] = amounts.get(source["id"], 0) + units
+        leg_amounts[leg["id"]] = leg_amounts.get(leg["id"], 0) + units
+    if set(leg_amounts) != set(legs):
         raise CoverageError("receipt_pending")
+    if any(leg_amounts[key] != to_scaled(leg["amount"]) for key, leg in legs.items()):
+        raise CoverageError("cash_source_changed")
     for source_id, amount in amounts.items():
         if amount + snapshot.claimed.get(source_id, 0) > to_scaled(snapshot.sources[source_id]["amount"]):
             raise CoverageError("cash_source_exhausted")

@@ -43,7 +43,7 @@ class MemberUpdate(BaseModel):
     # Only an INDIVIDUAL carries an entity email (routes force null for kind=="family"). Empty string
     # clears it. An email identifies a PERSON, never a family.
     email: Optional[str] = None  # can be empty string to clear
-    reweight_past: Optional[bool] = True  # if False, snapshot old weights onto past expenses
+    reweight_past: Optional[bool] = False  # preserve history; retroactive allocation is explicit
 
     @field_validator("name")
     @classmethod

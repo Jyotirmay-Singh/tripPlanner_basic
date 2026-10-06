@@ -11,7 +11,7 @@ from openpyxl.utils import get_column_letter
 from database import db
 from utils.deps import get_current_user, _trip_or_404, is_trip_admin
 from utils.date_rules import ensure_date_range, trip_date_label
-from utils.balances import _compute_balances
+from utils.balances import _compute_balances, project_ledger_balances
 from utils.display_names import member_display_names
 from utils.ist_time import format_ist
 from utils.security import decode_token
@@ -152,6 +152,28 @@ async def _load_report_expenses(trip_id: str) -> list:
     return await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(length=None)
 
 
+async def _effective_report(trip, user):
+    if trip.get("expense_settlement_schema_version") != 2:
+        return None
+    from services.effective_reads import read_effective_ledger
+    return await read_effective_ledger(trip["id"], user, db, coverage=True)
+
+
+def _review_explanations(ledger):
+    if ledger is None:
+        return []
+    from services.expense_coverage import build_coverage_snapshot
+    from services.coverage_support import money
+    from services.settlement_engine import to_scaled
+    snapshot = build_coverage_snapshot(ledger, infer_history=False)
+    rows = [f"Correction {row.get('proposal_id', row['id'])}: {row['operation']}; {row['reason']}"
+            for row in ledger.corrections]
+    rows += [f"Retained credit {key}: {money(to_scaled(source['amount']) - snapshot.claimed.get(key, 0))} {ledger.trip['currency']}"
+             for key, source in snapshot.sources.items() if to_scaled(source['amount']) > snapshot.claimed.get(key, 0)]
+    rows += [f"Payment review {row['id']}: {row['status']}" for row in snapshot.pending_reports]
+    return rows
+
+
 async def _load_migration_adjustment(trip_id: str):
     """Tolerate lightweight route-test database doubles that predate this audit collection."""
     collection = getattr(db, "money_migration_adjustments", None)
@@ -164,8 +186,13 @@ async def _load_migration_adjustment(trip_id: str):
 @router.get("/trips/{trip_id}/report")
 async def report(trip_id: str, user=Depends(get_current_user)):
     trip = ensure_date_range(await _trip_or_404(trip_id, user))
-    expenses = await _load_report_expenses(trip_id)
-    bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
+    effective = await _effective_report(trip, user)
+    if effective:
+        trip = effective.trip
+        expenses, bal = effective.expenses, project_ledger_balances(effective)
+    else:
+        expenses = await _load_report_expenses(trip_id)
+        bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
     # category breakdown — signed amounts net together (a refund reduces its category + the total).
     by_cat = {}
     by_date = {}
@@ -200,8 +227,13 @@ async def report_xlsx(trip_id: str, token: str,
     if not user:
         raise HTTPException(401, "User not found")
     trip = await _trip_or_404(trip_id, user)
-    expenses = await _load_report_expenses(trip_id)
-    bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
+    effective = await _effective_report(trip, user)
+    if effective:
+        trip = {**effective.trip, "members": effective.accounting_members}
+        expenses, bal = effective.expenses, project_ledger_balances(effective)
+    else:
+        expenses = await _load_report_expenses(trip_id)
+        bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
     # Disambiguated top-level labels (rule a + families) — one source of truth shared with the app.
     display = member_display_names(trip["members"])
 
@@ -212,11 +244,15 @@ async def report_xlsx(trip_id: str, token: str,
     # non-pending settlements AND every Phase-20 payment. Both must feed the Settlements column or it
     # diverges from the ledger `net` the sheet reconciles against. Fetched once and reused (the
     # Payments tab below renders the same `payments` list).
-    settlements = await db.settlements.find(
-        {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}).to_list(None)
-    payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}) \
-        .sort("created_at", 1).to_list(None)
-    migration_adjustment = await _load_migration_adjustment(trip_id)
+    if effective:
+        settlements = [row for row in effective.settlements if row.get("status") != "pending"]
+        payments = effective.payments
+        migration_adjustment = {"vector": effective.adjustments} if effective.adjustments else None
+    else:
+        settlements = await db.settlements.find(
+            {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}).to_list(None)
+        payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}).sort("created_at", 1).to_list(None)
+        migration_adjustment = await _load_migration_adjustment(trip_id)
 
     wb = Workbook()
 
@@ -571,6 +607,14 @@ async def report_xlsx(trip_id: str, token: str,
         _finalize_sheet_layout(sheet, money_columns.get(sheet.title, ()))
 
     buf = io.BytesIO()
+    explanations = _review_explanations(effective)
+    if explanations:
+        review_sheet = wb.create_sheet("Financial Review")
+        review_sheet.append(["Financial corrections and retained evidence"])
+        for explanation in explanations:
+            review_sheet.append([explanation])
+        review_sheet.column_dimensions["A"].width = 100
+        _finalize_sheet_layout(review_sheet)
     wb.save(buf)
     buf.seek(0)
     fname = f"{trip['name'].replace(' ','_')}_report.xlsx"
@@ -593,20 +637,29 @@ async def report_pdf(trip_id: str, token: str,
     if not user:
         raise HTTPException(401, "User not found")
     trip = await _trip_or_404(trip_id, user)
+    effective = await _effective_report(trip, user)
     members = trip["members"]
-    expenses = await _load_report_expenses(trip_id)
+    if effective:
+        trip = {**effective.trip, "members": effective.accounting_members}
+        members, expenses = effective.accounting_members, effective.expenses
+    else:
+        expenses = await _load_report_expenses(trip_id)
     reconciliation = build_spend_reconciliation(
         members, expenses, trip.get("currency", "INR")
     )
-    payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}) \
-        .sort("created_at", 1).to_list(None)
-    migration_adjustment = await _load_migration_adjustment(trip_id)
     # Members & Families rows — identical construction to the XLSX route (same builders + the same
     # settlements + payments overlay), so the PDF's Settlements column and reconciliation match.
-    bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
     display = member_display_names(members)
-    settlements = await db.settlements.find(
-        {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}).to_list(None)
+    if effective:
+        payments = effective.payments
+        settlements = [row for row in effective.settlements if row.get("status") != "pending"]
+        bal = project_ledger_balances(effective)
+        migration_adjustment = {"vector": effective.adjustments} if effective.adjustments else None
+    else:
+        payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}).sort("created_at", 1).to_list(None)
+        migration_adjustment = await _load_migration_adjustment(trip_id)
+        bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
+        settlements = await db.settlements.find({"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}).to_list(None)
     paid_map, _ = entity_ledger_components(expenses, members)
     settle_map = settle_adj_by_entity(settlements + payments)
     mf_rows = build_members_families_rows(
@@ -618,6 +671,7 @@ async def report_pdf(trip_id: str, token: str,
         settlement_projection=bal.get("settlement_projection"),
         settlement_transfers=bal.get("transfers"),
         migration_adjustment=migration_adjustment,
+        financial_review=_review_explanations(effective),
     )
     fname = f"{trip['name'].replace(' ','_')}_report.pdf"
     return StreamingResponse(

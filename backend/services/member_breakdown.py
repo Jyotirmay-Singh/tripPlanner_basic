@@ -120,6 +120,18 @@ def family_member_breakdown(
         restricted = False
 
         for e in expenses:
+            if "_frozen_entity_shares" in e:
+                from services.settlement_engine import scaled_number, to_scaled
+                frozen_share = scaled_number(to_scaled(e["_frozen_entity_shares"].get(fid, 0)))
+                is_payer = e.get("paid_by_member_id") == fid
+                if not frozen_share and not is_payer:
+                    continue
+                weights = {row["person_id"]: abs(scaled_number(to_scaled(row["original_share"])))
+                           for row in e.get("_frozen_share_rows", []) if row["wallet_id"] == fid}
+                timed.append((e.get("created_at") or "", "exp", (e["amount"] if is_payer else 0) - frozen_share,
+                              list(weights) or list(ids), weights or None))
+                restricted = True
+                continue
             split_ids = e.get("split_member_ids") or all_ids
             is_payer = e.get("paid_by_member_id") == fid
             mode = e.get("split_mode") or "PER_CAPITA"

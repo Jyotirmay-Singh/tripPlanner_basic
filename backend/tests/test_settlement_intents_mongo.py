@@ -26,6 +26,8 @@ async def setup_workflow(monkeypatch, database):
     monkeypatch.setattr(push_notifications, "PUSH_NOTIFICATIONS_ENABLED", True)
     await database.payment_mutation_receipts.create_index(
         [("actor_user_id", 1), ("operation", 1), ("client_mutation_id", 1)], unique=True)
+    await database.expense_mutation_receipts.create_index(
+        [("actor_user_id", 1), ("operation", 1), ("client_mutation_id", 1)], unique=True)
     await database.payment_attempts.create_index("id", unique=True)
     await database.payments.create_index("payment_attempt_id", unique=True,
         partialFilterExpression={"payment_attempt_id": {"$type": "string"}})

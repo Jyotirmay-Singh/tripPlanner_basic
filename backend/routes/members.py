@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from database import db
 from services.settlement_write_guard import reject_legacy_write
+from models.financial_correction import CorrectionCreate
+from services import reviewed_adapters
 from models.member import MemberIn, MemberUpdate
 from utils.common import gen_id
 from utils.deps import get_current_user, _trip_admin_or_403
@@ -67,7 +69,9 @@ async def _validate_family_member_emails(trip, fam_emails, exclude_id):
 
 # ---------- Members ----------
 @router.post("/trips/{trip_id}/members")
-async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user)):
+async def add_member(trip_id: str, body: CorrectionCreate | MemberIn, user=Depends(get_current_user)):
+    if isinstance(body, CorrectionCreate):
+        return await reviewed_adapters.correct(trip_id, trip_id, {"add_member"}, body, user)
     trip = await _trip_admin_or_403(trip_id, user)
     reject_legacy_write(trip, code="settlement_correction_required")
     name = body.name
@@ -144,7 +148,9 @@ async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user
 
 
 @router.patch("/trips/{trip_id}/members/{member_id}")
-async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=Depends(get_current_user)):
+async def update_member(trip_id: str, member_id: str, body: CorrectionCreate | MemberUpdate, user=Depends(get_current_user)):
+    if isinstance(body, CorrectionCreate):
+        return await reviewed_adapters.correct(trip_id, member_id, {"update_member", "reassign_family"}, body, user)
     trip = await _trip_admin_or_403(trip_id, user)
     reject_legacy_write(trip, code="settlement_correction_required")
     target = next((m for m in trip["members"] if m["id"] == member_id), None)
@@ -269,7 +275,10 @@ async def _settlement_block_reason(trip_id: str, target: dict):
 
 
 @router.delete("/trips/{trip_id}/members/{member_id}")
-async def delete_member(trip_id: str, member_id: str, user=Depends(get_current_user)):
+async def delete_member(trip_id: str, member_id: str, user=Depends(get_current_user),
+                        body: CorrectionCreate | None = None):
+    if body is not None:
+        return await reviewed_adapters.correct(trip_id, member_id, {"remove_member"}, body, user)
     """Remove an individual OR a whole family (a family is a single member doc), gated by settlement.
 
     A target may be removed only when its canonical entity balance is exactly zero — removal is
@@ -323,7 +332,7 @@ async def delete_member(trip_id: str, member_id: str, user=Depends(get_current_u
 
 @router.delete("/trips/{trip_id}/members/{family_id}/family-members/{fm_id}")
 async def delete_family_member(trip_id: str, family_id: str, fm_id: str,
-                               user=Depends(get_current_user)):
+                               user=Depends(get_current_user), body: CorrectionCreate | None = None):
     """Remove ONE member from inside a family, gated by settlement + the no-empty-family invariant.
 
     Allowed only when (1) the targeted family member's displayed net is 0 whole units and (2) at least
@@ -332,6 +341,10 @@ async def delete_family_member(trip_id: str, family_id: str, fm_id: str,
     keep their stable ids; ``reweight_past=False`` pins the family's OLD weight onto past PER_CAPITA
     expenses so the family's net — and every other balance — is unchanged.
     """
+    if body:
+        from services import financial_corrections
+        return await financial_corrections.create(trip_id, body, user, binding={
+            "target_id": family_id, "operations": ["update_member"], "removed_person_id": fm_id})
     trip = await _trip_admin_or_403(trip_id, user)
     reject_legacy_write(trip, code="settlement_correction_required")
     family = next((m for m in trip.get("members", []) if m["id"] == family_id), None)

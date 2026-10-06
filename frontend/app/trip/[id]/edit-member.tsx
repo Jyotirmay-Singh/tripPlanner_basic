@@ -6,6 +6,8 @@ import { SPACING, CONTENT_MAX_WIDTH } from '../../../src/theme';
 import T from '../../../src/T';
 import { isGmail, GMAIL_ONLY_MESSAGE, isEmailTaken, DUPLICATE_EMAIL_MESSAGE } from '../../../src/validation';
 import ConfirmModal from '../../../src/ConfirmModal';
+import FinancialReviewSheet from '../../../src/FinancialReviewSheet';
+import { guardedTrip, type ReviewRequest } from '../../../src/financialReview';
 import FamilyMembersEditor from '../../../src/FamilyMembersEditor';
 import type { FamilyEditorValidationIssue } from '../../../src/FamilyMembersEditor';
 import {
@@ -22,6 +24,9 @@ export default function EditMember() {
   const router = useRouter();
   const toast = useToast();
   const [member, setMember] = useState<Member | null>(null);
+  const [guarded, setGuarded] = useState(false);
+  const [currency, setCurrency] = useState('INR');
+  const [financialRequest, setFinancialRequest] = useState<ReviewRequest | null>(null);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [kind, setKind] = useState<'individual' | 'family'>('individual');
@@ -44,6 +49,7 @@ export default function EditMember() {
   useEffect(() => {
     (async () => {
       const trip: any = await api(`/trips/${id}`);
+      setGuarded(guardedTrip(trip)); setCurrency(trip.currency);
       const m = (trip.members as Member[]).find((x) => x.id === mid);
       if (!m) return;
       setTakenEmails(tripMemberEmails(trip.members as Member[], mid));
@@ -67,6 +73,13 @@ export default function EditMember() {
       ? rowsToPayload(familyRows) : { family_members: [], family_member_ids: [], family_member_emails: [] };
     if (kind === 'family' && family_members.length === 0) return toast.show('Add at least one family member name', 'error');
     try {
+      if (guarded) {
+        setFinancialRequest({ operation: 'update_member', target_id: mid, changes: {
+          name: name.trim(), kind, family_members, family_member_ids, family_member_emails,
+          email: kind === 'individual' ? email.trim() : null, reweight_past: false,
+        }});
+        return;
+      }
       await api(`/trips/${id}/members/${mid}`, {
         method: 'PATCH',
         body: {
@@ -117,11 +130,11 @@ export default function EditMember() {
     setFamilyValidationIssue(null);
     const oldW = effWeight(originalKind, originalFM);
     const newW = effWeight(kind, newFM);
-    if (oldW !== newW && qualifiesForRecalc) {
+    if (!guarded && oldW !== newW && qualifiesForRecalc) {
       setDelta({ from: oldW, to: newW });
       setModalVisible(true);
     } else {
-      save(true);
+      save(false);
     }
   };
 
@@ -131,6 +144,8 @@ export default function EditMember() {
 
   return (
     <>
+      <FinancialReviewSheet tripId={id} request={financialRequest} currency={currency}
+        onClose={() => setFinancialRequest(null)} onComplete={() => { setFinancialRequest(null); router.back(); }} />
       <FormScreen>
           <View style={{ width: '100%', maxWidth: CONTENT_MAX_WIDTH, gap: SPACING.md }}>
             <SegmentedControl

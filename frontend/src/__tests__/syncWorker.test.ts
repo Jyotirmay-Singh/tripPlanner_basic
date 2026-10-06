@@ -89,7 +89,7 @@ function fixture(items: StoredOutboxItem[] = [expense()], useBuildActivation = f
     return serverPayments.get(mutationId);
   });
   const request = jest.fn(async (path: string, opts: unknown) =>
-    path === '/meta/config' ? config : path.startsWith('/exchange-rates/quote?')
+    path === '/meta/config' ? config : /^\/trips\/[^/]+$/.test(path) ? {} : path.startsWith('/exchange-rates/quote?')
       ? quote() : post(path, opts as Parameters<typeof post>[1]));
   const refresh = jest.fn(async (_accountId: string, tripId: string): Promise<{
     source: 'live' | 'cache' | 'unavailable'; fetchedAt: number;
@@ -108,6 +108,23 @@ function fixture(items: StoredOutboxItem[] = [expense()], useBuildActivation = f
     setConfig: (next: Partial<typeof config>) => { config = { ...config, ...next }; },
     setToken: (next: string) => { activeToken = next; }, syncMeta };
 }
+
+it.each(['expense_settlement_activation_version', 'financial_write_guard_version'])('preserves protected offline drafts without submitting when %s is present', async (marker) => {
+  const rows = [expense(), payment(paymentId, 'trip-b')];
+  const f = fixture(rows);
+  const original = f.request.getMockImplementation()!;
+  f.request.mockImplementation(async (path, opts) => /^\/trips\/[^/]+$/.test(path) ? { [marker]: 2 } : original(path, opts));
+  try {
+    f.coordinator.setAccount('account-a'); await f.coordinator.waitForIdle();
+    expect(f.post).not.toHaveBeenCalled();
+    for (const row of rows) {
+      expect(f.rows.get(row.clientMutationId)).toMatchObject({ state: 'needs_review', payload: row.payload,
+        lastSafeErrorCode: 'settlement_client_upgrade_required', reviewContext: { onlineFinancialReviewRequired: true } });
+    }
+    f.coordinator.resume('account-a'); await f.coordinator.waitForIdle();
+    expect(f.post).not.toHaveBeenCalled();
+  } finally { f.coordinator.setAccount(null); }
+});
 
 it('automatically delivers staged expense and payment on reconnect in an ordinary Android build', async () => {
   const originalOS = Platform.OS;

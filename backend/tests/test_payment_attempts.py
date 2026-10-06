@@ -826,7 +826,7 @@ def test_expiry_soft_closes_only_due_unresolved_attempts(monkeypatch):
         attempt(id="fresh", expires_at=timestamp + timedelta(seconds=1)),
         attempt("settled_recipient_confirmed", id="settled", expires_at=timestamp - timedelta(days=1)),
     ])
-    monkeypatch.setattr(attempt_service, "db", SimpleNamespace(payment_attempts=collection))
+    monkeypatch.setattr(attempt_service, "db", SimpleNamespace(payment_attempts=collection, trips=MemoryCollection([])))
 
     changed = run(attempt_service.expire_payment_attempts("trip-1", timestamp=timestamp))
 

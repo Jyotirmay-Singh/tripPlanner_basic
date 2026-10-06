@@ -135,17 +135,34 @@ async def update_me(body: UpiProfileUpdate, user=Depends(get_current_user)):
         return _self_profile_payload(user)
 
     if body.upi_id is None:
-        update = {"$unset": {"upi_id": "", "upi_updated_at": ""}}
+        update = {"$unset": {"upi_id": "", "upi_updated_at": ""}, "$inc": {"recipient_account_revision": 1}}
     else:
         update = {"$set": {
             "upi_id": body.upi_id,
             "upi_updated_at": now_utc().isoformat(),
-        }}
+        }, "$inc": {"recipient_account_revision": 1}}
 
-    await db.users.update_one({"id": user["id"]}, update)
-    updated = await db.users.find_one(
-        {"id": user["id"]}, {"_id": 0, "password_hash": 0, "pin_hash": 0}
-    )
+    from services.settlement_write_guard import activated
+    linked = await db.trips.find({"user_ids": user["id"]}, {"_id": 0}).to_list(None)
+    if any(activated(trip) for trip in linked):
+        from services.coverage_journal import run_snapshot_transaction
+        from services.financial_bindings import invalidate_bindings
+        operation_id = gen_id()
+        async def change_profile(session):
+            actor = await db.users.find_one({"id": user["id"]}, {"_id": 0}, session=session)
+            if not actor:
+                raise HTTPException(401, "User not found")
+            await db.users.update_one({"id": actor["id"]}, update, session=session)
+            current = await db.trips.find({"user_ids": actor["id"]}, {"_id": 0}, session=session).to_list(None)
+            for trip in current:
+                if activated(trip):
+                    await invalidate_bindings(db, trip["id"], {actor["id"]}, operation_id, "recipient_account_changed", session)
+                    await db.trips.update_one({"id": trip["id"]}, {"$inc": {"version": 1}}, session=session)
+            return await db.users.find_one({"id": actor["id"]}, {"_id": 0, "password_hash": 0}, session=session)
+        updated = await run_snapshot_transaction(change_profile)
+    else:
+        await db.users.update_one({"id": user["id"]}, update)
+        updated = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0, "pin_hash": 0})
     if not updated:
         # The dependency authenticated a real user, but the row may have been
         # removed concurrently before the write/re-fetch completed.

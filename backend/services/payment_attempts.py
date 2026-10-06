@@ -46,6 +46,11 @@ async def expire_payment_attempts(
     }
     if trip_id is not None:
         query["trip_id"] = trip_id
+    protected = [row["id"] for row in await db.trips.find({"$or": [
+        {"expense_settlement_activation_version": {"$exists": True, "$nin": [None, 0]}},
+        {"financial_write_guard_version": {"$exists": True, "$nin": [None, 0]}}]}, {"_id": 0, "id": 1}).to_list(None)]
+    if protected:
+        query["trip_id"] = {"$nin": protected, **({"$eq": trip_id} if trip_id else {})}
     result = await db.payment_attempts.update_many(
         query,
         {
@@ -92,6 +97,9 @@ async def expire_settlement_intents(*, timestamp=None):
                 "operation": "settlement.intent.expire", "client_mutation_id": action_id,
                 "event": "expired", "created_at": current.isoformat(),
                 "request": {"deadline": intent["expires_at"]}}, session=session)
+            from services.push_notifications import enqueue_notification_event
+            await enqueue_notification_event(event_type="settlement.review_required", source_id=intent["id"],
+                trip_id=trip["id"], actor_user_id=None, event_id=action_id, session=session)
         await run_snapshot_transaction(expire)
 
 
@@ -99,9 +107,29 @@ async def recover_expired_sent_reports():
     """Retain conflicts separately; never reassign a released unique pair key."""
     from services.coverage_journal import run_snapshot_transaction
     async def recover(session):
-        return await db.payment_attempts.update_many({"status": "expired", "$or": [
+        protected = [row["id"] for row in await db.trips.find({"$or": [
+            {"expense_settlement_activation_version": {"$exists": True, "$nin": [None, 0]}},
+            {"financial_write_guard_version": {"$exists": True, "$nin": [None, 0]}}]}, {"_id": 0, "id": 1}, session=session).to_list(None)]
+        sent = {"status": "expired", "$or": [
             {"awaiting_confirmation_at": {"$type": "string"}}, {"sender_reported_by": {"$type": "string"}},
-            {"reported_by": {"$type": "string"}}, {"recipient_not_received_by": {"$type": "string"}}]}, {"$set": {"status": "needs_review", "expires_at": None,
+            {"reported_by": {"$type": "string"}}, {"recipient_not_received_by": {"$type": "string"}}]}
+        retained = await db.payment_attempts.find({**sent, "trip_id": {"$in": protected}}, {"_id": 0}, session=session).to_list(None)
+        from services.coverage_support import stable_id
+        for attempt in retained:
+            at = now_utc().isoformat()
+            await db.payment_attempts.update_one({"id": attempt["id"], "status": "expired"}, {"$set": {
+                "status": "needs_review", "expires_at": None, "reason": "expired_sent_report_recovered",
+                "duplicate_payment_blocker": True}}, session=session)
+            await db.trips.update_one({"id": attempt["trip_id"]}, {"$inc": {"version": 1}}, session=session)
+            await db.settlement_intent_actions.insert_one({"id": stable_id("legacy-recovery", attempt["id"]),
+                "trip_id": attempt["trip_id"], "intent_id": attempt.get("settlement_intent_id") or f"legacy:{attempt['id']}",
+                "actor_user_id": None, "actor_role": "system", "operation": "settlement.legacy.recover",
+                "event": "needs_review", "created_at": at}, session=session)
+            from services.push_notifications import enqueue_notification_event
+            await enqueue_notification_event(event_type="settlement.review_required",
+                source_id=attempt.get("settlement_intent_id") or f"legacy:{attempt['id']}", trip_id=attempt["trip_id"],
+                actor_user_id=None, event_id=stable_id("legacy-recovery", attempt["id"]), session=session)
+        return await db.payment_attempts.update_many({"trip_id": {"$nin": protected}, **sent}, {"$set": {"status": "needs_review", "expires_at": None,
                 "reason": "expired_sent_report_recovered", "duplicate_payment_blocker": True}}, session=session)
     return await run_snapshot_transaction(recover)
 

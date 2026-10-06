@@ -530,7 +530,7 @@ def build_report_pdf(trip: dict, members: list, expenses: list, currency: str,
                      reconciliation: dict, payments: list = None, mf_rows: list = None,
                      settlement_projection: dict = None,
                      settlement_transfers: list = None,
-                     migration_adjustment: dict = None) -> bytes:
+                     migration_adjustment: dict = None, financial_review: list = None) -> bytes:
     """Render the FULL report (Summary, Members & Families, exploded Transactions, Payments) to PDF bytes.
 
     ``reconciliation`` is the shared ``build_spend_reconciliation`` result used by XLSX and PDF.
@@ -591,6 +591,11 @@ def build_report_pdf(trip: dict, members: list, expenses: list, currency: str,
         story.append(Spacer(1, 8 * mm))
         story += _payments_section(base, payments, members, currency)
 
+    if financial_review:
+        story.append(Spacer(1, 8 * mm))
+        story += _section(base, "Financial Review")
+        for explanation in financial_review:
+            story.append(_p(explanation))
     footer = trip.get("name", "Group")
     doc.build(story, canvasmaker=partial(NumberedCanvas, footer_left=footer))
     buf.seek(0)

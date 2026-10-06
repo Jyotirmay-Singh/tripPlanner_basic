@@ -37,7 +37,7 @@ async def _compute_balances(
 def project_ledger_balances(ledger: LedgerSnapshot, *, diagnostic=False) -> dict:
     """Project an already-loaded input, preserving the public balance response."""
     trip, expenses, payments = ledger.trip, ledger.expenses, ledger.payments
-    members = trip["members"]
+    members = ledger.accounting_members or trip["members"]
     settlements = [row for row in ledger.settlements if row.get("status") != "pending"]
 
     try:

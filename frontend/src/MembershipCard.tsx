@@ -86,6 +86,7 @@ export default function MembershipCard({ tripId }: { tripId: string }) {
       setSubmitting(false);
     }
   }, [choice, load, router, toast, tripId]);
+  const reviewDeparture = () => router.push(`/trip/${tripId}/financial-review` as Href);
 
   if (loading && !impact) {
     return (
@@ -146,7 +147,7 @@ export default function MembershipCard({ tripId }: { tripId: string }) {
           </View>
         ) : null}
 
-        {impact.ownership.transfer_required ? (
+        {impact.ownership.transfer_required && !impact.reviewed_workflow_required ? (
           <View style={styles.messageRow} testID="membership-ownership">
             <Icon name={impact.ownership.successor ? 'shield-check' : 'alert'} size={16}
               color={impact.ownership.successor ? colors.primary : colors.danger} />
@@ -168,7 +169,9 @@ export default function MembershipCard({ tripId }: { tripId: string }) {
           ))}
 
         <View style={styles.actions}>
-          {impact.leave_eligible ? (
+          {impact.reviewed_workflow_required ? <Button label="Review membership and departure" variant="secondary"
+            size="sm" onPress={reviewDeparture} testID="membership-reviewed-departure" /> : null}
+          {impact.leave_eligible && !impact.reviewed_workflow_required ? (
             <Button
               label="Leave group"
               variant="secondary"
@@ -179,7 +182,7 @@ export default function MembershipCard({ tripId }: { tripId: string }) {
               accessibilityLabel="Leave this group"
             />
           ) : null}
-          {impact.dissolve_family_eligible ? (
+          {impact.dissolve_family_eligible && !impact.reviewed_workflow_required ? (
             <Button
               label={impact.requires_family_dissolution ? 'Leave and dissolve family' : 'Dissolve family'}
               variant="destructive"
