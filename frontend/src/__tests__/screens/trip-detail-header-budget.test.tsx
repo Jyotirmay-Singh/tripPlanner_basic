@@ -734,7 +734,7 @@ describe('Trip identity header', () => {
     expect(hostByTestID(renderer.root, 'Card', 'trip-budget-used-card')).toBeTruthy();
   });
 
-  it('refreshes rollout state and shares a secure URL for a regular trip member', async () => {
+  it('refreshes rollout state and shares a secure URL when a native press event is supplied', async () => {
     mockInviteLinksEnabled = true;
     mockRole = 'member';
     mockRefreshRuntimeConfig.mockResolvedValue({ inviteLinksEnabled: true });
@@ -746,7 +746,9 @@ describe('Trip identity header', () => {
       node.props.testID === 'trip-share' && typeof node.props.onPress === 'function'
     ))[0];
 
-    await act(async () => { await share.props.onPress(); });
+    await act(async () => {
+      await share.props.onPress({ nativeEvent: { target: 1, timestamp: 123 } });
+    });
 
     expect(mockRefreshRuntimeConfig).toHaveBeenCalledTimes(1);
     expect(mockGetTripInviteLink).toHaveBeenCalledWith('t1');

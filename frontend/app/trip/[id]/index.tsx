@@ -128,7 +128,7 @@ function TripIdentityHeader({ trip, onShare, sharing = false, secureInvite = fal
           </T>
           <TouchableOpacity
             testID="trip-share"
-            onPress={onShare}
+            onPress={() => onShare()}
             disabled={sharing || shareDisabled}
             accessibilityRole="button"
             accessibilityLabel={secureInvite
