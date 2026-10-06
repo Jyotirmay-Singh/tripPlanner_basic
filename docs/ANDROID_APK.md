@@ -7,10 +7,19 @@ additive artifact — it does not affect the Vercel web deploy or the Render bac
 App: **Trip Splitter** · package `com.tripsplitter.app` · version `1.0.0`
 (the `versionCode` is auto-incremented by EAS — `eas.json` `appVersionSource: "remote"`).
 
-Current public binary: **build 8** (`versionCode 8`), SHA-256
-`8640AFA4B44E103CA47EB106F28792EF8C23BE5196B7083ACC9DA52B9BEDEAB0`, published
-without rebuilding as GitHub release `android-v1.0.0-build.8` with asset
-`trip-splitter-android-1.0.0-build-8.apk`.
+Current public binary: **build 19** (`versionCode 19`), built from
+commit `dd7590c98e5ccf3c9c625d39b726b882049cb14d`.
+
+- Stable APK: <https://tripsplitter-web.vercel.app/download/android>
+- Durable APK asset: <https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/download/android-v1.0.0-build.19/trip-splitter-android-1.0.0-build-19.apk>
+- Release: <https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/tag/android-v1.0.0-build.19>
+- SHA-256: `4c4e7ec81ce64285518a0c1fa54a9c369d6da3f84f1195eda4b9dfdac1f67dd4`
+- Size: 131,048,264 bytes
+- EAS build: <https://expo.dev/accounts/jyotirmay03/projects/frontend/builds/851f617f-6b0a-42bf-a093-ff0a6109063f>
+- Signed Play Store bundle build 20: available locally; see [the Play Console guide](PLAY_INTERNAL_TESTING.md).
+
+See [the release report](releases/android-1.0.0-build-19.md) for verification details.
+No Android device or emulator was attached for installation, cold-launch, or real sign-in testing.
 
 ---
 

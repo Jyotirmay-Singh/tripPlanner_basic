@@ -27,13 +27,25 @@ Play Console → **Create app**:
 - Accept the developer-program / US-export declarations.
 - (The package `com.tripsplitter.app` is registered automatically on your first bundle upload.)
 
-## Step 2 — Build the `.aab`  *(me — done/in progress)*
+## Step 2 — Use the signed `.aab`
 
-`eas build --platform android --profile production` → a Play-ready **app bundle**, prod env
-baked in, `versionCode` auto-incremented by EAS.
-<!-- AAB build + download link recorded below once the build finishes -->
-- Build page: `<pending>`
-- Direct `.aab`: `<pending>`
+Current bundle: **Trip Splitter 1.0.0, build 20** (`versionCode 20`),
+package `com.tripsplitter.app`, built from commit `dd7590c98e5ccf3c9c625d39b726b882049cb14d`.
+The `production` EAS profile embeds the production backend and public Google client IDs.
+
+- File: `trip-splitter-android-1.0.0-build-20.aab`
+- EAS build ID: `1e2db35f-94a3-486b-9014-92e22d4ae912`
+- Local file in the release workspace: `.release-tmp/android-release-20261005/trip-splitter-android-1.0.0-build-20.aab`
+- SHA-256: `d37a2369ff95551465a0ddc3ad7a60f106550de3393c2c162d7be1a21147d5ec`
+- Size: 94,135,799 bytes
+
+The bundle passed bundletool validation, signature checks, production-configuration checks,
+and 16 KB native-library alignment checks. Device installation and real sign-in remain untested.
+Upload this local file to Play Console; the bundle has not been submitted to Google Play or
+published as a public GitHub download. The APK remains the public artifact used in group sharing.
+
+For a future release, run `eas build --platform android --profile production --non-interactive --wait`
+from `frontend/`; EAS auto-increments the remote Android version code.
 
 ## Step 3 — Create the Internal testing release + upload  *(you)*
 
