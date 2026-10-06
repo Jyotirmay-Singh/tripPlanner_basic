@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 
 from database import db
+from services.settlement_write_guard import reject_legacy_write
 from models.member import MemberIn, MemberUpdate
 from utils.common import gen_id
 from utils.deps import get_current_user, _trip_admin_or_403
@@ -68,6 +69,7 @@ async def _validate_family_member_emails(trip, fam_emails, exclude_id):
 @router.post("/trips/{trip_id}/members")
 async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user)):
     trip = await _trip_admin_or_403(trip_id, user)
+    reject_legacy_write(trip, code="settlement_correction_required")
     name = body.name
     members = trip.get("members", [])
     email = normalize_email(body.email)
@@ -144,6 +146,7 @@ async def add_member(trip_id: str, body: MemberIn, user=Depends(get_current_user
 @router.patch("/trips/{trip_id}/members/{member_id}")
 async def update_member(trip_id: str, member_id: str, body: MemberUpdate, user=Depends(get_current_user)):
     trip = await _trip_admin_or_403(trip_id, user)
+    reject_legacy_write(trip, code="settlement_correction_required")
     target = next((m for m in trip["members"] if m["id"] == member_id), None)
     if not target:
         raise HTTPException(404, "Member not found")
@@ -277,6 +280,7 @@ async def delete_member(trip_id: str, member_id: str, user=Depends(get_current_u
     (P5).
     """
     trip = await _trip_admin_or_403(trip_id, user)
+    reject_legacy_write(trip, code="settlement_correction_required")
     target = next((m for m in trip.get("members", []) if m["id"] == member_id), None)
     # A missing member id stays an idempotent no-op (preserves the historical DELETE contract).
     if not target:
@@ -329,6 +333,7 @@ async def delete_family_member(trip_id: str, family_id: str, fm_id: str,
     expenses so the family's net — and every other balance — is unchanged.
     """
     trip = await _trip_admin_or_403(trip_id, user)
+    reject_legacy_write(trip, code="settlement_correction_required")
     family = next((m for m in trip.get("members", []) if m["id"] == family_id), None)
     if not family or family.get("kind") != "family":
         raise HTTPException(404, "Family not found")

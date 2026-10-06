@@ -13,6 +13,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from database import db
+from services.settlement_write_guard import reject_legacy_write
 from utils.common import gen_id, iso, now_utc
 from utils.email_rules import normalize_email
 from utils.members import (
@@ -355,6 +356,12 @@ def _email_owned_elsewhere(trip: dict, email: str, target: dict) -> bool:
 
 
 async def approve_request(request_id: str, admin_user_id: str) -> tuple[dict, dict]:
+    candidate_trip = None
+    candidate = await db.join_requests.find_one({"id": request_id}, {"_id": 0})
+    if candidate:
+        candidate_trip = await db.trips.find_one({"id": candidate["trip_id"]}, {"_id": 0})
+        if candidate_trip:
+            reject_legacy_write(candidate_trip, code="settlement_correction_required")
     timestamp = now_utc()
     document = await db.join_requests.find_one_and_update(
         {"id": request_id, "status": "pending"},
@@ -378,7 +385,9 @@ async def approve_request(request_id: str, admin_user_id: str) -> tuple[dict, di
             _fail(409, "join_request_resolved", "This join request is no longer pending")
         document = current
 
-    trip = await db.trips.find_one({"id": document["trip_id"]}, {"_id": 0})
+    trip = candidate_trip if candidate_trip and candidate_trip["id"] == document["trip_id"] else await db.trips.find_one({"id": document["trip_id"]}, {"_id": 0})
+    if trip:
+        reject_legacy_write(trip, code="settlement_correction_required")
     requester = await db.users.find_one({"id": document["requester_user_id"]}, {"_id": 0})
     if not trip or not requester:
         await db.join_requests.update_one({"id": request_id, "status": "approving"}, {"$set": {

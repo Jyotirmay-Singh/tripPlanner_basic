@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from database import db
 from services.member_breakdown import family_member_breakdown
+from services.ledger_snapshot import LedgerSnapshot, load_ledger
 from services.settlement_engine import (
     SettlementLedgerError,
     build_precise_net,
@@ -29,27 +30,15 @@ async def _compute_balances(
     diagnostic: bool = False,
     session=None,
 ) -> dict:
-    session_options = {"session": session} if session is not None else {}
-    trip = await db.trips.find_one({"id": trip_id}, {"_id": 0}, **session_options)
-    if not trip:
-        raise HTTPException(404, "Group not found")
-    members = trip["members"]
+    ledger = await load_ledger(trip_id, db, session=session)
+    return project_ledger_balances(ledger, diagnostic=diagnostic)
 
-    # Canonical expense amounts were fixed when saved. Settlement never calls the FX service and
-    # never mutates historical conversion metadata. There is deliberately no accounting row cap.
-    expenses = await db.expenses.find(
-        {"trip_id": trip_id}, {"_id": 0}, **session_options
-    ).to_list(None)
-    settlements = await db.settlements.find(
-        {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}, **session_options
-    ).to_list(None)
-    payments = await db.payments.find(
-        {"trip_id": trip_id}, {"_id": 0}, **session_options
-    ).to_list(None)
-    adjustment_collection = getattr(db, "money_migration_adjustments", None)
-    migration_adjustment = await adjustment_collection.find_one(
-        {"trip_id": trip_id}, {"_id": 0}, **session_options
-    ) if adjustment_collection is not None else None
+
+def project_ledger_balances(ledger: LedgerSnapshot, *, diagnostic=False) -> dict:
+    """Project an already-loaded input, preserving the public balance response."""
+    trip, expenses, payments = ledger.trip, ledger.expenses, ledger.payments
+    members = trip["members"]
+    settlements = [row for row in ledger.settlements if row.get("status") != "pending"]
 
     try:
         precise_net = build_precise_net(
@@ -57,7 +46,7 @@ async def _compute_balances(
             expenses,
             settlements,
             payments,
-            migration_adjustments=(migration_adjustment or {}).get("vector"),
+            migration_adjustments=ledger.adjustments,
         )
 
         # Keep the legacy numeric ``net`` response shape while jointly projecting every currency to

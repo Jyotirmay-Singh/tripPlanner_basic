@@ -259,6 +259,10 @@ def build_expo_message(event: dict, delivery: dict) -> dict:
                 title = f"{payer_name} partly paid {money} to {recipient_name}"
             else:
                 title = f"{payer_name} settled {money} to {recipient_name}"
+    if event.get("payment_method") in {"cash", "bank"} and event["event_type"].startswith("payment_attempt."):
+        title = {"payment_attempt.confirmation_requested": "Confirm a reported payment",
+                 "payment_attempt.confirmed": "Payment receipt confirmed",
+                 "payment_attempt.not_received": "Payment receipt needs review"}.get(event["event_type"], title)
     source_id = event["source_id"]
     data = {
         "payloadVersion": 1,
@@ -297,9 +301,13 @@ async def enqueue_notification_event(
     payment_classification: Optional[str] = None,
     background_tasks: Any = None,
     session=None,
+    event_id: Optional[str] = None,
+    payment_method: Optional[str] = None,
 ) -> bool:
     """Persist one event; session-bound inserts fail atomically with the business operation."""
-    stable_event_key = notification_event_key(event_type, source_id)
+    # Reviewed reports may have several durable actions against the same attempt.
+    # Keep deduplication tied to the action and navigation tied to the attempt.
+    stable_event_key = notification_event_key(event_type, event_id or source_id)
     if not PUSH_NOTIFICATIONS_ENABLED:
         logger.info(
             "push.event_skipped event_key=%s event_type=%s trip_id=%s reason=disabled",
@@ -345,6 +353,8 @@ async def enqueue_notification_event(
         "updated_at": timestamp,
         "completed_at": None,
     }
+    if payment_method in {"upi", "cash", "bank"}:
+        document["payment_method"] = payment_method
     if event_type == "chat.message.created":
         clean_sender_name = notification_label(sender_name, ACTOR_NAME_MAX_LENGTH)
         if clean_sender_name:

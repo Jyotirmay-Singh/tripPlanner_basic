@@ -7,10 +7,12 @@ from config import (
     EMAIL_FEATURES_ENABLED,
     INVITE_LINKS_ENABLED,
     MULTI_CURRENCY_EXPENSES_ENABLED,
+    EXPENSE_SETTLEMENT_ENABLED,
 )
 from utils.money_policy import money_policy_config
 from services.expense_idempotency import expense_protocol_ready
 from services.payment_idempotency import payment_protocol_ready
+from services.settlement_intents import actions_ready
 
 router = APIRouter()
 CHAT_PROTOCOL_VERSION = 1
@@ -37,6 +39,9 @@ async def get_config():
         "email_features_enabled": EMAIL_FEATURES_ENABLED,
         "invite_links_enabled": INVITE_LINKS_ENABLED,
         "multi_currency_expenses_enabled": MULTI_CURRENCY_EXPENSES_ENABLED,
+        "expense_settlement_enabled": EXPENSE_SETTLEMENT_ENABLED,
+        "expense_settlement_protocol_version": 1,
+        "expense_settlement_actions_ready": EXPENSE_SETTLEMENT_ENABLED and actions_ready(),
         # Compatibility field for old clients. It is permanently true under whole_unit_v1.
         "whole_unit_settlements_enabled": True,
         "money_policy": money_policy_config(),

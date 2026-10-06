@@ -419,6 +419,14 @@ Inside a group, the **Balances** tab shows:
   Currency selectors, field labels, accessibility text, APIs, and reports continue to use ISO codes.
 
 ### 7.2 Settle Up screen
+Expense-by-expense confirmed payment progress is still under development and is not available in
+the app. Current balances, family breakdowns, and settlement suggestions describe net group
+positions; they do not establish which individual expense shares have been paid.
+The backend now supports reviewed expense-payment reports and receiver/admin receipt approval,
+including partial shares and family payments. This feature remains disabled and has no app interface
+yet. For that future workflow, reporting a payment does not settle a share; confirmed money can remain
+as credit while an allocation needs review or other people’s approval.
+
 Open via the group's **Settle Up** button. It shows the current backend-authoritative *Pays → Receives*
 recommendations. Every supported currency uses whole major units, such as **LKR 1,250**, never
 LKR 1,249.67. The group is reconciled together, so total paid always equals total received.
@@ -468,9 +476,11 @@ The screen labels the route **Minimum payment plan** when bounded exact optimiza
 - Any account linked to the receiving family, the group owner/admin, or the application super-admin
   can see the full incoming attempt and confirm receipt, report non-receipt, retry, or close review.
   Unrelated members and outsiders cannot see attempt details or review it. A recipient/reviewer can
-  retry a disputed confirmation or close the review without posting. Unresolved
-  attempts expire after 24 hours (the window restarts when a payment is reported or enters review),
-  remain in the audit list, and never affect balances by themselves.
+  retry a disputed confirmation or resolve the review without posting. The server requires an
+  explanation to close a sent-payment review; older app versions may require an update for that
+  action. Only starts with no reported payment expire after 24 hours. Reported or disputed money
+  stays in review until explicitly resolved. An elapsed deadline does not mean it is safe to pay
+  again. Attempts remain in the audit list and never affect balances by themselves.
 - Confirmation recomputes the latest payable for that same direction. It posts exactly one normal
   ledger payment for the smaller of the originally approved group amount and the current payable. If
   the payable is now zero, the attempt moves to **Needs review** and posts nothing. The activity card

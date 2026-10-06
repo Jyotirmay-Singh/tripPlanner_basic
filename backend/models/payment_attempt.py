@@ -1,5 +1,6 @@
 import re
 from typing import Literal, Optional
+from uuid import UUID
 
 from pydantic import BaseModel, StrictStr, field_validator, model_validator
 
@@ -56,6 +57,9 @@ class PaymentAttemptCreate(BaseModel):
 
 
 class PaymentAttemptSenderPatch(BaseModel):
+    client_mutation_id: Optional[UUID] = None
+    expected_intent_version: Optional[int] = None
+    plan_hash: Optional[StrictStr] = None
     action: PaymentAttemptSenderAction
     transaction_reference: Optional[StrictStr] = None
 
@@ -72,4 +76,8 @@ class PaymentAttemptSenderPatch(BaseModel):
 
 
 class PaymentAttemptRecipientPatch(BaseModel):
+    client_mutation_id: Optional[UUID] = None
+    expected_intent_version: Optional[int] = None
+    plan_hash: Optional[StrictStr] = None
+    reason: Optional[StrictStr] = None
     action: PaymentAttemptRecipientAction

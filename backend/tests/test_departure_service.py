@@ -251,7 +251,7 @@ def test_family_choices_cover_other_linked_user_and_only_person(monkeypatch):
     assert only["dissolve_family_eligible"] is True
 
 
-def test_global_active_attempt_check_ignores_expired_and_terminal_rows(monkeypatch):
+def test_global_active_attempt_check_retains_overdue_sent_reports(monkeypatch):
     future = datetime.now(timezone.utc) + timedelta(hours=1)
     past = datetime.now(timezone.utc) - timedelta(hours=1)
     attempts = FindCollection([
@@ -266,7 +266,7 @@ def test_global_active_attempt_check_ignores_expired_and_terminal_rows(monkeypat
 
     rows = run(departure._active_account_attempts("user-1"))
 
-    assert [row["trip_id"] for row in rows] == ["live"]
+    assert [row["trip_id"] for row in rows] == ["live", "expired"]
     assert {next(iter(condition)) for condition in attempts.queries[0]["$or"]} \
         == set(departure.ACCOUNT_REFERENCE_FIELDS)
 
@@ -593,7 +593,7 @@ def test_account_deletion_requires_acknowledgement_then_runs_scoped_and_global_c
         {"actor_user_id": "user-1"}, session="session",
     )
     fake_db.payment_mutation_receipts.delete_many.assert_awaited_once_with(
-        {"actor_user_id": "user-1"}, session="session",
+        {"actor_user_id": "user-1", "operation": {"$not": {"$regex": "^settlement[.]"}}}, session="session",
     )
     users.delete_one.assert_awaited_once_with({"id": "user-1"}, session="session")
 

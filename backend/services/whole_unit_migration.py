@@ -15,6 +15,7 @@ from typing import Any, Iterable, Optional
 from bson.decimal128 import Decimal128
 
 from database import db
+from services.settlement_write_guard import reject_legacy_write
 from services.custom_split import ordered_exact_member_ids
 from services.ledger_transactions import run_required_transaction
 from services.payment_attempts import ACTIVE_PAYMENT_ATTEMPT_STATUSES
@@ -435,6 +436,7 @@ async def apply_trip_migration(trip_id: str) -> dict:
         trip, expenses, settlements, payments, attempts = await _load_trip_rows(
             trip_id, session=session
         )
+        reject_legacy_write(trip, code="settlement_correction_required")
         plan = plan_trip_migration(
             trip,
             expenses,
@@ -500,6 +502,7 @@ async def revert_trip_migration(trip_id: str) -> dict:
         trip, _expenses, _settlements, _payments, attempts = await _load_trip_rows(
             trip_id, session=session
         )
+        reject_legacy_write(trip, code="settlement_correction_required")
         if attempts:
             return {"trip_id": trip_id, "status": "blocked", "reason": "active_upi_attempt"}
         if trip.get("money_policy_version") != MONEY_POLICY_VERSION:

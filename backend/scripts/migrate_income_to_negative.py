@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database import db, client  # noqa: E402
 from services.income_migration import simulate_trip, to_negative_expense  # noqa: E402
+from services.settlement_write_guard import guard_existing_trip_write  # noqa: E402
 from utils.money_policy import whole_money  # noqa: E402
 
 
@@ -101,6 +102,8 @@ async def apply() -> int:
         print("Nothing to migrate (no `kind:\"income\"` rows). Already migrated or none existed.")
         return 0
 
+    for trip_id in {row["trip_id"] for row in income_rows}:
+        await guard_existing_trip_write(trip_id, db)
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     backup_path = os.path.abspath(f"income_migration_backup_{ts}.json")
     backup = [{"id": e["id"], "kind": e["kind"], "amount": e["amount"]} for e in income_rows]
@@ -110,6 +113,7 @@ async def apply() -> int:
 
     migrated = 0
     for e in income_rows:
+        await guard_existing_trip_write(e["trip_id"], db)
         res = await db.expenses.update_one(
             {"id": e["id"]},
             {"$set": {"amount": to_negative_expense(e)["amount"]}, "$unset": {"kind": ""}},
@@ -123,6 +127,9 @@ async def apply() -> int:
 async def revert(backup_path: str) -> int:
     with open(backup_path, "r", encoding="utf-8") as f:
         backup = json.load(f)
+    affected = await db.expenses.find({"id": {"$in": [row["id"] for row in backup]}}, {"_id": 0, "trip_id": 1}).to_list(None)
+    for trip_id in {row["trip_id"] for row in affected}:
+        await guard_existing_trip_write(trip_id, db)
     restored = 0
     for row in backup:
         res = await db.expenses.update_one(

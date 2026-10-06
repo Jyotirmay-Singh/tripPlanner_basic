@@ -3,6 +3,8 @@ from pymongo.errors import DuplicateKeyError
 
 from config import CATEGORIES, MULTI_CURRENCY_EXPENSES_ENABLED
 from database import db
+from services.settlement_write_guard import reject_legacy_write, activated
+from services.coverage_journal import store_new_share_revision
 from models.expense import ExpenseIn, ExpenseUpdate
 from models.exchange_rate import ConversionRequest, ReconvertIn
 from utils.common import gen_id
@@ -244,6 +246,8 @@ async def _create_retryable_expense(trip_id, body, user, doc, converted, force,
         }, session=session)
         await _claim_trip_version(live_trip, doc["created_at"], session)
         await db.expenses.insert_one(doc, session=session)
+        if activated(live_trip):
+            await store_new_share_revision(doc, live_trip["members"], trip_id, session=session)
         await record_money_normalizations(
             converted.get("normalizations", []),
             actor_user_id=user["id"], trip_id=trip_id,
@@ -304,6 +308,11 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
             raise HTTPException(503, detail={"code": "expense_retry_unavailable"})
 
     trip = await _trip_or_404(trip_id, user)
+    if activated(trip):
+        if trip.get("expense_settlement_activation_version") != 1 or trip.get("financial_write_guard_version") != 1:
+            raise HTTPException(409, detail={"code": "group_not_ready"})
+        if not body.client_mutation_id:
+            raise HTTPException(428, detail={"code": "settlement_client_upgrade_required"})
     if fingerprint is not None:
         verify_roster(trip, body)
     trip_currency = trip.get("currency", "INR")
@@ -372,12 +381,20 @@ async def add_expense(trip_id: str, body: ExpenseIn, background_tasks: Backgroun
         # Whichever transaction loses the race aborts without leaving a partial expense.
         await _claim_trip_version(trip, created_at, session)
         await db.expenses.insert_one(doc, session=session)
+        if activated(trip):
+            await store_new_share_revision(doc, trip["members"], trip_id, session=session)
 
     async def standalone_write():
         await db.expenses.insert_one(doc)
         await touch_trip_activity_safely(db, trip_id, timestamp=created_at)
 
-    await run_optional_transaction(transactional_write, standalone_write)
+    if activated(trip):
+        try:
+            await run_required_transaction(transactional_write)
+        except TransactionUnavailableError as exc:
+            raise HTTPException(503, detail={"code": "settlement_transactions_unavailable"}) from exc
+    else:
+        await run_optional_transaction(transactional_write, standalone_write)
     doc.pop("_id", None)
     await record_money_normalizations(
         converted.get("normalizations", []),
@@ -466,6 +483,8 @@ async def get_expense(trip_id: str, expense_id: str, user=Depends(get_current_us
 async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
                          user=Depends(get_current_user)):
     trip, expense = await _expense_modify_or_403(trip_id, expense_id, user)
+    if set(body.model_dump(exclude_unset=True)) - {"description", "category", "force"}:
+        reject_legacy_write(trip, code="settlement_correction_required")
     raw = body.model_dump(exclude_unset=True)
     force = bool(raw.pop("force", False))
     if not raw:
@@ -739,6 +758,7 @@ async def update_expense(trip_id: str, expense_id: str, body: ExpenseUpdate,
 async def reconvert_expense(trip_id: str, expense_id: str, body: ReconvertIn,
                             user=Depends(get_current_user)):
     trip, expense = await _expense_modify_or_403(trip_id, expense_id, user)
+    reject_legacy_write(trip, code="settlement_correction_required")
     if not MULTI_CURRENCY_EXPENSES_ENABLED:
         _foreign_disabled()
     current_version = int(expense.get("conversion_version") or 0)
@@ -829,6 +849,7 @@ async def reconvert_expense(trip_id: str, expense_id: str, body: ReconvertIn,
 async def delete_expense(trip_id: str, expense_id: str, user=Depends(get_current_user)):
     # Step 10: only the expense creator or a trip admin may delete (404 if missing, 403 otherwise).
     trip, _expense = await _expense_modify_or_403(trip_id, expense_id, user)
+    reject_legacy_write(trip, code="settlement_correction_required")
     activity_at = activity_timestamp()
 
     async def transactional_write(session):

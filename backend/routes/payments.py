@@ -4,6 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pymongo.errors import DuplicateKeyError
 
 from database import db
+from services.settlement_write_guard import reject_legacy_write
 from models.payment import (
     PaymentCreate,
     PaymentHandoffPreview,
@@ -180,6 +181,7 @@ async def payment_recipient_details(
 ):
     """Return fresh UPI details only for an active recommended payer/recipient pair."""
     trip = await _trip_or_404(trip_id, user)
+    reject_legacy_write(trip)
     members_by_id = {member["id"]: member for member in trip.get("members", [])}
     payer = members_by_id.get(from_member_id)
     recipient = members_by_id.get(to_member_id)
@@ -222,6 +224,7 @@ async def preview_payment_handoff(
     """
 
     trip = await _trip_or_404(trip_id, user)
+    reject_legacy_write(trip)
     members_by_id = {member["id"]: member for member in trip.get("members", [])}
     payer = members_by_id.get(body.from_member_id)
     recipient = members_by_id.get(body.to_member_id)
@@ -392,6 +395,7 @@ async def _create_retryable_payment(trip_id: str, body: PaymentCreate, user: dic
         trip = await db.trips.find_one({"id": trip_id}, {"_id": 0}, session=session)
         if trip is None:
             raise HTTPException(404, "Group not found")
+        reject_legacy_write(trip)
         if not is_super_admin(user) and user["id"] not in trip.get("user_ids", []):
             raise HTTPException(403, "Not a member of this group")
         if not can_record_payment(trip, body.to_member_id, user):
@@ -511,6 +515,7 @@ async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: Ba
         )
 
     trip = await _trip_or_404(trip_id, user)
+    reject_legacy_write(trip)
     current_version = trip.get("version", 0)
     if not can_record_payment(trip, body.to_member_id, user):
         raise HTTPException(403, "Only the receiver or a group admin can record this payment")
@@ -597,6 +602,10 @@ async def edit_payment(trip_id: str, payment_id: str, body: PaymentPatch,
     # direction: cap = current pair payable + this payment's own effect (i.e. the payable as if this
     # payment didn't exist), so create and edit share one rule.
     trip, payment = await _payment_or_403(trip_id, payment_id, user)
+    if payment.get("settlement_intent_id") and body.amount is not None:
+        raise _handoff_error(409, "settlement_correction_required", "Reviewed payment amounts are immutable")
+    if body.amount is not None:
+        reject_legacy_write(trip)
     current_version = trip.get("version", 0)
     updates: dict = {}
     amount_change = None
@@ -693,6 +702,9 @@ async def edit_payment(trip_id: str, payment_id: str, body: PaymentPatch,
 async def delete_payment(trip_id: str, payment_id: str, user=Depends(get_current_user)):
     # Delete a recorded payment (balances self-heal on the next recompute). Receiver-or-admin only.
     trip, payment = await _payment_or_403(trip_id, payment_id, user)
+    reject_legacy_write(trip)
+    if payment.get("settlement_intent_id"):
+        raise _handoff_error(409, "settlement_correction_required", "Reviewed receipts must be retained")
 
     if payment.get("payment_attempt_id"):
         attempt_id = payment["payment_attempt_id"]

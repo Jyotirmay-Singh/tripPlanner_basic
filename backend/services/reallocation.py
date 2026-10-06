@@ -128,6 +128,8 @@ async def _load_candidate_expenses(trip_id: str, member_id: str) -> list:
 async def apply_reallocation(trip_id: str, plan: dict, session=None) -> dict:
     """Apply a reallocation plan to db.expenses in one bulk_write. Empty plan -> no DB call."""
     from database import db
+    from services.settlement_write_guard import guard_existing_trip_write
+    await guard_existing_trip_write(trip_id, db, session=session)
     ops = _build_ops(trip_id, plan)
     modified = 0
     if ops:
@@ -172,6 +174,8 @@ async def run_member_update_with_reallocation(trip_id: str, member_id: str, memb
     aborted transaction can never double-apply. Returns the reallocation summary.
     """
     from database import db, client
+    from services.settlement_write_guard import guard_existing_trip_write
+    await guard_existing_trip_write(trip_id, db)
     if old_weight != new_weight:
         expenses = await _load_candidate_expenses(trip_id, member_id)
         plan = plan_reallocation(member_id, old_weight, new_weight, reweight_past, expenses)
@@ -230,6 +234,8 @@ async def freeze_and_remove_member(trip_id: str, member_id: str, weight: int,
     fallback), mirroring ``run_member_update_with_reallocation``.
     """
     from database import db, client
+    from services.settlement_write_guard import guard_existing_trip_write
+    await guard_existing_trip_write(trip_id, db)
 
     if weight > 1:
         expenses = await _load_candidate_expenses(trip_id, member_id)

@@ -22,6 +22,9 @@ from services.trip_activity import backfill_trip_activity
 from services.mobile_claims import reconcile_mobile_claims
 from services.expense_idempotency import verify_expense_transactions
 from services.payment_idempotency import verify_payment_transactions
+from services.coverage_journal import ensure_coverage_indexes
+from services.settlement_intents import ensure_indexes as ensure_settlement_intent_indexes
+from routes import expense_settlement
 
 
 # ---------- Startup / Shutdown ----------
@@ -67,6 +70,7 @@ async def _ensure_super_admin() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await ensure_coverage_indexes(db)
     await db.users.create_index("email", unique=True)
     await db.trips.create_index("code", unique=True)
     await db.trip_mobile_claims.create_index(
@@ -129,7 +133,7 @@ async def lifespan(app: FastAPI):
     # Step 5 UPI handoff audit. Terminal attempts retain their snapshots; only unresolved rows carry
     # active_key, which makes the debtor-to-creditor direction unique without deleting history.
     await db.payment_attempts.create_index("id", unique=True)
-    await db.payment_attempts.create_index("quote_id", unique=True)
+    await ensure_settlement_intent_indexes(db)
     await db.payment_attempts.create_index(
         "active_key",
         unique=True,
@@ -292,7 +296,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Trip Splitter", lifespan=lifespan)
 api = APIRouter(prefix="/api")
 
-for module in (auth, departure, trips, join_requests, invites, members, expenses, balances, reports, meta, receipts, spend, payments, payment_attempts, chat, push, exchange_rates, admin):
+for module in (auth, departure, trips, join_requests, invites, members, expenses, balances, reports, meta, receipts, spend, payments, payment_attempts, chat, push, exchange_rates, admin, expense_settlement):
     api.include_router(module.router)
 
 

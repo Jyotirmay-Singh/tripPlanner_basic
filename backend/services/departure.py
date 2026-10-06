@@ -22,7 +22,7 @@ from services.ledger_transactions import (
     is_retryable_transaction_error,
     run_required_transaction,
 )
-from services.payment_attempts import ACTIVE_PAYMENT_ATTEMPT_STATUSES
+from services.payment_attempts import ACTIVE_PAYMENT_ATTEMPT_STATUSES, has_sent_evidence
 from services.reallocation import plan_reallocation
 from utils.balances import _compute_balances
 from utils.common import now_utc
@@ -40,6 +40,7 @@ ACCOUNT_REFERENCE_FIELDS = (
     "initiating_payer_user_id",
     "selected_recipient_user_id",
     "sender_reported_by",
+    "reported_by",
     "canceled_by",
     "confirmation_attempted_by",
     "recipient_confirmed_by",
@@ -98,8 +99,12 @@ def _aware_datetime(value: object) -> Optional[datetime]:
 
 
 def _is_nonexpired_attempt(attempt: dict, timestamp: datetime) -> bool:
+    if attempt.get("status") == "expired" and has_sent_evidence(attempt):
+        return True
     if attempt.get("status") not in ACTIVE_PAYMENT_ATTEMPT_STATUSES:
         return False
+    if attempt.get("status") in {"awaiting_confirmation", "needs_review"} or has_sent_evidence(attempt):
+        return True
     expires_at = _aware_datetime(attempt.get("expires_at"))
     # A legacy unresolved row with no expiry is conservatively still active.
     return expires_at is None or expires_at > timestamp
@@ -271,10 +276,10 @@ def _attempt_references_family(attempt: dict, identity: dict) -> bool:
 
 
 async def _active_attempt_flags(trip_id: str, user_id: str, identity: dict,
-                                *, session=None) -> tuple[bool, bool]:
+                                *, session=None, trip=None) -> tuple[bool, bool]:
     options = _session_options(session)
     attempts = await db.payment_attempts.find(
-        {"trip_id": trip_id, "status": {"$in": list(ACTIVE_PAYMENT_ATTEMPT_STATUSES)}},
+        {"trip_id": trip_id, "status": {"$in": list(ACTIVE_PAYMENT_ATTEMPT_STATUSES) + ["expired"]}},
         {"_id": 0},
         **options,
     ).to_list(length=None)
@@ -286,6 +291,25 @@ async def _active_attempt_flags(trip_id: str, user_id: str, identity: dict,
     references_family = identity.get("identity_type") == "family_member" and any(
         _attempt_references_family(row, identity) for row in attempts
     )
+    if trip and trip.get("expense_settlement_activation_version") == 1:
+        from services.ledger_snapshot import load_ledger
+        from services.expense_coverage import build_coverage_snapshot
+        from services.coverage_support import CoverageError
+        from services.settlement_engine import SettlementLedgerError, to_scaled
+        try:
+            snapshot = build_coverage_snapshot(await load_ledger(trip_id, db, trip=trip, coverage=True, session=session))
+            wallet = identity.get("member_id")
+            blocked = any(snapshot.remaining(row["id"]) and wallet in {row["debtor_wallet_id"], row["creditor_wallet_id"]}
+                          for row in snapshot.shares.values())
+            blocked |= any(to_scaled(source["amount"]) > snapshot.claimed.get(sid, 0) and
+                           wallet in {source["from_member_id"], source["to_member_id"]}
+                           for sid, source in snapshot.sources.items())
+            blocked |= any(wallet in {snapshot.shares[sid]["debtor_wallet_id"], snapshot.shares[sid]["creditor_wallet_id"]}
+                           for case in snapshot.review_cases for sid in case["share_ids"])
+        except (CoverageError, SettlementLedgerError):
+            blocked = True
+        references_user |= blocked
+        references_family |= blocked and identity.get("identity_type") == "family_member"
     return references_user, references_family
 
 
@@ -299,10 +323,11 @@ async def _active_account_attempts(user_id: str, *, session=None) -> list[dict]:
     options = _session_options(session)
     rows = await db.payment_attempts.find(
         {
-            "status": {"$in": list(ACTIVE_PAYMENT_ATTEMPT_STATUSES)},
+            "status": {"$in": list(ACTIVE_PAYMENT_ATTEMPT_STATUSES) + ["expired"]},
             "$or": [{field: user_id} for field in ACCOUNT_REFERENCE_FIELDS],
         },
-        {"_id": 0, "trip_id": 1, "expires_at": 1, "status": 1},
+        {"_id": 0, "trip_id": 1, "expires_at": 1, "status": 1, "sender_reported_by": 1,
+         "awaiting_confirmation_at": 1, "reported_by": 1, "recipient_not_received_by": 1},
         **options,
     ).to_list(length=None)
     timestamp = now_utc()
@@ -388,7 +413,7 @@ async def evaluate_trip(trip: dict, user_id: str, *, session=None) -> dict:
     entity_position = _precise_entity_position(balances, identity["member_id"])
     entity_settled = _decimal(entity_position) == 0
     active_user_attempt, active_family_attempt = await _active_attempt_flags(
-        trip_id, user_id, identity, session=session,
+        trip_id, user_id, identity, session=session, trip=trip,
     )
 
     family = None
@@ -853,6 +878,8 @@ def _roles_after_departure(trip: dict, user_id: str, ownership: dict) -> tuple[l
 async def _write_trip_membership(evaluation: dict, user_id: str, action: str,
                                  *, session) -> None:
     trip = evaluation["trip"]
+    from services.settlement_write_guard import reject_legacy_write
+    reject_legacy_write(trip, code="settlement_correction_required")
     identity = evaluation["identity"]
     if action == "keep":
         members = _detached_members(trip, identity)
@@ -1221,7 +1248,7 @@ async def delete_account(user: dict, *, confirmation: str, acknowledge_unsettled
             {"actor_user_id": user["id"]}, session=session,
         )
         await db.payment_mutation_receipts.delete_many(
-            {"actor_user_id": user["id"]}, session=session,
+            {"actor_user_id": user["id"], "operation": {"$not": {"$regex": "^settlement[.]"}}}, session=session,
         )
         deleted = await db.users.delete_one({"id": user["id"]}, session=session)
         if getattr(deleted, "deleted_count", 1) == 0:

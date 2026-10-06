@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Depends
 
 from database import db
+from services.settlement_write_guard import reject_legacy_write
 from models.trip import TripIn, TripUpdate, AdminGrant, OwnershipTransfer
 from models.join import JoinRequest, JoinPreviewRequest
 from utils.common import gen_id, gen_trip_code
@@ -239,6 +240,7 @@ async def update_trip(trip_id: str, body: TripUpdate, user=Depends(get_current_u
 async def delete_trip(trip_id: str, user=Depends(get_current_user)):
     # Step 23: deleting a trip is owner-or-application-admin only.
     trip = await _trip_owner_or_403(trip_id, user)
+    reject_legacy_write(trip, code="settlement_correction_required")
     await revoke_trip_invites(trip_id, user["id"])
     await delete_receipts_for_trip(trip_id)
     await db.trips.delete_one({"id": trip_id})
@@ -436,6 +438,7 @@ async def _resolve_clean_stub_for_join_new(trip, own_stubs, user_email, body):
 
 
 async def _apply_mode(trip, members, user, user_email, body):
+    reject_legacy_write(trip, code="settlement_correction_required")
     """Create or link the joiner's OWN membership per body.mode. Shared by the legacy
     (action=None) and join_new flows; callers must have already resolved any conflicting clean
     stub. mode=None => legacy auto-claim a matching own-email stub (EITHER kind), else a new
@@ -656,6 +659,8 @@ async def join_trip(body: JoinRequest, user=Depends(get_current_user)):
         await cancel_pending_after_join(trip["id"], user["id"])
         return trip  # idempotent — already a member, regardless of action/mode
 
+    # Guard before claims, provisional mobile reservations, or clean-stub replacement.
+    reject_legacy_write(trip, code="settlement_correction_required")
     members = trip.get("members", [])
     user_email = normalize_email(user["email"])
 
@@ -851,7 +856,7 @@ async def add_admin(trip_id: str, body: AdminGrant, user=Depends(get_current_use
     if body.user_id not in trip.get("user_ids", []):
         raise HTTPException(400, "User is not a member of this group")
     result = await db.trips.update_one(
-        {"id": trip_id}, {"$addToSet": {"admin_ids": body.user_id}}
+        {"id": trip_id}, {"$addToSet": {"admin_ids": body.user_id}, "$inc": {"version": 1}}
     )
     trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     if _write_changed(result):
@@ -868,7 +873,7 @@ async def remove_admin(trip_id: str, user_id: str, user=Depends(get_current_user
     trip = await _trip_owner_or_403(trip_id, user)
     if user_id == trip["owner_id"]:
         raise HTTPException(400, "Cannot remove the root admin")
-    result = await db.trips.update_one({"id": trip_id}, {"$pull": {"admin_ids": user_id}})
+    result = await db.trips.update_one({"id": trip_id}, {"$pull": {"admin_ids": user_id}, "$inc": {"version": 1}})
     trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     if _write_changed(result):
         await record_admin_action(
@@ -890,7 +895,7 @@ async def transfer_ownership(trip_id: str, body: OwnershipTransfer, user=Depends
         raise HTTPException(400, "User is not a member of this group")
     await db.trips.update_one(
         {"id": trip_id},
-        {"$set": {"owner_id": body.user_id}, "$addToSet": {"admin_ids": body.user_id}},
+        {"$set": {"owner_id": body.user_id}, "$addToSet": {"admin_ids": body.user_id}, "$inc": {"version": 1}},
     )
     trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     await record_admin_action(

@@ -200,7 +200,7 @@ def test_approval_replaces_email_and_finalizes_request(monkeypatch):
     )
     request_collection = SimpleNamespace(
         find_one_and_update=AsyncMock(return_value=document),
-        find_one=AsyncMock(return_value=final),
+        find_one=AsyncMock(side_effect=[document, final]),
         update_one=AsyncMock(),
         update_many=AsyncMock(),
     )
@@ -248,7 +248,7 @@ def test_approval_links_a_family_member_and_guards_the_saved_email(monkeypatch):
     final = {**document, "status": "approved", "active": False, "decided_at": now_utc()}
     request_collection = SimpleNamespace(
         find_one_and_update=AsyncMock(return_value=document),
-        find_one=AsyncMock(return_value=final),
+        find_one=AsyncMock(side_effect=[document, final]),
         update_one=AsyncMock(),
         update_many=AsyncMock(),
     )
@@ -281,6 +281,7 @@ def test_mobile_conflict_returns_request_to_pending_for_retry(monkeypatch):
     document = request_document()
     trip = roster_trip()
     request_collection = SimpleNamespace(
+        find_one=AsyncMock(return_value=document),
         find_one_and_update=AsyncMock(return_value=document),
         update_one=AsyncMock(),
     )
@@ -331,7 +332,7 @@ def test_approval_retry_finalizes_a_roster_link_left_in_approving_state(monkeypa
     })
     request_collection = SimpleNamespace(
         find_one_and_update=AsyncMock(return_value=None),
-        find_one=AsyncMock(side_effect=[approving, approved]),
+        find_one=AsyncMock(side_effect=[approving, approving, approved]),
         update_one=AsyncMock(),
         update_many=AsyncMock(),
     )
@@ -396,6 +397,7 @@ def test_approval_does_not_overwrite_a_newer_admin_email_change(monkeypatch):
     changed = roster_trip()
     changed["members"][1]["email"] = "corrected@gmail.com"
     request_collection = SimpleNamespace(
+        find_one=AsyncMock(return_value=document),
         find_one_and_update=AsyncMock(return_value=document),
         update_one=AsyncMock(),
     )

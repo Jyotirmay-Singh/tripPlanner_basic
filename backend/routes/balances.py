@@ -1,6 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from database import db
+from services.settlement_write_guard import reject_legacy_write
 from models.settlement import SettleIn, SettlementCreate, SettlementPatch
 from utils.common import gen_id, now_utc
 from utils.deps import (
@@ -46,6 +47,7 @@ async def settle(trip_id: str, body: SettleIn, background_tasks: BackgroundTasks
     # now stamped status:"paid"/paid_at so it offsets balances (unchanged behavior) and renders
     # in the Phase 10 settlement history. New clients use POST/PATCH /settlements instead.
     trip = await _trip_or_404(trip_id, user)
+    reject_legacy_write(trip)
     amount, audit_fields = validate_new_amount(trip, body.amount)
     # Phase-20 parity: a completed payment offsets balances, so recording one is receiver-or-admin
     # only — a debtor must never be able to self-settle their own debt. Validate the roster too so
@@ -127,6 +129,7 @@ async def create_settlement(trip_id: str, body: SettlementCreate, user=Depends(g
     # Record a suggested transfer as a durable PENDING settlement (does not offset balances until
     # marked paid). Any trip member may record — it moves no money. Status is server-controlled.
     trip = await _trip_or_404(trip_id, user)
+    reject_legacy_write(trip)
     amount, audit_fields = validate_new_amount(trip, body.amount)
     if body.from_member_id == body.to_member_id:
         raise HTTPException(400, "A settlement cannot be from and to the same member")
@@ -171,6 +174,7 @@ async def mark_settlement_paid(trip_id: str, settlement_id: str, body: Settlemen
     # Flip pending -> paid (offsets balances). Gated to the lender (creditor's app user) or a trip
     # admin. Idempotent: a settlement already paid is returned unchanged.
     trip, settlement = await _settlement_mark_paid_or_403(trip_id, settlement_id, user)
+    reject_legacy_write(trip)
     if settlement.get("status") == "paid":
         return settlement
     paid_at = now_utc().isoformat()

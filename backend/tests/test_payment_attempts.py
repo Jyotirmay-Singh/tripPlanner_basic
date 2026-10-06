@@ -489,7 +489,7 @@ def test_sender_reporting_cancel_and_claim_erasure_rules(monkeypatch):
     assert reported["status"] == "awaiting_confirmation"
     assert reported["transaction_reference"] == "UTR 42"
     assert reported["sender_reported_by"] == "payer-user"
-    assert fake_db.payment_attempts.rows[0]["expires_at"] > now_utc() + timedelta(hours=23)
+    assert fake_db.payment_attempts.rows[0]["expires_at"] is None
     notify = attempt_routes.enqueue_notification_event
     assert notify.await_args.kwargs["recipient_user_ids_override"] == ["recipient-user"]
 
@@ -781,11 +781,10 @@ def test_notification_failure_never_rolls_back_committed_confirmation(monkeypatc
     assert len(fake_db.payments.rows) == 1
 
 
-def test_non_receipt_can_be_retried_or_closed_and_resets_expiry(monkeypatch):
+def test_non_receipt_can_be_retried_or_closed_without_expiry(monkeypatch):
     fake_db = install_attempt_route(
         monkeypatch, attempts=[attempt("awaiting_confirmation")],
     )
-    first_expiry = fake_db.payment_attempts.rows[0]["expires_at"]
     reviewed = run(attempt_routes.update_payment_attempt_recipient(
         "trip-1",
         "attempt-1",
@@ -794,12 +793,12 @@ def test_non_receipt_can_be_retried_or_closed_and_resets_expiry(monkeypatch):
         user={"id": "recipient-user"},
     ))
     assert reviewed["status"] == "needs_review"
-    assert fake_db.payment_attempts.rows[0]["expires_at"] >= first_expiry - timedelta(seconds=2)
+    assert fake_db.payment_attempts.rows[0]["expires_at"] is None
 
     closed = run(attempt_routes.update_payment_attempt_recipient(
         "trip-1",
         "attempt-1",
-        PaymentAttemptRecipientPatch(action="close_review"),
+        PaymentAttemptRecipientPatch(action="close_review", reason="Confirmed no outstanding sent money"),
         BackgroundTasks(),
         user={"id": "admin-user"},
     ))

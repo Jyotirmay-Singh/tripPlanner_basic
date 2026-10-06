@@ -12,6 +12,7 @@ from models.payment_attempt import (
     PaymentAttemptSenderPatch,
 )
 from services.exchange_rates import decimal_value
+from services.settlement_write_guard import reject_legacy_write
 from services.ledger_transactions import (
     TransactionUnavailableError,
     is_retryable_transaction_error,
@@ -231,6 +232,7 @@ async def create_payment_attempt(
     """Persist an immutable UPI handoff snapshot before any clipboard or app action."""
 
     trip = await _trip_or_404(trip_id, user)
+    reject_legacy_write(trip)
     await expire_payment_attempts(trip_id)
 
     # quote_id is the idempotency key. Once accepted, retries return the immutable snapshot even if
@@ -269,6 +271,12 @@ async def create_payment_attempt(
             "wrong_payer",
             "Only an account linked to the recommended payer can initiate this payment",
         )
+
+    previous = await db.payment_attempts.find({"trip_id": trip_id, "from_member_id": from_member_id,
+        "to_member_id": to_member_id, "status": {"$in": ["awaiting_confirmation", "needs_review", "expired"]}}, {"_id": 0}).to_list(None)
+    from services.payment_attempts import has_sent_evidence
+    if any(not row.get("active_key") and (row.get("status") in {"awaiting_confirmation", "needs_review"} or has_sent_evidence(row)) for row in previous):
+        raise _error(409, "sent_payment_requires_resolution", "Resolve the previous sent-payment report before paying again")
 
     key = _active_key(trip_id, from_member_id, to_member_id)
     active = await db.payment_attempts.find_one({"active_key": key}, {"_id": 0})
@@ -431,6 +439,18 @@ async def update_payment_attempt_sender(
     await _trip_or_404(trip_id, user)
     await expire_payment_attempts(trip_id)
     attempt = await _attempt_or_404(trip_id, attempt_id)
+    if attempt.get("settlement_intent_id"):
+        from models.settlement_intent import IntentAction
+        from services import settlement_intents
+        if body.client_mutation_id is None or body.expected_intent_version is None or not body.plan_hash:
+            raise _error(428, "settlement_review_required", "Refresh this report before acting")
+        contract = IntentAction(client_mutation_id=body.client_mutation_id,
+            expected_intent_version=body.expected_intent_version, plan_hash=body.plan_hash,
+            action=body.action,
+            transaction_reference=body.transaction_reference
+        )
+        return await settlement_intents.leg_action(trip_id, attempt["settlement_intent_id"], attempt["settlement_leg_id"], contract, user)
+
     if not can_update_upi_attempt_as_sender(attempt, user):
         raise HTTPException(403, "Only the initiating payer can update this payment attempt")
 
@@ -448,7 +468,7 @@ async def update_payment_attempt_sender(
             "sender_reported_by": user["id"],
             "awaiting_confirmation_at": timestamp.isoformat(),
             "updated_at": timestamp.isoformat(),
-            "expires_at": timestamp + PAYMENT_ATTEMPT_LIFETIME,
+            "expires_at": None,
         }
         result = await db.payment_attempts.update_one(
             {"id": attempt_id, "trip_id": trip_id, "status": "initiated"},
@@ -518,6 +538,7 @@ async def _confirm_received_transaction(
         trip = await db.trips.find_one({"id": trip_id}, {"_id": 0}, session=session)
         if not trip:
             raise HTTPException(404, "Group not found")
+        reject_legacy_write(trip)
         if not can_review_upi_attempt(trip, attempt.get("to_member_id"), user):
             raise HTTPException(403, "Only the recipient or a group admin can confirm this payment")
 
@@ -538,7 +559,7 @@ async def _confirm_received_transaction(
                 "confirmation_attempted_by": user["id"],
                 "confirmation_attempted_at": timestamp.isoformat(),
                 "updated_at": timestamp.isoformat(),
-                "expires_at": timestamp + PAYMENT_ATTEMPT_LIFETIME,
+                "expires_at": None,
             }
             changed = await db.payment_attempts.update_one(
                 {
@@ -661,6 +682,18 @@ async def update_payment_attempt_recipient(
     trip = await _trip_or_404(trip_id, user)
     await expire_payment_attempts(trip_id)
     attempt = await _attempt_or_404(trip_id, attempt_id)
+    if attempt.get("settlement_intent_id"):
+        from models.settlement_intent import IntentApproval
+        from services import settlement_intents
+        if body.client_mutation_id is None or body.expected_intent_version is None or not body.plan_hash:
+            raise _error(428, "settlement_review_required", "Refresh this report before acting")
+        contract = IntentApproval(client_mutation_id=body.client_mutation_id,
+            expected_intent_version=body.expected_intent_version, plan_hash=body.plan_hash,
+            action={"close_review": "resolve_not_sent"}.get(body.action, body.action),
+            leg_id=attempt["settlement_leg_id"], reason=body.reason
+        )
+        return await settlement_intents.approve(trip_id, attempt["settlement_intent_id"], contract, user)
+
     if not can_review_upi_attempt(trip, attempt.get("to_member_id"), user):
         raise HTTPException(403, "Only the recipient or a group admin can review this payment")
 
@@ -693,7 +726,7 @@ async def update_payment_attempt_recipient(
             "recipient_not_received_by": user["id"],
             "not_received_at": timestamp.isoformat(),
             "updated_at": timestamp.isoformat(),
-            "expires_at": timestamp + PAYMENT_ATTEMPT_LIFETIME,
+            "expires_at": None,
         }
         result = await db.payment_attempts.update_one(
             {"id": attempt_id, "trip_id": trip_id, "status": "awaiting_confirmation"},
@@ -716,8 +749,11 @@ async def update_payment_attempt_recipient(
         return _response(attempt)
     if status != "needs_review":
         raise _error(409, "invalid_transition", "Only a payment needing review can be closed")
+    if not str(body.reason or "").strip():
+        raise _error(422, "resolution_reason_required", "Explain how this sent-payment report was resolved")
     timestamp = now_utc()
     updates = {
+        "resolution_reason": body.reason,
         "status": "closed",
         "reason": "review_closed_without_posting",
         "review_closed_by": user["id"],
