@@ -54,6 +54,8 @@ import type { BalanceResponse } from '../../../src/settlementProjection';
 import { formatMoney } from '../../../src/format';
 import { formatIST } from '../../../src/istTime';
 import { guardedTrip } from '../../../src/financialReview';
+import ReviewedSettlementHub from '../../../src/ReviewedSettlementHub';
+import useFinancialRefresh from '../../../src/useFinancialRefresh';
 import { currencyAmountPlaceholder } from '../../../src/currencies';
 import {
   Screen, Card, Button, Icon, IconButton, Input, EmptyState, AmountText, SkeletonCard, useToast,
@@ -63,7 +65,9 @@ import { KeyboardAvoidingView } from '../../../src/KeyboardController';
 type Member = {
   id: string;
   name: string;
-  kind?: string;
+  kind: string;
+  family_members?: string[];
+  family_member_ids?: string[];
   user_id?: string | null;
   family_member_user_ids?: (string | null)[];
 };
@@ -108,7 +112,7 @@ function attemptExplanation(attempt: PaymentAttempt): string {
 export default function SettleUp() {
   const params = useLocalSearchParams<{
     id: string; paymentId?: string; settlementId?: string; paymentAttemptId?: string;
-    reviewId?: string;
+    reviewId?: string; intentId?: string;
   }>();
   const {
     id,
@@ -221,6 +225,7 @@ export default function SettleUp() {
       }
     }
   }, [id, user?.id, sessionMode]);
+  useFinancialRefresh(user?.id, id, load);
 
   useFocusEffect(useCallback(() => {
     void load();
@@ -490,6 +495,19 @@ export default function SettleUp() {
       <T variant="caption" color={color} style={{ fontWeight: '700', flexShrink: 1 }}>{label}</T>
     </View>
   );
+
+  if (trip && user && guardedTrip(trip)) return <Screen edges={['left', 'right', 'bottom']} onRefresh={() => void load()}>
+    {read ? <OfflineReadStatus result={read} /> : null}
+    <ReviewedSettlementHub trip={{ ...trip, owner_id: trip.owner_id ?? '', admin_ids: trip.admin_ids ?? [] }} accountId={user.id} sessionMode={sessionMode} isAdmin={!!(user.is_super_admin || trip.owner_id === user.id || trip.admin_ids?.includes(user.id))}
+      expenseNames={Object.fromEntries((read?.data?.expenses ?? []).map(value => { const expense = value as { id: string; description?: string; category?: string };
+        return [expense.id, expense.description || expense.category || 'Expense']; }))}
+      focusIntentId={params.intentId} focusAttemptId={notificationPaymentAttemptId} onChanged={load}
+      onAdminReview={() => router.push(`/trip/${id}/financial-review`)} />
+    <Button label="Financial review, corrections and offsets" variant="secondary" onPress={() => router.push(`/trip/${id}/financial-review`)} testID="open-financial-review" />
+    {pending.length > 0 && <><T>Existing offline payment drafts need explicit online financial review. They do not confirm receipt or expense coverage.</T>
+      {pending.map(item => <Button key={item.clientMutationId} label="Review existing payment draft" variant="secondary"
+        onPress={() => router.push(`/trip/${id}/pending-payment?mutationId=${encodeURIComponent(item.clientMutationId)}`)} />)}</>}
+  </Screen>;
 
   return (
     <Screen edges={['left', 'right', 'bottom']}>

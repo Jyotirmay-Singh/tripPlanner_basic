@@ -62,6 +62,15 @@ _PAYMENT_EVENT_TYPES = frozenset((
 # This map is the notification contract. Callers provide an event type and source id; routing,
 # lock-screen copy, and the type-specific payload key are derived here so they cannot drift apart.
 _EVENT_DEFINITIONS = {
+    "settlement.approval_requested": {
+        "title": "Review expense allocations", "target": "settle_up", "id_key": "intentId",
+    },
+    "settlement.allocation_applied": {
+        "title": "Expense coverage approved", "target": "settle_up", "id_key": "intentId",
+    },
+    "settlement.allocation_declined": {
+        "title": "Offset approval declined", "target": "settle_up", "id_key": "intentId",
+    },
     "settlement.review_required": {
         "title": "Payment review updated",
         "target": "settle_up",
@@ -273,9 +282,11 @@ def build_expo_message(event: dict, delivery: dict) -> dict:
         title = {"payment_attempt.confirmation_requested": "Confirm a reported payment",
                  "payment_attempt.confirmed": "Payment receipt confirmed",
                  "payment_attempt.not_received": "Payment receipt needs review"}.get(event["event_type"], title)
+    if event.get("event_id") and event_type == "payment_attempt.confirmed":
+        title = "Payment receipt confirmed"
     source_id = event["source_id"]
     data = {
-        "payloadVersion": 1,
+        "payloadVersion": 2 if event.get("event_id") else 1,
         "eventKey": event["event_key"],
         "eventType": event["event_type"],
         "tripId": event["trip_id"],
@@ -283,6 +294,8 @@ def build_expo_message(event: dict, delivery: dict) -> dict:
         "sourceId": source_id,
         definition["id_key"]: source_id,
     }
+    if event.get("event_id"):
+        data["eventId"] = event["event_id"]
     return {
         "to": delivery["token"],
         "title": title,
@@ -363,6 +376,8 @@ async def enqueue_notification_event(
         "updated_at": timestamp,
         "completed_at": None,
     }
+    if event_id:
+        document["event_id"] = event_id
     if payment_method in {"upi", "cash", "bank"}:
         document["payment_method"] = payment_method
     if event_type == "chat.message.created":

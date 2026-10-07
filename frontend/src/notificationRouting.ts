@@ -4,6 +4,8 @@ export type NotificationTarget =
   | 'trip_expenses' | 'settle_up' | 'trip_chat'
   | 'trip_members' | 'trip_summary' | 'join_request';
 export type NotificationEventType =
+  | 'settlement.approval_requested' | 'settlement.allocation_applied' | 'settlement.allocation_declined'
+  | 'settlement.review_required' | 'financial_review.updated'
   | 'expense.created'
   | 'payment.recorded'
   | 'settlement.paid'
@@ -17,7 +19,8 @@ export type NotificationEventType =
   | 'join.request.rejected';
 
 export type NotificationRouteData = {
-  payloadVersion: 1;
+  payloadVersion: 1 | 2;
+  eventId?: string;
   eventKey: string;
   eventType: NotificationEventType;
   tripId: string;
@@ -29,6 +32,8 @@ export type NotificationRouteData = {
   paymentAttemptId?: string;
   messageId?: string;
   requestId?: string;
+  intentId?: string;
+  correctionId?: string;
 };
 
 type LegacyNotificationRouteData = {
@@ -42,8 +47,13 @@ export type ParsedNotificationRouteData = NotificationRouteData | LegacyNotifica
 
 const EVENT_RULES: Record<NotificationEventType, {
   target: NotificationTarget;
-  idKey: 'expenseId' | 'paymentId' | 'settlementId' | 'paymentAttemptId' | 'messageId' | 'requestId';
+  idKey: 'expenseId' | 'paymentId' | 'settlementId' | 'paymentAttemptId' | 'messageId' | 'requestId' | 'intentId' | 'correctionId';
 }> = {
+  'settlement.approval_requested': { target: 'settle_up', idKey: 'intentId' },
+  'settlement.allocation_applied': { target: 'settle_up', idKey: 'intentId' },
+  'settlement.allocation_declined': { target: 'settle_up', idKey: 'intentId' },
+  'settlement.review_required': { target: 'settle_up', idKey: 'intentId' },
+  'financial_review.updated': { target: 'settle_up', idKey: 'correctionId' },
   'expense.created': { target: 'trip_expenses', idKey: 'expenseId' },
   'payment.recorded': { target: 'settle_up', idKey: 'paymentId' },
   'settlement.paid': { target: 'settle_up', idKey: 'settlementId' },
@@ -59,7 +69,7 @@ const EVENT_RULES: Record<NotificationEventType, {
   'join.request.rejected': { target: 'join_request', idKey: 'requestId' },
 };
 const EVENT_ID_KEYS = [
-  'expenseId', 'paymentId', 'settlementId', 'paymentAttemptId', 'messageId', 'requestId',
+  'expenseId', 'paymentId', 'settlementId', 'paymentAttemptId', 'messageId', 'requestId', 'intentId', 'correctionId',
 ] as const;
 
 function validEventKey(value: unknown): value is string {
@@ -83,7 +93,7 @@ export function parseNotificationRouteData(value: unknown): ParsedNotificationRo
     };
   }
 
-  if (data.payloadVersion !== 1 || typeof data.eventType !== 'string') return null;
+  if (![1, 2].includes(data.payloadVersion as number) || typeof data.eventType !== 'string') return null;
   if (!(data.eventType in EVENT_RULES)) return null;
   const eventType = data.eventType as NotificationEventType;
   const rule = EVENT_RULES[eventType];
@@ -91,10 +101,19 @@ export function parseNotificationRouteData(value: unknown): ParsedNotificationRo
   if (typeof data.sourceId !== 'string' || !UUID_RE.test(data.sourceId)) return null;
   if (data[rule.idKey] !== data.sourceId) return null;
   if (EVENT_ID_KEYS.some((key) => key !== rule.idKey && data[key] != null)) return null;
-  if (data.eventKey !== `${eventType}:${data.sourceId}`) return null;
+  const validActionId = (value: unknown) => typeof value === 'string' && value.split(':').length <= 2
+    && value.split(':').every(id => UUID_RE.test(id));
+  if (data.payloadVersion === 2) {
+    if (!validActionId(data.eventId) || data.eventKey !== `${eventType}:${data.eventId}`) return null;
+  } else if (data.eventKey !== `${eventType}:${data.sourceId}`) {
+    // Previously delivered reviewed v1 events used an action key while navigating by source id.
+    if (!/^(payment_attempt\.|settlement\.|financial_review\.)/.test(eventType)
+      || !data.eventKey.startsWith(`${eventType}:`) || !validActionId(data.eventKey.slice(eventType.length + 1))) return null;
+  }
 
   return {
-    payloadVersion: 1,
+    payloadVersion: data.payloadVersion as 1 | 2,
+    ...(data.payloadVersion === 2 ? { eventId: data.eventId as string } : {}),
     eventKey: data.eventKey,
     eventType,
     tripId: data.tripId,
@@ -115,6 +134,13 @@ export function notificationHref(value: unknown): string | null {
   }
   const sourceId = encodeURIComponent(data.sourceId);
   switch (data.eventType) {
+    case 'settlement.approval_requested':
+    case 'settlement.allocation_applied':
+    case 'settlement.allocation_declined':
+    case 'settlement.review_required':
+      return `/trip/${tripId}/settle-up?intentId=${sourceId}`;
+    case 'financial_review.updated':
+      return `/trip/${tripId}/financial-review?correctionId=${sourceId}`;
     case 'expense.created':
       return `/trip/${tripId}?tab=expenses&expenseId=${sourceId}`;
     case 'payment.recorded':

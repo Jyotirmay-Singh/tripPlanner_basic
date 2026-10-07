@@ -12,6 +12,11 @@ export async function pruneOfflineData(
   }
   const cutoff = now - OFFLINE_RETENTION_MS;
   await tx.runAsync(
+    `DELETE FROM coverage_snapshots WHERE account_id = ? AND fetched_at < ?
+      AND NOT EXISTS (SELECT 1 FROM outbox WHERE outbox.account_id = coverage_snapshots.account_id
+        AND outbox.trip_id = coverage_snapshots.trip_id AND outbox.state != 'synced')`, accountId, cutoff,
+  );
+  await tx.runAsync(
     `DELETE FROM outbox WHERE account_id = ? AND state = 'synced'
        AND synced_at IS NOT NULL AND synced_at < ?`, accountId, cutoff,
   );

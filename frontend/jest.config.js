@@ -9,6 +9,7 @@ module.exports = {
   // platform seams to their no-op implementations; native behavior is covered through pure
   // routing tests and TypeScript/native-build validation.
   moduleNameMapper: {
+    '^(.*/)?financialRecoveryStorage$': '<rootDir>/src/financialRecoveryStorage.ts',
     '^(.*/)?pushNotifications$': '<rootDir>/src/pushNotificationsFallback.ts',
     '^(.*/)?NotificationSettingsRow$': '<rootDir>/src/NotificationSettingsRow.tsx',
     '^(.*/)?PushNotificationCoordinator$': '<rootDir>/src/PushNotificationCoordinator.tsx',

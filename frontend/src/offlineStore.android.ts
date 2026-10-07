@@ -257,7 +257,7 @@ export const offlineStore: OfflineStore = {
     }
     try {
       const payload: Partial<TripReadBundle> = { trip: JSON.parse(trip.payload_json) };
-      for (const row of rows) payload[row.kind] = JSON.parse(row.payload_json);
+      for (const row of rows) if (row.kind !== 'expense_settlement') payload[row.kind] = JSON.parse(row.payload_json);
       if (payload.expenses === undefined || payload.balances === undefined
         || payload.spend === undefined || payload.payments === undefined) return null;
       return { payload: payload as TripReadBundle, fetchedAt: trip.fetched_at };
@@ -307,6 +307,7 @@ export const offlineStore: OfflineStore = {
     await withEncryptedTransaction(async (tx) => {
       assertAccount(accountId);
       await tx.runAsync('DELETE FROM read_snapshots WHERE account_id = ? AND trip_id = ?', accountId, tripId);
+      await tx.runAsync('DELETE FROM coverage_snapshots WHERE account_id = ? AND trip_id = ?', accountId, tripId);
       await tx.runAsync('DELETE FROM trip_snapshots WHERE account_id = ? AND trip_id = ?', accountId, tripId);
     });
   },
@@ -347,7 +348,7 @@ export const offlineStore: OfflineStore = {
     const db = await database();
     assertAccount(accountId);
     const row = await db.getFirstAsync<SnapshotRow>(
-      'SELECT payload_json, fetched_at FROM read_snapshots WHERE account_id = ? AND trip_id = ? AND kind = ?',
+      `SELECT payload_json, fetched_at FROM ${kind === 'expense_settlement' ? 'coverage_snapshots' : 'read_snapshots'} WHERE account_id = ? AND trip_id = ? AND kind = ?`,
       accountId, tripId, kind,
     );
     assertAccount(accountId);
@@ -360,7 +361,7 @@ export const offlineStore: OfflineStore = {
     const db = await database();
     assertAccount(accountId);
     await db.runAsync(
-      `INSERT INTO read_snapshots (account_id, trip_id, kind, payload_json, fetched_at)
+      `INSERT INTO ${kind === 'expense_settlement' ? 'coverage_snapshots' : 'read_snapshots'} (account_id, trip_id, kind, payload_json, fetched_at)
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(account_id, trip_id, kind) DO UPDATE SET payload_json=excluded.payload_json,
          fetched_at=excluded.fetched_at`,

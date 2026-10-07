@@ -11,6 +11,7 @@ import {
   type ParsedNotificationRouteData,
 } from './notificationRouting';
 import { syncPushRegistrationIfEligible } from './pushNotifications';
+import { publishFinancialChange } from './financialRefresh';
 
 
 function pushDiagnostic(event: string, data: Record<string, unknown> = {}): void {
@@ -67,6 +68,7 @@ export default function PushNotificationCoordinator() {
     const responseSubscription = Notifications.addNotificationResponseReceivedListener(acceptResponse);
     const receivedSubscription = Notifications.addNotificationReceivedListener((notification) => {
       const parsed = parseNotificationRouteData(notification.request.content.data);
+      if (parsed && userId) publishFinancialChange({ accountId: userId, tripId: parsed.tripId, reason: 'notification' });
       pushDiagnostic(parsed ? 'notification_received' : 'notification_received_invalid', {
         ...(parsed ? { eventKey: parsed.eventKey, tripId: parsed.tripId } : {}),
         appState: AppState.currentState,
@@ -76,7 +78,7 @@ export default function PushNotificationCoordinator() {
       responseSubscription.remove();
       receivedSubscription.remove();
     };
-  }, [acceptResponse]);
+  }, [acceptResponse, userId]);
 
   // A login may complete while the auth route is still mounted. Let the root auth guard reset that
   // stack, then verify current trip access before following a saved notification destination.
@@ -94,6 +96,7 @@ export default function PushNotificationCoordinator() {
     authorization
       .then(() => {
         if (cancelled) return;
+        publishFinancialChange({ accountId: userId, tripId: pendingRoute.tripId, reason: 'notification_tap' });
         router.push(href as Href);
         pushDiagnostic('navigation_completed', {
           eventKey: pendingRoute.eventKey, tripId: pendingRoute.tripId,

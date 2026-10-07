@@ -58,6 +58,21 @@ describe('notification routing', () => {
     })).toBe(`/trip/${TRIP_ID}?tab=expenses`);
   });
 
+  it('separates reviewed action identity from navigation source and accepts retained reviewed v1 keys', () => {
+    const actionId = '11111111-1111-4111-9111-111111111111';
+    const reviewed = { payloadVersion: 2, eventKey: `settlement.approval_requested:${actionId}`,
+      eventId: actionId, eventType: 'settlement.approval_requested', tripId: TRIP_ID,
+      target: 'settle_up', sourceId: SOURCE_ID, intentId: SOURCE_ID };
+    expect(notificationHref(reviewed)).toBe(`/trip/${TRIP_ID}/settle-up?intentId=${SOURCE_ID}`);
+    expect(notificationHref({ ...reviewed, eventId: 'malformed' })).toBeNull();
+    expect(notificationHref({ ...reviewed, paymentAttemptId: SOURCE_ID })).toBeNull();
+    const old = { ...payload('payment_attempt.confirmed', 'settle_up', 'paymentAttemptId'),
+      eventKey: `payment_attempt.confirmed:${actionId}:${SOURCE_ID}` };
+    expect(notificationHref(old)).toBe(`/trip/${TRIP_ID}/settle-up?paymentAttemptId=${SOURCE_ID}`);
+    expect(notificationHref({ ...reviewed, eventType: 'financial_review.updated', eventKey: `financial_review.updated:${actionId}`,
+      intentId: undefined, correctionId: SOURCE_ID })).toBe(`/trip/${TRIP_ID}/financial-review?correctionId=${SOURCE_ID}`);
+  });
+
   it('rejects arbitrary URLs, malformed ids, and mismatched event contracts', () => {
     expect(parseNotificationRouteData(null)).toBeNull();
     expect(notificationHref({

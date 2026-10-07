@@ -1,5 +1,69 @@
 # App Feature Inventory
 
+## Complete expense payment integration — 7 October 2026
+
+**Implemented in the primary frontend and locally verified through real client/API/database journeys;
+native acceptance and production rollout remain pending.** Expense sheets, protected Settle Up,
+and Financial Review share reviewed quote, durable intent, sending/reporting, receipt, consent,
+and dispute controls. Review context freezes expense/date/person/share labels and authorized detail
+shows references, notes, party evidence and attributed actions. Ordinary payer reports stay distinct
+from receiver/admin receipt approval. Confirmed partial coverage leaves the residual payable.
+
+Native recovery stores verified SecureStore chunks; browser session storage survives tab reload.
+Exact request/UUID checkpoints are account/trip scoped and separate from read caches/outboxes.
+Recovery reads known durable work before explicit retries and never automatically submits or launches.
+Expired/admin-withdrawn UPI work suppresses another sending route until the payer resolves whether
+it was sent; independently eligible shares remain available. Changed recipients retain original evidence.
+
+Pure offsets have person-scoped reasoned decline, withdrawal, individual consent and reasoned admin
+approval, no cash/UPI controls, no reservations, and no unreported-payment expiry. A declined proposal
+requires new review. Simplified cash remains credit until receipts and allocation consent complete.
+One scoped financial-change signal refreshes expense summaries, sheets, balances, recommendations,
+history and review queues, with related reads checked against a final coverage snapshot. Version-2
+notification payloads separate action identity from navigation source and retain older tap compatibility.
+Allocation outcomes reach covered family people as well as actual parties. Successful UPI starts
+refresh after native handoff completion so their own refresh cannot interrupt a slow launch.
+
+Evidence: **18 actual primary-component → HTTP → full FastAPI → disposable replica-set scenarios**
+cover launch/return and failure seams, restart/lost-response recovery, partial receipt, cash/bank/reporter
+evidence, permissions, direct/simplified/offset approval, disputes, concurrent reservations, dependent
+bundles, families/refunds/zero shares, unavailable/stale approvers, recipient changes, aged/late reports,
+refresh convergence and offline account isolation. Backend checks inspect exact cash, journal,
+15 allocation-completion notifications and unique outbox events. Broad regressions passed **1,218
+frontend tests** and **304 backend tests / 1 standalone-only skip**; final focused frontend checks passed
+**67 tests**, TypeScript and affected lint. Exact commands, gate timing and native seams are in the
+[execution handoff](expense-settlement-plan.md#complete-payment-journey-execution-handoff--7-october-2026).
+No real transfer, provider delivery, native Android/API24/API36 acceptance, migration, activation,
+deployment or publication was performed.
+
+## Expense-tab settlement interface — 7 October 2026
+
+**Implemented and locally verified; native/device acceptance and production activation remain pending.**
+Expense cards retain their signed amounts, fonts/theme, receipt, split disclosure, edit/delete,
+search and ordering. A compact expense-specific settled-share footer opens one shared settlement
+sheet. Confirmed coverage drives counts; group net zero, pending reports and offset proposals do not.
+The sheet supports all eligible family shares by default, deselection, exact partial amounts,
+actual payer/beneficiary attribution, reversed refunds, explicit family recipient selection, direct
+gross payment and optional group/offset review. It separates received money, applied coverage,
+reservations, inferred history and unresolved review, and retains **Your share settled**.
+
+Reviewed writes share durable mutation recovery with Financial review; lost responses block another
+submission until the identical UUID/body is resolved. Reviews use live authority, intent version,
+plan hash and snapshot-bound details. Account/trip changes abort reads. Cache schema 6 adds a separate
+sanitized coverage table to Android's encrypted snapshot store; quotes, UPI details, private report
+references and actionable authority are excluded. Web/iOS use session memory only. Disabled or
+incomplete authoritative reads invalidate prior financial values instead of inventing zero.
+
+Evidence: **17 Jest suites / 172 tests passed**, TypeScript, affected-file ESLint, and whitespace
+checks; **81 backend tests passed / 1 standalone-only test skipped** against task-owned loopback
+fixtures. Browser checks covered both themes, the 640px cap, 320px wrapping, simulated 180% text,
+keyboard selection, Escape/focus restoration and saved-history action blocking. Screenshots and
+limits are in [the evidence record](evidence/expense-settlement-ui-20261007/README.md) and the
+[implementation handoff](expense-settlement-plan.md#expense-tab-ui-implementation-handoff--7-october-2026).
+This earlier UI gate ran renderer/client and backend tests separately. The subsequent payment
+integration above joins actual client components to the real API/database; native TalkBack and
+external UPI remain pending. No activation or release occurred.
+
 ## Expense coverage, payment reports, and receipt review — 6 October 2026
 
 **Protocol 2 safeguards and financial-review UI implemented locally; production rollout and activation pending.** The expense
@@ -200,7 +264,7 @@ was contacted during this audit.
 | Whole-unit balance ledger, conserving settlement projection, and family breakdown | Implemented and locally verified | Active expenses, allocations, payments, settlements, and migration adjustments build a zero-sum integer vector for every supported currency. Precise and rounded balances agree; bounded small groups get a proven minimum-transfer route and larger/search-limited groups get a deterministic bounded greedy route | Balances and Settle Up; `GET /trips/{id}/balances` | [backend/utils/balances.py](../backend/utils/balances.py#L1), [backend/services/settlement_engine.py](../backend/services/settlement_engine.py), [frontend/src/settlementProjection.ts](../frontend/src/settlementProjection.ts) | Unit/property-style/adversarial projection, migration, lifecycle, report, frontend, TypeScript, and performance coverage passed | Exact route limit is 12 non-zero entities/100,000 states; live Mongo aggregation and migration apply/revert were not exercised |
 | Legacy settlement lifecycle | Deprecated or disabled | APIs can still create completed settlements or pending records and mark pending records paid. New and old-client decimal submissions are stored as whole units under `whole_unit_v1`; unchanged historical evidence remains readable | `POST /settle`; settlement list/create/patch APIs | [backend/models/settlement.py](../backend/models/settlement.py#L6), [backend/routes/balances.py](../backend/routes/balances.py#L24) | Focused settlement policy/route tests passed; live APIs not run | Current settle-up UI uses `payments`, not these endpoints; retained for compatibility |
 | Partial payments | Implemented and verified | Receiver, any linked person in a receiving family wallet, or trip admin records/edits/deletes a whole-unit payment up to the current recommendation. Old-client decimals are normalized and audited; note-only edits preserve immutable historical evidence. Live recommendations are separated from chronological history and may reroute after recomputation. Manual balance-changing payment/paid-settlement writes share the trip revision when Mongo transactions are available. Android activity push uses duplicate-safe payer/receiver labels, grouped symbols for all 26 currencies, and `partly paid` versus `settled` based only on that pair's pre-payment payable | `/trip/[id]/settle-up`; payment CRUD APIs | [backend/routes/payments.py](../backend/routes/payments.py), [backend/routes/balances.py](../backend/routes/balances.py), [frontend/app/trip/[id]/settle-up.tsx](../frontend/app/trip/[id]/settle-up.tsx) | Backend write-policy/routes/concurrency, rich-notification currency/boundary/privacy coverage, and frontend payment/modal/permission tests passed | Lock-screen copy may expose payer, receiver, amount, and trip name; payment notes remain excluded. Standalone MongoDB retains the historical non-transaction fallback for manual writes |
-| Recipient-confirmed UPI settlement tracking | Implemented and locally verified | The linked payer reviews a selected recipient, current UPI revision, trip amount, and exact INR amount; the server saves an attempt before copy/launch. Legacy unactivated-group confirmation posts one capped payment. Settlement-bound attempts delegate reporting and review to the exact-cash/coverage transaction. Only unreported starts expire after 24 hours; sent/disputed reports remain blockers until reasoned resolution. Legacy expired sent reports recover into review without taking another attempt’s pair key. Privacy-scoped notifications identify the actual attempt | UPI sheet and Settle Up activity; attempt create/list and sender/recipient APIs | [backend/routes/payment_attempts.py](../backend/routes/payment_attempts.py), [backend/services/payment_attempts.py](../backend/services/payment_attempts.py), [backend/services/settlement_intents.py](../backend/services/settlement_intents.py), [frontend/src/UpiPaymentSheet.tsx](../frontend/src/UpiPaymentSheet.tsx) | Focused lifecycle, permission, expiry, privacy, delegation, concurrency, and rollback tests passed against isolated MongoDB; existing frontend behavior was unchanged | Reviewed expense workflows remain disabled and have no frontend yet. Older clients cannot close a review without an explanation. No bank verification, payment callback, screenshot processing, or direct money movement is performed |
+| Recipient-confirmed UPI settlement tracking | Implemented and locally verified | The linked payer reviews a selected recipient, current UPI revision, trip amount, and exact INR amount; the server saves an attempt before copy/launch. Legacy unactivated-group confirmation posts one capped payment. Settlement-bound attempts delegate reporting and review to the exact-cash/coverage transaction. Only unreported starts expire after 24 hours; sent/disputed reports remain blockers until reasoned resolution. Legacy expired sent reports recover into review without taking another attempt’s pair key. Privacy-scoped notifications identify the actual attempt | UPI sheet and Settle Up activity; attempt create/list and sender/recipient APIs | [backend/routes/payment_attempts.py](../backend/routes/payment_attempts.py), [backend/services/payment_attempts.py](../backend/services/payment_attempts.py), [backend/services/settlement_intents.py](../backend/services/settlement_intents.py), [frontend/src/UpiPaymentSheet.tsx](../frontend/src/UpiPaymentSheet.tsx) | Focused lifecycle, permission, expiry, privacy, delegation, concurrency, and rollback tests passed against isolated MongoDB; existing frontend behavior was unchanged | Reviewed expense workflows now share primary-client review controls; runtime and group activation guards remain in place. Older clients cannot close a review without an explanation. No bank verification, payment callback, screenshot processing, or direct money movement is performed |
 | Receipt acquisition, GridFS upload/view/remove, save to gallery | Implemented but unverified | Users pick/capture a receipt, upload it after saving an expense, view it on demand, replace/remove it, and save it to the device gallery | Add/Edit Transaction, Gallery-like receipt views; receipt APIs | [frontend/src/api.ts](../frontend/src/api.ts#L101), [frontend/src/ReceiptViewer.tsx](../frontend/src/ReceiptViewer.tsx#L19), [backend/routes/receipts.py](../backend/routes/receipts.py#L44) | Receipt parsing helpers passed ([receipt.test.ts](../frontend/src/__tests__/receipt.test.ts#L3)); live multipart/GridFS tests exist at [test_receipts.py](../backend/tests/test_receipts.py#L20) but were not run | Device permissions and native/web file behavior were not exercised; legacy inline receipts are read-only fallback |
 | Dashboard, trip list, personal balances, spend ranking, and drill-downs | Implemented and verified | Home shows one INR-only net position from INR trips, the total trip count, and up to the first two activity-ordered trips; its action buttons stack for narrow screens or larger text. Trips preserves the complete server order; trip Summary shows category/entity charts; category drill-down reconciles net/gross/refunds and ranks positive amounts by payer above amount-ordered transactions | Home/Trips, Trip Summary, and Category detail; `GET /trips`, `/balances`, `/expenses`, `/spend-summary` | [frontend/app/(tabs)/dashboard.tsx](<../frontend/app/(tabs)/dashboard.tsx#L1>), [frontend/app/(tabs)/trips.tsx](<../frontend/app/(tabs)/trips.tsx#L1>), [frontend/app/trip/[id]/category/[name].tsx](<../frontend/app/trip/[id]/category/[name].tsx#L1>), [frontend/src/categorySpend.ts](../frontend/src/categorySpend.ts#L1) | INR-only live/cache/empty-state and responsive Home tests, activity-order render tests, category aggregation, Android touch callback, concrete-route navigation, category render, authenticated balance, and spend-ranking tests | Foreign-currency balances are excluded from the Home total without conversion and remain available in their own trip views. Signed-APK physical-device verification remains post-publication; trip cards intentionally show no activity label; payer rankings count positive fronted amounts and show refunds separately |
 | JSON report summary | Implemented but unverified | Returns trip, signed total, budget, category/date totals, and balances | `GET /trips/{id}/report` | [backend/routes/reports.py](../backend/routes/reports.py#L61) | Static review only | Date rows are sorted by stored `DD-MM-YY` strings, which is not chronologically reliable across years |

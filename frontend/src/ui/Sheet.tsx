@@ -104,6 +104,9 @@ export default function Sheet({
         <Animated.View
           testID={testID}
           accessibilityViewIsModal
+          role={trapFocus ? 'dialog' : undefined}
+          aria-modal={trapFocus || undefined}
+          accessibilityLabel={trapFocus ? title : undefined}
           style={[
             styles.sheet,
             SHADOW.sheet,

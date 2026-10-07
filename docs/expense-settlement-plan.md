@@ -822,3 +822,266 @@ the CLI was not used to read or migrate a database.
 No production data, provider network, notification delivery, production migration, group activation
 or deployment was exercised. Local renderer accessibility/focus-contract tests do not establish
 native screen-reader, supported-device or external UPI acceptance; those remain explicit release gates.
+
+---
+
+## Expense-tab UI implementation handoff — 7 October 2026
+
+The approved interface plan is implemented in source. No group was activated, no production data
+or index was inspected/changed, and no release was published. Existing runtime/trip activation
+controls remain intact. The Google Pay attachment was unavailable; the sheet uses the approved
+parties-first arrangement with existing Outfit/Figtree fonts, theme tokens and sheet components.
+
+### UI decisions and implementation
+
+- `app/trip/[id]/index.tsx` preserves cards, signed amounts, receipts, display-only split disclosure,
+  edit/delete, search, ordering and notification navigation. It replaces the group-derived expense
+  badge with `ExpenseSettlementFooter` and mounts one `ExpenseSettlementSheet`. Pending local
+  expenses receive no confirmed count. Footer and split controls are independent of body editing.
+- Footer actions are **Settle / View shares**. Server expense summaries supply nullable counts and
+  personal status; pending/proposed money never contributes coverage. **Your share settled** stays
+  visible when the personal participating share is covered while other family shares remain open.
+- `ParticipantShareRow` presents share, source-separated confirmed coverage, remaining and reserved
+  money, with Needs review → Settled → Awaiting approval → Partial → Unpaid precedence. Started,
+  unreported work is described separately. Unknown participation/history remains review-required.
+- All eligible outgoing linked-family shares are selected initially, with individual deselection
+  and positive whole-unit partial amounts. Rows name the actual payer and covered people. Direct
+  actions are grouped by debtor/creditor wallet; refunds reverse direction and separate recipients
+  receive separate actions. Unknown family recipients require explicit person selection.
+- `ReviewedSettlementFlow` reviews direct gross shares without the legacy recommendation cap.
+  Optional group review shows affected expense/person allocations, actual cash parties, dependent
+  legs, proposed offsets, required consent, method and locked UPI conversion. Missing share details
+  disable submission. Quotes expire and changes require renewed review; offset proposals settle
+  and reserve nothing. UPI payer identity stays the current linked person, including for admins.
+- `ReviewedIntentPanel` distinguishes initiated, reported, received, applied and needs-review work.
+  Explicit review reads current intent/detail and complete affected-share descriptions before
+  receipt/consent/admin actions. Ordinary payers cannot confirm their own receipt; receiving-family
+  reviewers can confirm receipt, while consent belongs only to the linked person. Current admins
+  may use the existing reasoned override contract. Restricted history is fetched only on demand.
+- `CoverageDetails` identifies wallet funding, direct/group payment, approved offset and inferred
+  history, with recorded payer/recipient identities when available. Missing historical attribution
+  is explicitly unknown; inferred coverage never claims bank or receiver verification. Financial
+  review remains the correction/reconciliation path.
+- `reviewedSettlement.ts` retains the same mutation UUID/body for uncertain retries, shares duplicate
+  in-flight requests, and blocks a different submission until recovery. Financial review uses this
+  same session recovery. Mutations are authenticated live requests and are never placed in an
+  offline outbox. Returning from a UPI app cannot confirm payment/receipt.
+- `useExpenseSettlement` batches summaries, fetches opened details against their snapshot, renews
+  snapshot conflicts without mixing revisions, and aborts/suppresses obsolete reads. Malformed or
+  legacy metadata yields unavailable financial values. Android cache schema **6** adds only a
+  separate `coverage_snapshots` table; existing outbox/read bundles remain intact. Sanitized cached
+  progress preserves protocol/snapshot/revision/time, removes sending authority and private
+  evidence, and carries the persistent saved-progress warning. Web/iOS use session memory only.
+- The shared sheet retains safe areas and its 640px cap. Its single scroll region includes reachable,
+  wrapping actions; narrow/large-text rows stack monetary labels. Web checkboxes explicitly expose
+  checked state and support Space; the labeled modal traps focus, closes with Escape and restores
+  focus. Status text/icons and readable currency announcements supplement color.
+
+### Verification performed
+
+Final frontend command, from `frontend/`:
+
+```text
+npx jest --runInBand --cacheDirectory ../.release-tmp/expense-ui-20261007/jest-cache src/__tests__/expenseSettlement.test.ts src/__tests__/reviewedSettlement.test.ts src/__tests__/useExpenseSettlement.test.tsx src/__tests__/ExpenseSettlementSheet.test.tsx src/__tests__/ReviewedFlows.test.tsx src/__tests__/screens/trip-settled-badge.test.tsx src/__tests__/offlineSchema.test.ts src/__tests__/offlineStore.android.test.ts src/__tests__/offlineRetention.test.ts src/__tests__/offlineReads.test.ts src/__tests__/financialReview.test.tsx src/__tests__/financialReviewScreen.test.tsx src/__tests__/screens/settle-up-handoff.test.tsx src/__tests__/screens/settle-up-modal.test.tsx src/__tests__/screens/trip-detail-header-budget.test.tsx src/__tests__/upiLauncher.test.ts src/__tests__/notificationRouting.test.ts
+```
+
+**17 suites / 172 tests passed, zero skipped.** Coverage includes gross opposing debts at zero net,
+authoritative 1/3 progress, partial coverage, reservations/report count separation, persistent own-share
+settlement, proposals, family defaults/deselection, paying identities, family recipient choice,
+multiple refund recipients, unknown participation, cache allowlisting, account/trip switching,
+snapshot conflicts, stale recipients/versions, revoked authority, person-specific consent, reasoned
+admin approval, deferred offline requests, duplicate taps and permanent retries. Existing card/search,
+header, legacy settle-up/UPI, notification, offline read/storage/schema/retention and financial-review
+regressions pass. Node's experimental SQLite warning is informational; those tests executed.
+
+`npx tsc --noEmit` and affected-file `npx eslint ...` passed with no errors or warnings.
+`git diff --check` passed. Initial Jest temp-cache permission errors were resolved with a workspace
+cache; outdated migration/test-fixture assumptions were corrected before the final passing gate.
+RTK was unavailable on this host, so the disclosed raw-command fallback was used.
+
+Backend verification, from `backend/`, with explicit task-owned loopback replica-set settings and
+test-only auth/email/push overrides:
+
+```text
+.venv/Scripts/python.exe -m pytest tests/test_settlement_intents_mongo.py tests/test_expense_coverage.py tests/test_coverage_server_mongo.py -q --tb=short
+```
+
+**81 passed / 1 skipped**, in 37.58 seconds. The skipped check requires a separately configured
+standalone MongoDB; no standalone URL was configured in this UI session. UUID disposable databases
+were cleaned by the existing fixtures. The gate exercises reviewed direct/group/offset reports,
+receipts, dependencies, reservations, retries/races, revocation, authenticated HTTP and actual API
+startup/coverage/report compatibility. No backend source changed. The existing python-multipart
+deprecation warning is informational.
+
+Browser evidence used the actual React Native Web components/fonts with disposable coverage data
+and a local read-only fixture API. It verified light/dark rendering, the **640px** desktop cap,
+**320px** width without horizontal overflow, simulated **180%** text, selected-state announcements,
+Space deselection (₹200 → ₹100), Escape focus restoration and cached action blocking. See
+[screenshots and observations](evidence/expense-settlement-ui-20261007/README.md).
+
+### Remaining acceptance gates and limits
+
+- Native Android layout/font scaling, TalkBack, external UPI app discovery/copy/open/return, and
+  supported-device acceptance were not performed. Simulated browser text scaling is not native QA.
+- Renderer/client flow tests and real backend HTTP/Mongo tests ran separately. A complete
+  browser/native-client-to-real-API multi-account payment journey remains an integration gate.
+- Production permissions, history reconciliation, data/index migration, deliberate activation,
+  notification delivery, deployment and release remain separately authorized work. Groups without
+  the existing capability/activation gates show unavailable/not-enabled progress.
+- Historical names/parties or affected retired shares can remain unavailable. The interface says
+  so, blocks unverifiable allocation approval, and retains authorized financial-review access.
+
+---
+
+## Complete payment journey execution handoff — 7 October 2026
+
+This execution implements the approved journey in `frontend/` and the required backend integration.
+The accounting contract, runtime/activation gates and existing uncommitted expense-tab work remain
+intact. `q/` is untouched. No production access, migration/index maintenance, group activation,
+deployment, APK publication, provider delivery or real transfer was performed.
+
+### Completed stage 1: shared payment and reviewer journeys
+
+- Protected Settle Up recommendations and durable history now use `ReviewedSettlementHub`,
+  `ReviewedSettlementFlow` and `ReviewedIntentPanel`. Expense sheets preserve the active intent
+  across projection refresh. Financial Review uses the same report/reviewer controls and retains
+  correction, reconciliation and credit tools; the obsolete second payment form was removed.
+- Quote review uses gross direct shares, actual paying/receiving people, covered participants,
+  optional reference/note, frozen expense/date/share context and exact sending/conversion evidence.
+  Receivers/admins may report already-paid cash/bank money, but report and receipt approval remain
+  separate. Ordinary self-confirmation remains server-denied. Historical missing attribution is
+  explicit; consent/allocation controls block when affected shares cannot be identified.
+- UPI controls first read authorized evidence and create the start action. Copy/open/return do not
+  post cash or coverage. App discovery has truthful unsupported/failed/empty fallback states;
+  clipboard failure prevents launch. Explicit Payment sent / I did not pay / Not sure actions retain
+  the original work. Changed or unavailable sending details preserve the original late-report path.
+- Expired or admin-withdrawn UPI work suppresses new sending for its shares. A current linked sender's
+  explicit cancellation records `unsent_resolved`; expiry/admin withdrawal alone cannot assert that
+  money was never sent. Other independently eligible shares remain payable. Reported/disputed claims
+  do not expire. Dispute and authorized reasoned `resolve_not_sent` remain distinct.
+- Reviewer context includes frozen expense/date/people/shares, exact amounts and methods, party
+  snapshots, report time/reference/note, dependency and discrepancy context, authority and decision
+  history. Authorized cash/bank evidence includes the reporting actor's recorded name/authority even
+  when the reviewer cannot read another cash leg's action requests. Applied coverage uses receiver/admin
+  attribution; partial shares remain partially covered. Explicit unsent resolution removes the pending
+  share label while preserving rejected report evidence.
+
+### Completed stage 2: offsets, recovery, freshness and notifications
+
+- Pure offsets transfer no money, reserve nothing, and are excluded from payment expiry, including
+  pre-upgrade proposals with old deadlines. Own-person reasoned `decline_allocation` retains evidence
+  and leaves the proposal unapplied. Consent/admin override cannot revive a declined proposal;
+  withdrawal and a new reviewed proposal are required. Current authority, revisions and conflicting
+  reservations are rechecked at final allocation. Missing linked approvers are surfaced to admins.
+- Simplified plans display cash separately from offsets, all related expense coverage and dependent
+  legs. Confirmed cash remains credit until prerequisites complete. Applied coverage removes duplicate
+  direct actions and explains their source; pending work retains a continue/review path.
+- Account/trip checkpoints persist exact body, permanent UUID and known intent ID before HTTP writes.
+  Native SecureStore uses verified small chunks plus a last-written manifest without splitting Unicode
+  pairs. Browser recovery uses session storage. No token is stored. Read caches and offline outboxes
+  remain separate. Hydration never submits, and recovery never launches an external app. Explicit retry
+  reconciles known durable action history first; changed uncommitted starts can be cleared after a
+  live attributed-history check instead of trapping users in a retry loop. Storage failure prevents writes.
+- A coalesced account/trip financial signal handles accepted/uncertain mutations, UPI return,
+  notification receipt/tap, foreground return and corrections. Related intent/balance/queue reads
+  receive a final expected-snapshot coverage check. Obsolete reads are suppressed; failed refreshes
+  gate actions. Cached sanitized progress keeps its last-confirmed time and no private UPI/reference data.
+  A successful start publishes its signal after native copy/discovery/launch completes, so its own
+  refresh cannot interrupt a slow launch. Account/review changes still stop obsolete launches;
+  uncertain responses and explicit retry recovery still refresh immediately.
+- Transactional outbox events distinguish receipt requests/outcomes, allocation requests/completion,
+  offset decline and explicit review closure. Payload version 2 separates `eventId` from `sourceId`;
+  old source-key and already-delivered action-key notifications still route. Intent/attempt taps open
+  current durable work, correction taps open authorized detail, and existing trip-access checks remain.
+  Allocation outcomes target currently linked affected people and actual parties, including a sibling
+  whose share was covered by a different family payer; lock-screen payloads omit private payment evidence.
+
+### Completed stage 3: real client/API acceptance
+
+`backend/tests/test_payment_journey_client_mongo.py` launches the full API against a UUID disposable
+database in the task-owned loopback replica set and runs the actual primary React components/API
+helpers from `frontend/src/__tests__/paymentJourney.integration.test.tsx`. Presentation, network
+availability and external app seams are stubbed; quotes, intents, report/approval requests, auth,
+coverage and retry reconciliation travel through real HTTP and MongoDB transactions.
+
+The final joined gate passed **18 client acceptance tests / 1 backend harness test**. It covers:
+
+- UPI creation/start with launch/copy failure, a slow successful launch and simulated app return,
+  no coverage before reporting/receipt approval, a lost committed report response, and ₹40 approval
+  leaving ₹60 outstanding with zero fully settled shares.
+- Cash/bank/receiver-created reports pending a separate receipt decision, restricted reviewer evidence
+  and reporting-actor attribution, ordinary self-confirmation/outsider/cross-trip denial.
+- Direct ₹100 versus simplified ₹20+₹80 offsets, cash waiting for person consents, duplicate covered
+  direct denial, pure-offset reasoned admin approval, own-person decline/withdrawal, unavailable
+  approvers, and stale consent rejected after a financial correction while frozen evidence survives.
+- Runtime module restart at create/start/report/approval boundaries with persistent browser checkpoints,
+  reconciliation before retry, one HTTP financial effect per boundary, and no automatic launch.
+- Concurrent direct/group reservation exclusion, recipient-change sending denial, original party
+  evidence and exact retained credit, dispute versus explicit unsent resolution, three-day pending
+  reports surviving the sweeper, and late reporting after expiry.
+- Two-leg/four-person dependent bundle receipt replay and final consent, family payer/sibling coverage,
+  receiving-family receipt authority, zero-rounded shares and refund directions.
+- Open Settle Up convergence after another account's approval and a simulated notification signal,
+  removal of the covered route, actual sanitized saved-progress reads offline, no offline HTTP writes,
+  and cache isolation after account switching.
+
+The harness checks exact payment/journal counts, **15 allocation-completion notifications** and unique
+durable event keys in the database. It removes its generated namespace and child API process. The
+recipient-profile fixture uses a separate receiving account so it cannot invalidate the pre-seeded
+aged-report case. Test-only correction indexes are installed exclusively in each disposable namespace.
+
+### Verification and remaining gates
+
+Broad frontend gate, from `frontend/`:
+
+```text
+rtk npx jest --runInBand --cacheDirectory ../.release-tmp/payment-journey-20261007/jest-cache
+```
+
+**140 suites / 1,218 tests passed**, in 87.80 seconds. The fixture-dependent integration suite's
+17 tests were skipped in this ordinary invocation and ran successfully through the joined harness.
+This broad gate preceded the final slow-launch signal-timing refinement and the added eighteenth
+integration scenario. The final focused gate below verifies the refined production code.
+
+Final focused frontend gate:
+
+```text
+rtk npx jest --runInBand --cacheDirectory ../.release-tmp/payment-journey-20261007/jest-cache src/__tests__/expenseSettlement.test.ts src/__tests__/ReviewedFlows.test.tsx src/__tests__/ExpenseSettlementSheet.test.tsx src/__tests__/reviewedRecovery.test.ts src/__tests__/reviewedSettlement.test.ts src/__tests__/financialRecoveryStorage.native.test.ts src/__tests__/financialRefresh.test.tsx src/__tests__/financialReviewScreen.test.tsx src/__tests__/upiLauncher.test.ts src/__tests__/notificationRouting.test.ts src/__tests__/PushNotificationCoordinator.android.test.tsx
+```
+
+**11 suites / 67 tests passed**, zero skipped, in 16.94 seconds. This includes the final handoff timing,
+reviewer panel, terminal-unsent share state, storage/retry, freshness and notification regressions.
+
+Proportional backend gate, from `backend/`, with task-owned loopback replica-set settings and
+test-only authentication/email/push settings:
+
+```text
+rtk .venv/Scripts/python.exe -m pytest tests/test_settlement_intents_mongo.py tests/test_expense_coverage.py tests/test_coverage_journal_mongo.py tests/test_coverage_server_mongo.py tests/test_financial_corrections.py tests/test_financial_corrections_mongo.py tests/test_correction_safeguards_mongo.py tests/test_financial_writer_inventory.py tests/test_payment_attempts.py tests/test_payment_idempotency.py tests/test_payment_idempotency_mongo.py tests/test_push_notifications.py tests/test_notification_triggers.py tests/test_payment_journey_client_mongo.py -q -s --tb=short
+```
+
+**304 passed / 1 skipped**, in 145.43 seconds. The skipped check requires a separately configured
+standalone MongoDB. It includes transaction/outbox rollback boundaries, concurrent approval/retry,
+offset expiry/decline, family outcome recipients, restricted reporting attribution and the then-current
+17 joined scenarios. Backend production source did not change after this passing gate.
+
+The final expanded joined gate used:
+
+```text
+rtk .venv/Scripts/python.exe -m pytest tests/test_payment_journey_client_mongo.py -q -s --tb=short
+```
+
+**1 backend harness passed / all 18 client scenarios passed**, in 28.85 seconds. Its successful
+launch/return is a native seam simulation against real HTTP/account/transaction/coverage behavior.
+TypeScript (`rtk npx tsc --noEmit`), affected-file ESLint and `rtk git diff --check` passed.
+Node's experimental SQLite and python-multipart deprecation warnings did not skip their tests.
+Earlier failures were fixture/expectation issues (required correction indexes, canceled stale consent,
+shared profile invalidation and test-only app-state restoration) and were corrected before these gates.
+Final source/status review preserved existing expense-tab work and confirmed `q/` unchanged. Generated
+client-test namespaces and child APIs were cleaned, and the verified task-owned loopback MongoDB
+process was stopped after verification. No commit or release was requested or created.
+
+Native Android API 24/36 app discovery, external copy/open/return, physical process restart,
+font scaling and TalkBack remain device acceptance gates. Simulated launch seams and SecureStore
+contract tests do not verify a provider, bank, operating system or notification delivery. Browser
+tab reload recovery is tab-scoped; closing the tab requires finding existing server work. Existing
+activation/migration and release authorization remain separate. No screenshot evidence upload was added.

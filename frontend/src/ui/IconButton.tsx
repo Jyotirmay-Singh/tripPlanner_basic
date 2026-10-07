@@ -19,13 +19,14 @@ type Props = {
   style?: StyleProp<ViewStyle>;
   touchSize?: number;
   reducedMotion?: boolean;
+  stopPropagation?: boolean;
 };
 
 const HIT = 44; // min touch target
 
 export default function IconButton({
   name, onPress, accessibilityLabel, variant = 'plain', size = 22, color,
-  testID, disabled, style, touchSize = HIT, reducedMotion = false,
+  testID, disabled, style, touchSize = HIT, reducedMotion = false, stopPropagation = false,
 }: Props) {
   const { colors } = useTheme();
   const scale = useRef(new Animated.Value(1)).current;
@@ -44,7 +45,7 @@ export default function IconButton({
     <Animated.View style={{ transform: [{ scale }] }}>
       <Pressable
         testID={testID}
-        onPress={() => { if (!disabled) { if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {}); onPress(); } }}
+        onPress={(event) => { if (stopPropagation) event.stopPropagation(); if (!disabled) { if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {}); onPress(); } }}
         onPressIn={() => animate(PRESS_SCALE)}
         onPressOut={() => animate(1)}
         disabled={disabled}

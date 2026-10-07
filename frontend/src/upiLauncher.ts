@@ -113,6 +113,7 @@ async function launchUpiApp(
   app: UpiApp,
   platform: string,
   module?: UpiAppLauncherModule | null,
+  isCurrent: () => boolean = () => true,
 ): Promise<UpiLaunchResult> {
   if (platform !== 'android') {
     return {
@@ -154,6 +155,8 @@ async function launchUpiApp(
     };
   }
   try {
+    if (!isCurrent()) return { ok: false, status: 'launch_failed', copied: true, app,
+      message: 'This payment review changed. The app was not opened. Check the existing payment before continuing.' };
     await nativeModule.launchUpiApp(app.id);
     return { ok: true, status: 'launched', app, copied: true };
   } catch {
@@ -175,13 +178,17 @@ export async function copyAndLaunchUpiApp(
     platform?: string;
     setStringAsync?: SetClipboard;
     module?: UpiAppLauncherModule | null;
+    isCurrent?: () => boolean;
   } = {},
 ): Promise<UpiLaunchResult> {
+  if (dependencies.isCurrent && !dependencies.isCurrent()) return { ok: false, status: 'launch_failed', copied: false, app,
+    message: 'This payment review changed. Refresh the existing payment before continuing.' };
   const copied = await copyUpiId(upiId, dependencies.setStringAsync ?? Clipboard.setStringAsync);
   if (!copied.ok) return { ...copied, copied: false };
   return launchUpiApp(
     app,
     dependencies.platform ?? Platform.OS,
     dependencies.module,
+    dependencies.isCurrent,
   );
 }

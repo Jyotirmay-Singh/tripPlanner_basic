@@ -73,7 +73,7 @@ async def expire_settlement_intents(*, timestamp=None):
     for row in rows:
         async def expire(session):
             intent = await db.settlement_intents.find_one({"id": row["id"], "status": "initiated"}, {"_id": 0}, session=session)
-            if not intent or not intent.get("expires_at") or intent["expires_at"] > current.isoformat():
+            if not intent or intent.get("mode") == "offset" or not intent.get("expires_at") or intent["expires_at"] > current.isoformat():
                 return
             if any(leg.get("source_id") or leg.get("receipt_status") != "initiated" for leg in intent.get("cash_legs", [])):
                 return

@@ -1,4 +1,4 @@
-export const OFFLINE_SCHEMA_VERSION = 5;
+export const OFFLINE_SCHEMA_VERSION = 6;
 
 type MigrationTransaction = {
   execAsync(sql: string): Promise<void>;
@@ -89,6 +89,19 @@ ALTER TABLE outbox ADD COLUMN synced_at INTEGER;
 CREATE INDEX outbox_account_synced_at ON outbox(account_id, state, synced_at);
 `;
 
+// Separate public progress cache; existing read bundles and immutable outbox rows stay intact.
+const SIXTH_SCHEMA = `
+CREATE TABLE coverage_snapshots (
+  account_id TEXT NOT NULL,
+  trip_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind = 'expense_settlement'),
+  payload_json TEXT NOT NULL,
+  fetched_at INTEGER NOT NULL,
+  PRIMARY KEY (account_id, trip_id, kind),
+  FOREIGN KEY (account_id) REFERENCES account_meta(account_id) ON DELETE CASCADE
+);
+`;
+
 export async function migrateOfflineSchema(db: MigrationDatabase): Promise<void> {
   const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
   const version = row?.user_version ?? 0;
@@ -127,6 +140,12 @@ export async function migrateOfflineSchema(db: MigrationDatabase): Promise<void>
       await tx.execAsync(`UPDATE outbox SET synced_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
         WHERE state = 'synced' AND synced_at IS NULL`);
       await tx.execAsync('PRAGMA user_version = 5');
+    });
+  }
+  if (version < 6) {
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      await tx.execAsync(SIXTH_SCHEMA);
+      await tx.execAsync('PRAGMA user_version = 6');
     });
   }
 }

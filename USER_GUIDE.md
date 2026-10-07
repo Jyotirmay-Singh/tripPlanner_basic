@@ -389,6 +389,85 @@ does not include the expense amount, split, receipt, or any account contact deta
 - Or use the **🗑** icon on the transaction row for a quick delete.
 - Inside the edit screen there's also a red **Delete transaction** button.
 
+### 5.3 Settle or view an expense's shares
+
+Each saved expense has a compact **N/M shares settled** footer and **Settle** or **View shares**.
+This count belongs to that expense. A zero group balance does not prove its shares are settled.
+Groups without approved expense settlement show that progress is unavailable or not enabled;
+pending local transactions keep their synchronization status without a confirmed settlement count.
+
+Open the footer to see each participant's share, confirmed coverage, remaining amount, and status.
+An approved personal share remains visible as **Your share settled**, even when other people owe money.
+Reports awaiting approval and proposed offsets do not increase the count. Unknown history shows
+**Needs review** or **Unavailable** instead of assuming zero. Inferred history is identified separately.
+
+All eligible outgoing shares in your linked family wallet are selected initially. Deselect anyone
+you are not paying for, or use **Edit payment amounts** for a partial whole-unit payment. The sheet
+names the actual paying person and the people covered. Refunds reverse who owes whom; multiple
+receiving wallets have separate payment actions. When a family recipient is not identified, choose
+the actual receiving person before reviewing payment.
+
+**Pay [recipient]** reviews the direct expense amount, recipient, people covered, and exact
+allocations. UPI review includes the sending amount and any locked conversion. Creating/copying
+UPI instructions reserves the selected amounts; returning from another app does not establish
+payment or receipt. Report payment sent after sending it. For money already paid, explicitly choose
+**Already paid cash** or **Already paid by bank**, then **Report payment**. Receipt needs a receiver
+or authorized admin's confirmation. Covered or reserved amounts cannot be paid twice; the sheet
+explains their coverage and any unreserved amount still available.
+
+**Use group settlement** is optional. It combines amounts across expenses and may propose offsets.
+Review every actual payer/recipient, affected expense, dependent payment, and required approval.
+An offset remains a proposal until approved and does not itself reserve shares. Received group
+cash can remain credit while expense coverage waits for other receipts or person approvals.
+Receiving-family authority does not allow someone to consent for another person. Authorized
+reviewers can review receipts and open **Financial review** for corrections or historical questions.
+
+If submission's result is uncertain, use **Check or retry previous submission** before starting
+another payment. Financial review shares this recovery. Native devices securely retain the exact
+pending request across an app restart; browsers retain it across a reload in the same tab. Recovery
+never sends a request or opens a payment app automatically. **Saved progress — last confirmed [time]**
+is read-only history; reconnect and refresh before acting. Payments and approvals are never queued
+offline. Android saves sanitized progress in its encrypted account-specific store; web/iOS retain
+progress only for the current session.
+
+### 5.4 Complete a reviewed payment or offset
+
+In groups with reviewed expense settlement enabled, **Settle Up** opens the same reviewed journey
+as an expense sheet. **Continue existing payment / View pending review** returns to durable work.
+Keep the paying person, reporting account, receiving person, and covered participants distinct.
+
+For UPI, review the saved recipient, address, exact INR amount, and any conversion before copying
+or opening an app. Check the payment app or bank afterward, then choose **Payment sent**,
+**I did not pay**, or **Not sure / check payment app**. Missing apps or failed launches keep the
+same payment open. A clipboard failure prevents opening the app. Expiry, interruption, copying,
+and returning to Trip Splitter never prove that money was received. If an old handoff is uncertain,
+check it before paying the same shares again. Changed recipient details require renewed sending
+review; money already sent can still be reported against the original evidence.
+
+**Payment sent**, **Already paid cash**, and **Already paid by bank** submit a report for review.
+You may add a transaction reference and note. Receivers and admins can also report money, but they
+must use a separate approval action afterward. Authorized reviewers see the expense/date, frozen
+participants, amount, parties, reporting history, reference, and note. **Confirm received** records
+the receipt. **Not received** requires a reason and keeps the claim for review; it does not authorize
+another payment. **Resolve claim as not sent** is a separate, authorized, reasoned action.
+
+Approved direct coverage says **Receiver confirmed** or **Admin approved**. A ₹40 approval on a
+₹100 share leaves ₹60 outstanding and the share partially covered. Simplified payment shows cash
+separately from offsets and related expense coverage. Cash may remain credit until every required
+receipt and allocation approval completes. Applied coverage removes its duplicate direct route.
+
+Offsets say **No money transferred** and offer share consent rather than receipt or UPI controls.
+Every required person approves their own allocations, or an authorized admin records an approval
+reason. An unavailable linked approver is surfaced to admins. **Decline this offset** keeps the
+proposal unapplied; withdraw it and obtain a new review before reconsidering. Pending offset
+proposals do not expire with unreported payments, reserve no shares, and leave direct payment available.
+
+Review requests and outcomes use the existing activity notifications. In-app reviews remain
+available when notifications are disabled or delayed. Refreshing, foreground return, and financial
+changes update summaries, balances, sheets, history, and review queues. Failed refreshes disable
+new actions until live validation succeeds. Private references and UPI details are excluded from
+saved progress and notification payloads. These reviewed writes never enter the offline queue.
+
 ---
 
 ## 6. Group Summary (per-group dashboard)
@@ -420,7 +499,9 @@ Inside a group, the **Balances** tab shows:
 
 ### 7.2 Settle Up screen
 The reviewed financial workflow is implemented in source and awaits rollout and deliberate group
-activation. Protected groups use **Financial review**, described below. The rest of this subsection
+activation. Enabled protected groups use the shared reviewed journey in **Settle Up** and expense
+sheets (see §5.4); **Financial review** remains available for corrections and retained credit.
+The rest of this subsection
 describes the existing workflow for groups that have not been upgraded. Net balances and suggestions
 alone do not establish which individual expense shares have been paid.
 

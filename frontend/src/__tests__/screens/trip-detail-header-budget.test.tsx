@@ -15,6 +15,8 @@ let mockRole: 'owner' | 'admin' | 'member' | null = null;
 let mockUser: any = { id: 'u1', email: 'member@gmail.com', is_super_admin: false };
 let mockSearchParams = { id: 't1' };
 
+jest.mock('@react-native-community/netinfo', () => ({ __esModule: true, default: { fetch: async () => ({ isConnected: true, isInternetReachable: true }) } }));
+
 jest.mock('../../api', () => ({
   readExpenses: jest.fn(async (id: string) => ({ items: await require('../../api').api(`/trips/${id}/expenses`), complete: true })),
 

@@ -14,7 +14,7 @@ export type CachedIdentityRecord = {
   tokenExpiresAt: number;
 };
 
-export type ReadKind = 'expenses' | 'balances' | 'spend' | 'payments';
+export type ReadKind = 'expenses' | 'balances' | 'spend' | 'payments' | 'expense_settlement';
 export type AccountReadKind = 'trip_list' | 'dashboard_overview';
 export type Snapshot = { payload: unknown; fetchedAt: number };
 export type TripReadBundle = {

@@ -260,7 +260,7 @@ it('commits expense and payment UUIDs durably and retains them after a cold modu
   SQLite.openDatabaseAsync.mockResolvedValue(db);
   db.getFirstAsync.mockImplementation(async (sql: string) => {
     if (sql === 'PRAGMA cipher_version') return { cipher_version: '4.6.0' };
-    if (sql === 'PRAGMA user_version') return { user_version: 5 };
+    if (sql === 'PRAGMA user_version') return { user_version: 6 };
     return { count: 0 };
   });
   const restored = require('../offlineStore.android').offlineStore;

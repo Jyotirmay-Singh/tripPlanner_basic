@@ -84,7 +84,7 @@ class IntentApproval(Mutation):
     expected_intent_version: int = Field(ge=0)
     plan_hash: StrictStr
     action: Literal["confirm_received", "report_not_received", "reject", "resolve_not_sent",
-                    "consent", "admin_override", "reverse_allocation", "cancel"]
+                    "consent", "decline_allocation", "admin_override", "reverse_allocation", "cancel"]
     leg_id: StrictStr | None = None
     person_id: StrictStr | None = None
     reason: StrictStr | None = Field(default=None, max_length=1000)

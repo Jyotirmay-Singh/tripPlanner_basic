@@ -131,6 +131,14 @@ describe('UPI clipboard and native launch ordering', () => {
       module.launchUpiApp.mock.invocationCallOrder[0],
     );
   });
+  it('stops a reviewed launch if the account or payment changed during discovery', async () => {
+    const module = nativeModule(); let current = true;
+    module.getAvailableUpiApps.mockImplementationOnce(async () => { current = false; return ['google-pay']; });
+    await expect(copyAndLaunchUpiApp('person@upi', googlePay, {
+      platform: 'android', setStringAsync: async () => true, module, isCurrent: () => current,
+    })).resolves.toMatchObject({ status: 'launch_failed', copied: true });
+    expect(module.launchUpiApp).not.toHaveBeenCalled();
+  });
 
   it('does not invoke Android on unsupported platforms even after copying', async () => {
     const module = nativeModule();

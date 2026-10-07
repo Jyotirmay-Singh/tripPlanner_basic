@@ -13,6 +13,7 @@ sqliteIt('retains every unresolved action and its trip copy while expiring old c
       CREATE TABLE outbox (account_id TEXT, trip_id TEXT, state TEXT, synced_at INTEGER);
       CREATE TABLE trip_snapshots (account_id TEXT, trip_id TEXT, fetched_at INTEGER);
       CREATE TABLE read_snapshots (account_id TEXT, trip_id TEXT, fetched_at INTEGER);
+      CREATE TABLE coverage_snapshots (account_id TEXT, trip_id TEXT, fetched_at INTEGER);
       CREATE TABLE account_read_snapshots (account_id TEXT, kind TEXT, fetched_at INTEGER);
       CREATE TABLE sync_meta (account_id TEXT, trip_id TEXT);
     `);
@@ -23,6 +24,7 @@ sqliteIt('retains every unresolved action and its trip copy while expiring old c
     for (const trip of trips) {
       db.prepare('INSERT INTO trip_snapshots VALUES (?, ?, ?)').run('account-a', trip, old);
       db.prepare('INSERT INTO read_snapshots VALUES (?, ?, ?)').run('account-a', trip, old);
+      db.prepare('INSERT INTO coverage_snapshots VALUES (?, ?, ?)').run('account-a', trip, old);
       db.prepare('INSERT INTO sync_meta VALUES (?, ?)').run('account-a', trip);
     }
     for (const [trip, state, syncedAt] of [
@@ -52,6 +54,7 @@ sqliteIt('retains every unresolved action and its trip copy while expiring old c
     ]);
     expect(names('trip_snapshots', 'account-a')).toEqual(['queued', 'reconciling', 'review']);
     expect(names('read_snapshots', 'account-a')).toEqual(['queued', 'reconciling', 'review']);
+    expect(names('coverage_snapshots', 'account-a')).toEqual(['queued', 'reconciling', 'review']);
     expect(names('sync_meta', 'account-a')).toEqual(['queued', 'reconciling', 'review']);
     expect(db.prepare('SELECT kind FROM account_read_snapshots WHERE account_id = ?')
       .all('account-a').map((row: { kind: string }) => row.kind)).toEqual(['dashboard_overview']);
@@ -90,7 +93,7 @@ sqliteIt('rolls back a failed v5 migration and preserves queued rows on retry', 
     expect(db.prepare('PRAGMA table_info(outbox)').all()
       .map((row: { name: string }) => row.name)).not.toContain('synced_at');
     await migrateOfflineSchema(adapter);
-    expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 5 });
+    expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 6 });
     expect(db.prepare('SELECT state, synced_at FROM outbox ORDER BY state').all())
       .toEqual([{ state: 'queued', synced_at: null },
         { state: 'synced', synced_at: expect.any(Number) }]);

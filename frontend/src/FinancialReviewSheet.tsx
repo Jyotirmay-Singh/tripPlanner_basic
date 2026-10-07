@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { publishFinancialChange } from './financialRefresh';
 import { ScrollView, View } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import { api, getToken } from './api';
@@ -94,9 +95,11 @@ export default function FinancialReviewSheet({ tripId, request, currency, names,
         const result = await api<Correction>(`/trips/${tripId}/corrections${renewal ? `/${renewal.id}/actions` : ''}`, { method: 'POST', timeoutMs: 15000, ...options,
           body: { ...(renewal ? { action: 'renew', expected_version: renewal.version, plan_hash: renewal.plan_hash } : { protocol_version: 2 }),
             preview_id: review.id, preview_hash: review.preview_hash, client_mutation_id: mutation.current } });
+        publishFinancialChange({ accountId: actor, tripId, reason: 'mutation' });
         if (valid()) onComplete(result);
       }
     } catch (failure: unknown) {
+      if (apply && actor) publishFinancialChange({ accountId: actor, tripId, reason: 'uncertain_outcome' });
       if (valid()) setError(failure instanceof Error ? failure.message : 'Review changed. Refresh and preview again.');
     } finally { if (valid()) setBusy(false); }
   };

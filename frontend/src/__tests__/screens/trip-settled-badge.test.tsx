@@ -13,6 +13,12 @@ import TestRenderer, { act } from 'react-test-renderer';
 import { Keyboard, StyleSheet, TextInput } from 'react-native';
 
 const mockRouterPush = jest.fn();
+let mockSettlementData: any;
+jest.mock('../../useExpenseSettlement', () => ({ __esModule: true, default: () => ({
+  data: mockSettlementData, source: 'live', loading: false, message: '', refresh: async () => mockSettlementData,
+}) }));
+jest.mock('../../ExpenseSettlementSheet', () => ({ __esModule: true,
+  default: (p: any) => require('react').createElement('ExpenseSettlementSheet', p) }));
 
 // --- contexts / router / native shells ---
 jest.mock('../../api', () => ({
@@ -169,6 +175,9 @@ async function openExpenses(transfersValue: any[], expenseRows = EXPENSES) {
 }
 
 beforeEach(() => {
+  mockSettlementData = { availability: { status: 'available', new_starts_available: true },
+    expenses: [{ expense_id: 'e1', revision_id: 'r1', participant_count: 3, settled_count: 1,
+      viewer_status: 'unpaid', remaining_amount: '200', review_required: false }], details: {} };
   apiMock.mockReset();
   getTokenMock.mockReset();
   getTokenMock.mockResolvedValue('tok');
@@ -211,15 +220,32 @@ it('shows the last confirmed expense list while disabling online edits from a sa
   }
 });
 
-describe('Expenses tab — trip-level "Settled" badge', () => {
-  it('shows the badge on every transaction row (incl. money-back) when the trip is fully settled', async () => {
+describe('Expenses tab — expense coverage footer', () => {
+  it('zero group balance never settles open expense shares or refunds', async () => {
     const r = await openExpenses([]); // no suggested transfers => trip settled
-    expect(settledBadges(r).length).toBe(2); // both rows (positive + negative) show the badge
+    expect(settledBadges(r).length).toBe(0);
+    expect(r.root.findAll((node: any) => node.props.children === '1/3 shares settled').length).toBeGreaterThan(0);
   });
 
   it('shows no badge when any balance is outstanding', async () => {
     const r = await openExpenses([{ from_member_id: 'm1', to_member_id: 'm2', amount: 10 }]);
     expect(settledBadges(r).length).toBe(0);
+  });
+  it('an approved viewer share remains visible while other shares stay open', async () => {
+    mockSettlementData.expenses[0].viewer_status = 'covered';
+    const r = await openExpenses([]);
+    expect(r.root.findAll((node: any) => node.props.children === 'Your share settled').length).toBeGreaterThan(0);
+    expect(r.root.findAll((node: any) => node.props.children === '1/3 shares settled').length).toBeGreaterThan(0);
+  });
+  it('footer opens the settlement sheet independently of body editing', async () => {
+    const r = await openExpenses([]);
+    const footer = r.root.find((n: any) => n.props.testID === 'expense-settlement-open-e1');
+    act(() => footer.props.onPress());
+    expect(mockRouterPush).not.toHaveBeenCalled();
+    expect(r.root.findByType('ExpenseSettlementSheet').props.expense.id).toBe('e1');
+    const edit = r.root.find((n: any) => n.props.testID === 'expense-edit-e1');
+    act(() => edit.props.onPress());
+    expect(mockRouterPush).toHaveBeenCalledWith({ pathname: '/trip/[id]/edit-expense', params: { id: 't1', eid: 'e1' } });
   });
 });
 

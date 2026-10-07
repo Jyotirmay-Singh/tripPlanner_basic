@@ -78,13 +78,19 @@ def test_direct_gross_partial_and_simultaneous_receiver_admin_approval(monkeypat
                 assert await database.payments.count_documents({}) == 1
                 assert await database.expense_coverage_events.count_documents({}) == 1
                 assert (await snapshot(database)).remaining(share(await snapshot(database))["id"]) == 60 * SCALE
-                assert await database.notification_outbox.count_documents({}) == 2
+                assert await database.notification_outbox.count_documents({}) == 3
                 notices = await database.notification_outbox.find({}).to_list(None)
                 for notice in notices:
-                    assert notice["source_id"] == first["cash_legs"][0]["payment_attempt_id"]
                     assert "u_c" not in notice["recipient_user_ids"]
                     payload = push_notifications.build_expo_message(notice, {"token": "ExponentPushToken[test]"})
-                    assert payload["data"]["paymentAttemptId"] == notice["source_id"]
+                    assert payload["data"]["payloadVersion"] == 2
+                    assert payload["data"]["eventId"] == notice["event_id"]
+                    if notice["event_type"] == "settlement.allocation_applied":
+                        assert notice["source_id"] == first["id"]
+                        assert payload["data"]["intentId"] == first["id"]
+                    else:
+                        assert notice["source_id"] == first["cash_legs"][0]["payment_attempt_id"]
+                        assert payload["data"]["paymentAttemptId"] == notice["source_id"]
                     assert "UPI" not in payload["title"]
                 assert "private-evidence-123" not in str(a)
                 forged = request.model_copy(update={"transaction_reference": "different"})
@@ -381,6 +387,91 @@ def test_failure_at_financial_status_and_outbox_boundaries_rolls_back(monkeypatc
     asyncio.run(exercise())
 
 
+def test_only_sender_cancel_asserts_unsent_for_expired_or_admin_withdrawn_upi(monkeypatch):
+    async def exercise():
+        async with isolated(monkeypatch) as (database, _, _client):
+            await setup_workflow(monkeypatch, database)
+            await fake_upi_quote(monkeypatch, database)
+            _, request = await reviewed(database, method="upi")
+            intent = await workflow.create("t", request, {"id": "u_b"})
+            withdrawn = await workflow.approve("t", intent["id"], approval(intent, "cancel"), {"id": "admin"})
+            assert not withdrawn.get("unsent_resolved")
+            resolved = await workflow.leg_action("t", intent["id"], intent["cash_legs"][0]["id"],
+                leg_command(withdrawn, "cancel"), {"id": "u_b"})
+            assert resolved["unsent_resolved"] is True
+            assert await database.payments.count_documents({}) == 0
+            assert await database.expense_coverage_events.count_documents({}) == 0
+    asyncio.run(exercise())
+
+
+def test_offset_decline_is_person_scoped_durable_and_never_expires(monkeypatch):
+    async def exercise():
+        from services import payment_attempts
+        from utils.common import now_utc
+        from datetime import timedelta
+        async with isolated(monkeypatch, reverse=True) as (database, _, _client):
+            await setup_workflow(monkeypatch, database)
+            monkeypatch.setattr(payment_attempts, "db", database)
+            current = await snapshot(database)
+            quote = await workflow.quote("t", SettlementQuoteRequest(mode="offset", method="offset",
+                expected_snapshot_id=current.snapshot_id,
+                shares=[{"share_id": share(current)["id"], "amount": "80"}], parties=[]), {"id": "u_b"})
+            intent = await workflow.create("t", SettlementIntentCreate(quote_id=quote["id"],
+                quote_hash=quote["quote_hash"], client_mutation_id=uuid4(), submission_action="propose"), {"id": "u_b"})
+            assert intent["expires_at"] is None
+            # Even a pre-upgrade offset with an old unreported-payment deadline survives.
+            await database.settlement_intents.update_one({"id": intent["id"]},
+                {"$set": {"expires_at": (now_utc() - timedelta(days=2)).isoformat()}})
+            await payment_attempts.expire_settlement_intents()
+            assert (await database.settlement_intents.find_one({"id": intent["id"]}))["status"] == "initiated"
+            assert all(not row["reservations"] for row in (await snapshot(database)).shares.values())
+            with pytest.raises(HTTPException):
+                await workflow.approve("t", intent["id"], approval(intent, "decline_allocation",
+                    person_id="b", reason="Not agreed"), {"id": "u_a"})
+            with pytest.raises(HTTPException):
+                await workflow.approve("t", intent["id"], approval(intent, "decline_allocation", person_id="b"), {"id": "u_b"})
+            command = approval(intent, "decline_allocation", person_id="b", reason="Keep separate debts")
+            declined = await workflow.approve("t", intent["id"], command, {"id": "u_b"})
+            assert await workflow.approve("t", intent["id"], command, {"id": "u_b"}) == declined
+            assert declined["allocation_status"] == "needs_review"
+            assert declined["approvals"][-1]["actor_role"] == "member"
+            with pytest.raises(HTTPException) as reconsidered:
+                await workflow.approve("t", intent["id"], approval(declined, "admin_override", reason="Admin review"), {"id": "admin"})
+            assert reconsidered.value.detail["code"] == "offset_declined_new_review_required"
+            assert await database.payments.count_documents({}) == 0
+            assert await database.expense_coverage_events.count_documents({}) == 0
+            detail = await workflow.detail("t", intent["id"], {"id": "u_b"})
+            assert detail["can_withdraw"] is True
+            withdrawn = await workflow.approve("t", intent["id"], approval(declined, "cancel"), {"id": "u_b"})
+            assert withdrawn["status"] == "canceled"
+            assert await database.notification_outbox.count_documents({"event_type": "settlement.allocation_declined"}) == 1
+    asyncio.run(exercise())
+
+
+def test_review_context_preserves_original_expense_and_participant_labels(monkeypatch):
+    async def exercise():
+        async with isolated(monkeypatch) as (database, _, _client):
+            await setup_workflow(monkeypatch, database)
+            await database.expenses.update_one({"id": "dinner"}, {"$set": {
+                "description": "Original dinner", "category": "Food", "date": "01-10-26"}})
+            _, request = await reviewed(database, "40")
+            intent = await workflow.create("t", request, {"id": "u_b"})
+            await database.expenses.update_one({"id": "dinner"}, {"$set": {"description": "Corrected dinner"}})
+            detail = await workflow.detail("t", intent["id"], {"id": "u_a"})
+            assert detail["review_context"][0] == {
+                "share_id": intent["plan"]["allocation_lines"][0]["share_id"],
+                "revision_id": intent["plan"]["allocation_lines"][0]["revision_id"],
+                "expense_id": "dinner", "expense_description": "Original dinner", "category": "Food", "date": "01-10-26",
+                "person_id": "b", "person_name": "B", "original_share": "100", "amount": "40", "kind": "direct"}
+            # Older work still identifies people from retained revisions when the bill is gone.
+            await database.settlement_intents.update_one({"id": intent["id"]}, {"$unset": {"review_context": ""}})
+            await database.expenses.delete_one({"id": "dinner"})
+            old = await workflow.detail("t", intent["id"], {"id": "u_a"})
+            assert old["review_context"][0]["person_name"] == "B"
+            assert old["review_context"][0]["expense_description"] is None
+    asyncio.run(exercise())
+
+
 def test_group_start_revalidates_pair_but_sent_claim_keeps_exact_money(monkeypatch):
     async def exercise():
         async with isolated(monkeypatch, reverse=True) as (database, data, _client):
@@ -582,6 +673,8 @@ def test_linked_family_can_cover_sibling_share_and_receiver_family_can_review(mo
             final = await snapshot(database)
             assert final.remaining(share(final, person="b2")["id"]) == 10 * SCALE
             assert final.remaining(share(final, person="b1")["id"]) == 50 * SCALE
+            notice = await database.notification_outbox.find_one({"event_type": "settlement.allocation_applied"})
+            assert set(notice["recipient_user_ids"]) == {"u_b", "u_b2", "u_a"}
     asyncio.run(exercise())
 
 

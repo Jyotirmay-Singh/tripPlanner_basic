@@ -39,7 +39,9 @@ import { matchesExpenseDescription } from '../../../src/expenseSearch';
 import ExpenseSearchScreen, { type ExpenseSearchScreenRef } from '../../../src/ExpenseSearchScreen';
 import { hasShareBreakdown, shareVerbs, type ExpenseShares } from '../../../src/expenseShares';
 import { tripTabFromParam, type TripTabKey } from '../../../src/tripTabs';
-import { isTripSettled } from '../../../src/tripSettled';
+import useExpenseSettlement from '../../../src/useExpenseSettlement';
+import ExpenseSettlementFooter from '../../../src/ExpenseSettlementFooter';
+import ExpenseSettlementSheet from '../../../src/ExpenseSettlementSheet';
 import type { SettlementProjection } from '../../../src/settlementProjection';
 import { formatAccessibleMoney, formatMoney } from '../../../src/format';
 import { formatTripDates } from '../../../src/date';
@@ -55,6 +57,7 @@ import MembershipCard from '../../../src/MembershipCard';
 import { normalizedTripDeletionName } from '../../../src/departure';
 import FinancialReviewSheet from '../../../src/FinancialReviewSheet';
 import { guardedTrip, type ReviewRequest } from '../../../src/financialReview';
+import useFinancialRefresh from '../../../src/useFinancialRefresh';
 import {
   Card, Button, IconButton, Icon, SegmentedControl, StatCard, ProgressBar,
   ActionSheet, EmptyState, ResponsiveAmountText, SkeletonCard, useToast,
@@ -273,6 +276,8 @@ export default function TripDetail() {
   );
   const [tab, setTab] = useState<TabKey>(() => tripTabFromParam(tabParam));
   const [expenseSearchQuery, setExpenseSearchQuery] = useState('');
+  const [settlementExpenseId, setSettlementExpenseId] = useState<string | null>(null);
+  useEffect(() => { setSettlementExpenseId(null); }, [id, user?.id, tab]);
 
   useEffect(() => { setExpenseSearchQuery(''); }, [id, user?.id]);
   useEffect(() => {
@@ -374,6 +379,7 @@ export default function TripDetail() {
     void load();
     return () => { loadGeneration.current += 1; };
   }, [load]));
+  useFinancialRefresh(user?.id, id, load);
 
   useFocusEffect(useCallback(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -386,6 +392,11 @@ export default function TripDetail() {
   }, [user?.id, id, load]));
 
   const offlineView = sessionMode === 'offline' || read?.source === 'cache';
+  const expenseSettlement = useExpenseSettlement({ tripId: id, accountId: user?.id,
+    sessionMode: sessionMode ?? 'online', active: tab === 'expenses' && !!trip,
+    preferCache: offlineView, refreshKey: read?.fetchedAt, detailOpen: !!settlementExpenseId });
+  const settlementSummaries = useMemo(() => new Map(expenseSettlement.data?.expenses?.map(row => [row.expense_id, row])),
+    [expenseSettlement.data]);
 
   const isApplicationAdmin = user?.is_super_admin === true;
   const optimisticSender = isApplicationAdmin
@@ -529,10 +540,6 @@ export default function TripDetail() {
   // Signed totals: a negative transaction (money back) nets the total down.
   const expenseDataComplete = read?.data?.expensesComplete === true;
   const totalSpent = expenses.reduce((s, e) => s + e.amount, 0);
-  // Trip-level "Settled" badge signal — reuses the SAME empty-transfers value the settle-up screen
-  // uses for "All square!" (display-only; never recomputed). Every transaction card shows the badge
-  // once the whole trip squares up.
-  const tripSettled = isTripSettled(balances);
   // Role gating routes through the shared src/permissions.ts matrix (mirror of the backend).
   const meCanEditSettings = canEditTripSettings(trip, user?.id, isApplicationAdmin);
   const meCanManageMembers = canManageMembers(trip, user?.id, isApplicationAdmin);
@@ -688,12 +695,16 @@ export default function TripDetail() {
             requestAnimationFrame(() => notificationScrollRef.current?.scrollToResult(y));
           }}
         >
-        <Card onPress={offlineView ? undefined : () => router.push({ pathname: '/trip/[id]/edit-expense', params: { id: id as string, eid: e.id } })}
+        <Card
           style={e.id === notificationExpenseId
             ? { borderColor: colors.primary, borderWidth: 2 }
             : undefined}
           testID={`expense-item-${e.id}`}>
-          <View style={styles.expenseCardContent}>
+          <Pressable style={({ focused }: any) => [styles.expenseCardContent,
+            focused && Platform.OS === 'web' && { outlineWidth: 2, outlineStyle: 'solid', outlineColor: colors.primary } as any]}
+            onPress={offlineView ? undefined : () => router.push({ pathname: '/trip/[id]/edit-expense', params: { id: id as string, eid: e.id } })}
+            accessibilityRole={offlineView ? undefined : 'button'} accessibilityLabel={`Edit ${e.description || e.category}`}
+            testID={`expense-edit-${e.id}`}>
             <CategoryBadge name={e.category} />
             <View style={styles.expenseDetails}>
               <T variant="h4" numberOfLines={2}>{e.description || e.category}</T>
@@ -702,7 +713,7 @@ export default function TripDetail() {
               </T>
               {e.has_receipt ? (
                 token && !offlineView ? (
-                  <TouchableOpacity testID={`expense-bill-${e.id}`} onPress={() => setViewerUri(receiptUrl(id as string, e.id, token))} style={{ marginTop: 6 }} accessibilityLabel="View bill">
+                  <TouchableOpacity testID={`expense-bill-${e.id}`} onPress={(event) => { event.stopPropagation(); setViewerUri(receiptUrl(id as string, e.id, token)); }} style={{ marginTop: 6 }} accessibilityLabel="View bill">
                     <Image source={{ uri: receiptUrl(id as string, e.id, token) }} style={[styles.billThumb, { borderColor: colors.border }]} />
                   </TouchableOpacity>
                 ) : <T variant="caption" muted>Receipt available online</T>
@@ -711,7 +722,6 @@ export default function TripDetail() {
               )}
             </View>
             <View style={styles.expenseAmount}>
-              {tripSettled ? <Badge label="Settled" color={colors.success} /> : null}
               <ResponsiveAmountText
                 value={e.amount}
                 currency={trip.currency}
@@ -726,10 +736,10 @@ export default function TripDetail() {
                 </T>
               ) : null}
               {!offlineView && canModifyExpense(e, user?.id, trip, isApplicationAdmin) && (
-                <IconButton name="trash" onPress={() => deleteExpense(e)} accessibilityLabel="Delete transaction" testID={`expense-del-${e.id}`} size={18} color={colors.danger} />
+                <IconButton name="trash" onPress={() => deleteExpense(e)} stopPropagation accessibilityLabel="Delete transaction" testID={`expense-del-${e.id}`} size={18} color={colors.danger} />
               )}
             </View>
-          </View>
+          </Pressable>
           {/* DISPLAY-only "Split details": payer fronted the money; participants owe computed
               shares (negative amounts read as credits via the minus sign). Its own touchable
               so tapping it toggles instead of navigating to the edit screen. */}
@@ -782,6 +792,8 @@ export default function TripDetail() {
               </View>
             );
           })()}
+          <ExpenseSettlementFooter expenseId={e.id} summary={settlementSummaries.get(e.id)} data={expenseSettlement.data}
+            source={expenseSettlement.source} loading={expenseSettlement.loading} onOpen={() => setSettlementExpenseId(e.id)} />
         </Card>
         </View>
         );
@@ -823,6 +835,10 @@ export default function TripDetail() {
           refreshing={refreshing}
           onRefresh={load}
         >
+          {expenseSettlement.source === 'cache' && <T testID="expense-settlement-saved-status" variant="caption">
+            Saved progress — last confirmed {expenseSettlement.data?.generated_at ? new Date(expenseSettlement.data.generated_at).toLocaleString() : 'time unavailable'}. Connect and refresh before acting.
+          </T>}
+          {!!expenseSettlement.message && <T accessibilityRole="alert" variant="caption">{expenseSettlement.message}</T>}
           {expensesContent}
         </ExpenseSearchScreen>
       ) : (
@@ -1285,6 +1301,13 @@ export default function TripDetail() {
       />
 
       {tripConfirmModal}
+      {settlementExpenseId && user?.id && expenses.find(e => e.id === settlementExpenseId) && (
+        <ExpenseSettlementSheet key={`${user.id}:${id}:${settlementExpenseId}`} expense={expenses.find(e => e.id === settlementExpenseId)!}
+          trip={trip} accountId={user.id} sessionMode={sessionMode ?? 'online'}
+          isAdmin={isApplicationAdmin || trip.owner_id === user.id || trip.admin_ids.includes(user.id)}
+          progress={expenseSettlement} expenseNames={Object.fromEntries(expenses.map(e => [e.id, e.description || e.category]))}
+          onClose={() => setSettlementExpenseId(null)} onChanged={() => { void load(); }} />
+      )}
       <FinancialReviewSheet tripId={id} request={financialReview} currency={trip?.currency ?? ''}
         onClose={() => setFinancialReview(null)} onComplete={() => { setFinancialReview(null); void load(); }} />
     </SafeAreaView>

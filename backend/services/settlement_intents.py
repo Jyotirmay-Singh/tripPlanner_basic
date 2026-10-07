@@ -135,13 +135,29 @@ def public_intent(intent):
         "id", "trip_id", "mode", "method", "currency", "version", "status", "allocation_status",
         "plan", "created_at", "expires_at", "review_reasons", "coverage_event_id",
         "overlapping_intent_ids",
+        "unsent_resolved",
     )} | {"approvals": [{key: deepcopy(action.get(key)) for key in (
-        "scope", "action", "leg_id", "person_id", "created_at",
+        "scope", "action", "leg_id", "person_id", "created_at", "actor_role",
     ) if key in action} for action in intent.get("approvals", [])],
     "cash_legs": [{key: deepcopy(leg.get(key)) for key in (
         "id", "from_member_id", "to_member_id", "amount", "dependency", "receipt_status", "source_id",
         "payment_attempt_id", "actual_payer_person_id", "actual_receiver_person_id",
     )} for leg in intent["cash_legs"]]}
+
+
+def review_context(snapshot, plan):
+    """Freeze public expense/participant labels alongside the reviewed financial references."""
+    expenses = {row["id"]: row for row in snapshot.ledger.expenses}
+    result = []
+    for line in plan["allocation_lines"]:
+        share = snapshot.shares.get(line["share_id"], {})
+        expense = expenses.get(share.get("expense_id"), {})
+        result.append({"share_id": line["share_id"], "revision_id": line.get("revision_id"),
+            "expense_id": share.get("expense_id"), "expense_description": expense.get("description"),
+            "category": expense.get("category"), "date": expense.get("date"),
+            "person_id": share.get("person_id"), "person_name": share.get("person_name"),
+            "original_share": share.get("original_share"), "amount": line["amount"], "kind": line["kind"]})
+    return result
 
 
 async def detail(trip_id, intent_id, user):
@@ -151,6 +167,22 @@ async def detail(trip_id, intent_id, user):
         if not intent:
             raise error("intent_not_found", 404)
         response = public_intent(intent)
+        response["can_withdraw"] = (actor["id"] == intent.get("created_by") or role_of(trip, actor) in ADMIN_ROLES) and not any(
+            leg.get("source_id") or leg["receipt_status"] in {"awaiting_review", "approved", "disputed", "rejected"}
+            for leg in intent["cash_legs"]) and intent["status"] not in {"applied", "reversed", "rejected", "canceled"}
+        response["review_context"] = deepcopy(intent.get("review_context"))
+        if response["review_context"] is None:
+            # Old intents still reference retained revisions, even after a correction retires them.
+            revisions = await db.expense_share_revisions.find({"trip_id": trip_id,
+                "id": {"$in": list({line.get("revision_id") for line in intent["plan"]["allocation_lines"]})}},
+                {"_id": 0}, session=session).to_list(None)
+            shares = {share["id"]: share for revision in revisions for share in revision.get("shares", [])}
+            expenses = await db.expenses.find({"trip_id": trip_id,
+                "id": {"$in": list({share.get("expense_id") for share in shares.values()})}},
+                {"_id": 0, "id": 1, "description": 1, "category": 1, "date": 1}, session=session).to_list(None)
+            from types import SimpleNamespace
+            response["review_context"] = review_context(SimpleNamespace(shares=shares,
+                ledger=SimpleNamespace(expenses=expenses)), intent["plan"])
         response["reports"] = []
         readable_legs = set()
         for leg in intent["cash_legs"]:
@@ -161,6 +193,15 @@ async def detail(trip_id, intent_id, user):
                 readable_legs.add(leg["id"])
         actions = await db.settlement_intent_actions.find({"trip_id": trip_id, "intent_id": intent_id},
             {"_id": 0}, session=session).sort("created_at", 1).to_list(None)
+        for report in response["reports"]:
+            leg = next(row for row in intent["cash_legs"] if row["id"] == report["settlement_leg_id"])
+            reporting = next((action for action in actions
+                if action.get("event") == "reported" and action.get("actor_user_id") == report.get("reported_by")
+                and ((action.get("resource_binding") or {}).get("leg_id") == leg["id"]
+                     or (action.get("operation") == "settlement.intent.create" and not leg.get("dependency")))), None)
+            # Expose attribution for this authorized report without exposing other legs' requests.
+            report["reporting_actor_snapshot"] = ({"name": reporting.get("actor_name_snapshot"),
+                "role": reporting.get("actor_role")} if reporting else None)
         response["action_history"] = [action for action in actions
             if role_of(trip, actor) in ADMIN_ROLES or action.get("actor_user_id") == actor["id"] or
             (action.get("request") or {}).get("leg_id") in readable_legs or
@@ -220,7 +261,8 @@ async def quote(trip_id, body, user):
         validate_plan(snapshot, plan)
         return {"id": quote_id, "trip_id": trip_id, "intent_id": intent_id, "actor_user_id": actor["id"],
                 "mode": body.mode, "method": body.method, "currency": trip.get("currency", "INR"),
-                "plan": plan, "cash_legs": bound, "snapshot_id": snapshot.snapshot_id}
+                "plan": plan, "cash_legs": bound, "snapshot_id": snapshot.snapshot_id,
+                "review_context": review_context(snapshot, plan)}
     document = await transaction(review)
     expires = now_utc() + timedelta(minutes=5)
     if body.method == "upi":
@@ -302,6 +344,34 @@ async def mutate(trip_id, body, user, operation, callback, *, binding=None):
                             event_id=f"{action_id}:{leg['id']}", trip_id=trip_id,
                             actor_user_id=actor["id"], recipient_user_ids_override=recipients,
                             payment_method=intent["method"], session=session)
+            # Allocation requests/outcomes are independent of receipt confirmation, including
+            # pure offsets which have no payment attempt to use as a notification source.
+            allocation_event = None
+            if operation == "settlement.intent.create" and intent["plan"]["required_person_ids"]:
+                allocation_event = "settlement.approval_requested"
+            elif event == "allocation_declined":
+                allocation_event = "settlement.allocation_declined"
+            elif intent["allocation_status"] == "applied":
+                allocation_event = "settlement.allocation_applied"
+            if allocation_event:
+                accounts = _accounts(trip)
+                recipients = [accounts.get(pid) for pid in intent["plan"]["required_person_ids"]]
+                recipients += [accounts.get(line.get("person_id")) for line in intent.get("review_context") or []]
+                recipients += [accounts.get(leg.get(person_key)) for leg in intent["cash_legs"]
+                               for person_key in ("actual_payer_person_id", "actual_receiver_person_id")]
+                recipients += [intent.get("created_by")]
+                if allocation_event == "settlement.approval_requested" and any(
+                        not accounts.get(pid) for pid in intent["plan"]["required_person_ids"]):
+                    recipients += trip.get("admin_ids", []) + [trip.get("owner_id")]
+                await enqueue_notification_event(event_type=allocation_event, source_id=intent["id"],
+                    event_id=action_id, trip_id=trip_id, actor_user_id=actor["id"],
+                    recipient_user_ids_override=recipients, session=session)
+            if body.model_dump().get("action") == "resolve_not_sent":
+                closed_leg = next(row for row in intent["cash_legs"] if row["id"] == body.leg_id)
+                await enqueue_notification_event(event_type="payment_attempt.review_closed",
+                    source_id=closed_leg["payment_attempt_id"], event_id=action_id, trip_id=trip_id,
+                    actor_user_id=actor["id"], recipient_user_ids_override=[closed_leg["payer"].get("user_id") or intent.get("created_by")],
+                    payment_method=intent["method"], session=session)
         await db.payment_mutation_receipts.insert_one({**key, "trip_id": trip_id, "fingerprint": request_hash,
             "resource_id": intent["id"], "response": response, "created_at": now_utc().isoformat()}, session=session)
         return response
@@ -376,7 +446,9 @@ async def create(trip_id, body, user, *, legacy_settlement_id=None):
             "currency": document["currency"], "plan": document["plan"], "version": 0, "status": "initiated",
             "created_by": actor["id"],
             "allocation_status": "pending", "created_at": at.isoformat(),
-            "expires_at": (at + PAYMENT_ATTEMPT_LIFETIME).isoformat(), "approvals": [], "review_reasons": [], "cash_legs": []}
+            "expires_at": None if document["mode"] == "offset" else (at + PAYMENT_ATTEMPT_LIFETIME).isoformat(),
+            "review_context": deepcopy(document.get("review_context")),
+            "approvals": [], "review_reasons": [], "cash_legs": []}
         if alias:
             intent["legacy_settlement_id"] = legacy_settlement_id
             await db.settlements.update_one({"id": legacy_settlement_id, "trip_id": trip_id, "status": "pending"},
@@ -502,7 +574,7 @@ async def leg_action(trip_id, intent_id, leg_id, body, user):
             if body.transaction_reference not in {None, attempt.get("transaction_reference")} or body.note not in {None, attempt.get("note")}:
                 raise CoverageError("reported_evidence_changed")
             return intent, None
-        if body.action == "cancel" and intent["status"] == "canceled":
+        if body.action == "cancel" and intent["status"] == "canceled" and intent.get("unsent_resolved"):
             return intent, None
         precondition(intent, body)
         at = now_utc().isoformat()
@@ -531,6 +603,9 @@ async def leg_action(trip_id, intent_id, leg_id, body, user):
             event = "started"
         elif body.action == "cancel":
             await cancel_intent(intent, session)
+            # Only the currently linked sender can make this assertion. An automatic expiry
+            # or administrator withdrawal does not prove that the external transfer was unsent.
+            intent["unsent_resolved"] = True
             await save_intent(intent, session)
             return intent, "canceled"
         else:
@@ -639,9 +714,11 @@ async def approve(trip_id, intent_id, body, user):
                 raise error("insufficient_authority", 403)
             if body.action == "confirm_received" and leg["receipt_status"] == "approved":
                 return intent, None
-        elif body.action == "consent":
+        elif body.action in {"consent", "decline_allocation"}:
             if body.person_id not in intent["plan"]["required_person_ids"] or _accounts(trip).get(body.person_id) != actor["id"]:
                 raise error("insufficient_authority", 403)
+            if body.action == "decline_allocation" and (intent["mode"] != "offset" or not str(body.reason or "").strip()):
+                raise CoverageError("reasoned_offset_decline_required")
         elif not admin or not str(body.reason or "").strip():
             raise error("reasoned_admin_action_required", 403)
         if intent["allocation_status"] == "applied" and body.action in {"consent", "admin_override"}:
@@ -649,11 +726,21 @@ async def approve(trip_id, intent_id, body, user):
         precondition(intent, body)
         if intent["status"] in {"reversed", "rejected", "canceled", "expired"}:
             raise CoverageError("invalid_transition")
+        if "allocation_declined" in intent.get("review_reasons", []) and body.action in {"consent", "admin_override"}:
+            raise CoverageError("offset_declined_new_review_required")
         at = now_utc().isoformat()
-        evidence = {"actor_user_id": actor["id"], "plan_hash": body.plan_hash, "created_at": at,
+        evidence = {"actor_user_id": actor["id"], "actor_role": role_of(trip, actor), "plan_hash": body.plan_hash, "created_at": at,
                     "reason": body.reason, "mutation_id": str(body.client_mutation_id)}
         event = "reviewed"
-        if body.action == "reverse_allocation":
+        if body.action == "decline_allocation":
+            if intent["allocation_status"] == "applied":
+                raise CoverageError("invalid_transition")
+            evidence.update(scope="consent", person_id=body.person_id, action="declined")
+            intent["approvals"].append(evidence)
+            intent.update(status="needs_review", allocation_status="needs_review", expires_at=None)
+            intent["review_reasons"] = sorted(set(intent["review_reasons"] + ["allocation_declined"]))
+            event = "allocation_declined"
+        elif body.action == "reverse_allocation":
             if intent["allocation_status"] != "applied":
                 raise CoverageError("invalid_reversal")
             await append_coverage_event(trip_id, reverses_event_id=intent["coverage_event_id"], reason=body.reason,
@@ -678,7 +765,7 @@ async def approve(trip_id, intent_id, body, user):
                     {"$set": {"status": "needs_review", "expires_at": None, "reason": body.reason}}, session=session)
             evidence.update(scope="receipt", leg_id=leg["id"], action=body.action)
             intent["approvals"].append(evidence)
-            event = "disputed"
+            event = "resolved_not_sent" if body.action == "resolve_not_sent" else "disputed"
         else:
             if body.action == "confirm_received":
                 if leg["receipt_status"] not in {"awaiting_review", "disputed", "rejected"}:
