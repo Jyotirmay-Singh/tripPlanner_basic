@@ -18,7 +18,7 @@ jest.mock('../offlineStore', () => ({
 
 import { api, readExpenses } from '../api';
 import { offlineStore } from '../offlineStore';
-import { loadDashboardOverview, loadTripList, loadTripReadBundle } from '../offlineReads';
+import { loadDashboardOverview, loadTripList, loadTripReadBundle, refreshTripSettingsReads } from '../offlineReads';
 import type { Snapshot } from '../offlineStore.shared';
 
 const apiMock = api as jest.Mock;
@@ -133,6 +133,42 @@ it('keeps the old complete financial snapshot after an incomplete refresh', asyn
   expect((result.data?.expenses as typeof expenses)[0].amount).toBe(250);
   expect(result.fetchedAt).toBe(old.fetchedAt);
   expect(store.putTripReadBundle).toHaveBeenCalledTimes(1);
+});
+
+it('refreshes the selected mode, balances, and payment metadata together after saving settings', async () => {
+  online();
+  await loadTripList('user-1');
+  await loadTripReadBundle('user-1', 'trip-1');
+  online({
+    '/trips': [{ ...trip, simplify_debts: false }],
+    '/trips/trip-1': { ...trip, simplify_debts: false },
+    '/trips/trip-1/balances': { ...balances, settlement_projection: {
+      enabled: true, settlement_mode: 'direct', routing: { algorithm: 'pairwise_v1' },
+    } },
+    '/trips/trip-1/payments': [{ ...payments[0], settlement_mode: 'direct' }],
+  });
+  expect(await refreshTripSettingsReads('user-1', 'trip-1')).toBe(true);
+  const saved = (await loadTripReadBundle('user-1', 'trip-1', true)).data as any;
+  expect(saved.trip.simplify_debts).toBe(false);
+  expect(saved.balances.settlement_projection).toMatchObject({ enabled: true, settlement_mode: 'direct' });
+  expect(saved.payments[0].settlement_mode).toBe('direct');
+  expect((await loadTripList<any>('user-1', true)).data?.[0].simplify_debts).toBe(false);
+});
+
+it('invalidates old recommendations when a settings refresh fails', async () => {
+  online();
+  await loadTripList('user-1');
+  await loadTripReadBundle('user-1', 'trip-1');
+  apiMock.mockRejectedValue(networkError());
+  expect(await refreshTripSettingsReads('user-1', 'trip-1')).toBe(false);
+  expect((await loadTripReadBundle('user-1', 'trip-1', true)).data).toBeNull();
+});
+
+it('defaults legacy trip flags to enabled in saved copies', async () => {
+  online();
+  await loadTripReadBundle('user-1', 'trip-1');
+  const saved = (await loadTripReadBundle('user-1', 'trip-1', true)).data as any;
+  expect(saved.trip.simplify_debts).toBe(true);
 });
 
 it('shows unavailable rather than zero when a trip has no complete saved snapshot', async () => {

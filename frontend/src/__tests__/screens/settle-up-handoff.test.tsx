@@ -135,18 +135,18 @@ const trip = {
 
 async function mountAs(
   user: typeof mockUser,
-  options: { attempts?: any[]; payments?: any[]; attemptsError?: boolean } = {},
+  options: { attempts?: any[]; payments?: any[]; attemptsError?: boolean; balances?: any; trip?: any } = {},
 ) {
   mockUser = user;
   mockListPayments.mockResolvedValue(options.payments ?? []);
   mockListAttempts.mockImplementation(() => options.attemptsError
     ? Promise.reject(new Error('offline')) : Promise.resolve(options.attempts ?? []));
   mockApi.mockImplementation((path: string) => (
-    path.endsWith('/balances') ? Promise.resolve(balance)
+    path.endsWith('/balances') ? Promise.resolve(options.balances ?? balance)
       : path.endsWith('/expenses') ? Promise.resolve([])
         : path.endsWith('/spend-summary') ? Promise.resolve({ total: 0, count: 0, entities: [] })
           : path.endsWith('/payments') ? Promise.resolve(options.payments ?? [])
-            : Promise.resolve(trip)
+            : Promise.resolve(options.trip ?? trip)
   ));
   let renderer: any;
   await act(async () => {
@@ -201,6 +201,28 @@ const attempt = (overrides: Record<string, unknown> = {}) => ({
   updated_at: '2026-09-11T10:00:00+00:00',
   expires_at: '2026-09-12T10:00:00+00:00',
   ...overrides,
+});
+
+it.each([true, false])('labels the selected repayment mode when simplification is %s', async (enabled) => {
+  const renderer = await mountAs({ id: 'payer-user', is_super_admin: false }, {
+    trip: { ...trip, simplify_debts: enabled },
+    balances: { ...balance, settlement_projection: { enabled: true, settlement_mode: enabled ? 'simplified' : 'direct' } },
+  });
+  const text = renderer.root.findAllByType('T').map((node: any) => node.props.children).flat().join(' ');
+  expect(text).toContain(enabled ? 'Simplified debts' : 'Direct repayment plan');
+  expect(hosts(renderer, 'upi-pay-0')).toHaveLength(1);
+  act(() => renderer.unmount());
+});
+
+it('waits for balances before displaying a settlement mode', async () => {
+  const loader = jest.spyOn(require('../../offlineReads'), 'loadTripReadBundle').mockResolvedValue({
+    data: null, source: 'unavailable', fetchedAt: null,
+  });
+  try {
+    const renderer = await mountAs({ id: 'payer-user', is_super_admin: false });
+    expect(hosts(renderer, 'settlement-mode')).toHaveLength(0);
+    act(() => renderer.unmount());
+  } finally { loader.mockRestore(); }
 });
 
 it('shows Pay via UPI only to the linked payer and opens the focused handoff sheet', async () => {

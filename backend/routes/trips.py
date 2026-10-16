@@ -9,6 +9,7 @@ from utils.common import gen_id, gen_trip_code
 from utils.date_rules import assert_valid_range, ensure_date_range
 from utils.deps import get_current_user, _trip_or_404, _trip_admin_or_403, _trip_owner_or_403
 from utils.email_rules import assert_gmail, normalize_email
+from utils.permissions import can_change_debt_simplification, is_super_admin
 from utils.members import (
     assert_unique_email_in_trip,
     assign_family_member_ids,
@@ -130,6 +131,7 @@ async def create_trip(body: TripIn, user=Depends(get_current_user)):
         "id": tid, "code": code, "name": body.name,
         "start_date": start_date, "end_date": end_date,
         "budget": budget, "currency": currency,
+        "simplify_debts": True,
         "owner_id": user["id"], "user_ids": [user["id"]],
         "admin_ids": [user["id"]],
         "members": [owner_member],
@@ -158,7 +160,7 @@ async def create_trip(body: TripIn, user=Depends(get_current_user)):
     )
     await record_admin_action(
         user, "trip.created", trip=doc, resource_type="trip", resource_id=tid,
-        changed_fields=("name", "start_date", "end_date", "budget", "currency"),
+        changed_fields=("name", "start_date", "end_date", "budget", "currency", "simplify_debts"),
     )
     return doc
 
@@ -169,12 +171,15 @@ async def list_trips(user=Depends(get_current_user)):
         ("last_activity_at", -1), ("created_at", -1), ("id", -1),
     ])
     trips = await cur.to_list(None)
+    for trip in trips:
+        trip.setdefault("simplify_debts", True)
     return [ensure_activity_payload(ensure_date_range(t)) for t in trips]
 
 
 @router.get("/trips/{trip_id}")
 async def get_trip(trip_id: str, user=Depends(get_current_user)):
     trip = ensure_activity_payload(ensure_date_range(await _trip_or_404(trip_id, user)))
+    trip.setdefault("simplify_debts", True)
     return await enrich_trip_mobile_numbers(trip)
 
 
@@ -183,6 +188,10 @@ async def update_trip(trip_id: str, body: TripUpdate, user=Depends(get_current_u
     # Step 23: editing trip settings is an Owner/Admin capability; a plain member is rejected.
     trip = await _trip_admin_or_403(trip_id, user)
     supplied = body.model_dump(exclude_unset=True)
+    if "simplify_debts" in supplied and not can_change_debt_simplification(trip, user):
+        raise HTTPException(403, "Only the group owner or application admin can change debt simplification")
+    mode_changed = "simplify_debts" in supplied \
+        and supplied["simplify_debts"] != trip.get("simplify_debts", True)
     # Explicit null clears an optional date; other null fields retain the legacy "no change"
     # behavior.
     updates = {
@@ -215,11 +224,22 @@ async def update_trip(trip_id: str, body: TripUpdate, user=Depends(get_current_u
             updates["end_date"] = normalized_end
     modified = False
     if updates:
-        result = await db.trips.update_one({"id": trip_id}, {"$set": updates})
+        query = {"id": trip_id}
+        mutation = {"$set": updates}
+        if "simplify_debts" in supplied and not is_super_admin(user):
+            query["owner_id"] = user["id"]
+        if "simplify_debts" in supplied:
+            query["version"] = trip["version"] if "version" in trip else {"$exists": False}
+        if mode_changed:
+            mutation["$inc"] = {"version": 1}
+        result = await db.trips.update_one(query, mutation)
+        if getattr(result, "matched_count", None) == 0 or (mode_changed and not _write_changed(result)):
+            raise HTTPException(409, "Group settings or balances changed. Refresh and try again.")
         modified = _write_changed(result)
     saved = ensure_activity_payload(
         ensure_date_range(await db.trips.find_one({"id": trip_id}, {"_id": 0}))
     )
+    saved.setdefault("simplify_debts", True)
     if modified:
         await record_money_normalizations(
             [budget_change],

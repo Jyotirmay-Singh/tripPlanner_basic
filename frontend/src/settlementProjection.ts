@@ -4,6 +4,7 @@ export type SettlementStatus = 'open' | 'settled_exactly' | 'settled_within_roun
 
 export type SettlementProjection = {
   enabled: boolean;
+  settlement_mode?: 'simplified' | 'direct';
   currency: string;
   increment: string;
   balance_scale: number;
@@ -15,11 +16,11 @@ export type SettlementProjection = {
   rounding_algorithm: string;
   tie_break: string;
   routing: {
-    algorithm: 'exact_dfs_v1' | 'greedy_heap_v1';
+    algorithm: 'exact_dfs_v1' | 'greedy_heap_v1' | 'pairwise_v1';
     optimal: boolean;
     states_explored: number;
     fallback_reason: 'entity_limit' | 'state_limit' | null;
-    transfer_count_bound: number;
+    transfer_count_bound: number | null;
   };
 };
 

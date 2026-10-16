@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from database import db
 from services.member_breakdown import family_member_breakdown
+from services.direct_debts import build_direct_projection, settlement_mode
 from services.settlement_engine import (
     SettlementLedgerError,
     build_precise_net,
@@ -74,6 +75,11 @@ async def _compute_balances(
             currency,
             whole_unit_enabled=True,
         )
+        if settlement_mode(trip) == "direct":
+            transfers, projection = build_direct_projection(
+                members, expenses, settlements, payments, precise_net, projection,
+                migration_adjustments=(migration_adjustment or {}).get("vector"),
+            )
     except SettlementLedgerError as exc:
         generic = (
             "Settlement is temporarily unavailable because this group's ledger needs review. "

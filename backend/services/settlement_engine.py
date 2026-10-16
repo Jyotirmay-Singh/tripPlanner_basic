@@ -625,6 +625,7 @@ def build_settlement_projection(
     ordered_ids = sorted(str(member_id) for member_id in precise_net)
     projection = {
         "enabled": enabled,
+        "settlement_mode": "simplified",
         "currency": str(currency).upper(),
         "increment": "1",
         "balance_scale": BALANCE_SCALE,

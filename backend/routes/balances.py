@@ -15,6 +15,7 @@ from utils.settlement_gate import validate_new_amount
 from services.push_notifications import enqueue_notification_event
 from services.admin_audit import record_admin_action
 from services.money_audit import record_money_normalizations
+from services.direct_debts import settlement_mode
 from services.ledger_transactions import run_optional_transaction
 from services.trip_activity import touch_trip_activity_safely, with_trip_activity
 from utils.money_policy import normalization_change
@@ -67,6 +68,7 @@ async def settle(trip_id: str, body: SettleIn, background_tasks: BackgroundTasks
            "created_at": ts,
            "paid_at": ts,
            "recorded_by": user["id"],
+           "settlement_mode": settlement_mode(trip),
            **audit_fields}
     async def transactional_write(session):
         guard = await db.trips.update_one(
@@ -143,6 +145,8 @@ async def create_settlement(trip_id: str, body: SettlementCreate, user=Depends(g
            "paid_at": None,
            "recorded_by": user["id"],
            "note": body.note,
+           "suggested_mode": settlement_mode(trip),
+           "suggested_version": trip.get("version", 0),
            **audit_fields}
 
     # Pending suggestions do not affect the authoritative balance or trip activity. The existing
@@ -173,8 +177,17 @@ async def mark_settlement_paid(trip_id: str, settlement_id: str, body: Settlemen
     trip, settlement = await _settlement_mark_paid_or_403(trip_id, settlement_id, user)
     if settlement.get("status") == "paid":
         return settlement
+    if (settlement.get("suggested_mode", "simplified") != settlement_mode(trip)
+            or settlement.get("suggested_version") != trip.get("version", 0)):
+        current = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
+        payable = next((row["amount"] for row in current["transfers"]
+                        if row["from_member_id"] == settlement["from_member_id"]
+                        and row["to_member_id"] == settlement["to_member_id"]), 0)
+        if payable <= 0 or settlement["amount"] > payable:
+            raise HTTPException(409, "Settlement recommendations changed. Refresh and review this settlement.")
     paid_at = now_utc().isoformat()
-    updates = {"status": "paid", "paid_at": paid_at, "marked_paid_by": user["id"]}
+    updates = {"status": "paid", "paid_at": paid_at, "marked_paid_by": user["id"],
+               "settlement_mode": settlement_mode(trip)}
 
     async def transactional_write(session):
         guard = await db.trips.update_one(
@@ -209,7 +222,7 @@ async def mark_settlement_paid(trip_id: str, settlement_id: str, body: Settlemen
             {"id": settlement_id, "trip_id": trip_id}, {"_id": 0}
         )
         return current or settlement
-    settlement.update({"status": "paid", "paid_at": paid_at, "marked_paid_by": user["id"]})
+    settlement.update(updates)
     await record_admin_action(
         user, "settlement.marked_paid", trip=trip, resource_type="settlement",
         resource_id=settlement_id, changed_fields=("status", "paid_at", "marked_paid_by"),

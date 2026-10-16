@@ -67,6 +67,13 @@ export function canEditTripSettings(
   return r === 'super_admin' || r === 'owner' || r === 'admin';
 }
 
+export function canChangeDebtSimplification(
+  trip: RoleTrip, userId: string | undefined, isSuperAdmin = false,
+): boolean {
+  const r = roleOf(trip, userId, isSuperAdmin);
+  return r === 'super_admin' || r === 'owner';
+}
+
 /**
  * True iff the viewer may remove this member row (UX gate). Removal is an admin/owner power, but the
  * owner's own member row (the trip root) is never removable — mirrors the backend, which protects the

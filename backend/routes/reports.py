@@ -509,7 +509,8 @@ async def report_xlsx(trip_id: str, token: str,
             ("Settlement currency", projection.get("currency")),
             ("Increment", projection.get("increment")),
             ("Status", projection.get("status")),
-            ("Routing", "Minimum payment plan" if projection.get("routing", {}).get("optimal")
+            ("Routing", "Direct repayment plan" if projection.get("settlement_mode") == "direct"
+             else "Minimum payment plan" if projection.get("routing", {}).get("optimal")
              else "Simplified payment plan"),
             ("Policy version", projection.get("policy_version")),
         ):

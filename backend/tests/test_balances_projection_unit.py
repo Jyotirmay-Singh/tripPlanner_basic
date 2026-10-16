@@ -130,3 +130,19 @@ def test_ledger_problem_is_generic_for_members_and_diagnostic_for_admins(monkeyp
     assert admin_error.value.status_code == 409
     assert "orphaned_member_balance" in admin_error.value.detail
     assert "ghost" in admin_error.value.detail
+
+
+@pytest.mark.parametrize("enabled,count,mode", [(True, 1, "simplified"), (False, 3, "direct")])
+def test_balance_response_uses_selected_routing_without_changing_member_shares(monkeypatch, enabled, count, mode):
+    trip = _trip("INR")
+    trip["members"] = trip["members"][:3]
+    trip["simplify_debts"] = enabled
+    expenses = [{"id": str(i), "amount": amount, "paid_by_member_id": payer,
+                 "split_member_ids": ["a", "b", "c"], "split_mode": "PER_CAPITA"}
+                for i, (payer, amount) in enumerate([("a", 300), ("c", 150)])]
+    _install_db(monkeypatch, trip, expenses)
+    result = asyncio.run(balances._compute_balances("t1"))
+    assert result["net"] == {"a": 150, "b": -150, "c": 0}
+    assert len(result["transfers"]) == count
+    assert result["settlement_projection"]["settlement_mode"] == mode
+    assert result["settlement_projection"]["enabled"] is True

@@ -70,6 +70,10 @@ def can_edit_trip_settings(trip: dict, viewer: Viewer) -> bool:
     return role_of(trip, viewer) in ("super_admin", "owner", "admin")
 
 
+def can_change_debt_simplification(trip: dict, viewer: Viewer) -> bool:
+    return role_of(trip, viewer) in ("super_admin", "owner")
+
+
 def can_modify_any_expense(trip: dict, viewer: Viewer) -> bool:
     # creator-or-admin for a *specific* expense stays in deps.can_modify_expense;
     # this is the blanket "may touch any expense" capability of owner/admin.

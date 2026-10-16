@@ -164,6 +164,23 @@ def test_precise_residual_blocks_individual_departure(monkeypatch):
     assert "reconcile" in error.value.detail["message"]
 
 
+def test_zero_net_direct_debts_block_departure_with_a_settlement_action(monkeypatch):
+    monkeypatch.setattr(departure, "_ownership_outcome", AsyncMock(return_value=ownership_ok()))
+    monkeypatch.setattr(departure, "_active_attempt_flags", AsyncMock(return_value=(False, False)))
+    monkeypatch.setattr(departure, "_compute_balances", AsyncMock(return_value={
+        "net": {"member-1": 0},
+        "settlement_projection": {"precise_net": {"member-1": "0"}, "settlement_mode": "direct"},
+        "transfers": [{"from_member_id": "member-1", "to_member_id": "member-2", "amount": 50},
+                      {"from_member_id": "third", "to_member_id": "member-1", "amount": 50}],
+    }))
+    result = run(departure.evaluate_trip(individual_trip(), "user-1"))["public"]
+    assert result["position"] == "0"
+    assert result["settled"] is False
+    assert result["leave_eligible"] is False
+    assert result["blockers"][0]["code"] == "membership_unsettled"
+    assert result["blockers"][0]["resolution"] == "settle_up"
+
+
 @pytest.mark.parametrize("amount", [1234, -1234])
 def test_payable_individual_position_stays_whole_and_offers_settlement(monkeypatch, amount):
     monkeypatch.setattr(departure, "_ownership_outcome", AsyncMock(return_value=ownership_ok()))

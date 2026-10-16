@@ -386,7 +386,11 @@ async def evaluate_trip(trip: dict, user_id: str, *, session=None) -> dict:
     public["identity"] = _identity_payload(identity)
     balances = await _compute_balances(trip_id, diagnostic=False, session=session)
     entity_position = _precise_entity_position(balances, identity["member_id"])
-    entity_settled = _decimal(entity_position) == 0
+    entity_payable = any(
+        identity["member_id"] in (row.get("from_member_id"), row.get("to_member_id"))
+        and row.get("amount", 0) > 0 for row in balances.get("transfers") or []
+    )
+    entity_settled = _decimal(entity_position) == 0 and not entity_payable
     active_user_attempt, active_family_attempt = await _active_attempt_flags(
         trip_id, user_id, identity, session=session,
     )

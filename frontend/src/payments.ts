@@ -25,6 +25,7 @@ export type Payment = {
   note?: string | null;
   settlement_policy_version?: string;
   settlement_increment?: string;
+  settlement_mode?: 'simplified' | 'direct';
   source?: 'upi_recipient_confirmed' | string;
   payment_attempt_id?: string;
 };

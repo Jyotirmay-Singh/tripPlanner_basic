@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -10,6 +11,8 @@ from openpyxl import Workbook
 
 from routes import reports
 from utils.currency_rules import SUPPORTED_CURRENCIES
+from pypdf import PdfReader
+from utils import balances as balance_service
 
 
 def test_xlsx_money_values_and_formats_follow_whole_unit_policy():
@@ -24,6 +27,48 @@ def test_xlsx_money_values_and_formats_follow_whole_unit_policy():
         cell = sheet.cell(row=row, column=1, value=reports._money_value("1", currency))
         reports._money(cell, currency)
         assert cell.number_format == "#,##0;[Red](#,##0)"
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_xlsx_and_pdf_use_the_same_selected_plan_as_balances(monkeypatch, enabled):
+    members = [{"id": mid, "name": mid.title(), "kind": "individual"} for mid in ("ram", "shyam", "rahul")]
+    trip = {"id": "trip-1", "name": "Repayment example", "currency": "INR", "code": "EXAMPLE",
+            "members": members, "owner_id": "owner", "admin_ids": ["owner"], "simplify_debts": enabled}
+    expenses = [{"id": str(index), "amount": amount, "paid_by_member_id": payer,
+                 "split_member_ids": ["ram", "shyam", "rahul"], "split_mode": "PER_CAPITA",
+                 "date": "15-10-26", "description": "Shared expense", "category": "Food"}
+                for index, (payer, amount) in enumerate([("ram", 300), ("rahul", 150)])]
+    fake = SimpleNamespace(
+        trips=SimpleNamespace(find_one=AsyncMock(return_value=trip)),
+        users=SimpleNamespace(find_one=AsyncMock(return_value={"id": "owner"})),
+        expenses=SimpleNamespace(find=lambda *_a, **_k: _Cursor(expenses)),
+        payments=SimpleNamespace(find=lambda *_a, **_k: _Cursor([])),
+        settlements=SimpleNamespace(find=lambda *_a, **_k: _Cursor([])),
+    )
+    monkeypatch.setattr(balance_service, "db", fake)
+    monkeypatch.setattr(reports, "db", fake)
+    monkeypatch.setattr(reports, "decode_token", lambda _: {"sub": "owner"})
+    monkeypatch.setattr(reports, "_trip_or_404", AsyncMock(return_value=trip))
+
+    async def render():
+        balance = await balance_service._compute_balances("trip-1")
+        xlsx = await reports.report_xlsx("trip-1", "token")
+        pdf = await reports.report_pdf("trip-1", "token")
+        return balance, b"".join([chunk async for chunk in xlsx.body_iterator]), \
+            b"".join([chunk async for chunk in pdf.body_iterator])
+
+    balance, xlsx, pdf = asyncio.run(render())
+    expected = {(row["from_member_id"].title(), row["to_member_id"].title(), row["amount"])
+                for row in balance["transfers"]}
+    workbook = load_workbook(io.BytesIO(xlsx), data_only=True)
+    rows = [tuple(row[:3]) for row in workbook["Payments"].iter_rows(values_only=True)]
+    assert {row for row in rows if row in expected} == expected
+    text = " ".join(" ".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(pdf)).pages).split())
+    for payer, receiver, amount in expected:
+        assert f"{payer} {receiver} {amount}" in text
+    label = "Direct repayment plan" if not enabled else "Minimum payment plan"
+    assert any(row[:2] == ("Routing", label) for row in rows)
+    assert label in text
 
 
 def test_xlsx_layout_wraps_long_text_and_fits_complete_money_values():

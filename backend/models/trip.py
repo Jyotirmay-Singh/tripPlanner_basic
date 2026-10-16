@@ -1,7 +1,7 @@
 from decimal import Decimal
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, StrictBool, field_validator
 
 from utils.currency_rules import normalize_currency
 
@@ -33,6 +33,7 @@ class TripUpdate(BaseModel):
     end_date: Optional[str] = None
     budget: Optional[Decimal] = None
     currency: Optional[str] = None
+    simplify_debts: StrictBool = True
 
     @field_validator("currency")
     @classmethod

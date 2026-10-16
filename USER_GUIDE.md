@@ -412,18 +412,44 @@ Open any group and look at the **Summary** tab (default tab):
 Inside a group, the **Balances** tab shows:
 - Each member's **net balance** (positive = others owe them; negative = they owe).
 - For each family: the per-person share is shown right under the family total, and the names are listed individually (e.g. *Arjun -₹100, Priya -₹100, Rohan -₹100*). When members took part unevenly, each name reflects **only the expenses that member actually took part in** — a member left out of an expense (unchecked under "Who took part?") owes nothing for it, and the credit from a bill the family paid lands only on the members who shared it. **Settled money drops off**: once a settlement is marked paid, the balances it cleared no longer show — so after settling up, only newer, still-unsettled expenses remain on each member's line. These rows always add up exactly to the family total.
-- **Suggested settlements** — a deterministic plan computed by the backend. Typical groups receive a
+- **Suggested settlements** — a deterministic plan computed by the backend. With debt simplification on, typical groups receive a
   true minimum-payment plan; unusually large or search-heavy groups receive a deterministic simplified
-  plan that still conserves every settlement unit.
+  plan that still conserves every settlement unit. With simplification off, the plan repays original
+  expense payers and offsets mutual debts between each pair.
 - Every visible balance is a complete, grouped whole-unit value with the group currency's symbol.
   Currency selectors, field labels, accessibility text, APIs, and reports continue to use ISO codes.
+
+### Choose how the group settles
+
+Open the group and tap the **pencil (Edit trip)**. Below **Official currency**, the group owner can
+change **Simplify group debts** and tap **Save**. The setting starts **on** for new and existing trips.
+Group admins can view it; the application administrator retains their override.
+
+- **On:** combine group balances to reduce the number of repayments.
+- **Off:** repay original expense payers directly, combining repeated debts and offsetting mutual
+  debts between each pair. Families still settle as one wallet. Refunds reverse the corresponding debts.
+
+Turning it off asks for confirmation: “Members will repay the original expense payers, with mutual
+debts offset. Turning off debt simplification may increase the number of payments required to settle
+the group.” Choose **Keep enabled** to cancel, or **Turn off** and then **Save** to apply it.
+
+For example, Ram pays ₹300 and Rahul pays ₹150 for Ram, Shyam, and Rahul equally. With simplification
+off, Rahul pays Ram ₹50, Shyam pays Rahul ₹50, and Shyam pays Ram ₹100. With it on, Shyam pays Ram ₹150.
+
+Switching modes changes repayment routing while keeping expense shares and recorded payments intact.
+Completed settlements remain cleared. A partially paid simplified plan carries its unpaid pairs
+forward; later expenses add direct debts. Pending records affect balances only when completed and are
+checked against current recommendations when stale. A zero net balance can still have direct payments
+to complete, so the group is settled only when no transfers remain. Members and whole families must
+clear those transfers before removal or departure.
 
 ### 7.2 Settle Up screen
 Open via the group's **Settle Up** button. It shows the current backend-authoritative *Pays → Receives*
 recommendations. Every supported currency uses whole major units, such as **LKR 1,250**, never
 LKR 1,249.67. The group is reconciled together, so total paid always equals total received.
-The screen labels the route **Minimum payment plan** when bounded exact optimization succeeded and
-**Simplified payment plan** when the efficient fallback was used.
+The screen shows **Simplified debts** when simplification is on and **Direct repayment plan** when it
+is off. The app, XLSX, and PDF use the same transfers. Reports label optimized simplified routes
+**Minimum payment plan** or **Simplified payment plan**, depending on the optimizer used.
 
 **Recording a payment**
 - Tap **Record payment** on a pair to open the amount box. It's **pre-filled with the full amount owed**

@@ -474,7 +474,8 @@ def _settlement_plan_section(base, projection, transfers, members, currency):
 
     names = member_display_names(members)
     flow = _section(base, "Settlement Plan")
-    route_label = "Minimum payment plan" if projection.get("routing", {}).get("optimal") \
+    route_label = "Direct repayment plan" if projection.get("settlement_mode") == "direct" \
+        else "Minimum payment plan" if projection.get("routing", {}).get("optimal") \
         else "Simplified payment plan"
     flow.append(_p(
         f"Currency: {currency}  |  Increment: {projection.get('increment', '1')}  |  "

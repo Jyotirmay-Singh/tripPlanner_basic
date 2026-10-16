@@ -125,6 +125,19 @@ async def create(request, *, user_id="u1", trip_id="t1", tasks=None):
     )
 
 
+@pytest.mark.parametrize("enabled,mode", [(True, "simplified"), (False, "direct")])
+def test_retryable_payment_stamps_server_mode_and_replay_keeps_it(monkeypatch, enabled, mode):
+    store = setup(monkeypatch)
+    store.trip["simplify_debts"] = enabled
+    request = body()
+    first = asyncio.run(create(request))
+    store.trip["simplify_debts"] = not enabled
+    replay = asyncio.run(create(request))
+    assert first == replay
+    assert first["settlement_mode"] == mode
+    assert len(store.payments) == 1
+
+
 def test_concurrent_same_id_replays_once_and_changed_intent_conflicts(monkeypatch):
     store = setup(monkeypatch)
     request = body()

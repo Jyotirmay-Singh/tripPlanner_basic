@@ -36,6 +36,7 @@ from services.push_notifications import (
 )
 from services.admin_audit import record_admin_action
 from services.money_audit import record_money_normalizations
+from services.direct_debts import settlement_mode
 from services.payment_idempotency import (
     disable_payment_protocol, intent_fingerprint, payment_protocol_ready, receipt_key,
     replay_or_conflict,
@@ -424,6 +425,7 @@ async def _create_retryable_payment(trip_id: str, body: PaymentCreate, user: dic
             "created_at": now_utc().isoformat(),
             "recorded_by": user["id"],
             "note": body.note,
+            "settlement_mode": settlement_mode(trip),
             **audit_fields,
         }
         await db.payment_mutation_receipts.insert_one({
@@ -538,6 +540,7 @@ async def record_payment(trip_id: str, body: PaymentCreate, background_tasks: Ba
            "created_at": now_utc().isoformat(),
            "recorded_by": user["id"],
            "note": body.note,
+           "settlement_mode": settlement_mode(trip),
            **audit_fields}
     # Optimistic-concurrency guard (BUG-2): serialize payment writes for this trip so two concurrent
     # recorders can't both read the same payable and over-settle. Bump the trip version under the

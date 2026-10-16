@@ -68,6 +68,14 @@ describe('entityRemovable', () => {
     expect(entityRemovable(fam(['a', 'b']), 0, rows(0, -10))).toBe(false); // a member unsettled
     expect(entityRemovable(fam(['a', 'b']), 0.5, rows(0, 0))).toBe(false); // entity unsettled
   });
+  it('blocks zero-net direct debts for individuals and whole families', () => {
+    const transfers = [{ from_member_id: 'i1', to_member_id: 'f1', amount: 50 },
+      { from_member_id: 'f1', to_member_id: 'third', amount: 50 },
+      { from_member_id: 'third', to_member_id: 'i1', amount: 50 }];
+    expect(entityRemovable(ind, 0, [], 'INR', transfers)).toBe(false);
+    expect(entityRemovable(fam(['a', 'b']), 0, rows(0, 0), 'INR', transfers)).toBe(false);
+    expect(entityBlockReason(ind, 0, [], 'INR', transfers)).toMatch(/settle up/i);
+  });
 });
 
 describe('entityBlockReason', () => {

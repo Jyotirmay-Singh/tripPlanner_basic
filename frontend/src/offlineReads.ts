@@ -41,7 +41,7 @@ function pick(value: unknown, keys: readonly string[]): Record<string, unknown> 
 
 const tripFields = [
   'id', 'name', 'code', 'start_date', 'end_date', 'travel_date', 'budget', 'currency',
-  'last_activity_at', 'owner_id', 'admin_ids', 'user_ids',
+  'last_activity_at', 'owner_id', 'admin_ids', 'user_ids', 'simplify_debts',
 ] as const;
 const memberFields = [
   'id', 'name', 'kind', 'family_members', 'family_member_ids',
@@ -54,7 +54,7 @@ const expenseFields = [
 ] as const;
 const paymentFields = [
   'id', 'from_member_id', 'to_member_id', 'amount', 'currency', 'created_at',
-  'recorded_by', 'note', 'settlement_policy_version', 'settlement_increment', 'source',
+  'recorded_by', 'note', 'settlement_policy_version', 'settlement_increment', 'source', 'settlement_mode',
 ] as const;
 
 function sanitizeTrip(value: unknown): Record<string, unknown> {
@@ -65,7 +65,18 @@ function sanitizeTrip(value: unknown): Record<string, unknown> {
   }
   trip.members = ((value as Record<string, unknown>).members as unknown[])
     .map((member) => pick(member, memberFields));
+  trip.simplify_debts = trip.simplify_debts ?? true;
   return trip;
+}
+
+/** A saved routing change invalidates the old recommendations before refreshing saved views. */
+export async function refreshTripSettingsReads(accountId: string, tripId: string): Promise<boolean> {
+  await forgetTrip(accountId, tripId);
+  const results = await Promise.allSettled([
+    loadTripReadBundle(accountId, tripId), loadTripList(accountId),
+  ]);
+  return results.every((result) => result.status === 'fulfilled'
+    && result.value.source === 'live' && !result.value.cacheError);
 }
 
 function sanitizeArray(value: unknown, fields: readonly string[]): Record<string, unknown>[] {
