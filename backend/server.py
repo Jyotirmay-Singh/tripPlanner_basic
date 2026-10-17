@@ -133,7 +133,10 @@ async def lifespan(app: FastAPI):
     # Step 5 UPI handoff audit. Terminal attempts retain their snapshots; only unresolved rows carry
     # active_key, which makes the debtor-to-creditor direction unique without deleting history.
     await db.payment_attempts.create_index("id", unique=True)
-    await ensure_settlement_intent_indexes(db)
+    # Report and legacy-client releases do not activate the newer settlement workflow. Preserve
+    # its legacy UPI uniqueness index while that rollout is disabled; enabling it still requires
+    # the separately reviewed compatibility upgrade, never an automatic startup replacement.
+    await ensure_settlement_intent_indexes(db, allow_legacy_quote_index=not config.EXPENSE_SETTLEMENT_ENABLED)
     await db.payment_attempts.create_index(
         "active_key",
         unique=True,

@@ -6,7 +6,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 from pymongo.errors import DuplicateKeyError
 
-from config import EXPENSE_SETTLEMENT_ENABLED
+from config import EXPENSE_SETTLEMENT_ENABLED, logger
 from database import db
 from services.coverage_allocations import (
     _accounts, _current_access, cash_uses_for_plan, plan_direct_allocations,
@@ -803,7 +803,8 @@ async def approve(trip_id, intent_id, body, user):
     return await mutate(trip_id, body, user, f"settlement.approval.{body.action}", commit, binding={"intent_id": intent_id})
 
 
-async def ensure_indexes(database, *, replace_incompatible_quote_index=False):
+async def ensure_indexes(database, *, replace_incompatible_quote_index=False, allow_legacy_quote_index=False):
+    """Install additive prerequisites; disabled rollouts may retain the original UPI index."""
     await database.settlement_quotes.create_index("id", unique=True)
     await database.settlement_quotes.create_index([("trip_id", 1), ("expires_at", 1)])
     await database.settlement_intent_actions.create_index("id", unique=True)
@@ -816,6 +817,16 @@ async def ensure_indexes(database, *, replace_incompatible_quote_index=False):
     old = indexes.get("quote_id_1")
     if old and not old.get("partialFilterExpression"):
         if not replace_incompatible_quote_index:
+            legacy_definition = (
+                old.get("key") == [("quote_id", 1)]
+                and old.get("unique") is True
+                and not old.get("sparse")
+                and not old.get("collation")
+                and "expireAfterSeconds" not in old
+            )
+            if allow_legacy_quote_index and legacy_definition:
+                logger.info("settlement.quote_index_legacy_retained rollout=disabled")
+                return
             raise RuntimeError("UPI quote index requires an explicitly authorized compatibility upgrade")
         await database.payment_attempts.drop_index("quote_id_1")
     await database.payment_attempts.create_index("quote_id", unique=True,

@@ -88,6 +88,22 @@ table rather than appearing in an adjustment appendix.
 
 ## Reproducing review samples
 
+### Production startup compatibility
+
+Older production databases have a unique, nonpartial `payment_attempts.quote_id_1` index. With
+`EXPENSE_SETTLEMENT_ENABLED=false`, startup retains that exact legacy index so report releases can
+run without activating or migrating the newer settlement workflow. Startup does not drop or replace
+the index, and existing payment-attempt records remain unchanged. Unexpected key, uniqueness,
+sparse, collation or TTL definitions still fail closed.
+
+Enabling the newer workflow still requires its separately reviewed partial-index compatibility
+upgrade. Its default installer continues to reject an incompatible index. Report deployment does
+not authorize or perform that database maintenance. A real local replica-set regression exercises
+startup, authenticated XLSX/PDF downloads, retained history and duplicate-quote rejection with both
+fresh and legacy index definitions.
+
+### Synthetic review files
+
 From `backend`, run:
 
 ```

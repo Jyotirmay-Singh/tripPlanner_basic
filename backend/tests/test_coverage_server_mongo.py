@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+import io
 import os
 from pathlib import Path
 import socket
@@ -13,14 +14,18 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 import jwt
+from openpyxl import load_workbook
+from pypdf import PdfReader
 from pymongo import MongoClient
+from pymongo.errors import DuplicateKeyError
 import pytest
 import requests
 
 from services.expense_coverage import make_share_revision
 
 
-def test_actual_server_startup_snapshot_reads_and_existing_reports():
+@pytest.mark.parametrize("legacy_quote_index", [False, True], ids=["fresh-index", "legacy-upi-index"])
+def test_actual_server_startup_snapshot_reads_and_existing_reports(legacy_quote_index):
     mongo_url = os.environ.get("COVERAGE_TEST_MONGO_URL")
     if not mongo_url:
         pytest.skip("Set COVERAGE_TEST_MONGO_URL to a disposable loopback replica set")
@@ -32,6 +37,12 @@ def test_actual_server_startup_snapshot_reads_and_existing_reports():
     http.trust_env = False
     try:
         assert mongo.admin.command("hello").get("setName")
+        old_index = None
+        if legacy_quote_index:
+            database.payment_attempts.create_index("quote_id", unique=True)
+            database.payment_attempts.insert_one({"id": "legacy-attempt", "quote_id": "legacy-quote",
+                                                   "status": "settled_recipient_confirmed"})
+            old_index = database.payment_attempts.index_information()["quote_id_1"]
         user_id, payer, debtor, trip_id, expense_id = (str(uuid4()) for _ in range(5))
         created = "2026-10-01T00:00:00+00:00"
         group = {"id": trip_id, "name": "Coverage smoke", "code": "SMK123", "currency": "INR", "version": 0,
@@ -108,6 +119,23 @@ def test_actual_server_startup_snapshot_reads_and_existing_reports():
             for suffix in ("xlsx", "pdf"):
                 report = http.get(f"{url}/report.{suffix}", params={"token": token}, timeout=10)
                 assert report.status_code == 200 and len(report.content) > 100
+                if suffix == "xlsx":
+                    workbook = load_workbook(io.BytesIO(report.content))
+                    assert workbook.sheetnames == ["Summary", "Members & Families", "Transactions", "Payments"]
+                    assert workbook["Summary"]._pivots[0].cache.cacheSource.worksheetSource.name == "ReportAllocations"
+                    headers = {cell.value for cell in workbook["Transactions"][4]}
+                    assert "Expense share (₹)" in headers
+                    assert not {"Account ID", "Person ID"} & headers
+                else:
+                    text = " ".join(page.extract_text() for page in PdfReader(io.BytesIO(report.content)).pages)
+                    assert "Gross spending" in text and "Expense shares by family and person" in text
+                    assert "Split Math" not in text and "Whole-history snapshot" not in text
+            if legacy_quote_index:
+                assert database.payment_attempts.index_information()["quote_id_1"] == old_index
+                assert database.payment_attempts.count_documents({}) == 1
+                assert database.payment_attempts.find_one({"id": "legacy-attempt"})["quote_id"] == "legacy-quote"
+                with pytest.raises(DuplicateKeyError):
+                    database.payment_attempts.insert_one({"id": "duplicate-quote", "quote_id": "legacy-quote"})
             assert http.get(f"{url}/expense-settlement", timeout=5).status_code == 401
             assert database.payments.count_documents({"trip_id": history_id}) == 1
             assert database.expense_coverage_events.count_documents({}) == 0
