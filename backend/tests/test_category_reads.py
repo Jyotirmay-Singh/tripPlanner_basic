@@ -66,8 +66,16 @@ def test_expense_metadata_is_readable_when_cors_does_not_expose_the_header(monke
 def test_payer_summary_reads_more_than_5000(monkeypatch):
     rows = [{'amount': 1, 'paid_by_member_id': 'm'} for _ in range(5001)]
     cursor = Cursor(rows)
-    monkeypatch.setattr(spend, 'db', SimpleNamespace(expenses=SimpleNamespace(find=lambda *args: cursor)))
+    settlements = Cursor([])
+    payments = Cursor([])
+    monkeypatch.setattr(spend, 'db', SimpleNamespace(
+        expenses=SimpleNamespace(find=lambda *args, **kwargs: cursor),
+        settlements=SimpleNamespace(find=lambda *args, **kwargs: settlements),
+        payments=SimpleNamespace(find=lambda *args, **kwargs: payments),
+    ))
     monkeypatch.setattr(spend, '_trip_or_404', AsyncMock(return_value={'currency': 'INR', 'members': [{'id': 'm', 'name': 'Member', 'kind': 'individual'}]}))
     result = asyncio.run(spend.spend_summary('trip', user={'id': 'u'}))
     assert cursor.length is None
+    assert settlements.length is None
+    assert payments.length is None
     assert result['total'] == 5001

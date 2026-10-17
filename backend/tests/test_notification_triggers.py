@@ -280,9 +280,17 @@ def test_pending_settlement_never_enqueues_paid_activity(monkeypatch):
 
 
 def test_paid_settlement_paths_enqueue_once_and_idempotent_patch_does_not(monkeypatch):
-    settlements = SimpleNamespace(insert_one=AsyncMock(), update_one=AsyncMock())
+    settlements = SimpleNamespace(
+        insert_one=AsyncMock(),
+        update_one=AsyncMock(return_value=SimpleNamespace(modified_count=1)),
+    )
+    trips = SimpleNamespace(update_one=AsyncMock(return_value=SimpleNamespace(modified_count=1)))
+    current_balances = AsyncMock(return_value={
+        "transfers": [{"from_member_id": "m2", "to_member_id": "m1", "amount": 100}],
+    })
     enqueue = AsyncMock()
-    monkeypatch.setattr(balances, "db", SimpleNamespace(settlements=settlements))
+    monkeypatch.setattr(balances, "db", SimpleNamespace(settlements=settlements, trips=trips))
+    monkeypatch.setattr(balances, "_compute_balances", current_balances)
     monkeypatch.setattr(balances, "can_record_payment", lambda *_args: True)
     monkeypatch.setattr(balances, "_trip_or_404", AsyncMock(return_value=TRIP))
     monkeypatch.setattr(balances, "enqueue_notification_event", enqueue)
@@ -318,6 +326,7 @@ def test_paid_settlement_paths_enqueue_once_and_idempotent_patch_does_not(monkey
     assert enqueue.await_args.kwargs["amount"] == 25.5
     assert enqueue.await_args.kwargs["currency"] == "INR"
     assert enqueue.await_args.kwargs["payment_classification"] == "settled"
+    current_balances.assert_awaited_once()
 
     enqueue.reset_mock()
     monkeypatch.setattr(balances, "_settlement_mark_paid_or_403", AsyncMock(return_value=(
@@ -327,3 +336,4 @@ def test_paid_settlement_paths_enqueue_once_and_idempotent_patch_does_not(monkey
         "t1", "s1", SettlementPatch(status="paid"), BackgroundTasks(), user={"id": "u1"},
     ))
     enqueue.assert_not_awaited()
+    current_balances.assert_awaited_once()

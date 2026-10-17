@@ -363,7 +363,7 @@ def test_direct_claim_is_activity_but_an_idempotent_reclaim_is_not(monkeypatch):
 def test_member_edit_write_carries_activity_and_repeated_values_skip_the_write(monkeypatch):
     update_one = AsyncMock(return_value=SimpleNamespace(modified_count=1))
     fake_db = SimpleNamespace(
-        trips=SimpleNamespace(update_one=update_one),
+        trips=SimpleNamespace(update_one=update_one, find_one=AsyncMock(return_value={"id": "t1"})),
         expenses=SimpleNamespace(),
     )
     import database as database_module
