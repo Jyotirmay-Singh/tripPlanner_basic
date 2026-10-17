@@ -2,6 +2,8 @@
 # Android QA project out of the release upload so app.config.js runs Prebuild.
 /frontend/android/
 /frontend/modules/upi-app-launcher/android/build/
+# The separate local QA app is never part of the production frontend release.
+/q/
 
 # Dependencies and generated output
 node_modules/
