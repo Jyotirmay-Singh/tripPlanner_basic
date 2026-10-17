@@ -1,295 +1,145 @@
-"""Generated-PDF regression tests for the Summary spend reconciliations."""
+"""PDF readability, shared-data parity, source evidence, and pagination controls."""
 
 import io
+from dataclasses import replace
 
 import pytest
-from bson.decimal128 import Decimal128
 from pypdf import PdfReader
+from openpyxl import load_workbook
+from bson.decimal128 import Decimal128
 
-from services.report_builder import build_spend_reconciliation
+from scripts.generate_report_samples import sample_snapshot
+from services.report_model import ReportSnapshot, build_report_data
 from services.report_pdf import build_report_pdf
+from services.report_xlsx import build_report_xlsx
+from services.report_formatting import indian_number
 
 
-def _member(mid, name, kind="individual"):
-    return {
-        "id": mid,
-        "name": name,
-        "kind": kind,
-        "family_members": [f"{name} member"] if kind == "family" else [],
-        "family_member_ids": [f"{mid}:0"] if kind == "family" else [],
-    }
+def render(source=None):
+    data = build_report_data(source or sample_snapshot())
+    content = build_report_pdf(data)
+    reader = PdfReader(io.BytesIO(content))
+    pages = [page.extract_text() or '' for page in reader.pages]
+    return data, reader, pages
 
 
-def _expense(eid, amount, payer, category="Food", description=None):
-    return {
-        "id": eid,
-        "amount": amount,
-        "category": category,
-        "description": description or eid,
-        "date": "2026-01-01",
-        "paid_by_member_id": payer,
-        "split_member_ids": [payer],
-        "split_mode": "PER_FAMILY",
-    }
+def test_pdf_and_excel_share_financial_measures_and_separate_report_sections():
+    data, reader, pages = render()
+    text = ' '.join(' '.join(pages).split())
+    workbook = load_workbook(io.BytesIO(build_report_xlsx(data)))
+    for col, value in [('A8', data.gross), ('D8', data.money_back), ('G8', data.net), ('J8', data.outstanding)]:
+        assert workbook['Summary'][col].value == value
+        assert indian_number(value) in text
+    for label in ['Gross spending', 'Money back', 'Net spending', 'Still to settle', 'Funding by account',
+                  'Expense shares by family and person', 'Members & Families', 'Outstanding settlement plan',
+                  'Recorded settlement history', 'Transactions', 'Balance reconciliation notes']:
+        assert label in text
+    assert 'Split Math' not in text and 'Split Allocations' not in text
+    assert '82,905' in text and '70,503' in text  # actual cost and final family position differ
+    assert 'Recipient confirmed' in text and 'Legacy settlement' in text
+    assert all(e.source_id in text for e in data.events)
+    assert all(a.expense_id in text for a in data.allocations)
+    assert 'legacy-pending' not in text
+    assert 'Category columns 1 to 4 of 9' in text and 'Category columns 5 to 8 of 9' in text
+    assert 'Category columns 9 to 9 of 9' in text
+    assert all(float(p.mediabox.width) > float(p.mediabox.height) for p in reader.pages)
+    assert all(f'Page {n} of {len(pages)}' in p for n, p in enumerate(pages, 1))
+    assert not any(p.strip().startswith('Adjustments') for p in pages)
+    assert all(a.explanation in text for a in data.adjustments)
+    assert all(label not in text for label in ['Share code', 'Exported at (IST)', 'Whole-history snapshot', data.metadata.share_code])
+    assert 'Members' not in pages[0] and 'Currency' not in pages[0]
 
 
-def _trip(name="PDF reconciliation"):
-    return {
-        "name": name,
-        "start_date": "2026-01-01",
-        "end_date": "2026-01-02",
-        "currency": "INR",
-        "code": "PDF-TEST",
-    }
+def test_pdf_embeds_noto_sans_and_uses_readable_body_type_with_rupee_glyph():
+    _, reader, pages = render()
+    fonts = [f.get_object() for p in reader.pages for f in p['/Resources']['/Font'].get_object().values()]
+    embedded = [f for f in fonts if 'NotoSans' in str(f.get('/BaseFont'))]
+    assert embedded
+    assert all('/FontFile2' in f['/FontDescriptor'].get_object() for f in embedded)
+    assert '₹' in ''.join(pages)
+    seen = []
+    reader.pages[0].extract_text(visitor_text=lambda text, cm, tm, font, size: seen.append(size) if text.strip() else None)
+    assert 10.5 in seen
 
 
-def _render(members, expenses, name="PDF reconciliation"):
-    reconciliation = build_spend_reconciliation(members, expenses)
-    pdf_bytes = build_report_pdf(
-        _trip(name), members, expenses, "INR", reconciliation=reconciliation,
-    )
-    reader = PdfReader(io.BytesIO(pdf_bytes))
-    page_texts = [page.extract_text() or "" for page in reader.pages]
-    return reconciliation, pdf_bytes, page_texts
+def test_fx_evidence_and_private_payment_fields_are_handled_consistently():
+    source = sample_snapshot()
+    payments = tuple({**p, 'payment_attempt_id': 'private-attempt', 'upi_id_snapshot': 'private@upi',
+                      'transaction_reference': 'PRIVATE-REFERENCE'} for p in source.payments)
+    expenses = tuple({**e, 'exchange_rate': Decimal128('82.000000000000'), 'original_amount': Decimal128('100.00')}
+                     if e['id'] == 'e07' else e for e in source.expenses)
+    _, _, pages = render(replace(source, payments=payments, expenses=expenses))
+    text = ' '.join(' '.join(pages).split())
+    for expected in ['Original amount: 100.00 USD', 'Stored rate: 82.000000000000', 'Effective date: 2026-10-02',
+                     'Stored reference rate', 'Mode: manual', 'Original exact allocations: p3: 50; s3: 50']:
+        assert expected in text
+    for private in ['private-attempt', 'private@upi', 'PRIVATE-REFERENCE']:
+        assert private not in text
 
 
-def test_time_example_renders_gross_and_reimbursement_as_distinct_positive_rows():
-    members = [_member("time", "Time", kind="family")]
-    expenses = [
-        _expense("gross", 14_000, "time", "Local Transportation"),
-        _expense("refund", -4_000, "time", "Local Transportation"),
-    ]
-    reconciliation, pdf_bytes, pages = _render(members, expenses, "Time example")
-    text = "\n".join(pages)
-    summary_text = text.split("Split Allocations", 1)[0]
-
-    assert pdf_bytes.startswith(b"%PDF")
-    assert reconciliation["entities"][0]["net"] == 10_000.0
-    assert text.index("Net spend by entity") < text.index("Net spend by category")
-    assert summary_text.count("GROSS SPEND") == 2
-    assert summary_text.count("REIMBURSEMENTS") == 2
-    assert summary_text.count("Gross spend subtotal") == 2
-    assert summary_text.count("Total reimbursements") == 2
-    assert summary_text.count("14,000") >= 2
-    assert summary_text.count("4,000") >= 2
-    assert summary_text.count("10,000") >= 3  # metadata + two final net rows
-    assert "14,000.00" not in summary_text
-    assert "(4,000)" not in summary_text  # positive magnitude inside the labelled section
-    assert "Time" in summary_text and "Family" in summary_text
-    assert "Local Transportation" in summary_text
+def test_empty_report_has_meaningful_empty_sections_without_dummy_expenses():
+    _, _, pages = render(ReportSnapshot({'id': 'empty', 'name': 'Empty report', 'members': [], 'currency': 'INR'}))
+    text = ' '.join(pages)
+    assert 'No expenses recorded.' in text
+    assert 'Everyone is settled.' in text
+    assert 'No recorded settlements.' in text
+    assert 'Adjustments' not in text
+    assert 'Expense ID:' not in text
 
 
-def test_empty_reimbursements_and_negative_net_keep_the_full_structure():
-    members = [_member("ann", "Ann")]
-
-    _, _, no_refund_pages = _render(members, [_expense("gross", 100, "ann")])
-    no_refund_summary = "\n".join(no_refund_pages).split("Split Allocations", 1)[0]
-    assert no_refund_summary.count("REIMBURSEMENTS") == 2
-    assert no_refund_summary.count("Total reimbursements") == 2
-    assert no_refund_summary.count("Net spend") >= 5
-
-    reconciliation, _, credit_pages = _render(
-        members,
-        [_expense("gross", 100, "ann"), _expense("refund", -150, "ann")],
-        "Net credit",
-    )
-    credit_summary = "\n".join(credit_pages).split("Split Allocations", 1)[0]
-    assert reconciliation["totals"]["net"] == -50.0
-    assert credit_summary.count("(50)") >= 3  # metadata plus both final net rows
-    assert "150" in credit_summary
-    assert "(150)" not in credit_summary
-    assert ".00" not in credit_summary
+def test_long_names_categories_descriptions_and_payment_notes_wrap_and_paginate():
+    source = sample_snapshot()
+    source.trip['name'] = 'Long <literal> & report'
+    for m in source.trip['members']:
+        m['name'] += ' with a deliberately long professional display name'
+    expenses = tuple({**e, 'category': 'Long category label ' + e['category'],
+                      'description': '<Expense> & literal description ' + ('lengthy narrative ' * 60 if i == 0 else str(i))}
+                     for i, e in enumerate(source.expenses))
+    payments = tuple({**p, 'note': 'A long payment note. ' * 90} if i == 0 else p for i, p in enumerate(source.payments))
+    _, _, pages = render(replace(source, expenses=expenses, payments=payments))
+    assert len(pages) > 6
+    text = ' '.join(' '.join(pages).split())
+    assert 'Long <literal> & report' in text
+    assert '<Expense> & literal description' in text
+    assert text.count('Family / account') >= 4
+    assert all(f'Page {n} of {len(pages)}' in page for n, page in enumerate(pages, 1))
+    assert 'Event ID: payment-1' in text
 
 
-def test_transactions_render_original_amount_and_locked_fx_audit_metadata():
-    members = [_member("ann", "Ann")]
-    expense = _expense("fx-dinner", 3520.40, "ann", description="Weekend dinner")
-    expense.update({
-        "currency": "INR",
-        "original_amount": Decimal128("1000.00"),
-        "original_currency": "NPR",
-        "exchange_rate": Decimal128("3.5204"),
-        "exchange_rate_requested_date": "2026-08-30",
-        "exchange_rate_date": "2026-08-28",
-        "exchange_rate_provider": "frankfurter_v2_blended",
-        "exchange_rate_mode": "automatic",
-    })
-
-    _, pdf_bytes, pages = _render(members, [expense], "FX audit")
-    transaction_text = "\n".join(pages).split("Transactions", 1)[-1]
-
-    assert pdf_bytes.startswith(b"%PDF")
-    assert "NPR 1,000" in transaction_text
-    assert "NPR 1,000.00" not in transaction_text
-    assert "1 NPR = 3.5204 INR" in transaction_text
-    assert "2026-08-28" in transaction_text
-    assert "frankfurter_v2_blended" in transaction_text
-    assert "automatic" in transaction_text
+@pytest.mark.parametrize('currency,amount,expected', [('JPY', 1235, '1,235'), ('KWD', 1235.5, '1,236')])
+def test_currency_precision_stays_whole_units(currency, amount, expected):
+    trip = {'id': 't', 'name': 'Currency precision', 'currency': currency,
+            'members': [{'id': 'a', 'name': 'Ann', 'kind': 'individual'}]}
+    expense = {'id': 'e', 'amount': amount, 'paid_by_member_id': 'a', 'split_mode': 'PER_FAMILY',
+               'split_member_ids': ['a'], 'date': '2026-10-17', 'category': 'Food'}
+    _, _, pages = render(ReportSnapshot(trip, (expense,)))
+    assert expected in ' '.join(pages)
+    assert expected + '.00' not in ' '.join(pages)
 
 
-def test_confirmed_upi_payment_report_uses_sanitized_source_only():
-    members = [_member("payer", "Payer"), _member("receiver", "Receiver")]
-    payment = {
-        "id": "payment-1",
-        "from_member_id": "payer",
-        "to_member_id": "receiver",
-        "amount": 25,
-        "created_at": "2026-09-12T10:00:00+00:00",
-        "source": "upi_recipient_confirmed",
-        "payment_attempt_id": "attempt-private",
-        "upi_id_snapshot": "private@upi",
-        "transaction_reference": "PRIVATE-UTR-123",
-    }
-    reconciliation = build_spend_reconciliation(members, [])
-
-    payload = build_report_pdf(
-        _trip("UPI report"),
-        members,
-        [],
-        "INR",
-        reconciliation=reconciliation,
-        payments=[payment],
-    )
-    text = "\n".join(
-        page.extract_text() or "" for page in PdfReader(io.BytesIO(payload)).pages
-    )
-
-    assert "UPI — recipient confirmed" in text
-    assert "private@upi" not in text
-    assert "PRIVATE-UTR-123" not in text
-    assert "attempt-private" not in text
+def test_transaction_continuations_repeat_the_source_expense_identity():
+    family = {'id': 'f', 'name': 'Large family', 'kind': 'family',
+              'family_members': [f'Person {i}' for i in range(35)]}
+    trip = {'id': 't', 'name': 'Continuation check', 'currency': 'INR', 'members': [family]}
+    expense = {'id': 'large-expense', 'amount': 3500, 'paid_by_member_id': 'f',
+               'split_mode': 'PER_CAPITA', 'split_member_ids': ['f'], 'date': '2026-10-17', 'category': 'Food'}
+    _, _, pages = render(ReportSnapshot(trip, (expense,)))
+    first = next(i for i, page in enumerate(pages) if 'Transactions' in page)
+    assert len(pages[first:]) >= 2
+    assert all('Expense ID: large-expense' in page for page in pages[first:])
 
 
-def test_long_reconciliation_repeats_headers_and_keeps_totals_with_net_across_pages():
-    members = [
-        _member(
-            f"m{i:02d}",
-            f"Entity {i:02d} with a deliberately long professional display name",
-            kind="family" if i % 3 == 0 else "individual",
-        )
-        for i in range(48)
-    ]
-    expenses = []
-    for i, member in enumerate(members):
-        category = f"Category {i:02d} with a deliberately long report label"
-        expenses.append(_expense(f"gross-{i}", 1_000 + i, member["id"], category))
-        expenses.append(_expense(f"refund-{i}", -(100 + i), member["id"], category))
-
-    reconciliation, _, pages = _render(members, expenses, "Long pagination test")
-    joined = "\n".join(pages)
-    summary_pages = []
-    for page in pages:
-        if "Transactions" in page:
-            before_transactions = page.split("Transactions", 1)[0]
-            if before_transactions.strip():
-                summary_pages.append(before_transactions)
-            break
-        summary_pages.append(page)
-
-    assert len(pages) > 4
-    assert len(summary_pages) > 2
-    assert sum("Entity" in page and "Type" in page and "Amount (INR)" in page
-               for page in summary_pages) >= 3
-    assert sum("Category" in page and "Amount (INR)" in page
-               for page in summary_pages) >= 3
-    assert joined.count("Total reimbursements") >= 2
-    assert joined.count("Gross spend subtotal") >= 2
-    assert joined.count("Page ") == len(pages)
-    assert all(f"Page {number} of {len(pages)}" in page
-               for number, page in enumerate(pages, start=1))
-
-    # ReportLab's NOSPLIT tail keeps each reimbursement subtotal and final net on one page.
-    pages_with_reimbursement_total = [page for page in summary_pages if "Total reimbursements" in page]
-    assert len(pages_with_reimbursement_total) == 2
-    assert all("Net spend" in page for page in pages_with_reimbursement_total)
-    assert reconciliation["totals"]["net"] == round(
-        reconciliation["totals"]["gross"] - reconciliation["totals"]["reimbursements"], 2
-    )
-    assert "deliberately long professional" in joined
-    assert "deliberately long report" in joined
-
-
-def test_whole_unit_projection_is_auditable_in_pdf():
-    members = [_member("a", "Ann"), _member("b", "Bob")]
-    expenses = [_expense("dinner", 10, "a")]
-    reconciliation = build_spend_reconciliation(members, expenses)
-    projection = {
-        "enabled": True,
-        "increment": "1",
-        "status": "open",
-        "policy_version": "whole_unit_v1",
-        "precise_net": {"a": "3.333000000000", "b": "-3.333000000000"},
-        "rounded_net": {"a": 3, "b": -3},
-        "rounding_adjustments": {"a": "-0.333000000000", "b": "0.333000000000"},
-        "routing": {"optimal": True},
-    }
-    payload = build_report_pdf(
-        _trip("Rounded audit"), members, expenses, "LKR", reconciliation=reconciliation,
-        settlement_projection=projection,
-        settlement_transfers=[{"from_member_id": "b", "to_member_id": "a", "amount": 3}],
-    )
-    text = "\n".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(payload)).pages)
-    assert "Settlement Plan" in text
-    assert "Currency: LKR" in text
-    assert "Increment: 1" in text
-    assert "Status: open" in text
-    assert "Policy: whole_unit_v1" in text
-    assert "Minimum payment plan" in text
-    assert "Suggested payer" in text and "Suggested receiver" in text
-    assert "Exact balance" not in text
-    assert "Rounding adjustment" not in text
-    assert "3.333000000000" not in text
-    assert "3.00" not in text
-
-
-@pytest.mark.parametrize(
-    "currency,amount,expected,forbidden",
-    [("JPY", 1235, "1,235", "1,235.00"),
-     ("KWD", 1235.5, "1,236", "1,235.500")],
-)
-def test_pdf_money_uses_whole_unit_formatting(currency, amount, expected, forbidden):
-    members = [_member("ann", "Ann")]
-    expenses = [_expense("dinner", amount, "ann")]
-    trip = _trip(f"{currency} precision")
-    trip["currency"] = currency
-    reconciliation = build_spend_reconciliation(members, expenses, currency)
-    payload = build_report_pdf(
-        trip, members, expenses, currency, reconciliation=reconciliation,
-    )
-    text = "\n".join(
-        page.extract_text() or "" for page in PdfReader(io.BytesIO(payload)).pages
-    )
-    assert expected in text
-    assert forbidden not in text
-
-
-def test_pdf_reports_actual_allocations_remainders_and_migration_adjustments():
-    members = [_member("a", "Ann"), _member("b", "Bob"), _member("c", "Cam")]
-    expense = _expense("dinner", 10, "a", description="Remainder dinner")
-    expense["split_member_ids"] = ["a", "b", "c"]
-    reconciliation = build_spend_reconciliation(members, [expense])
-
-    payload = build_report_pdf(
-        _trip("Allocation audit"),
-        members,
-        [expense],
-        "INR",
-        reconciliation=reconciliation,
-        migration_adjustment={
-            "policy_version": "whole_unit_v1",
-            "created_at": "2026-09-13T00:00:00+00:00",
-            "vector": {"a": 1, "b": -1, "c": 0},
-        },
-    )
-    text = "\n".join(
-        page.extract_text() or "" for page in PdfReader(io.BytesIO(payload)).pages
-    )
-
-    assert "Split Allocations" in text
-    assert "Actual (INR)" in text
-    assert "Remainder unit" in text
-    assert "Remainder dinner" in text
-    assert "Migration Adjustments" in text
-    assert "Adjustment (INR)" in text
-    assert "Policy: whole_unit_v1" in text
-    assert "(1)" in text
+@pytest.mark.parametrize('currency,symbol', [('AED', 'AED'), ('EUR', '€')])
+def test_pdf_financial_columns_follow_trip_currency(currency, symbol):
+    source = sample_snapshot()
+    data, _, pages = render(replace(source, trip={**source.trip, 'currency': currency}))
+    text = ' '.join(' '.join(pages).split())
+    for label in ['Gross funded', 'Money back', 'Net funded', 'Expense share', 'Before settlements',
+                  'Settlements paid', 'Settlements received', 'Adjustments', 'Balance now', 'Amount']:
+        assert f'{label} ({symbol})' in text
+    assert f'Accommodation ({symbol})' in text
+    assert f'All categories ({symbol})' in text
+    assert f'Net spending by category ({currency})' in text
+    assert f'{symbol} {indian_number(data.net)}' in text
+    assert 'INR' not in text and '₹' not in text
+    assert 'Original amount: 100 USD' in text

@@ -1,166 +1,61 @@
+"""Report endpoints: unchanged download contracts, one reconciled snapshot per export."""
+
 import io
-from copy import copy
-from math import ceil
 
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
 
 from database import db
 from utils.deps import get_current_user, _trip_or_404, is_trip_admin
-from utils.date_rules import ensure_date_range, trip_date_label
+from utils.date_rules import ensure_date_range
 from utils.balances import _compute_balances
-from utils.display_names import member_display_names
-from utils.ist_time import format_ist
 from utils.security import decode_token
 from utils.money_policy import whole_money
-from services.report_builder import (
-    build_expense_member_rows,
-    build_members_families_rows,
-    build_spend_reconciliation,
-    build_split_math_rows,
-    composition_label,
-    entity_ledger_components,
-    settle_adj_by_entity,
-)
+from services.report_model import ReportSnapshot, ReportReconciliationError, build_report_data
+from services.report_xlsx import build_report_xlsx
 from services.report_pdf import build_report_pdf
 
 router = APIRouter()
 
-# ---------- XLSX styling (Phase 16) ----------
-_BRAND = "1C3F39"
-_HEADER_FILL = PatternFill("solid", fgColor=_BRAND)
-_SUBSECTION_FILL = PatternFill("solid", fgColor="DDE9E5")
-_REIMBURSEMENT_FILL = PatternFill("solid", fgColor="EEF3F1")
-_TOTAL_FILL = PatternFill("solid", fgColor="EAF0EE")
-_NET_FILL = PatternFill("solid", fgColor="D7E5E0")
-_HEADER_FONT = Font(bold=True, color="FFFFFF")
-_TITLE_FONT = Font(bold=True, size=14, color=_BRAND)
-_BOLD = Font(bold=True)
-_RIGHT = Alignment(horizontal="right")
-_THIN_BRAND = Side(style="thin", color=_BRAND)
-_MEDIUM_BRAND = Side(style="medium", color=_BRAND)
-_WHOLE_MONEY_FMT = "#,##0;[Red](#,##0)"
-
-
-def _style_header_row(ws, row: int, ncols: int) -> None:
-    """Bold white text on the brand fill across a header row."""
-    for col in range(1, ncols + 1):
-        c = ws.cell(row=row, column=col)
-        c.font = _HEADER_FONT
-        c.fill = _HEADER_FILL
-
-
-def _money(cell, currency: str = "INR") -> None:
-    """Right-align a whole-unit numeric cell; ISO code is carried by its column label."""
-    del currency
-    cell.number_format = _WHOLE_MONEY_FMT
-    cell.alignment = _RIGHT
-
 
 def _money_value(value, currency: str = "INR") -> int:
-    """Numeric workbook value rounded half-up to a whole major unit."""
-
-    del currency
     return whole_money(value, reject_nonzero_to_zero=False)
 
 
-def _whole_money(cell) -> None:
-    """Right-align a whole settlement unit without displaying decimal places."""
-    cell.number_format = _WHOLE_MONEY_FMT
-    cell.alignment = _RIGHT
-
-
-def _set_widths(ws, widths) -> None:
-    for i, w in enumerate(widths, start=1):
-        ws.column_dimensions[get_column_letter(i)].width = w
-
-
-def _finalize_sheet_layout(ws, money_columns=()) -> None:
-    """Fit complete money values and wrap long labels without hiding report content.
-
-    XLSX columns start from intentional, compact widths.  Money columns may grow to the complete
-    grouped value, while long free text wraps and receives an explicit row height so viewers do not
-    depend on an application's auto-fit behaviour.
-    """
-
-    for column in money_columns:
-        letter = get_column_letter(column)
-        current_width = ws.column_dimensions[letter].width or 13
-        required_width = current_width
-        for cell in ws.iter_cols(
-            min_col=column, max_col=column, min_row=1, max_row=ws.max_row
-        ):
-            for item in cell:
-                if isinstance(item.value, (int, float)) and not isinstance(item.value, bool):
-                    amount = _money_value(item.value)
-                    rendered = f"({abs(amount):,})" if amount < 0 else f"{amount:,}"
-                    required_width = max(required_width, len(rendered) + 2)
-        ws.column_dimensions[letter].width = min(255, required_width)
-
-    for row in range(1, ws.max_row + 1):
-        needed_lines = 1
-        for column in range(1, ws.max_column + 1):
-            cell = ws.cell(row=row, column=column)
-            if not isinstance(cell.value, str) or not cell.value:
-                continue
-            width = ws.column_dimensions[get_column_letter(column)].width or 13
-            line_capacity = max(1, int(width) - 1)
-            line_count = sum(
-                max(1, ceil(len(segment) / line_capacity))
-                for segment in cell.value.splitlines() or [cell.value]
-            )
-            if line_count <= 1:
-                continue
-            alignment = copy(cell.alignment)
-            alignment.wrap_text = True
-            alignment.vertical = "top"
-            cell.alignment = alignment
-            needed_lines = max(needed_lines, line_count)
-        if needed_lines > 1:
-            ws.row_dimensions[row].height = max(
-                ws.row_dimensions[row].height or 15,
-                15 * needed_lines,
-            )
-
-
-def _style_subsection_row(ws, row: int, ncols: int, *, reimbursement: bool = False) -> None:
-    """Label a reconciliation subsection without relying only on colour."""
-    fill = _REIMBURSEMENT_FILL if reimbursement else _SUBSECTION_FILL
-    for col in range(1, ncols + 1):
-        cell = ws.cell(row=row, column=col)
-        cell.font = _BOLD
-        cell.fill = fill
-
-
-def _style_summary_total(ws, row: int, ncols: int, *, strong: bool = False) -> None:
-    """Style a subtotal or the final net row across its full table width."""
-    side = _MEDIUM_BRAND if strong else _THIN_BRAND
-    border = Border(top=side, bottom=side if strong else Side())
-    fill = _NET_FILL if strong else _TOTAL_FILL
-    for col in range(1, ncols + 1):
-        cell = ws.cell(row=row, column=col)
-        cell.font = _BOLD
-        cell.fill = fill
-        cell.border = border
-
-
 async def _load_report_expenses(trip_id: str) -> list:
-    """Load the complete transaction set for reports; never silently truncate reimbursements."""
+    """Load the complete transaction set, including money-back entries."""
     return await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(length=None)
 
 
 async def _load_migration_adjustment(trip_id: str):
-    """Tolerate lightweight route-test database doubles that predate this audit collection."""
     collection = getattr(db, "money_migration_adjustments", None)
     if collection is None:
         return None
     return await collection.find_one({"trip_id": trip_id}, {"_id": 0})
 
 
-# ---------- Reports ----------
+async def _download_report_data(trip_id: str, token: str):
+    payload = decode_token(token)
+    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
+    if not user:
+        raise HTTPException(401, "User not found")
+    trip = ensure_date_range(await _trip_or_404(trip_id, user))
+    expenses = await _load_report_expenses(trip_id)
+    settlements = await db.settlements.find(
+        {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}
+    ).to_list(None)
+    payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}).to_list(None)
+    migration = await _load_migration_adjustment(trip_id)
+    snapshot = ReportSnapshot(trip, tuple(expenses), tuple(settlements), tuple(payments), migration)
+    try:
+        return build_report_data(snapshot, diagnostic=is_trip_admin(trip, user))
+    except ReportReconciliationError as exc:
+        raise HTTPException(
+            409, "This report could not be reconciled with the group's balances. "
+            "Ask a group admin to review the source records. " + str(exc)
+        ) from exc
+
+
 @router.get("/trips/{trip_id}/report")
 async def report(trip_id: str, user=Depends(get_current_user)):
     trip = ensure_date_range(await _trip_or_404(trip_id, user))
@@ -192,437 +87,22 @@ async def report(trip_id: str, user=Depends(get_current_user)):
 
 
 @router.get("/trips/{trip_id}/report.xlsx")
-async def report_xlsx(trip_id: str, token: str,
-                      _unused=None):
-    # token in query for easy mobile download
-    payload = decode_token(token)
-    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
-    if not user:
-        raise HTTPException(401, "User not found")
-    trip = await _trip_or_404(trip_id, user)
-    expenses = await _load_report_expenses(trip_id)
-    bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
-    # Disambiguated top-level labels (rule a + families) — one source of truth shared with the app.
-    display = member_display_names(trip["members"])
-
-    members = trip["members"]
-    cur = trip.get("currency", "INR")
-    reconciliation = build_spend_reconciliation(members, expenses, cur)
-    # The SAME two overlays _compute_balances applies to `net` (read-only; no engine change): the
-    # non-pending settlements AND every Phase-20 payment. Both must feed the Settlements column or it
-    # diverges from the ledger `net` the sheet reconciles against. Fetched once and reused (the
-    # Payments tab below renders the same `payments` list).
-    settlements = await db.settlements.find(
-        {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}).to_list(None)
-    payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}) \
-        .sort("created_at", 1).to_list(None)
-    migration_adjustment = await _load_migration_adjustment(trip_id)
-
-    wb = Workbook()
-
-    # ----- Tab 1: Summary (trip header + spend-by-entity + by-category) -----
-    s1 = wb.active
-    s1.title = "Summary"
-    s1["A1"] = trip["name"]
-    s1["A1"].font = Font(bold=True, size=16)
-    row = 2
-    for label, value in [("Dates", trip_date_label(trip)),
-                         ("Share code", trip.get("code", "")),
-                         ("Currency", cur),
-                         ("Members", composition_label(members))]:
-        s1.cell(row=row, column=1, value=label).font = _BOLD
-        s1.cell(row=row, column=2, value=value)
-        row += 1
-    s1.cell(row=row, column=1, value="Budget").font = _BOLD
-    if trip.get("budget") is not None:
-        _money(s1.cell(row=row, column=2, value=_money_value(trip["budget"], cur)), cur)
-    else:
-        s1.cell(row=row, column=2, value="N/A")
-    row += 1
-    s1.cell(row=row, column=1, value="Net spend").font = _BOLD
-    _money(s1.cell(row=row, column=2, value=reconciliation["totals"]["net"]), cur)
-    row += 2
-
-    # One reconciliation model feeds both dimensions: gross, reimbursements, then net.
-    s1.cell(row=row, column=1, value="Net spend by entity").font = _TITLE_FONT
-    row += 1
-    s1.cell(row=row, column=1, value="GROSS SPEND")
-    _style_subsection_row(s1, row, 3)
-    row += 1
-    s1.cell(row=row, column=1, value="Entity")
-    s1.cell(row=row, column=2, value="Type")
-    s1.cell(row=row, column=3, value=f"Amount ({cur})")
-    _style_header_row(s1, row, 3)
-    row += 1
-    gross_entities = [
-        item for item in reconciliation["entities"]
-        if item["gross"] != 0 or item["entity_id"] is not None
-    ]
-    for item in gross_entities:
-        s1.cell(row=row, column=1, value=item["name"])
-        s1.cell(row=row, column=2, value=item["type"])
-        _money(s1.cell(row=row, column=3, value=item["gross"]), cur)
-        row += 1
-    s1.cell(row=row, column=1, value="Gross spend subtotal")
-    _money(s1.cell(row=row, column=3, value=reconciliation["totals"]["gross"]), cur)
-    _style_summary_total(s1, row, 3)
-    row += 2
-
-    s1.cell(row=row, column=1, value="REIMBURSEMENTS")
-    _style_subsection_row(s1, row, 3, reimbursement=True)
-    row += 1
-    s1.cell(row=row, column=1, value="Entity")
-    s1.cell(row=row, column=2, value="Type")
-    s1.cell(row=row, column=3, value=f"Amount ({cur})")
-    _style_header_row(s1, row, 3)
-    row += 1
-    reimbursement_entities = sorted(
-        (item for item in reconciliation["entities"] if item["reimbursements"] != 0),
-        key=lambda item: (-item["reimbursements"], item["name"]),
-    )
-    for item in reimbursement_entities:
-        s1.cell(row=row, column=1, value=item["name"])
-        s1.cell(row=row, column=2, value=item["type"])
-        _money(s1.cell(row=row, column=3, value=item["reimbursements"]), cur)
-        row += 1
-    s1.cell(row=row, column=1, value="Total reimbursements")
-    _money(s1.cell(row=row, column=3, value=reconciliation["totals"]["reimbursements"]), cur)
-    _style_summary_total(s1, row, 3)
-    row += 1
-    s1.cell(row=row, column=1, value="Net spend")
-    _money(s1.cell(row=row, column=3, value=reconciliation["totals"]["net"]), cur)
-    _style_summary_total(s1, row, 3, strong=True)
-    row += 3
-
-    s1.cell(row=row, column=1, value="Net spend by category").font = _TITLE_FONT
-    row += 1
-    s1.cell(row=row, column=1, value="GROSS SPEND")
-    _style_subsection_row(s1, row, 2)
-    row += 1
-    s1.cell(row=row, column=1, value="Category")
-    s1.cell(row=row, column=2, value=f"Amount ({cur})")
-    _style_header_row(s1, row, 2)
-    row += 1
-    for item in reconciliation["categories"]:
-        if item["gross"] == 0:
-            continue
-        s1.cell(row=row, column=1, value=item["category"])
-        _money(s1.cell(row=row, column=2, value=item["gross"]), cur)
-        row += 1
-    s1.cell(row=row, column=1, value="Gross spend subtotal")
-    _money(s1.cell(row=row, column=2, value=reconciliation["totals"]["gross"]), cur)
-    _style_summary_total(s1, row, 2)
-    row += 2
-
-    s1.cell(row=row, column=1, value="REIMBURSEMENTS")
-    _style_subsection_row(s1, row, 2, reimbursement=True)
-    row += 1
-    s1.cell(row=row, column=1, value="Category")
-    s1.cell(row=row, column=2, value=f"Amount ({cur})")
-    _style_header_row(s1, row, 2)
-    row += 1
-    for item in reconciliation["categories"]:
-        if item["reimbursements"] == 0:
-            continue
-        s1.cell(row=row, column=1, value=item["category"])
-        _money(s1.cell(row=row, column=2, value=item["reimbursements"]), cur)
-        row += 1
-    s1.cell(row=row, column=1, value="Total reimbursements")
-    _money(s1.cell(row=row, column=2, value=reconciliation["totals"]["reimbursements"]), cur)
-    _style_summary_total(s1, row, 2)
-    row += 1
-    s1.cell(row=row, column=1, value="Net spend")
-    _money(s1.cell(row=row, column=2, value=reconciliation["totals"]["net"]), cur)
-    _style_summary_total(s1, row, 2, strong=True)
-    _set_widths(s1, [28, 22, 18])
-
-    # ----- Tab 2: Members & Families (Paid | Share | Settlements | Net, reconciling) -----
-    s2 = wb.create_sheet("Members & Families")
-    mf_headers = ["Name", "Type", "Family", f"Gross Spent ({cur})", f"Share of Expenses ({cur})",
-                  f"Settlements ({cur})", f"Net Balance ({cur})"]
-    s2.append(mf_headers)
-    _style_header_row(s2, 1, len(mf_headers))
-    paid_map, _ = entity_ledger_components(expenses, members)
-    # settlements + payments = the exact overlay set _compute_balances lays over `net`, so the
-    # Settlements column matches the ledger (partial payments included) and Net still foots.
-    settle_map = settle_adj_by_entity(settlements + payments)
-    for mf in build_members_families_rows(
-        bal["per_person"], paid_map, settle_map, display, cur
-    ):
-        s2.append([mf["name"], mf["type"], mf["family"],
-                   mf["paid"] if mf["paid"] is not None else "—",
-                   mf["share"] if mf["share"] is not None else "—",
-                   mf["settle"] if mf["settle"] is not None else "—",
-                   mf["net"] if mf["net"] is not None else "—"])
-        rr = s2.max_row
-        for col in range(4, 8):
-            c = s2.cell(row=rr, column=col)
-            if isinstance(c.value, (int, float)):
-                _money(c, cur)
-            else:
-                c.alignment = _RIGHT
-        if mf["kind"] in ("family_subtotal", "total"):
-            for col in range(1, len(mf_headers) + 1):
-                s2.cell(row=rr, column=col).font = _BOLD
-        elif mf["kind"] == "family_member":
-            s2.cell(row=rr, column=1).alignment = Alignment(indent=2)
-    s2.freeze_panes = "A2"
-    _set_widths(s2, [22, 14, 18, 16, 18, 16, 16])
-
-    # ----- Tab 3: Split Math (flagship — one auditable block per expense) -----
-    s3 = wb.create_sheet("Split Math")
-    sm_headers = ["Expense", "Date", f"Total Amount ({cur})", "Split Mode", "Participant",
-                  "Participant Type", "Units / Weight", f"Actual Allocation ({cur})",
-                  "Remainder Unit Recipient"]
-    s3.append(sm_headers)
-    _style_header_row(s3, 1, len(sm_headers))
-    for blk in build_split_math_rows(expenses, members, cur):
-        amt = _money_value(blk["amount"], cur)
-        for p in blk["participants"]:
-            s3.append([blk["expense"], blk["date"], amt, blk["mode"], p["participant"],
-                       p["ptype"], p["units"], _money_value(p["allocated"], cur),
-                       "Yes" if p["remainder_recipient"] else "No"])
-            rr = s3.max_row
-            _money(s3.cell(row=rr, column=3), cur)
-            s3.cell(row=rr, column=7).alignment = _RIGHT
-            _money(s3.cell(row=rr, column=8), cur)
-        s3.append([f"{blk['expense']} — Subtotal", "", amt, blk["mode"], "", "",
-                   blk["subtotal_units"], blk["subtotal_allocated"], ""])
-        rr = s3.max_row
-        for col in range(1, len(sm_headers) + 1):
-            s3.cell(row=rr, column=col).font = _BOLD
-        _money(s3.cell(row=rr, column=3), cur)
-        s3.cell(row=rr, column=7).alignment = _RIGHT
-        _money(s3.cell(row=rr, column=8), cur)
-    s3.freeze_panes = "A2"
-    _set_widths(s3, [24, 18, 14, 12, 20, 16, 8, 16, 16])
-
-    # ----- Tab 4: Transactions (exploded: one row per member + a per-person pivot) -----
-    # Each expense expands into ONE ROW PER TRIP MEMBER showing that member's share ("Total Payable").
-    # Amount / Split Mode / Paid By print once per expense (top row of the block); non-participants
-    # show "-". A right-side pivot totals each person; the bottom row grand-totals Amount and Total
-    # Payable. All figures come from build_expense_member_rows (reuses the ledger split math).
-    s4 = wb.create_sheet("Transactions")
-    tx = build_expense_member_rows(expenses, members, cur)
-    tx_headers = [
-        "Sr No", "Category", "Description", "Date", f"Canonical Amount ({cur})",
-        "Original Amount", "Original Currency", "Exchange Rate", "Effective Rate Date",
-        "Rate Provider", "Rate Mode", "Original EXACT Allocations", "Split Mode", "Paid By",
-        "Family", "Person Name", f"Total Payable ({cur})",
-    ]
-    s4.append(tx_headers)
-    _style_header_row(s4, 1, len(tx_headers))
-    for blk in tx["blocks"]:
-        for i, r in enumerate(blk["rows"]):
-            first = i == 0  # Amount / Split Mode / Paid By only on the block's first member row
-            s4.append([
-                blk["sr_no"] if first else None,
-                blk["category"] if first else None,
-                blk["description"] if first else None,
-                blk["date"] if first else None,
-                _money_value(blk["amount"], cur) if first else None,
-                _money_value(
-                    blk["original_amount"], blk["original_currency"] or cur
-                ) if first else None,
-                blk["original_currency"] if first else None,
-                blk["exchange_rate"] if first else None,
-                blk["exchange_rate_date"] if first else None,
-                blk["exchange_rate_provider"] if first else None,
-                blk["exchange_rate_mode"] if first else None,
-                blk["original_exact_allocations"] if first else None,
-                blk["mode"] if first else None,
-                blk["paid_by"] if first else None,
-                r["family"], r["person"],
-                r["payable"] if r["participates"] else "-",
-            ])
-            rr = s4.max_row
-            if first:
-                _money(s4.cell(row=rr, column=5), cur)
-                _money(s4.cell(row=rr, column=6), blk["original_currency"] or cur)
-            pc = s4.cell(row=rr, column=17)
-            if r["participates"]:
-                _money(pc, cur)
-            else:
-                pc.alignment = _RIGHT
-    # Grand Total row (Sum(Amount) == Sum(Total Payable))
-    s4.append(["Grand Total", None, None, None, tx["grand_amount"], None, None, None, None,
-               None, None, None, None, None, None, None, tx["grand_payable"]])
-    gr = s4.max_row
-    for col in (1, 5, 17):
-        s4.cell(row=gr, column=col).font = _BOLD
-    _money(s4.cell(row=gr, column=5), cur)
-    _money(s4.cell(row=gr, column=17), cur)
-
-    # Right-side pivot (Person Name | Sum of Total Payable), one blank column after the main table.
-    PV_NAME, PV_SUM = 19, 20
-    s4.cell(row=1, column=PV_NAME, value="Person Name")
-    s4.cell(row=1, column=PV_SUM, value=f"Sum of Total Payable ({cur})")
-    for c in (PV_NAME, PV_SUM):
-        hc = s4.cell(row=1, column=c)
-        hc.font = _HEADER_FONT
-        hc.fill = _HEADER_FILL
-    pr = 2
-    for prow in tx["pivot"]["rows"]:
-        s4.cell(row=pr, column=PV_NAME, value=prow["name"])
-        _money(s4.cell(row=pr, column=PV_SUM, value=prow["total"]), cur)
-        pr += 1
-    s4.cell(row=pr, column=PV_NAME, value="Grand Total").font = _BOLD
-    gt = s4.cell(row=pr, column=PV_SUM, value=tx["pivot"]["grand_total"])
-    _money(gt, cur)
-    gt.font = _BOLD
-
-    s4.freeze_panes = "A2"
-    _set_widths(s4, [
-        8, 14, 20, 16, 18, 16, 14, 16, 18, 24, 12, 42, 12, 16, 16, 16, 18, 4, 18, 20,
-    ])
-
-    # ----- Tab 5: Payments (Phase 20) — every recorded (partial) payment, one row each -----
-    # A flat log of the settle-up payments: three partial payments = three rows. Names are the same
-    # disambiguated labels as the rest of the report; Amount uses the trip currency; a bold Total row
-    # sums the column. Display-only — these payments already offset the ledger via _compute_balances.
-    s5 = wb.create_sheet("Payments")
-    pay_headers = ["Payer", "Receiver", f"Amount ({cur})", "Date & Time", "Remark", "Source"]
-    s5.append(pay_headers)
-    _style_header_row(s5, 1, len(pay_headers))
-    pay_total = 0.0
-    for p in payments:
-        dt_label = format_ist(p.get("created_at"))  # stored UTC -> IST display (Phase 24)
-        s5.append([display.get(p["from_member_id"], "?"), display.get(p["to_member_id"], "?"),
-                   _money_value(p["amount"], cur), dt_label,
-                   (p.get("note") or "").strip() or "—",
-                   ("UPI — recipient confirmed"
-                    if p.get("source") == "upi_recipient_confirmed" else "Recorded payment")])
-        _money(s5.cell(row=s5.max_row, column=3), cur)
-        pay_total += _money_value(p["amount"], cur)
-    s5.append(["Total", "", _money_value(pay_total, cur), "", "", ""])
-    tr = s5.max_row
-    for col in range(1, len(pay_headers) + 1):
-        s5.cell(row=tr, column=col).font = _BOLD
-    _money(s5.cell(row=tr, column=3), cur)
-
-    projection = bal.get("settlement_projection") or {}
-    if projection.get("enabled"):
-        row = s5.max_row + 2
-        s5.cell(row=row, column=1, value="Settlement plan").font = _TITLE_FONT
-        row += 1
-        for label, value in (
-            ("Settlement currency", projection.get("currency")),
-            ("Increment", projection.get("increment")),
-            ("Status", projection.get("status")),
-            ("Routing", "Direct repayment plan" if projection.get("settlement_mode") == "direct"
-             else "Minimum payment plan" if projection.get("routing", {}).get("optimal")
-             else "Simplified payment plan"),
-            ("Policy version", projection.get("policy_version")),
-        ):
-            s5.cell(row=row, column=1, value=label).font = _BOLD
-            s5.cell(row=row, column=2, value=value)
-            row += 1
-        row += 1
-        transfer_headers = ["Suggested payer", "Suggested receiver", f"Whole amount ({cur})"]
-        for column, header in enumerate(transfer_headers, 1):
-            s5.cell(row=row, column=column, value=header)
-        _style_header_row(s5, row, len(transfer_headers))
-        for transfer in bal.get("transfers", []):
-            row += 1
-            s5.cell(row=row, column=1, value=display.get(transfer["from_member_id"], "?"))
-            s5.cell(row=row, column=2, value=display.get(transfer["to_member_id"], "?"))
-            s5.cell(row=row, column=3, value=transfer["amount"])
-            _whole_money(s5.cell(row=row, column=3))
-    s5.freeze_panes = "A2"
-    _set_widths(s5, [32, 32, 22, 24, 30, 28])
-
-    # Private migration adjustments are never mixed into transactions/payments; reports expose a
-    # dedicated audit section so administrators can reconcile a migrated trip explicitly.
-    if migration_adjustment:
-        s6 = wb.create_sheet("Migration Adjustments")
-        s6["A1"] = "Whole-unit migration adjustments"
-        s6["A1"].font = _TITLE_FONT
-        s6["A2"] = "Policy version"
-        s6["A2"].font = _BOLD
-        s6["B2"] = migration_adjustment.get("policy_version")
-        s6["A3"] = "Created at"
-        s6["A3"].font = _BOLD
-        s6["B3"] = migration_adjustment.get("created_at")
-        s6.append([])
-        s6.append(["Entity", f"Adjustment ({cur})"])
-        _style_header_row(s6, s6.max_row, 2)
-        vector = migration_adjustment.get("vector") or {}
-        for member in members:
-            member_id = member["id"]
-            s6.append([
-                display.get(member_id, member.get("name", "?")),
-                _money_value(vector.get(member_id, 0), cur),
-            ])
-            _money(s6.cell(row=s6.max_row, column=2), cur)
-        s6.append(["TOTAL", _money_value(sum(vector.values()), cur)])
-        s6[s6.max_row][0].font = _BOLD
-        s6[s6.max_row][1].font = _BOLD
-        _money(s6.cell(row=s6.max_row, column=2), cur)
-        _set_widths(s6, [32, 24])
-
-    money_columns = {
-        "Summary": (2, 3),
-        "Members & Families": (4, 5, 6, 7),
-        "Split Math": (3, 8),
-        "Transactions": (5, 6, 17, 20),
-        "Payments": (3,),
-        "Migration Adjustments": (2,),
-    }
-    for sheet in wb.worksheets:
-        _finalize_sheet_layout(sheet, money_columns.get(sheet.title, ()))
-
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    fname = f"{trip['name'].replace(' ','_')}_report.xlsx"
+async def report_xlsx(trip_id: str, token: str, _unused=None):
+    data = await _download_report_data(trip_id, token)
+    filename = f"{data.snapshot.trip['name'].replace(' ', '_')}_report.xlsx"
     return StreamingResponse(
-        buf,
+        io.BytesIO(build_report_xlsx(data)),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={fname}"},
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 
 @router.get("/trips/{trip_id}/report.pdf")
-async def report_pdf(trip_id: str, token: str,
-                     _unused=None):
-    # Additive PDF variant of the report — same ?token= auth as report.xlsx (opened via a browser
-    # link, so the JWT rides on the query string, not a header). Renders the FULL four-section report
-    # (Summary, Members & Families, exploded Transactions, Payments) from the SAME pure builders the
-    # spreadsheet uses, so the two can never diverge in value.
-    payload = decode_token(token)
-    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
-    if not user:
-        raise HTTPException(401, "User not found")
-    trip = await _trip_or_404(trip_id, user)
-    members = trip["members"]
-    expenses = await _load_report_expenses(trip_id)
-    reconciliation = build_spend_reconciliation(
-        members, expenses, trip.get("currency", "INR")
-    )
-    payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}) \
-        .sort("created_at", 1).to_list(None)
-    migration_adjustment = await _load_migration_adjustment(trip_id)
-    # Members & Families rows — identical construction to the XLSX route (same builders + the same
-    # settlements + payments overlay), so the PDF's Settlements column and reconciliation match.
-    bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
-    display = member_display_names(members)
-    settlements = await db.settlements.find(
-        {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}).to_list(None)
-    paid_map, _ = entity_ledger_components(expenses, members)
-    settle_map = settle_adj_by_entity(settlements + payments)
-    mf_rows = build_members_families_rows(
-        bal["per_person"], paid_map, settle_map, display, trip.get("currency", "INR")
-    )
-    pdf_bytes = build_report_pdf(
-        trip, members, expenses, trip.get("currency", "INR"),
-        reconciliation=reconciliation, payments=payments, mf_rows=mf_rows,
-        settlement_projection=bal.get("settlement_projection"),
-        settlement_transfers=bal.get("transfers"),
-        migration_adjustment=migration_adjustment,
-    )
-    fname = f"{trip['name'].replace(' ','_')}_report.pdf"
+async def report_pdf(trip_id: str, token: str, _unused=None):
+    data = await _download_report_data(trip_id, token)
+    filename = f"{data.snapshot.trip['name'].replace(' ', '_')}_report.pdf"
     return StreamingResponse(
-        io.BytesIO(pdf_bytes),
+        io.BytesIO(build_report_pdf(data)),
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={fname}"},
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )

@@ -569,52 +569,69 @@ do not want these activity details visible while the phone is locked.
 
 ## 9. Reports & Export (XLSX / PDF)
 
-- Bottom-tab **Reports** lists all your groups.
-- Tap **XLSX** to download a professionally-formatted Excel workbook (bold frozen headers, currency
-  number format, right-aligned figures), or **PDF** for a print-ready version of the **full report**.
-  The XLSX has **five main sheets**, plus a dedicated **Migration Adjustments** sheet when a migrated
-  group has a private reconciliation vector:
-  1. **Summary** — group header (name, dates, share code, currency, member composition, budget,
-     **Total Spent**), a **Spend by entity** block ranking who paid the most (**Gross Spent**,
-     descending), and the **By category** totals.
-  2. **Members & Families** — one auditable table: each individual and each family member grouped
-     under its family with a **family subtotal**, then standalone individuals, then a grand **TOTAL**.
-     Money columns reconcile exactly: **Net Balance = Gross Spent − Share of Expenses + Settlements**.
-     The **Settlements** column now includes **both** recorded settlements **and partial payments**
-     (see §7.2), so it always matches the balances the app shows. (Family-member rows show only their
-     share of the family's **Net Balance**, which sums to the family total.)
-  3. **Split Math** — the full split breakdown, one block per expense: every participant row shows
-     **Units** (people counted; an entity counts as 1 in Per-Family), the participant's actual integer
-     **Allocation**, and whether that participant received a remainder unit, with a per-expense
-     **Subtotal**. Per-Person divides by the total involved people; Per-Family divides by entities.
-  4. **Transactions** — an itemised breakdown that expands **every expense into one row per person**,
-     showing each member's **Total Payable** (their share of that expense). The canonical amount is
-     accompanied by the original amount/currency, locked rate, effective date, provider, mode, and
-     original Exact allocations when applicable. Split mode and who paid appear once per expense; a
-     person not included in an expense shows **"–"**. A right-side
-     pivot totals each person across the whole group, and a bold **Grand Total** row footers both the
-     Amount and Total Payable columns — so **Sum(Amount) = Sum(Total Payable)** and every person's
-     pivot total reconciles to the group total.
-  5. **Payments** — a flat log of every settle-up payment recorded in the group: **Payer**, **Receiver**,
-     **Amount** (group currency), **Date & Time** (shown in **IST**, UTC+05:30), optional **Remark**,
-     and a privacy-safe **Source** label. Recipient-confirmed rows say **UPI — recipient confirmed**;
-     reports never include the UPI ID, mobile numbers, or payer-entered transaction reference. There is one row per
-     payment (three partial payments = three rows), with a bold **Total** row. It also includes the
-     whole-unit policy/routing metadata and current recommendations when a settlement plan is open.
-  6. **Migration Adjustments** *(when present)* — the private per-entity whole-unit adjustment vector,
-     policy version, creation time, and a zero-sum total. It never appears in Transactions or Payments.
+The bottom-tab **Reports** lists your groups. Tap **XLSX** for Excel or **PDF** for a printable report.
+The existing browser download and sharing flow is unchanged.
 
-The **PDF** is the **full report** in a landscape, print-ready layout: a title block (group name,
-composition, dates, currency) followed by the **Summary**, **Members & Families**, exploded
-**Split Allocations**, **Transactions** (with per-person pivot), and **Payments** sections — plus a
-dedicated migration-adjustment section when present — built from the same figures as the spreadsheet,
-so both reconcile to identical totals. Tables carry styled headers,
-zebra striping, red/parenthesised negatives, bold totals, and a *Page X of Y* footer.
+Each download includes the group's complete transaction history. Trip dates, included expense dates,
+and included settlement dates are shown separately. Re-export from the app when financial results change.
+The summary omits member counts, share codes, the separate currency field, and export time.
+All money is in the group's official currency, rounded using the app's existing whole-unit policy.
+Values use Indian digit grouping and a currency symbol, such as **₹2,72,628**.
 
-"Gross Spent" (a.k.a. Total Spent) is the amount an entity actually fronted — not net of their own
-share — the same figure the group card's **SPENT** total shows.
+The workbook contains four standard tabs:
 
-The download opens in your phone's browser; share or save it from there.
+1. **Summary** shows gross spending, money back, net spending, and the amount still to settle.
+   One funding table separates each account's gross funding, money back, and net funding.
+   A native Excel PivotTable groups **family/account → person** by category and sums **Expense share**.
+   Expand or collapse families, filter categories/accounts/people, or use the date and entry-type
+   filters. Saved results are available before refreshing. In desktop Excel, select the pivot to open
+   its field list; double-click a value to inspect its contributing allocation rows.
+   One bar chart shows whole-trip net spending by category. **Pivot filters change only the pivot**;
+   the chart and headline figures continue to show the whole trip.
+2. **Members & Families** separates **Expense share**, **Net funded**, **Before settlements**,
+   **Settlements paid**, **Settlements received**, optional **Adjustments**, **Balance now**, and **Action**.
+   Family totals are bold and their member rows are indented and expandable. Members show their own
+   expense shares and existing positions within the family. Funding and payments stay on the family
+   account. Child rows are included in the family total and excluded from account grand totals and
+   settlement instructions.
+3. **Transactions** is a filterable Excel Table with one row per participating person, including
+   genuine zero allocations. Every row repeats the expense metadata so filtering preserves context.
+   Sum **Expense share** for cost analysis. **Expense total** is repeated context and must not be summed
+   across participants. Account ID and Person ID columns are omitted. The grouped detail columns contain the expense ID, original currency/amount,
+   stored exchange rate, effective/requested rate dates, provider, mode, and original Exact allocations.
+4. **Payments** starts with the outstanding suggested transfers and their total. The eligible settlement
+   history follows, including both legacy settlements and recorded payments, with separate source totals.
+   Suggestions are labelled **Suggested** and never count as recorded payments. **Recipient confirmed**
+   appears only when supported by the recorded payment source. Dates and timestamps display in **IST**
+   and remain sortable. UPI IDs, mobile numbers, private payment attempts, and transaction references
+   are omitted.
+
+Supporting migration or verified historical rounding amounts remain in the **Members & Families**
+balance table, with reconciliation notes below it. There is no separate Adjustments tab.
+These explain the existing balance and remain separate from expense shares and payments.
+A report that cannot explain its source ledger returns a reconciliation error instead of a download.
+Historical people/accounts retain their stable IDs; missing names or person attribution are labelled.
+
+For every settlement account:
+
+**Balance now = Net funded − Expense share + Settlements paid − Settlements received + Adjustments**
+
+Green receiving balances say **Receive**, red paying balances say **Pay**, and grey zero balances say
+**Settled**. Money-back allocations also use green, even though their numeric expense shares are negative.
+A positive cost share is a cost allocation, not an instruction to pay somebody.
+
+**Still to settle** is the sum of the selected outstanding payment plan. A direct repayment plan can
+require more gross transfers than the sum of positive net balances. Both exports use the app's same
+selected direct or simplified plan.
+
+The **PDF** contains the same figures in A4 landscape with an embedded Noto Sans font supporting ₹,
+readable body text, repeated table headers, and page numbers. Wide category matrices continue in labelled
+column bands with participant identifiers repeated. Transaction sections group each expense with its
+participating people beneath it. Reconciliation notes follow the balance table in both formats.
+
+The standard exports no longer contain **Split Math** or a second person-total table. Allocation details
+remain available in Transactions and the pivot. Opening, filtering, refreshing, or drilling into the
+workbook affects the local file only and never writes to the app.
 
 ---
 

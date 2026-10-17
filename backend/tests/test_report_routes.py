@@ -1,396 +1,163 @@
-"""Route-level regression tests for report data loading."""
+"""Download contracts, access checks, and one-load-per-collection regression coverage."""
 
 import asyncio
 import io
-import pytest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
+import pytest
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 from openpyxl import load_workbook
-from openpyxl import Workbook
+from pypdf import PdfReader
 
 from routes import reports
-from utils.currency_rules import SUPPORTED_CURRENCIES
-from pypdf import PdfReader
+from services.report_model import ReportReconciliationError, build_report_data
+from scripts.generate_report_samples import sample_snapshot
 from utils import balances as balance_service
 
 
-def test_xlsx_money_values_and_formats_follow_whole_unit_policy():
-    assert reports._money_value("1.005", "USD") == 1
-    assert reports._money_value("2.5", "JPY") == 3
-    assert reports._money_value("1.2345", "KWD") == 1
-    assert reports._money_value("-2.5", "INR") == -3
-
-    workbook = Workbook()
-    sheet = workbook.active
-    for row, currency in enumerate(SUPPORTED_CURRENCIES, start=1):
-        cell = sheet.cell(row=row, column=1, value=reports._money_value("1", currency))
-        reports._money(cell, currency)
-        assert cell.number_format == "#,##0;[Red](#,##0)"
-
-
-@pytest.mark.parametrize("enabled", [True, False])
-def test_xlsx_and_pdf_use_the_same_selected_plan_as_balances(monkeypatch, enabled):
-    members = [{"id": mid, "name": mid.title(), "kind": "individual"} for mid in ("ram", "shyam", "rahul")]
-    trip = {"id": "trip-1", "name": "Repayment example", "currency": "INR", "code": "EXAMPLE",
-            "members": members, "owner_id": "owner", "admin_ids": ["owner"], "simplify_debts": enabled}
-    expenses = [{"id": str(index), "amount": amount, "paid_by_member_id": payer,
-                 "split_member_ids": ["ram", "shyam", "rahul"], "split_mode": "PER_CAPITA",
-                 "date": "15-10-26", "description": "Shared expense", "category": "Food"}
-                for index, (payer, amount) in enumerate([("ram", 300), ("rahul", 150)])]
-    fake = SimpleNamespace(
-        trips=SimpleNamespace(find_one=AsyncMock(return_value=trip)),
-        users=SimpleNamespace(find_one=AsyncMock(return_value={"id": "owner"})),
-        expenses=SimpleNamespace(find=lambda *_a, **_k: _Cursor(expenses)),
-        payments=SimpleNamespace(find=lambda *_a, **_k: _Cursor([])),
-        settlements=SimpleNamespace(find=lambda *_a, **_k: _Cursor([])),
-    )
-    monkeypatch.setattr(balance_service, "db", fake)
-    monkeypatch.setattr(reports, "db", fake)
-    monkeypatch.setattr(reports, "decode_token", lambda _: {"sub": "owner"})
-    monkeypatch.setattr(reports, "_trip_or_404", AsyncMock(return_value=trip))
-
-    async def render():
-        balance = await balance_service._compute_balances("trip-1")
-        xlsx = await reports.report_xlsx("trip-1", "token")
-        pdf = await reports.report_pdf("trip-1", "token")
-        return balance, b"".join([chunk async for chunk in xlsx.body_iterator]), \
-            b"".join([chunk async for chunk in pdf.body_iterator])
-
-    balance, xlsx, pdf = asyncio.run(render())
-    expected = {(row["from_member_id"].title(), row["to_member_id"].title(), row["amount"])
-                for row in balance["transfers"]}
-    workbook = load_workbook(io.BytesIO(xlsx), data_only=True)
-    rows = [tuple(row[:3]) for row in workbook["Payments"].iter_rows(values_only=True)]
-    assert {row for row in rows if row in expected} == expected
-    text = " ".join(" ".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(pdf)).pages).split())
-    for payer, receiver, amount in expected:
-        assert f"{payer} {receiver} {amount}" in text
-    label = "Direct repayment plan" if not enabled else "Minimum payment plan"
-    assert any(row[:2] == ("Routing", label) for row in rows)
-    assert label in text
-
-
-def test_xlsx_layout_wraps_long_text_and_fits_complete_money_values():
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.column_dimensions["A"].width = 12
-    sheet.column_dimensions["B"].width = 8
-    sheet["A1"] = "Participant with a deliberately long display name"
-    reports._money(sheet.cell(row=1, column=2, value=-9_876_543_210_123))
-
-    reports._finalize_sheet_layout(sheet, (2,))
-
-    assert sheet["A1"].alignment.wrap_text is True
-    assert sheet.row_dimensions[1].height > 15
-    assert sheet.column_dimensions["B"].width >= len("(9,876,543,210,123)") + 2
-
-
-class _Cursor:
+class Cursor:
     def __init__(self, rows):
         self.rows = rows
-        self.requested_length = "not-called"
+        self.lengths = []
 
     async def to_list(self, length=None):
-        self.requested_length = length
-        return self.rows
-
-    def sort(self, *args):
-        return self
+        self.lengths.append(length)
+        return list(self.rows)
 
 
-class _ExpensesCollection:
-    def __init__(self, cursor):
-        self.cursor = cursor
-        self.find_args = None
-
-    def find(self, query, projection):
-        self.find_args = (query, projection)
-        return self.cursor
+class Collection:
+    def __init__(self, rows=(), one=None):
+        self.cursor = Cursor(rows)
+        self.find = Mock(return_value=self.cursor)
+        self.find_one = AsyncMock(return_value=one)
 
 
-def test_load_report_expenses_uses_unbounded_cursor(monkeypatch):
-    rows = [{"id": "gross"}, {"id": "reimbursement"}]
-    cursor = _Cursor(rows)
-    expenses = _ExpensesCollection(cursor)
-    monkeypatch.setattr(reports, "db", SimpleNamespace(expenses=expenses))
-
-    assert asyncio.run(reports._load_report_expenses("trip-1")) == rows
-    assert expenses.find_args == ({"trip_id": "trip-1"}, {"_id": 0})
-    assert cursor.requested_length is None
-
-
-def test_xlsx_summary_renders_time_gross_reimbursement_and_net_separately(monkeypatch):
-    members = [{
-        "id": "time",
-        "name": "Time",
-        "kind": "family",
-        "family_members": ["Hour", "Minute"],
-        "family_member_ids": ["time:0", "time:1"],
-    }]
-    trip = {
-        "id": "trip-1",
-        "name": "Time report",
-        "start_date": "2026-01-01",
-        "end_date": "2026-01-02",
-        "currency": "LKR",
-        "code": "TIME",
-        "members": members,
-    }
-    expenses = [
-        {
-            "id": "gross",
-            "amount": 14_000.0,
-            "category": "Local Transportation",
-            "description": "Taxi",
-            "date": "01-01-26",
-            "paid_by_member_id": "time",
-            "split_member_ids": ["time"],
-            "split_mode": "PER_FAMILY",
-        },
-        {
-            "id": "reimbursement",
-            "amount": -4_000.0,
-            "category": "Local Transportation",
-            "description": "Taxi refund",
-            "date": "02-01-26",
-            "paid_by_member_id": "time",
-            "split_member_ids": ["time"],
-            "split_mode": "PER_FAMILY",
-        },
-    ]
-    per_person = [{
-        "member_id": "time",
-        "member_name": "Time",
-        "kind": "family",
-        "net_total": 0.0,
-        "members": [
-            {"id": "time:0", "name": "Hour", "net": 0.0},
-            {"id": "time:1", "name": "Minute", "net": 0.0},
-        ],
-    }]
-
-    monkeypatch.setattr(reports, "decode_token", lambda _token: {"sub": "user-1"})
-    monkeypatch.setattr(reports, "_trip_or_404", AsyncMock(return_value=trip))
-    monkeypatch.setattr(reports, "_load_report_expenses", AsyncMock(return_value=expenses))
-    monkeypatch.setattr(
-        reports, "_compute_balances", AsyncMock(return_value={
-            "per_person": per_person,
-            "transfers": [],
-            "settlement_projection": {
-                "enabled": True,
-                "currency": "LKR",
-                "increment": "1",
-                "status": "settled_exactly",
-                "policy_version": "whole_unit_v1",
-                "precise_net": {"time": "0.000000000000"},
-                "rounded_net": {"time": 0},
-                "rounding_adjustments": {"time": "0.000000000000"},
-                "routing": {"optimal": True},
-            },
-        }),
+def install(monkeypatch, snapshot=None):
+    snapshot = snapshot or sample_snapshot()
+    snapshot.trip['owner_id'] = 'owner'
+    fake = SimpleNamespace(
+        users=Collection(one={'id': 'owner'}),
+        trips=Collection(one=snapshot.trip),
+        expenses=Collection(snapshot.expenses),
+        settlements=Collection(snapshot.settlements),
+        payments=Collection(snapshot.payments),
+        money_migration_adjustments=Collection(one=snapshot.migration_adjustment),
     )
-    monkeypatch.setattr(reports, "db", SimpleNamespace(
-        users=SimpleNamespace(find_one=AsyncMock(return_value={"id": "user-1"})),
-        settlements=SimpleNamespace(find=lambda *_args, **_kwargs: _Cursor([])),
-        payments=SimpleNamespace(find=lambda *_args, **_kwargs: _Cursor([])),
-    ))
-
-    async def render():
-        response = await reports.report_xlsx("trip-1", "token")
-        chunks = [chunk async for chunk in response.body_iterator]
-        return response, b"".join(chunks)
-
-    response, payload = asyncio.run(render())
-    assert response.media_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    workbook = load_workbook(io.BytesIO(payload), data_only=True)
-    summary = workbook["Summary"]
-    rows = [tuple(cell.value for cell in row[:3]) for row in summary.iter_rows()]
-
-    assert [row[0] for row in rows].count("GROSS SPEND") == 2
-    assert [row[0] for row in rows].count("REIMBURSEMENTS") == 2
-    assert [row[0] for row in rows].count("Gross spend subtotal") == 2
-    assert [row[0] for row in rows].count("Total reimbursements") == 2
-    assert [row[2] for row in rows if row[0] == "Time" and isinstance(row[2], (int, float))] == [
-        14_000.0, 4_000.0,
-    ]
-    assert [row[1] for row in rows
-            if row[0] == "Local Transportation" and isinstance(row[1], (int, float))] == [
-        14_000.0, 4_000.0,
-    ]
-    assert [next(value for value in row[1:] if isinstance(value, (int, float)))
-            for row in rows if row[0] == "Gross spend subtotal"] == [14_000.0, 14_000.0]
-    assert [next(value for value in row[1:] if isinstance(value, (int, float)))
-            for row in rows if row[0] == "Total reimbursements"] == [4_000.0, 4_000.0]
-    assert [next(value for value in row[1:] if isinstance(value, (int, float)))
-            for row in rows if row[0] == "Net spend"] == [10_000.0, 10_000.0, 10_000.0]
-
-    payment_rows = [tuple(cell.value for cell in row[:4])
-                    for row in workbook["Payments"].iter_rows()]
-    assert any(row[0] == "Settlement plan" for row in payment_rows)
-    assert ("Settlement currency", "LKR", None, None) in payment_rows
-    assert ("Increment", "1", None, None) in payment_rows
-    assert ("Status", "settled_exactly", None, None) in payment_rows
-    assert ("Routing", "Minimum payment plan", None, None) in payment_rows
-    assert ("Policy version", "whole_unit_v1", None, None) in payment_rows
-    assert ("Suggested payer", "Suggested receiver", "Whole amount (LKR)", None) in payment_rows
-    payment_text = " ".join(str(value) for row in payment_rows for value in row if value is not None)
-    assert "Exact balance" not in payment_text
-    assert "Rounded balance" not in payment_text
-    assert "Rounding adjustment" not in payment_text
-    assert "0.000000000000" not in payment_text
+    monkeypatch.setattr(reports, 'db', fake)
+    monkeypatch.setattr(reports, 'decode_token', Mock(return_value={'sub': 'owner'}))
+    monkeypatch.setattr(reports, '_trip_or_404', AsyncMock(return_value=snapshot.trip))
+    return snapshot, fake
 
 
-def test_xlsx_payment_source_is_labeled_without_private_attempt_data(monkeypatch):
-    members = [
-        {"id": "payer", "name": "Payer", "kind": "individual"},
-        {"id": "receiver", "name": "Receiver", "kind": "individual"},
-    ]
-    trip = {
-        "id": "trip-1",
-        "name": "UPI report",
-        "start_date": "2026-09-12",
-        "end_date": "2026-09-13",
-        "currency": "INR",
-        "code": "UPI123",
-        "members": members,
-    }
-    upi_payment = {
-        "id": "payment-1",
-        "trip_id": "trip-1",
-        "from_member_id": "payer",
-        "to_member_id": "receiver",
-        "amount": 12.34,
-        "created_at": "2026-09-12T10:00:00+00:00",
-        "note": None,
-        "source": "upi_recipient_confirmed",
-        "payment_attempt_id": "private-attempt-id",
-        "upi_id_snapshot": "private@upi",
-        "transaction_reference": "PRIVATE-UTR",
-    }
-    per_person = [
-        {
-            "member_id": member["id"],
-            "member_name": member["name"],
-            "kind": "individual",
-            "net_total": 0.0,
-            "members": [],
-        }
-        for member in members
-    ]
-
-    monkeypatch.setattr(reports, "decode_token", lambda _token: {"sub": "user-1"})
-    monkeypatch.setattr(reports, "_trip_or_404", AsyncMock(return_value=trip))
-    monkeypatch.setattr(reports, "_load_report_expenses", AsyncMock(return_value=[]))
-    monkeypatch.setattr(reports, "_compute_balances", AsyncMock(return_value={
-        "per_person": per_person,
-        "transfers": [],
-        "settlement_projection": {"enabled": False},
-    }))
-    monkeypatch.setattr(reports, "db", SimpleNamespace(
-        users=SimpleNamespace(find_one=AsyncMock(return_value={"id": "user-1"})),
-        settlements=SimpleNamespace(find=lambda *_args, **_kwargs: _Cursor([])),
-        payments=SimpleNamespace(find=lambda *_args, **_kwargs: _Cursor([upi_payment])),
-    ))
-
-    async def render():
-        response = await reports.report_xlsx("trip-1", "token")
-        return b"".join([chunk async for chunk in response.body_iterator])
-
-    workbook = load_workbook(io.BytesIO(asyncio.run(render())), data_only=True)
-    rows = list(workbook["Payments"].iter_rows(values_only=True))
-
-    assert rows[0] == (
-        "Payer", "Receiver", "Amount (INR)", "Date & Time", "Remark", "Source",
-    )
-    assert rows[1][0:3] == ("Payer", "Receiver", 12)
-    assert rows[1][4:] == ("—", "UPI — recipient confirmed")
-    all_text = " ".join(str(value) for row in rows for value in row if value is not None)
-    assert "private@upi" not in all_text
-    assert "PRIVATE-UTR" not in all_text
-    assert "private-attempt-id" not in all_text
+async def payload(response):
+    return b''.join([chunk async for chunk in response.body_iterator])
 
 
-def test_xlsx_reports_integer_allocations_iso_labels_and_migration_adjustments(monkeypatch):
-    members = [
-        {"id": "a", "name": "Ann", "kind": "individual"},
-        {"id": "b", "name": "Bob", "kind": "individual"},
-        {"id": "c", "name": "Cam", "kind": "individual"},
-    ]
-    trip = {
-        "id": "trip-1",
-        "name": "Allocation report",
-        "start_date": "2026-09-12",
-        "end_date": "2026-09-13",
-        "currency": "INR",
-        "code": "ALLOC",
-        "members": members,
-    }
-    expenses = [{
-        "id": "expense-1",
-        "amount": 10,
-        "category": "Food",
-        "description": "Remainder dinner",
-        "date": "2026-09-12",
-        "paid_by_member_id": "a",
-        "split_member_ids": ["a", "b", "c"],
-        "split_mode": "PER_FAMILY",
-    }]
-    per_person = [
-        {
-            "member_id": member["id"],
-            "member_name": member["name"],
-            "kind": "individual",
-            "net_total": 0,
-            "members": [],
-        }
-        for member in members
-    ]
+@pytest.mark.parametrize('kind,mime', [('xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'), ('pdf', 'application/pdf')])
+def test_download_loads_each_source_once_and_preserves_public_contract(monkeypatch, kind, mime):
+    source, fake = install(monkeypatch)
+    monkeypatch.setattr(reports, '_compute_balances', AsyncMock(side_effect=AssertionError('Export must reuse preloaded records')))
+    route = getattr(reports, 'report_' + kind)
+    response = asyncio.run(route('sample-group', 'token'))
+    content = asyncio.run(payload(response))
+    assert response.media_type == mime
+    assert response.headers['content-disposition'] == 'attachment; filename=Coastal_Journey_-_Sample_report.' + kind
+    reports.decode_token.assert_called_once_with('token')
+    reports._trip_or_404.assert_awaited_once_with('sample-group', {'id': 'owner'})
+    fake.users.find_one.assert_awaited_once()
+    for collection in (fake.expenses, fake.settlements, fake.payments):
+        collection.find.assert_called_once()
+        assert collection.cursor.lengths == [None]
+    fake.money_migration_adjustments.find_one.assert_awaited_once()
+    assert 'status' in fake.settlements.find.call_args.args[0]
+    if kind == 'xlsx':
+        wb = load_workbook(io.BytesIO(content))
+        assert wb.sheetnames == ['Summary', 'Members & Families', 'Transactions', 'Payments']
+        assert wb['Summary']['G8'].value == build_report_data(source).net
+    else:
+        assert content.startswith(b'%PDF')
+        assert len(PdfReader(io.BytesIO(content)).pages) >= 4
 
-    monkeypatch.setattr(reports, "decode_token", lambda _token: {"sub": "user-1"})
-    monkeypatch.setattr(reports, "_trip_or_404", AsyncMock(return_value=trip))
-    monkeypatch.setattr(reports, "_load_report_expenses", AsyncMock(return_value=expenses))
-    monkeypatch.setattr(reports, "_compute_balances", AsyncMock(return_value={
-        "per_person": per_person,
-        "transfers": [],
-        "settlement_projection": {"enabled": False},
-    }))
-    monkeypatch.setattr(reports, "db", SimpleNamespace(
-        users=SimpleNamespace(find_one=AsyncMock(return_value={"id": "user-1"})),
-        settlements=SimpleNamespace(find=lambda *_args, **_kwargs: _Cursor([])),
-        payments=SimpleNamespace(find=lambda *_args, **_kwargs: _Cursor([])),
-        money_migration_adjustments=SimpleNamespace(find_one=AsyncMock(return_value={
-            "trip_id": "trip-1",
-            "policy_version": "whole_unit_v1",
-            "created_at": "2026-09-13T00:00:00+00:00",
-            "vector": {"a": 1, "b": -1, "c": 0},
-        })),
-    ))
 
-    async def render():
-        response = await reports.report_xlsx("trip-1", "token")
-        return b"".join([chunk async for chunk in response.body_iterator])
+@pytest.mark.parametrize('kind', ['xlsx', 'pdf'])
+def test_export_rejects_unknown_user_before_loading_group_records(monkeypatch, kind):
+    _, fake = install(monkeypatch)
+    fake.users.find_one.return_value = None
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(getattr(reports, 'report_' + kind)('sample-group', 'token'))
+    assert error.value.status_code == 401
+    reports._trip_or_404.assert_not_awaited()
+    fake.expenses.find.assert_not_called()
 
-    workbook = load_workbook(io.BytesIO(asyncio.run(render())), data_only=True)
-    split_sheet = workbook["Split Math"]
-    split_rows = list(split_sheet.iter_rows(values_only=True))
-    assert split_rows[0][2] == "Total Amount (INR)"
-    assert split_rows[0][7] == "Actual Allocation (INR)"
-    allocations = {row[4]: (row[7], row[8]) for row in split_rows[1:4]}
-    assert allocations == {
-        "Ann": (4, "Yes"),
-        "Bob": (3, "No"),
-        "Cam": (3, "No"),
-    }
-    for row in range(2, 5):
-        assert split_sheet.cell(row=row, column=8).number_format == "#,##0;[Red](#,##0)"
 
-    adjustment_sheet = workbook["Migration Adjustments"]
-    adjustment_rows = list(adjustment_sheet.iter_rows(values_only=True))
-    assert adjustment_rows[0][0] == "Whole-unit migration adjustments"
-    assert adjustment_rows[4][:2] == ("Entity", "Adjustment (INR)")
-    assert adjustment_rows[5][:2] == ("Ann", 1)
-    assert adjustment_rows[6][:2] == ("Bob", -1)
-    assert adjustment_rows[8][:2] == ("TOTAL", 0)
-    for row in range(6, 10):
-        assert adjustment_sheet.cell(row=row, column=2).number_format == "#,##0;[Red](#,##0)"
+@pytest.mark.parametrize('kind', ['xlsx', 'pdf'])
+def test_export_preserves_group_access_check(monkeypatch, kind):
+    _, fake = install(monkeypatch)
+    reports._trip_or_404.side_effect = HTTPException(403, 'Not a group member')
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(getattr(reports, 'report_' + kind)('sample-group', 'token'))
+    assert error.value.status_code == 403
+    fake.expenses.find.assert_not_called()
+
+
+@pytest.mark.parametrize('kind', ['xlsx', 'pdf'])
+def test_reconciliation_failure_returns_409_before_starting_download(monkeypatch, kind):
+    install(monkeypatch)
+    monkeypatch.setattr(reports, 'build_report_data', Mock(side_effect=ReportReconciliationError('Allocation total mismatch.')))
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(getattr(reports, 'report_' + kind)('sample-group', 'token'))
+    assert error.value.status_code == 409
+    assert 'could not be reconciled' in error.value.detail
+    assert 'Allocation total mismatch.' in error.value.detail
+
+
+@pytest.mark.parametrize('simplify', [True, False])
+def test_exports_use_the_same_plan_as_the_authoritative_balance_route(monkeypatch, simplify):
+    source, fake = install(monkeypatch)
+    source.trip['simplify_debts'] = simplify
+    monkeypatch.setattr(balance_service, 'db', fake)
+    balance = asyncio.run(balance_service._compute_balances('sample-group'))
+    wb = load_workbook(io.BytesIO(asyncio.run(payload(asyncio.run(reports.report_xlsx('sample-group', 'token'))))))
+    rows = list(wb['Payments'].values)
+    expected_names = {a.account_id: a.name for a in build_report_data(source).accounts}
+    actual = [(r[0], r[1], r[2]) for r in rows if r[3] == 'Suggested']
+    assert actual == [(expected_names[t['from_member_id']], expected_names[t['to_member_id']], t['amount']) for t in balance['transfers']]
+    label = 'Minimum payment plan' if simplify else 'Direct repayment plan'
+    assert wb['Payments']['B3'].value == label
+    assert next(r[2] for r in rows if r[0] == 'Outstanding plan total') == sum(t['amount'] for t in balance['transfers'])
+
+
+def test_json_report_contract_still_uses_existing_aggregation(monkeypatch):
+    source, _ = install(monkeypatch)
+    monkeypatch.setattr(reports, '_compute_balances', AsyncMock(return_value={'net': {'example': 0}}))
+    result = asyncio.run(reports.report('sample-group', {'id': 'owner'}))
+    assert set(result) == {'trip', 'total_expense', 'budget', 'by_category', 'by_date', 'balances'}
+    assert result['total_expense'] == 251152
+    assert result['balances'] == {'net': {'example': 0}}
+
+
+def test_expense_loader_has_no_accounting_row_cap(monkeypatch):
+    _, fake = install(monkeypatch)
+    asyncio.run(reports._load_report_expenses('sample-group'))
+    assert fake.expenses.cursor.lengths == [None]
+
+
+@pytest.mark.parametrize('kind', ['xlsx', 'pdf'])
+def test_http_download_stream_uses_existing_url_token_and_response_type(monkeypatch, kind):
+    install(monkeypatch)
+    app = FastAPI()
+    app.include_router(reports.router, prefix='/api')
+    with TestClient(app) as client:
+        missing_token = client.get('/api/trips/sample-group/report.' + kind)
+        assert missing_token.status_code == 422
+        response = client.get('/api/trips/sample-group/report.' + kind, params={'token': 'token'})
+    assert response.status_code == 200
+    assert response.headers['content-disposition'].endswith('_report.' + kind)
+    if kind == 'xlsx':
+        assert 'spreadsheet' in response.headers['content-type']
+        assert load_workbook(io.BytesIO(response.content))['Summary']['G8'].value == 251152
+    else:
+        assert response.headers['content-type'] == 'application/pdf'
+        assert PdfReader(io.BytesIO(response.content)).pages
