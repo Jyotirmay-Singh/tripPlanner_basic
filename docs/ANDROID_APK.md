@@ -1,25 +1,23 @@
 # Android APK — Build & Install Guide
 
-A standalone, side-loadable Android `.apk` of Trip Splitter, built with **EAS Build** and
-pointed at the production backend (`https://tripsplitter-api.onrender.com`). This is an
-additive artifact — it does not affect the Vercel web deploy or the Render backend.
+A standalone, side-loadable Android APK of Trip Splitter, pointed at the production backend
+(`https://tripsplitter-api.onrender.com`).
 
-App: **Trip Splitter** · package `com.tripsplitter.app` · version `1.0.0`
-(the `versionCode` is auto-incremented by EAS — `eas.json` `appVersionSource: "remote"`).
-
-Current public binary: **build 19** (`versionCode 19`), built from
-commit `dd7590c98e5ccf3c9c625d39b726b882049cb14d`.
+App: **Trip Splitter** · package `com.tripsplitter.app` · version **1.0.0**.
+Current public binary: **build 22**, built from commit `005075f84aed5beed336126c0a68c23d31e95193`.
+The saved GPay UI branch was not merged or included.
 
 - Stable APK: <https://tripsplitter-web.vercel.app/download/android>
-- Durable APK asset: <https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/download/android-v1.0.0-build.19/trip-splitter-android-1.0.0-build-19.apk>
-- Release: <https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/tag/android-v1.0.0-build.19>
-- SHA-256: `4c4e7ec81ce64285518a0c1fa54a9c369d6da3f84f1195eda4b9dfdac1f67dd4`
-- Size: 131,048,264 bytes
-- EAS build: <https://expo.dev/accounts/jyotirmay03/projects/frontend/builds/851f617f-6b0a-42bf-a093-ff0a6109063f>
-- Signed Play Store bundle build 20: available locally; see [the Play Console guide](PLAY_INTERNAL_TESTING.md).
+- Durable APK asset: <https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/download/android-v1.0.0-build.22/trip-splitter-android-1.0.0-build-22.apk>
+- Release: <https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/tag/android-v1.0.0-build.22>
+- SHA-256: `8e39fc0228f009ae605434b8d943445992a202fc9cef4e56877f72bc42a8889c`
+- Size: 131,183,148 bytes
+- EAS build: <https://expo.dev/accounts/jyotirmay03/projects/frontend/builds/30c83801-195a-42c9-a15d-1f2d2cb2b66f>
+- The older signed Play bundle remains build 20; see [the Play Console guide](PLAY_INTERNAL_TESTING.md).
 
-See [the release report](releases/android-1.0.0-build-19.md) for verification details.
-No Android device or emulator was attached for installation, cold-launch, or real sign-in testing.
+See [the release report](releases/android-1.0.0-build-22.md) for full verification.
+Build 22 passed fresh installation, upgrade from build 19, cold launch, restart, and login/registration
+screen checks on an isolated Android 15 emulator. No physical-phone or real sign-in test was performed.
 
 ---
 
