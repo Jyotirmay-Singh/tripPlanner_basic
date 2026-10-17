@@ -72,7 +72,7 @@ type Member = {
   family_member_user_ids?: (string | null)[];
 };
 type Balances = BalanceResponse<Member>;
-type Trip = RoleTrip & { id: string; name: string; currency: string; members: Member[];
+type Trip = RoleTrip & { id: string; name: string; currency: string; members: Member[]; simplify_debts?: boolean;
   expense_settlement_activation_version?: number; financial_write_guard_version?: number };
 
 const attemptStatusLabel = (status: PaymentAttempt['status']) => ({
@@ -252,6 +252,8 @@ export default function SettleUp() {
     && reviewItem.lastSafeErrorCode !== 'client_mutation_conflict');
 
   const recommendations = bal?.transfers ?? [];
+  const directDebts = bal?.settlement_projection?.settlement_mode === 'direct'
+    || (!bal?.settlement_projection?.settlement_mode && trip?.simplify_debts === false);
   const history = [...(payments ?? [])].sort((a, b) =>
     (a.created_at || '') < (b.created_at || '') ? 1 : -1,
   );
@@ -514,6 +516,21 @@ export default function SettleUp() {
       {guardedTrip(trip) && <Button label="Financial review, corrections and offsets" variant="secondary"
         onPress={() => router.push(`/trip/${id}/financial-review`)} testID="open-financial-review" />}
       {read ? <OfflineReadStatus result={read} /> : null}
+      {!loading && bal ? (
+        <Card variant="muted" testID="settlement-mode" style={{ marginBottom: SPACING.md }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
+            <Icon name="arrow-left-right" size={18} color={colors.primary} />
+            <View style={{ flex: 1, minWidth: 0, gap: SPACING.xs }}>
+              <T variant="label">{directDebts ? 'Direct repayment plan' : 'Simplified debts'}</T>
+              <T variant="caption" muted>
+                {directDebts
+                  ? 'Repay expense payers directly. Earlier unpaid settlement pairs may carry forward.'
+                  : 'Balances are combined to reduce the number of repayments.'}
+              </T>
+            </View>
+          </View>
+        </Card>
+      ) : null}
       {reviewId ? <T variant="caption" color={colors.warning} testID="payment-review-banner">
         {reviewReady
           ? 'Choose the suggested pair and confirm the amount and receiver to replace the pending record. Nothing changes automatically.'

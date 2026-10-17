@@ -6,7 +6,7 @@ import pytest
 from fastapi import BackgroundTasks, HTTPException
 
 from models.payment import PaymentCreate, PaymentPatch
-from models.settlement import SettlementCreate, SettlementPatch
+from models.settlement import SettleIn, SettlementCreate, SettlementPatch
 from routes import balances as balance_routes
 from routes import payments as payment_routes
 
@@ -161,8 +161,94 @@ def test_new_pending_settlement_normalizes_old_client_decimal_and_legacy_can_be_
     monkeypatch.setattr(
         balance_routes, "_settlement_mark_paid_or_403", AsyncMock(return_value=(TRIP, pending))
     )
+    monkeypatch.setattr(balance_routes, "_compute_balances", AsyncMock(return_value={
+        "transfers": [{"from_member_id": "a", "to_member_id": "b", "amount": 10}],
+    }))
     monkeypatch.setattr(balance_routes, "enqueue_notification_event", AsyncMock())
     result = run(balance_routes.mark_settlement_paid(
         "t1", "s-old", SettlementPatch(status="paid"), BackgroundTasks(), user={"id": "admin"},
     ))
     assert result["amount"] == 9.5 and result["status"] == "paid"
+
+
+@pytest.mark.parametrize("enabled,mode", [(True, "simplified"), (False, "direct")])
+def test_effective_payment_and_legacy_settlement_modes_are_server_selected(monkeypatch, enabled, mode):
+    trip = {**TRIP, "simplify_debts": enabled}
+    fake = _payment_db()
+    fake.settlements = SimpleNamespace(insert_one=AsyncMock())
+    for module in (payment_routes, balance_routes):
+        monkeypatch.setattr(module, "db", fake)
+        monkeypatch.setattr(module, "_trip_or_404", AsyncMock(return_value=trip))
+        monkeypatch.setattr(module, "can_record_payment", lambda *_: True)
+        monkeypatch.setattr(module, "enqueue_notification_event", AsyncMock())
+    monkeypatch.setattr(payment_routes, "_compute_balances", AsyncMock(return_value={
+        "transfers": [{"from_member_id": "a", "to_member_id": "b", "amount": 50}],
+    }))
+    payment = run(payment_routes.record_payment(
+        "t1", PaymentCreate(from_member_id="a", to_member_id="b", amount=20),
+        BackgroundTasks(), user={"id": "admin"},
+    ))
+    settlement = run(balance_routes.settle(
+        "t1", SettleIn(from_member_id="a", to_member_id="b", amount=20),
+        BackgroundTasks(), user={"id": "admin"},
+    ))
+    assert payment["settlement_mode"] == settlement["settlement_mode"] == mode
+
+
+@pytest.mark.parametrize("simplify_debts", [True, False])
+@pytest.mark.parametrize("payable,allowed", [(0, False), (10, False), (50, True)])
+def test_stale_pending_pair_is_revalidated_and_stamped_only_on_completion(
+    monkeypatch, payable, allowed, simplify_debts,
+):
+    trip = {**TRIP, "simplify_debts": simplify_debts}
+    pending = {"id": "s1", "from_member_id": "a", "to_member_id": "b",
+               "amount": 20, "status": "pending"}  # Legacy pending means simplified.
+    fake = _payment_db()
+    fake.settlements = SimpleNamespace(update_one=AsyncMock(return_value=SimpleNamespace(modified_count=1)))
+    monkeypatch.setattr(balance_routes, "db", fake)
+    monkeypatch.setattr(balance_routes, "_settlement_mark_paid_or_403", AsyncMock(return_value=(trip, pending)))
+    monkeypatch.setattr(balance_routes, "_compute_balances", AsyncMock(return_value={
+        "transfers": [{"from_member_id": "a", "to_member_id": "b", "amount": payable}] if payable else [],
+    }))
+    monkeypatch.setattr(balance_routes, "enqueue_notification_event", AsyncMock())
+    request = balance_routes.mark_settlement_paid(
+        "t1", "s1", SettlementPatch(status="paid"), BackgroundTasks(), user={"id": "admin"},
+    )
+    if allowed:
+        result = run(request)
+        mode = "simplified" if simplify_debts else "direct"
+        assert result["settlement_mode"] == mode
+        assert fake.settlements.update_one.await_args.args[1]["$set"]["settlement_mode"] == mode
+    else:
+        with pytest.raises(HTTPException) as error:
+            run(request)
+        assert error.value.status_code == 409
+        fake.settlements.update_one.assert_not_awaited()
+
+
+@pytest.mark.parametrize("original_mode", ["simplified", "direct"])
+def test_payment_edits_keep_the_original_recording_mode(monkeypatch, original_mode):
+    payment = {"id": "p1", "trip_id": "t1", "from_member_id": "a", "to_member_id": "b",
+               "amount": 10, "settlement_mode": original_mode}
+    monkeypatch.setattr(payment_routes, "db", _payment_db())
+    monkeypatch.setattr(payment_routes, "_payment_or_403", AsyncMock(return_value=(
+        {**TRIP, "simplify_debts": original_mode == "direct"}, payment,
+    )))
+    monkeypatch.setattr(payment_routes, "_compute_balances", AsyncMock(return_value={
+        "transfers": [{"from_member_id": "a", "to_member_id": "b", "amount": 50}],
+    }))
+    result = run(payment_routes.edit_payment("t1", "p1", PaymentPatch(amount=15), user={"id": "admin"}))
+    assert result["settlement_mode"] == original_mode
+
+
+def test_pending_revision_is_checked_even_after_switching_back_to_its_original_mode(monkeypatch):
+    trip = {**TRIP, "simplify_debts": True, "version": 9}
+    pending = {"id": "s1", "from_member_id": "a", "to_member_id": "b", "amount": 20,
+               "status": "pending", "suggested_mode": "simplified", "suggested_version": 7}
+    monkeypatch.setattr(balance_routes, "_settlement_mark_paid_or_403", AsyncMock(return_value=(trip, pending)))
+    monkeypatch.setattr(balance_routes, "_compute_balances", AsyncMock(return_value={"transfers": []}))
+    with pytest.raises(HTTPException) as error:
+        run(balance_routes.mark_settlement_paid(
+            "t1", "s1", SettlementPatch(status="paid"), BackgroundTasks(), user={"id": "admin"},
+        ))
+    assert error.value.status_code == 409

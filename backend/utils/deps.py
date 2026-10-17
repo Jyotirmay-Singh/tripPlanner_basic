@@ -34,6 +34,7 @@ async def _trip_or_404(trip_id: str, viewer) -> dict:
     user_id = viewer_id(viewer)
     if not is_super_admin(viewer) and user_id not in trip.get("user_ids", []):
         raise HTTPException(403, "Not a member of this group")
+    trip.setdefault("simplify_debts", True)
     return trip
 
 

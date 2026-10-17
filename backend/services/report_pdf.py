@@ -1,602 +1,316 @@
-"""Phase 18/23 — PDF rendering of the FULL trip report.
-
-View layer only: it renders the SAME pure-builder data the XLSX tabs show: the shared spend
-reconciliation model (Summary), ``build_members_families_rows`` (Members & Families, passed in by
-the route because it needs the async ledger), and ``build_expense_member_rows`` (exploded Transactions +
-pivot), so the PDF and the spreadsheet cannot diverge in value. The Members & Families Settlements
-column therefore includes Phase-20 partial payments exactly like the ledger and the XLSX.
-
-Uses ONLY ``reportlab`` (pure-Python wheels, no cairo/pango/system libraries), so it runs within
-Render's free-tier constraints. Builds entirely in-memory and returns PDF bytes.
-"""
+"""Readable A4 PDF presentation of the shared reconciled report snapshot."""
 
 import io
+from collections import defaultdict
 from functools import partial
+from pathlib import Path
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 from reportlab.platypus import (
-    CondPageBreak, HRFlowable, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, CondPageBreak,
 )
+from reportlab.graphics.shapes import Drawing, Rect, Line
 
-from services.report_builder import (
-    build_expense_member_rows,
-    build_split_math_rows,
-    composition_label,
-)
-from utils.date_rules import trip_date_label
-from utils.display_names import member_display_names
-from utils.ist_time import format_ist
-from utils.money_policy import whole_money
-
-_BRAND = colors.HexColor("#1C3F39")      # header fill / headings (matches the XLSX _BRAND)
-_RED = colors.HexColor("#C0392B")        # negatives (mirrors the XLSX [Red] number format)
-_GRID = colors.HexColor("#D5DCDA")
-_SUBTLE = colors.HexColor("#5A6B67")
-_ZEBRA = colors.HexColor("#F4F7F6")      # even-row stripe
-_TOTAL_BG = colors.HexColor("#EAF0EE")   # subtotal / total row highlight
-_META_BG = colors.HexColor("#F4F7F6")    # meta label column
-_SUBSECTION_BG = colors.HexColor("#DDE9E5")
-_REIMBURSEMENT_BG = colors.HexColor("#EEF3F1")
-_NET_BG = colors.HexColor("#D7E5E0")
-
-# Free-text (user-entered) columns are wrapped in Paragraphs so long names wrap instead of overflowing.
-_CELL = ParagraphStyle("cell", fontSize=7.3, leading=8.6)
-_CELL_BOLD = ParagraphStyle("cellBold", fontSize=7.3, leading=8.6, fontName="Helvetica-Bold")
-_CELL_INDENT = ParagraphStyle("cellIndent", parent=_CELL, leftIndent=10)
-_CELL_HDR = ParagraphStyle("cellHdr", fontSize=7.3, leading=8.6, fontName="Helvetica-Bold",
-                           textColor=colors.white)
+from services.report_formatting import BRAND, RECEIVE, PAY, NEUTRAL, currency_symbol, indian_number, money_text
+from services.report_model import ReportData, routing_label
 
 
-def _fmt_money(v, currency: str = "INR") -> str:
-    """Whole-unit accounting format; ISO currency is carried by the surrounding label."""
-    if v is None:
-        return ""
-    del currency
-    amount = whole_money(v, reject_nonzero_to_zero=False)
-    s = f"{abs(amount):,}"
-    return f"({s})" if amount < 0 else s
+BRAND_COLOR = colors.HexColor('#' + BRAND)
+CELL = ParagraphStyle('ReportCell', fontName='ReportNoto', fontSize=10.5, leading=14)
+BOLD = ParagraphStyle('ReportBold', parent=CELL, fontName='ReportNotoBold')
+HEADER = ParagraphStyle('ReportHeader', parent=BOLD, textColor=colors.white)
+NOTE = ParagraphStyle('ReportNote', parent=CELL, fontSize=10, leading=13, textColor=colors.HexColor('#' + NEUTRAL))
+HEADING = ParagraphStyle('ReportHeading', parent=BOLD, fontSize=14, leading=18, textColor=BRAND_COLOR, spaceBefore=12, spaceAfter=8, keepWithNext=True)
 
 
-def _p(text, bold=False):
-    return Paragraph(str(text) if text is not None else "", _CELL_BOLD if bold else _CELL)
+def _fonts():
+    if 'ReportNoto' not in pdfmetrics.getRegisteredFontNames():
+        directory = Path(__file__).resolve().parents[1] / 'assets' / 'fonts'
+        pdfmetrics.registerFont(TTFont('ReportNoto', str(directory / 'NotoSans-Regular.ttf')))
+        pdfmetrics.registerFont(TTFont('ReportNotoBold', str(directory / 'NotoSans-Bold.ttf')))
+        pdfmetrics.registerFontFamily('ReportNoto', normal='ReportNoto', bold='ReportNotoBold')
 
 
-def _hp(text):
-    """White bold header-cell paragraph (wraps long headers; contrast on the brand fill)."""
-    return Paragraph(str(text) if text is not None else "", _CELL_HDR)
+def _p(value, bold=False, color=None):
+    style = BOLD if bold else CELL
+    if color:
+        style = ParagraphStyle('Role', parent=style, textColor=colors.HexColor('#' + color))
+    return Paragraph(escape(str(value if value is not None else '')), style)
+
+
+def _fmt_money(value, currency):
+    return money_text(value, currency) if value is not None else ''
+
+
+def _note(value):
+    return Paragraph(escape(value), NOTE)
+
+
+def _table(headers, rows, widths, *, numeric=(), bold_rows=(), roles=(), keep_pairs=(), caption=None,
+           split_in_row=False, padding=5):
+    body = [[_p(value, index in bold_rows) for value in row] for index, row in enumerate(rows)]
+    for row_index, column, color in roles:
+        body[row_index][column] = _p(rows[row_index][column], row_index in bold_rows, color)
+    prefix = [[_p(value, True, 'FFFFFF') for value in headers]]
+    if caption:
+        prefix.insert(0, [_p(caption, True, BRAND), *[''] * (len(headers) - 1)])
+    offset = len(prefix)
+    table = Table([*prefix, *body], colWidths=widths,
+                  repeatRows=offset, splitByRow=1, splitInRow=int(split_in_row), hAlign='LEFT')
+    styles = [('BACKGROUND', (0, offset - 1), (-1, offset - 1), BRAND_COLOR),
+              ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+              ('LEFTPADDING', (0, 0), (-1, -1), 5), ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+              ('TOPPADDING', (0, 0), (-1, -1), padding), ('BOTTOMPADDING', (0, 0), (-1, -1), padding),
+              ('LINEBELOW', (0, offset - 1), (-1, offset - 1), 0.5, BRAND_COLOR),
+              ('ROWBACKGROUNDS', (0, offset), (-1, -1), [colors.white, colors.HexColor('#F4F7F6')])]
+    if caption:
+        styles += [('SPAN', (0, 0), (-1, 0)), ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#EAF0EE'))]
+    for col in numeric:
+        for row in body:
+            row[col].style = ParagraphStyle('Number', parent=row[col].style, alignment=2)
+    for index in bold_rows:
+        styles.extend([('BACKGROUND', (0, index + offset), (-1, index + offset), colors.HexColor('#EAF0EE')),
+                       ('LINEABOVE', (0, index + offset), (-1, index + offset), 0.4, BRAND_COLOR)])
+    for first, last in keep_pairs:
+        styles.append(('NOSPLIT', (0, first + offset), (-1, last + offset)))
+    table.setStyle(TableStyle(styles))
+    return table
 
 
 class NumberedCanvas(canvas.Canvas):
-    """Adds a 'Page X of Y' footer (+ trip name + hairline rule) to every page. Standard two-pass
-    reportlab recipe: buffer each page's state on showPage, then, once the total page count is known,
-    replay them stamping the footer on save."""
-
     def __init__(self, *args, **kwargs):
-        self._footer_left = kwargs.pop("footer_left", "")
-        canvas.Canvas.__init__(self, *args, **kwargs)
-        self._saved_page_states = []
+        self.footer = kwargs.pop('footer_left', '')
+        self.states = []
+        super().__init__(*args, **kwargs)
 
     def showPage(self):
-        self._saved_page_states.append(dict(self.__dict__))
+        self.states.append(dict(self.__dict__))
         self._startPage()
 
     def save(self):
-        total = len(self._saved_page_states)
-        for state in self._saved_page_states:
+        total = len(self.states)
+        for state in self.states:
             self.__dict__.update(state)
-            self._draw_footer(total)
-            canvas.Canvas.showPage(self)
-        canvas.Canvas.save(self)
+            self.setFont('ReportNoto', 9)
+            self.setFillColor(colors.HexColor('#' + NEUTRAL))
+            # Leave the numbering legible even when the trip title is very long.
+            title = self.footer
+            maximum = landscape(A4)[0] - 24 * mm - 125
+            while title and pdfmetrics.stringWidth(title, 'ReportNoto', 9) > maximum:
+                title = title[:-1]
+            if title != self.footer:
+                title = title.rstrip() + '...'
+            self.drawString(12 * mm, 6 * mm, title)
+            self.drawRightString(landscape(A4)[0] - 12 * mm, 6 * mm, f'Page {self._pageNumber} of {total}')
+            super().showPage()
+        super().save()
 
-    def _draw_footer(self, total):
-        w, _h = self._pagesize
-        self.setStrokeColor(_GRID)
-        self.setLineWidth(0.4)
-        self.line(12 * mm, 8 * mm, w - 12 * mm, 8 * mm)
-        self.setFont("Helvetica", 7)
-        self.setFillColor(_SUBTLE)
-        if self._footer_left:
-            self.drawString(12 * mm, 5 * mm, self._footer_left)
-        self.drawRightString(w - 12 * mm, 5 * mm, f"Page {self._pageNumber} of {total}")
+
+def _chart(data, width):
+    """One vector bar chart that can continue across pages and wrap long category labels."""
+    label_width, amount_width = 175, 100
+    plot_width = width - label_width - amount_width - 20
+    minimum = min(0, *data.category_totals.values())
+    maximum = max(0, *data.category_totals.values())
+    span = max(1, maximum - minimum)
+    zero = plot_width * (-minimum / span)
+    rows = [[_p('Category', True), _p(f'Net spending ({data.currency})', True), _p(f'Amount ({currency_symbol(data.currency)})', True)]]
+    for category in data.categories:
+        value = data.category_totals[category]
+        endpoint = plot_width * ((value - minimum) / span)
+        drawing = Drawing(plot_width, 22)
+        drawing.add(Line(zero, 0, zero, 22, strokeColor=colors.HexColor('#CCD5D1'), strokeWidth=0.5))
+        drawing.add(Rect(min(zero, endpoint), 6, max(0.5, abs(endpoint - zero)), 11,
+                         strokeColor=None, fillColor=colors.HexColor('#' + (RECEIVE if value < 0 else NEUTRAL))))
+        amount = _p(indian_number(value), color=RECEIVE if value < 0 else NEUTRAL)
+        amount.style = ParagraphStyle('ChartAmount', parent=amount.style, alignment=2)
+        rows.append([_p(category), drawing, amount])
+    chart = Table(rows, colWidths=[label_width, plot_width + 20, amount_width], repeatRows=1,
+                  splitByRow=1, splitInRow=1, hAlign='LEFT')
+    chart.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                                ('LEFTPADDING', (0, 0), (-1, -1), 0),
+                                ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+                                ('TOPPADDING', (0, 0), (-1, -1), 2),
+                                ('BOTTOMPADDING', (0, 0), (-1, -1), 2)]))
+    return chart
 
 
-def _section(base, title):
-    """Brand-colored section heading + rule (returns a list of flowables)."""
-    return [
-        Paragraph(title, ParagraphStyle("sec", parent=base["Heading2"], fontSize=13,
-                                        textColor=_BRAND, spaceBefore=2, spaceAfter=3)),
-        HRFlowable(width="100%", thickness=1, color=_BRAND, spaceAfter=6),
+def build_report_pdf(data: ReportData) -> bytes:
+    _fonts()
+    output = io.BytesIO()
+    width = landscape(A4)[0] - 24 * mm
+    doc = SimpleDocTemplate(output, pagesize=landscape(A4), leftMargin=12 * mm, rightMargin=12 * mm,
+                            topMargin=12 * mm, bottomMargin=15 * mm,
+                            title=str(data.snapshot.trip.get('name', 'Group')) + ' - Report', author='Trip Splitter')
+    meta, symbol = data.metadata, currency_symbol(data.currency)
+    title = ParagraphStyle('Title', parent=HEADING, fontSize=20, leading=25, spaceBefore=0)
+    story = [Paragraph(escape(meta.trip_name), title)]
+    metadata = [
+        ('Trip dates', meta.trip_dates, 'Included expense dates', meta.expense_dates),
+        ('Budget', _fmt_money(meta.budget, data.currency) if meta.budget is not None else 'Not set',
+         'Included settlement dates', meta.settlement_dates),
     ]
+    story += [_table(['Trip information', 'Value', 'Report scope', 'Value'], metadata, [100, 245, 160, width - 505]), Spacer(1, 7),
+              Paragraph('Summary', HEADING)]
+    metrics = [('Gross spending', data.gross), ('Money back', data.money_back), ('Net spending', data.net), ('Still to settle', data.outstanding)]
+    story.append(_table([label for label, _ in metrics], [[_fmt_money(value, data.currency) for _, value in metrics]], [width / 4] * 4, numeric=range(4), bold_rows=(0,), roles=[(0, 1, RECEIVE)]))
+    story.append(Paragraph('Funding by account', HEADING))
+    rows = [[a.name, indian_number(a.gross_funded), indian_number(a.money_back), indian_number(a.funded)] for a in data.accounts]
+    rows.append(['Total', indian_number(data.gross), indian_number(data.money_back), indian_number(data.net)])
+    story.append(_table(['Account', f'Gross funded ({symbol})', f'Money back ({symbol})', f'Net funded ({symbol})'], rows,
+                        [width * .34, width * .22, width * .22, width * .22], numeric=(1, 2, 3), bold_rows=(len(rows) - 1,),
+                        roles=[(i, 2, RECEIVE) for i in range(len(rows))]))
+    for warning in data.warnings:
+        story.append(_note(warning))
+    if data.categories:
+        story += [PageBreak(), Paragraph(f'Net spending by category ({data.currency})', HEADING),
+                  _note('Whole-trip totals. Negative values are money-back shares; this chart is independent of Excel pivot filters.')]
+        story.append(_chart(data, width))
+        story += [PageBreak(), Paragraph('Expense shares by family and person', HEADING),
+                  _note('These are allocated trip costs, not final settlement balances. Each person is included in their account subtotal.')]
+        grouped = defaultdict(lambda: defaultdict(int))
+        labels = {}
+        for allocation in data.allocations:
+            key = (allocation.account_id, allocation.person_id)
+            labels[key] = (allocation.account, allocation.person)
+            grouped[key][allocation.category] += allocation.share
+        for start in range(0, len(data.categories), 4):
+            categories = data.categories[start:start + 4]
+            last_band = start + 4 >= len(data.categories)
+            band_caption = f'Category columns {start + 1} to {start + len(categories)} of {len(data.categories)}. All-category totals appear in the final band.'
+            rows, bold, pairs = [], [], []
+            for account in data.accounts:
+                keys = [key for key in grouped if key[0] == account.account_id]
+                if not keys:
+                    continue
+                for key in keys:
+                    row = [account.name, labels[key][1], *[indian_number(grouped[key][c]) for c in categories]]
+                    if last_band:
+                        row.append(indian_number(sum(grouped[key].values())))
+                    rows.append(row)
+                bold.append(len(rows))
+                pairs.append((len(rows) - 1, len(rows)))
+                row = [account.name + ' Total', '', *[indian_number(sum(grouped[k][c] for k in keys)) for c in categories]]
+                if last_band:
+                    row.append(indian_number(sum(sum(grouped[k].values()) for k in keys)))
+                rows.append(row)
+            bold.append(len(rows))
+            if rows:
+                pairs.append((len(rows) - 1, len(rows)))
+            row = ['Grand Total', '', *[indian_number(data.category_totals[c]) for c in categories]]
+            if last_band:
+                row.append(indian_number(data.net))
+            rows.append(row)
+            heads = ['Family / account', 'Person', *[f'{category} ({symbol})' for category in categories]] + ([f'All categories ({symbol})'] if last_band else [])
+            money_cols = len(heads) - 2
+            roles = [(i, c, RECEIVE) for i, row in enumerate(rows) for c, value in enumerate(row)
+                     if c >= 2 and str(value).startswith('(')]
+            story.append(_table(heads, rows, [135, 115] + [(width - 250) / money_cols] * money_cols,
+                                numeric=range(2, len(heads)), bold_rows=bold, keep_pairs=pairs,
+                                caption=band_caption, padding=4, roles=roles))
+    else:
+        story.append(_note('No expenses recorded.'))
 
+    story += [PageBreak(), Paragraph('Members & Families', HEADING),
+              _note('Positive balance: receive. Negative balance: pay. Member positions are within the family total; funding and settlements belong to the account.')]
+    has_adjustments = bool(data.adjustments)
+    heads = ['Name', *[f'{label} ({symbol})' for label in
+                       ['Expense share', 'Net funded', 'Before settlements', 'Settlements paid', 'Settlements received']]]
+    if has_adjustments:
+        heads.append(f'Adjustments ({symbol})')
+    heads += [f'Balance now ({symbol})', 'Action']
+    rows, bold, roles = [], [], []
+    positions = defaultdict(list)
+    for person in data.member_positions:
+        positions[person.account_id].append(person)
+    for account in data.accounts:
+        bold.append(len(rows))
+        row = [account.name, *[indian_number(v) for v in [account.share, account.funded, account.before_settlements, account.sent, account.received]]]
+        if has_adjustments:
+            row.append(indian_number(account.adjustment))
+        row += [indian_number(account.balance), account.action]
+        roles += [(len(rows), len(heads) - 2, RECEIVE if account.balance > 0 else PAY if account.balance < 0 else NEUTRAL),
+                  (len(rows), 4, PAY), (len(rows), 5, RECEIVE)]
+        if account.share < 0:
+            roles.append((len(rows), 1, RECEIVE))
+        rows.append(row)
+        for person in positions[account.account_id]:
+            if person.balance is not None:
+                roles.append((len(rows), len(heads) - 2, RECEIVE if person.balance > 0 else PAY if person.balance < 0 else NEUTRAL))
+            if person.share < 0:
+                roles.append((len(rows), 1, RECEIVE))
+            row = ['  ' + person.name, indian_number(person.share)] + [''] * (len(heads) - 4) + [indian_number(person.balance) if person.balance is not None else '', 'Within family' if person.balance is not None else 'Historical share']
+            rows.append(row)
+    totals = ['Total', *[indian_number(sum(getattr(a, field) for a in data.accounts)) for field in ['share', 'funded', 'before_settlements', 'sent', 'received']]]
+    if has_adjustments:
+        totals.append('0')
+    totals += ['0', '']
+    bold.append(len(rows))
+    rows.append(totals)
+    story.append(_table(heads, rows, [135] + [(width - 220) / (len(heads) - 2)] * (len(heads) - 2) + [85], numeric=range(1, len(heads) - 1), bold_rows=bold, roles=roles))
+    if has_adjustments:
+        story.append(Paragraph('Balance reconciliation notes', HEADING))
+        for adjustment in data.adjustments:
+            story.append(_note(f'{adjustment.account} - {adjustment.kind} ({_fmt_money(adjustment.amount, data.currency)}): {adjustment.explanation}'))
 
-def _styled_table(data, col_widths, *, right_cols=(), center_cols=(), total_row=None,
-                  bold_rows=(), strong_rows=(), neg_cells=(), nosplit_ranges=(),
-                  zebra=True, repeat=True, fontsize=7.3):
-    """One consistent look for every report table: brand header, hairline grid, zebra body, right/center
-    aligned columns, bold + ruled + highlighted total row, red negative cells, repeating header."""
-    t = Table(data, colWidths=col_widths, repeatRows=1 if repeat else 0, splitByRow=1)
-    style = [
-        ("FONTSIZE", (0, 0), (-1, -1), fontsize),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("GRID", (0, 0), (-1, -1), 0.4, _GRID),
-        ("TOPPADDING", (0, 0), (-1, -1), 2.5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("BACKGROUND", (0, 0), (-1, 0), _BRAND),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-    ]
-    if zebra:
-        style.append(("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, _ZEBRA]))
-    for c in right_cols:
-        style.append(("ALIGN", (c, 0), (c, -1), "RIGHT"))
-    for c in center_cols:
-        style.append(("ALIGN", (c, 0), (c, -1), "CENTER"))
-    for rr in bold_rows:
-        style.append(("FONTNAME", (0, rr), (-1, rr), "Helvetica-Bold"))
-    if total_row is not None:
-        style += [
-            ("FONTNAME", (0, total_row), (-1, total_row), "Helvetica-Bold"),
-            ("LINEABOVE", (0, total_row), (-1, total_row), 0.9, _BRAND),
-            ("BACKGROUND", (0, total_row), (-1, total_row), _TOTAL_BG),
-        ]
-    for rr in strong_rows:
-        style += [
-            ("FONTNAME", (0, rr), (-1, rr), "Helvetica-Bold"),
-            ("LINEABOVE", (0, rr), (-1, rr), 1.4, _BRAND),
-            ("LINEBELOW", (0, rr), (-1, rr), 1.4, _BRAND),
-            ("BACKGROUND", (0, rr), (-1, rr), _NET_BG),
-            ("TOPPADDING", (0, rr), (-1, rr), 4),
-            ("BOTTOMPADDING", (0, rr), (-1, rr), 4),
-        ]
-    for start, end in nosplit_ranges:
-        style.append(("NOSPLIT", (0, start), (-1, end)))
-    for (c, rr) in neg_cells:
-        style.append(("TEXTCOLOR", (c, rr), (c, rr), _RED))
-    t.setStyle(TableStyle(style))
-    return t
+    story += [PageBreak(), Paragraph('Payments', HEADING), Paragraph('Outstanding settlement plan', HEADING),
+              _note(routing_label(data) + '. Suggested transfers are instructions, not recorded payments.')]
+    plan_rows = [[t.payer, t.receiver, indian_number(t.amount), 'Suggested'] for t in data.transfers]
+    if plan_rows:
+        roles = [(i, c, color) for i in range(len(plan_rows)) for c, color in ((0, PAY), (1, RECEIVE))]
+        plan_rows.append(['Outstanding plan total', '', indian_number(data.outstanding), ''])
+        story.append(_table(['Suggested payer', 'Suggested receiver', f'Amount ({symbol})', 'Status'], plan_rows,
+                            [width * .32, width * .32, width * .18, width * .18], numeric=(2,), bold_rows=(len(plan_rows) - 1,), roles=roles))
+    else:
+        story.append(_note('Everyone is settled.'))
+    story.append(Paragraph('Recorded settlement history', HEADING))
+    if data.events:
+        rows = [[e.payer, e.receiver, indian_number(e.amount), f'{e.occurred_at:%d %b %Y, %I:%M %p}' if e.occurred_at else 'Not recorded', e.source, e.status, f'{e.note}\nEvent ID: {e.source_id}'.strip()] for e in data.events]
+        roles = [(i, c, color) for i in range(len(rows)) for c, color in ((0, PAY), (1, RECEIVE))]
+        for label, value in [('History total', sum(e.amount for e in data.events)),
+                             ('Recorded payments total', sum(e.amount for e in data.events if e.source == 'Recorded payment')),
+                             ('Legacy settlements total', sum(e.amount for e in data.events if e.source == 'Legacy settlement'))]:
+            rows.append([label, '', indian_number(value), '', '', '', ''])
+        story.append(_table(['Payer', 'Receiver', f'Amount ({symbol})', 'Date & time (IST)', 'Source', 'Status', 'Note'], rows,
+                            [105, 105, 85, 120, 100, 100, width - 615], numeric=(2,), bold_rows=range(len(rows) - 3, len(rows)), roles=roles, split_in_row=True))
+    else:
+        story.append(_note('No recorded settlements.'))
 
-
-def _subsection_label(base, title, *, reimbursement=False):
-    """A visible, non-colour-only subsection band that stays with its following table."""
-    style = ParagraphStyle(
-        f"reconcile-{title}", parent=base["Normal"], fontName="Helvetica-Bold",
-        fontSize=8, leading=10, textColor=_BRAND,
-        backColor=_REIMBURSEMENT_BG if reimbursement else _SUBSECTION_BG,
-        borderPadding=3, spaceBefore=2, spaceAfter=3, keepWithNext=1,
-    )
-    return [CondPageBreak(15 * mm), Paragraph(title, style)]
-
-
-def _summary_section(base, trip, members, reconciliation, currency):
-    """Section 1: trip metadata plus entity/category spend reconciliations."""
-    flow = _section(base, "Summary")
-    totals = reconciliation["totals"]
-    money = partial(_fmt_money, currency=currency)
-
-    budget = trip.get("budget")
-    meta = [
-        ["Dates", trip_date_label(trip)],
-        ["Share code", trip.get("code", "")],
-        ["Currency", currency],
-        ["Members", composition_label(members)],
-        ["Budget", money(budget) if budget is not None else "N/A"],
-        ["Net spend", money(totals["net"])],
-    ]
-    meta_tbl = Table([[_p(k, bold=True), _p(v)] for k, v in meta], colWidths=[90, 320])
-    meta_tbl.setStyle(TableStyle([
-        ("FONTSIZE", (0, 0), (-1, -1), 8),
-        ("BACKGROUND", (0, 0), (0, -1), _META_BG),
-        ("GRID", (0, 0), (-1, -1), 0.4, _GRID),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-    ]))
-    flow += [meta_tbl, Spacer(1, 6 * mm)]
-
-    dimension_style = ParagraphStyle(
-        "reconcileDimension", parent=base["Heading3"], fontSize=10,
-        textColor=_BRAND, spaceAfter=4, keepWithNext=1,
-    )
-
-    # Entity reconciliation. Current roster entities remain in gross even at zero; an unresolved
-    # legacy payer appears only in a subsection where it has a non-zero amount.
-    flow += [CondPageBreak(24 * mm), Paragraph("Net spend by entity", dimension_style)]
-    flow += _subsection_label(base, "GROSS SPEND")
-    entity_gross = [
-        row for row in reconciliation["entities"]
-        if row["gross"] != 0 or row["entity_id"] is not None
-    ]
-    gross_data = [[_hp("Entity"), _hp("Type"), _hp(f"Amount ({currency})")]]
-    gross_data.extend([_p(row["name"]), row["type"], money(row["gross"])]
-                      for row in entity_gross)
-    gross_data.append([_p("Gross spend subtotal", bold=True), "", money(totals["gross"])])
-    gross_total_row = len(gross_data) - 1
-    gross_tail_start = max(1, gross_total_row - 1)
-    flow += [
-        _styled_table(
-            gross_data, [220, 90, 120], right_cols=(2,), total_row=gross_total_row,
-            nosplit_ranges=((gross_tail_start, gross_total_row),),
-        ),
-        Spacer(1, 4 * mm),
-    ]
-
-    flow += _subsection_label(base, "REIMBURSEMENTS", reimbursement=True)
-    entity_reimbursements = sorted(
-        (row for row in reconciliation["entities"] if row["reimbursements"] != 0),
-        key=lambda row: (-row["reimbursements"], row["name"]),
-    )
-    reimbursement_data = [[_hp("Entity"), _hp("Type"), _hp(f"Amount ({currency})")]]
-    reimbursement_data.extend(
-        [_p(row["name"]), row["type"], money(row["reimbursements"])]
-        for row in entity_reimbursements
-    )
-    reimbursement_data.append([
-        _p("Total reimbursements", bold=True), "", money(totals["reimbursements"]),
-    ])
-    entity_reimbursement_total = len(reimbursement_data) - 1
-    reimbursement_data.append([_p("Net spend", bold=True), "", money(totals["net"])])
-    entity_net_row = len(reimbursement_data) - 1
-    entity_neg = [(2, entity_net_row)] if totals["net"] < 0 else []
-    entity_tail_start = max(1, entity_reimbursement_total - 1)
-    flow += [
-        _styled_table(
-            reimbursement_data, [220, 90, 120], right_cols=(2,),
-            total_row=entity_reimbursement_total, strong_rows=(entity_net_row,),
-            neg_cells=entity_neg, nosplit_ranges=((entity_tail_start, entity_net_row),),
-        ),
-        Spacer(1, 7 * mm),
-    ]
-
-    # Category reconciliation. A category can appear once in gross and again in reimbursements.
-    flow += [CondPageBreak(24 * mm), Paragraph("Net spend by category", dimension_style)]
-    flow += _subsection_label(base, "GROSS SPEND")
-    category_gross = [row for row in reconciliation["categories"] if row["gross"] != 0]
-    category_gross_data = [[_hp("Category"), _hp(f"Amount ({currency})")]]
-    category_gross_data.extend(
-        [_p(row["category"]), money(row["gross"])] for row in category_gross
-    )
-    category_gross_data.append([
-        _p("Gross spend subtotal", bold=True), money(totals["gross"]),
-    ])
-    category_gross_total = len(category_gross_data) - 1
-    category_gross_tail = max(1, category_gross_total - 1)
-    flow += [
-        _styled_table(
-            category_gross_data, [220, 130], right_cols=(1,), total_row=category_gross_total,
-            nosplit_ranges=((category_gross_tail, category_gross_total),),
-        ),
-        Spacer(1, 4 * mm),
-    ]
-
-    flow += _subsection_label(base, "REIMBURSEMENTS", reimbursement=True)
-    category_reimbursements = [
-        row for row in reconciliation["categories"] if row["reimbursements"] != 0
-    ]
-    category_reimbursement_data = [[_hp("Category"), _hp(f"Amount ({currency})")]]
-    category_reimbursement_data.extend(
-        [_p(row["category"]), money(row["reimbursements"])]
-        for row in category_reimbursements
-    )
-    category_reimbursement_data.append([
-        _p("Total reimbursements", bold=True), money(totals["reimbursements"]),
-    ])
-    category_reimbursement_total = len(category_reimbursement_data) - 1
-    category_reimbursement_data.append([
-        _p("Net spend", bold=True), money(totals["net"]),
-    ])
-    category_net_row = len(category_reimbursement_data) - 1
-    category_neg = [(1, category_net_row)] if totals["net"] < 0 else []
-    category_tail_start = max(1, category_reimbursement_total - 1)
-    flow.append(_styled_table(
-        category_reimbursement_data, [220, 130], right_cols=(1,),
-        total_row=category_reimbursement_total, strong_rows=(category_net_row,),
-        neg_cells=category_neg, nosplit_ranges=((category_tail_start, category_net_row),),
-    ))
-    return flow
-
-
-def _members_families_section(base, mf_rows, currency):
-    """Section 2 — hierarchical Members & Families with the payment-inclusive Settlements column."""
-    flow = _section(base, "Members & Families")
-    money = partial(_fmt_money, currency=currency)
-    headers = ["Name", "Type", "Family", f"Gross Spent ({currency})",
-               f"Share of Expenses ({currency})", f"Settlements ({currency})",
-               f"Net Balance ({currency})"]
-    data = [[_hp(h) for h in headers]]
-    bold_rows, neg_cells = [], []
-    ri = 1
-    for mf in mf_rows:
-        kind = mf["kind"]
-        if kind == "family_member":
-            name_cell = Paragraph(str(mf["name"]), _CELL_INDENT)
-        else:
-            name_cell = _p(mf["name"], bold=kind in ("family_subtotal", "total"))
-        row = [name_cell, mf["type"], mf["family"]]
-        for ci, key in zip((3, 4, 5, 6), ("paid", "share", "settle", "net")):
-            v = mf[key]
-            row.append(money(v) if isinstance(v, (int, float)) else "—")
-            if isinstance(v, (int, float)) and v < 0:
-                neg_cells.append((ci, ri))
-        data.append(row)
-        if kind in ("family_subtotal", "total"):
-            bold_rows.append(ri)
-        ri += 1
-    total_row = len(data) - 1 if mf_rows else None
-    flow.append(_styled_table(data, [110, 66, 90, 78, 92, 84, 84], right_cols=(3, 4, 5, 6),
-                              total_row=total_row, bold_rows=bold_rows, neg_cells=neg_cells))
-    return flow
-
-
-def _transactions_section(base, tx, currency):
-    """Section 3 — exploded per-member Transactions + per-person pivot (unchanged data/totals)."""
-    flow = _section(base, "Transactions")
-    money = partial(_fmt_money, currency=currency)
-    headers = [
-        "Sr", "Category", "Description", "Date", f"Canonical ({currency})", "Original",
-        "FX audit", "Split Mode", "Paid By", "Family", "Person",
-        f"Total Payable ({currency})",
-    ]
-    data = [[_hp(h) for h in headers]]
-    neg_cells = []
-    r = 1
-    for blk in tx["blocks"]:
-        for i, row in enumerate(blk["rows"]):
-            first = i == 0
-            participates = row["participates"]
-            original = (
-                f"{blk['original_currency']} "
-                f"{_fmt_money(blk['original_amount'], blk['original_currency'] or currency)}"
-                if first else ""
-            )
-            fx_parts = []
-            if first:
-                fx_parts.append(
-                    f"1 {blk['original_currency']} = {blk['exchange_rate']} {currency}"
-                )
-                fx_parts.append(
-                    f"{blk['exchange_rate_date']} · {blk['exchange_rate_provider']} · "
-                    f"{blk['exchange_rate_mode']}"
-                )
-                if blk["original_exact_allocations"]:
-                    fx_parts.append(f"EXACT: {blk['original_exact_allocations']}")
-            data.append([
-                str(blk["sr_no"]) if first else "",
-                _p(blk["category"] if first else ""),
-                _p(blk["description"] if first else ""),
-                blk["date"] if first else "",
-                money(blk["amount"]) if first else "",
-                _p(original),
-                _p("<br/>".join(fx_parts)),
-                blk["mode"] if first else "",
-                _p(blk["paid_by"] if first else ""),
-                _p(row["family"]),
-                _p(row["person"]),
-                money(row["payable"]) if participates else "-",
-            ])
-            if first and blk["amount"] < 0:
-                neg_cells.append((4, r))
-            if participates and row["payable"] < 0:
-                neg_cells.append((11, r))
-            r += 1
-    data.append([
-        _p("Grand Total", bold=True), "", "", "", money(tx["grand_amount"]), "", "",
-        "", "", "", "", money(tx["grand_payable"]),
-    ])
-    gt_row = r
-    if tx["grand_amount"] < 0:
-        neg_cells.append((4, gt_row))
-    if tx["grand_payable"] < 0:
-        neg_cells.append((11, gt_row))
-    flow.append(_styled_table(
-        data, [18, 45, 65, 55, 55, 60, 95, 45, 65, 70, 55, 65],
-        right_cols=(4, 11), center_cols=(0, 7), total_row=gt_row, neg_cells=neg_cells))
-    flow.append(Spacer(1, 8 * mm))
-
-    # Per-person pivot.
-    flow.append(Paragraph("Per-person totals", ParagraphStyle(
-        "pivotHdr", parent=base["Heading3"], fontSize=10, textColor=_BRAND, spaceAfter=4)))
-    pdata = [[_hp("Person"), _hp(f"Sum of Total Payable ({currency})")]]
-    pneg = []
-    for i, prow in enumerate(tx["pivot"]["rows"], start=1):
-        pdata.append([_p(prow["name"]), money(prow["total"])])
-        if prow["total"] < 0:
-            pneg.append((1, i))
-    pdata.append([_p("Grand Total", bold=True), money(tx["pivot"]["grand_total"])])
-    if tx["pivot"]["grand_total"] < 0:
-        pneg.append((1, len(pdata) - 1))
-    flow.append(_styled_table(pdata, [150, 160], right_cols=(1,),
-                              total_row=len(pdata) - 1, neg_cells=pneg))
-    return flow
-
-
-def _payments_section(base, payments, members, currency):
-    """Section 4 — the recorded (partial) payments log; 'Receiver' names the creditor."""
-    flow = _section(base, "Payments")
-    money = partial(_fmt_money, currency=currency)
-    names = member_display_names(members)
-    data = [[_hp("Payer"), _hp("Receiver"), _hp(f"Amount ({currency})"), _hp("Date & Time"),
-             _hp("Remark"), _hp("Source")]]
-    total = 0
-    for p in payments:
-        data.append([
-            _p(names.get(p["from_member_id"], "?")),
-            _p(names.get(p["to_member_id"], "?")),
-            money(p["amount"]),
-            format_ist(p.get("created_at")),  # stored UTC -> IST display (Phase 24)
-            _p((p.get("note") or "").strip() or "—"),
-            _p("UPI — recipient confirmed" if p.get("source") == "upi_recipient_confirmed"
-               else "Recorded payment"),
-        ])
-        total += whole_money(p["amount"], reject_nonzero_to_zero=False)
-    data.append([_p("Total", bold=True), "", money(total), "", "", ""])
-    flow.append(_styled_table(data, [105, 110, 80, 100, 115, 130], right_cols=(2,),
-                              total_row=len(data) - 1))
-    return flow
-
-
-def _split_allocations_section(base, expenses, members, currency):
-    """Actual integer shares and explicit automatic-remainder recipients."""
-
-    flow = _section(base, "Split Allocations")
-    data = [[
-        _hp("Expense"), _hp("Date"), _hp("Mode"), _hp("Participant"),
-        _hp("Type"), _hp("Units / Weight"), _hp(f"Actual ({currency})"),
-        _hp("Remainder unit"),
-    ]]
-    neg_cells = []
-    row_index = 1
-    for block in build_split_math_rows(expenses, members, currency):
-        for participant in block["participants"]:
-            data.append([
-                _p(block["expense"]), block["date"], block["mode"],
-                _p(participant["participant"]), participant["ptype"],
-                participant["units"], _fmt_money(participant["allocated"], currency),
-                "Yes" if participant["remainder_recipient"] else "No",
-            ])
-            if participant["allocated"] < 0:
-                neg_cells.append((6, row_index))
-            row_index += 1
-    flow.append(_styled_table(
-        data, [110, 66, 58, 115, 65, 65, 78, 72],
-        right_cols=(5, 6), center_cols=(2, 7), neg_cells=neg_cells,
-    ))
-    return flow
-
-
-def _settlement_plan_section(base, projection, transfers, members, currency):
-    """Whole-unit transfer route without obsolete precise-versus-rounded detail."""
-
-    names = member_display_names(members)
-    flow = _section(base, "Settlement Plan")
-    route_label = "Minimum payment plan" if projection.get("routing", {}).get("optimal") \
-        else "Simplified payment plan"
-    flow.append(_p(
-        f"Currency: {currency}  |  Increment: {projection.get('increment', '1')}  |  "
-        f"Status: {projection.get('status', '')}  |  {route_label}  |  "
-        f"Policy: {projection.get('policy_version', '')}",
-        bold=True,
-    ))
-    if transfers:
-        flow.append(Spacer(1, 4 * mm))
-        route_data = [[_hp("Suggested payer"), _hp("Suggested receiver"),
-                       _hp(f"Amount ({currency})")]]
-        for transfer in transfers:
-            route_data.append([
-                _p(names.get(transfer["from_member_id"], "?")),
-                _p(names.get(transfer["to_member_id"], "?")),
-                _fmt_money(transfer["amount"], currency),
-            ])
-        flow.append(_styled_table(route_data, [190, 190, 130], right_cols=(2,)))
-    return flow
-
-
-def _migration_adjustment_section(base, adjustment, members, currency):
-    """Private ledger migration vector, isolated from transaction and payment logs."""
-
-    names = member_display_names(members)
-    flow = _section(base, "Migration Adjustments")
-    flow.append(_p(
-        f"Policy: {adjustment.get('policy_version', '')}  |  "
-        f"Created: {adjustment.get('created_at', '')}",
-        bold=True,
-    ))
-    flow.append(Spacer(1, 3 * mm))
-    vector = adjustment.get("vector") or {}
-    data = [[_hp("Entity"), _hp(f"Adjustment ({currency})")]]
-    neg_cells = []
-    for row_index, member in enumerate(members, start=1):
-        value = whole_money(vector.get(member["id"], 0), reject_nonzero_to_zero=False)
-        data.append([
-            _p(names.get(member["id"], member.get("name", "?"))),
-            _fmt_money(value, currency),
-        ])
-        if value < 0:
-            neg_cells.append((1, row_index))
-    total = sum(whole_money(value, reject_nonzero_to_zero=False) for value in vector.values())
-    data.append([_p("TOTAL", bold=True), _fmt_money(total, currency)])
-    flow.append(_styled_table(
-        data, [230, 150], right_cols=(1,), total_row=len(data) - 1, neg_cells=neg_cells,
-    ))
-    return flow
-
-
-def build_report_pdf(trip: dict, members: list, expenses: list, currency: str,
-                     reconciliation: dict, payments: list = None, mf_rows: list = None,
-                     settlement_projection: dict = None,
-                     settlement_transfers: list = None,
-                     migration_adjustment: dict = None, financial_review: list = None) -> bytes:
-    """Render the FULL report (Summary, Members & Families, exploded Transactions, Payments) to PDF bytes.
-
-    ``reconciliation`` is the shared ``build_spend_reconciliation`` result used by XLSX and PDF.
-    ``mf_rows`` is supplied by the route because it needs the async ledger; when None the Members &
-    Families section is skipped. ``payments`` appends the payment log when non-empty.
-    """
-    tx = build_expense_member_rows(expenses, members, currency)
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf, pagesize=landscape(A4),
-        leftMargin=12 * mm, rightMargin=12 * mm, topMargin=11 * mm, bottomMargin=14 * mm,
-        title=f"{trip.get('name', 'Group')} - Report",
-    )
-    base = getSampleStyleSheet()
-    title_style = ParagraphStyle("rTitle", parent=base["Title"], fontSize=18, spaceAfter=1,
-                                 textColor=_BRAND, alignment=0)
-    sub_style = ParagraphStyle("rSub", parent=base["Normal"], fontSize=9.5, textColor=_SUBTLE,
-                               spaceAfter=2)
-
-    # ---------- Cover / title block ----------
-    story = [
-        Paragraph(trip.get("name", "Group"), title_style),
-        Paragraph(f"{composition_label(members)} &middot; {trip_date_label(trip)} &middot; {currency}",
-                  sub_style),
-        HRFlowable(width="100%", thickness=1.4, color=_BRAND, spaceBefore=3, spaceAfter=10),
-    ]
-
-    # ---------- Section 1: Summary ----------
-    story += _summary_section(base, trip, members, reconciliation, currency)
-
-    # ---------- Section 2: Members & Families ----------
-    if mf_rows:
-        story.append(Spacer(1, 8 * mm))
-        story += _members_families_section(base, mf_rows, currency)
-
-    if settlement_projection and settlement_projection.get("enabled"):
-        story.append(Spacer(1, 8 * mm))
-        story += _settlement_plan_section(
-            base, settlement_projection, settlement_transfers or [], members, currency
-        )
-
-    if migration_adjustment:
-        story.append(Spacer(1, 8 * mm))
-        story += _migration_adjustment_section(
-            base, migration_adjustment, members, currency
-        )
-
-    # ---------- Section 3: actual split allocations ----------
-    story.append(PageBreak())
-    story += _split_allocations_section(base, expenses, members, currency)
-
-    # ---------- Section 4: Transactions (wide — start on a fresh page) ----------
-    story.append(PageBreak())
-    story += _transactions_section(base, tx, currency)
-
-    # ---------- Section 5: Payments ----------
-    if payments:
-        story.append(Spacer(1, 8 * mm))
-        story += _payments_section(base, payments, members, currency)
-
-    if financial_review:
-        story.append(Spacer(1, 8 * mm))
-        story += _section(base, "Financial Review")
-        for explanation in financial_review:
-            story.append(_p(explanation))
-    footer = trip.get("name", "Group")
-    doc.build(story, canvasmaker=partial(NumberedCanvas, footer_left=footer))
-    buf.seek(0)
-    return buf.getvalue()
+    story += [PageBreak(), Paragraph('Transactions', HEADING),
+              _note('One allocation per participating person. Expense totals below are context; only participant shares are additive.')]
+    blocks = defaultdict(list)
+    for allocation in data.allocations:
+        blocks[allocation.expense_id].append(allocation)
+    if not blocks:
+        story.append(_note('No expenses recorded.'))
+    for block in blocks.values():
+        expense = block[0]
+        stamp = f'{expense.occurred_at:%d %b %Y}' if expense.occurred_at else expense.date_source or 'Date not recorded'
+        if expense.occurred_at and expense.time_recorded:
+            stamp += f', {expense.occurred_at:%I:%M %p} IST'
+        story += [CondPageBreak(150), Paragraph(escape(f'{expense.number}. {expense.description or "Expense"}'), HEADING),
+                  _note(f'{stamp} | {expense.category} | {expense.entry_type} | {expense.split_method} | Funded by {expense.payer} | Expense total: {_fmt_money(expense.expense_amount, data.currency)}')]
+        rows = [[a.account, a.person, indian_number(a.share)] for a in block]
+        roles = [(i, 2, RECEIVE) for i, a in enumerate(block) if a.share < 0]
+        rows.append(['Expense allocation total', '', indian_number(sum(a.share for a in block))])
+        story.append(_table(['Family / account', 'Person', f'Expense share ({symbol})'], rows,
+                            [width * .4, width * .4, width * .2], numeric=(2,), bold_rows=(len(rows) - 1,), roles=roles,
+                            keep_pairs=[(len(rows) - 2, len(rows) - 1)],
+                            caption=f'Expense {expense.number}. Expense ID: {expense.expense_id}'))
+        foreign = expense.original_currency != data.currency or expense.rate_mode != 'automatic'
+        if foreign:
+            story.append(_note(f'Original amount: {expense.original_amount if expense.original_amount is not None else "Not recorded"} {expense.original_currency}. Stored rate: {expense.exchange_rate}. Effective date: {expense.rate_date or "Not recorded"}. Requested date: {expense.rate_requested_date or "Not recorded"}. Provider: {expense.rate_provider}. Mode: {expense.rate_mode}.'))
+        if expense.original_exact:
+            story.append(_note('Original exact allocations: ' + expense.original_exact))
+    if data.snapshot.financial_review:
+        story += [PageBreak(), Paragraph('Financial Review', HEADING)]
+        story.extend(_note(explanation) for explanation in data.snapshot.financial_review)
+    doc.build(story, canvasmaker=partial(NumberedCanvas, footer_left=meta.trip_name))
+    return output.getvalue()

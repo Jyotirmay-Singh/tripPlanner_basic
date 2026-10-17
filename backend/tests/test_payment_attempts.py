@@ -676,6 +676,28 @@ def test_confirmation_uses_latest_payable_and_posts_once(
         assert notification["payment_classification"] == expected_classification
 
 
+@pytest.mark.parametrize("enabled,mode", [(True, "simplified"), (False, "direct")])
+def test_upi_confirmation_uses_current_debt_mode(monkeypatch, enabled, mode):
+    fake_db = install_attempt_route(monkeypatch, trip={**TRIP, "simplify_debts": enabled},
+                                    attempts=[attempt("awaiting_confirmation")])
+    run(attempt_routes.update_payment_attempt_recipient(
+        "trip-1", "attempt-1", PaymentAttemptRecipientPatch(action="confirm_received"),
+        BackgroundTasks(), user={"id": "recipient-user"},
+    ))
+    assert fake_db.payments.rows[0]["settlement_mode"] == mode
+
+
+def test_upi_pair_rerouted_after_mode_switch_requires_review(monkeypatch):
+    fake_db = install_attempt_route(monkeypatch, trip={**TRIP, "simplify_debts": False},
+                                    attempts=[attempt("awaiting_confirmation")], transfers=[])
+    result = run(attempt_routes.update_payment_attempt_recipient(
+        "trip-1", "attempt-1", PaymentAttemptRecipientPatch(action="confirm_received"),
+        BackgroundTasks(), user={"id": "recipient-user"},
+    ))
+    assert result["status"] == "needs_review"
+    assert fake_db.payments.rows == []
+
+
 def test_confirmed_upi_notification_uses_duplicate_safe_payment_parties(monkeypatch):
     duplicate_trip = deepcopy(TRIP)
     duplicate_trip["members"][0]["name"] = "Ravi"

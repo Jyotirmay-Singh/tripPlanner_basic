@@ -240,78 +240,28 @@ class TestReports:
         # Verify it's a valid XLSX file (starts with PK zip signature)
         assert response.content[:2] == b'PK'
 
-        # Phase 16: 4 professional tabs; Phase 20 appends a 5th "Payments" tab (in order).
         wb = load_workbook(io.BytesIO(response.content))
-        assert wb.sheetnames == ["Summary", "Members & Families", "Split Math", "Transactions", "Payments"]
-
-        # Summary carries complete, structurally identical entity/category reconciliations.
-        summary_vals = [str(c.value) for rowcells in wb["Summary"].iter_rows() for c in rowcells]
-        assert any(v == "Net spend by entity" for v in summary_vals)
-        assert any(v == "Net spend by category" for v in summary_vals)
-        assert summary_vals.count("GROSS SPEND") == 2
-        assert summary_vals.count("REIMBURSEMENTS") == 2
-        assert summary_vals.count("Gross spend subtotal") == 2
-        assert summary_vals.count("Total reimbursements") == 2
-
-        summary_rows = [tuple(c.value for c in rowcells[:3])
-                        for rowcells in wb["Summary"].iter_rows()]
-
-        def row_amounts(label):
-            return [next(v for v in values[1:] if isinstance(v, (int, float)))
-                    for values in summary_rows if values[0] == label]
-
-        assert row_amounts("Gross spend subtotal") == [270.0, 270.0]
-        assert row_amounts("Total reimbursements") == [20.0, 20.0]
-        assert row_amounts("Net spend") == [250.0, 250.0, 250.0]
-
-        # Travel appears once as gross (120) and again as a positive reimbursement magnitude (20).
-        travel_amounts = [next(v for v in values[1:] if isinstance(v, (int, float)))
-                          for values in summary_rows if values[0] == "Travel"]
-        assert travel_amounts == [120.0, 20.0]
-
-        # Members & Families header has the four reconciling money columns.
+        assert wb.sheetnames == ["Summary", "Members & Families", "Transactions", "Payments"]
+        summary = wb["Summary"]
+        assert (summary["A8"].value, summary["D8"].value, summary["G8"].value) == (270, 20, 250)
+        assert len(summary._pivots) == len(summary._charts) == 1
+        assert summary._pivots[0].cache.cacheSource.worksheetSource.name == "ReportAllocations"
         mf = wb["Members & Families"]
-        mf_header = [c.value for c in mf[1]]
-        assert mf_header[0] == "Name" and mf_header[1] == "Type" and mf_header[2] == "Family"
-        assert "Gross Spent" in mf_header[3] and "Share of Expenses" in mf_header[4]
-        assert "Settlements" in mf_header[5] and "Net Balance" in mf_header[6]
-    # Every numeric entity/total row reconciles: Net = Paid - Share + Settlements (to the unit).
-        recon_rows = 0
-        for name, typ, fam, paid, share, settle, net in mf.iter_rows(min_row=2, values_only=True):
-            if all(isinstance(x, (int, float)) for x in (paid, share, settle, net)):
-                assert abs(round(paid - share + settle, 2) - net) <= 0.011
-                recon_rows += 1
-        assert recon_rows >= 2  # at least the individual entity + the TOTAL row
-
-        # Split Math is the combined per-(expense x participant) tab with subtotals.
-        sm = wb["Split Math"]
-        sm_header = [c.value for c in sm[1]]
-        assert sm_header[:6] == ["Expense", "Date", "Total Amount (GBP)", "Split Mode",
-                                 "Participant", "Participant Type"]
-        assert sm_header[6:] == ["Units / Weight", "Actual Allocation (GBP)", "Remainder Unit Recipient"]
-        allocation_col = sm_header.index("Actual Allocation (GBP)")
-        total_col = sm_header.index("Total Amount (GBP)")
-        # At least one expense subtotal whose Allocated equals the expense Total Amount.
-        subtotal_checks = 0
-        allocations = []
-        for row in sm.iter_rows(min_row=2, values_only=True):
-            expense, total_amt, allocated = row[0], row[total_col], row[allocation_col]
-            if isinstance(expense, str) and expense.endswith("Subtotal"):
-                assert abs(allocated - total_amt) <= 0.011
-                assert sum(allocations) == total_amt
-                allocations = []
-                subtotal_checks += 1
-            elif isinstance(allocated, (int, float)):
-                assert allocated == int(allocated)
-                assert row[sm_header.index("Remainder Unit Recipient")] in ("Yes", "No", None, "")
-                allocations.append(allocated)
-        assert subtotal_checks >= 2  # one per expense (PER_CAPITA + PER_FAMILY line items)
-
-        # The FX audit columns precede the human-readable Split Mode in the journal.
-        tx_header = [c.value for c in wb["Transactions"][1]]
-        mode_col = tx_header.index("Split Mode")
-        tx_modes = {row[mode_col] for row in wb["Transactions"].iter_rows(min_row=2, values_only=True) if row[mode_col]}
-        assert tx_modes <= {"Per-Person", "Per-Family"}
+        headers = [c.value for c in mf[4]]
+        assert headers[0] == "Name" and headers[1].startswith("Expense share")
+        assert headers[4].startswith("Settlements paid") and headers[5].startswith("Settlements received")
+        account_rows = [r for r in mf.iter_rows(min_row=5, values_only=True)
+                        if isinstance(r[2], (int, float))]
+        assert len(account_rows) >= 3
+        for row in account_rows:
+            assert row[6] == row[2] - row[1] + row[4] - row[5]
+        transactions = wb["Transactions"]
+        allocations = [r for r in transactions.iter_rows(min_row=5, values_only=True) if isinstance(r[0], int)]
+        assert sum(row[10] for row in allocations) == 250
+        for expense_id in {r[11] for r in allocations}:
+            expense_rows = [r for r in allocations if r[11] == expense_id]
+            assert sum(r[10] for r in expense_rows) == expense_rows[0][9]
+        assert {r[8] for r in allocations} <= {"Per-Person", "Per-Family"}
 
     def test_report_settlements_column_includes_partial_payments(self, api_client, test_user):
         """Phase 23 (BUG): the Members & Families 'Settlements' column must reflect BOTH the legacy
@@ -343,56 +293,28 @@ class TestReports:
             "from_member_id": m2, "to_member_id": m1, "amount": 15.0}, headers=h)
         assert r_pay.status_code == 200, r_pay.text
 
-        # ----- XLSX: Members & Families Settlements column must include BOTH (30 + 15 = 45) -----
         resp = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/report.xlsx?token={token}")
         assert resp.status_code == 200
         wb = load_workbook(io.BytesIO(resp.content))
-        mf = wb["Members & Families"]
-        entity_rows, total_row = [], None
-        for name, typ, fam, paid, share, settle, net in mf.iter_rows(min_row=2, values_only=True):
-            if name == "TOTAL":
-                total_row = (paid, share, settle, net)
-            elif all(isinstance(x, (int, float)) for x in (paid, share, settle, net)):
-                entity_rows.append({"paid": paid, "share": share, "settle": settle, "net": net})
-
-        payer = next(r for r in entity_rows if abs(r["paid"] - 200.0) < 0.01)
-        debtor = next(r for r in entity_rows if abs(r["paid"] - 0.0) < 0.01)
-        # Debtor paid OUT 30 + 15 = 45 (would be ONLY 30 before the fix); receiver mirror -45.
-        assert abs(debtor["settle"] - 45.0) < 0.01, debtor
-        assert abs(payer["settle"] - (-45.0)) < 0.01, payer
-        # Share is the TRUE engine allocation (each owes 100), NOT contaminated by the payment.
-        assert abs(debtor["share"] - 100.0) < 0.01 and abs(payer["share"] - 100.0) < 0.01
-        # Net foots with payments included: payer +55, debtor -55.
-        assert abs(payer["net"] - 55.0) < 0.01 and abs(debtor["net"] - (-55.0)) < 0.01
-        for r in entity_rows:
-            assert abs(round(r["paid"] - r["share"] + r["settle"], 2) - r["net"]) <= 0.011
-        # Totals: Σ Settlements == Σ Net == 0.
-        assert total_row is not None
-        assert abs(total_row[2]) < 0.011 and abs(total_row[3]) < 0.011
-
-        # Payments tab keeps Receiver/Remark and adds only a sanitized source label.
-        payment_header = [c.value for c in wb["Payments"][1]]
-        assert payment_header == ["Payer", "Receiver", "Amount (INR)",
-                                                        "Date & Time", "Remark", "Source"]
-        payer_col = payment_header.index("Payer")
-        amount_col = payment_header.index("Amount (INR)")
-        date_col = payment_header.index("Date & Time")
-        source_col = payment_header.index("Source")
-
-        # Date & Time cell shows the stored UTC timestamp converted to IST (Phase 24) — not raw UTC.
-        pay_created = r_pay.json()["created_at"]
-        payment_rows = list(wb["Payments"].iter_rows(min_row=2, values_only=True))
-        total_index = next(i for i, row in enumerate(payment_rows) if row[payer_col] == "Total")
-        payment_rows = payment_rows[:total_index]
-        assert sum(row[amount_col] for row in payment_rows) == 15
-        dt_cells = [row[date_col] for row in payment_rows
-                    if isinstance(row[amount_col], (int, float)) and abs(row[amount_col] - 15.0) < 0.01]
-        assert dt_cells, "expected the 15.0 payment row in the Payments tab"
-        assert dt_cells[0] == format_ist(pay_created)
-        assert dt_cells[0].endswith(" IST")
-        source_cells = [row[source_col] for row in payment_rows
-                        if isinstance(row[amount_col], (int, float)) and abs(row[amount_col] - 15.0) < 0.01]
-        assert source_cells == ["Recorded payment"]
+        rows = [r for r in wb["Members & Families"].iter_rows(min_row=5, values_only=True)
+                if isinstance(r[2], (int, float)) and r[0] != "Total"]
+        payer = next(r for r in rows if r[2] == 200)
+        debtor = next(r for r in rows if r[2] == 0)
+        assert debtor[4:6] == (45, 0)
+        assert payer[4:6] == (0, 45)
+        assert payer[1] == debtor[1] == 100
+        assert payer[6] == 55 and debtor[6] == -55
+        for row in rows:
+            assert row[6] == row[2] - row[1] + row[4] - row[5]
+        payment_rows = list(wb["Payments"].values)
+        history = [row for row in payment_rows if row[4] in ("Recorded payment", "Legacy settlement")]
+        assert sum(row[2] for row in history) == 45
+        assert next(r[2] for r in payment_rows if r[0] == "Recorded payments total") == 15
+        assert next(r[2] for r in payment_rows if r[0] == "Legacy settlements total") == 30
+        recorded = next(row for row in history if row[4] == "Recorded payment")
+        from services.report_model import ist_datetime
+        assert recorded[3] == ist_datetime(r_pay.json()["created_at"])
+        assert recorded[5] == "Recorded"
 
         # ----- PDF: full report renders (same builders -> same values) -----
         pdf = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/report.pdf?token={token}")
@@ -403,9 +325,8 @@ class TestReports:
         pdf_text = "\n".join(
             page.extract_text() or "" for page in PdfReader(io.BytesIO(pdf.content)).pages
         )
-        assert "Net spend by entity" in pdf_text
-        assert "Net spend by category" in pdf_text
-        assert pdf_text.count("GROSS SPEND") == 2
-        assert pdf_text.count("REIMBURSEMENTS") == 2
-        assert pdf_text.count("Gross spend subtotal") == 2
-        assert pdf_text.count("Total reimbursements") == 2
+        assert "Funding by account" in pdf_text
+        assert "Net spending by category" in pdf_text
+        assert "Recorded settlement history" in pdf_text
+        assert "Expense shares by family and person" in pdf_text
+        assert "Split Math" not in pdf_text

@@ -45,6 +45,9 @@ def precise_entity_net(balances: dict, member_id: str) -> Decimal | None:
 def is_precisely_settled(balances: dict, member_id: str) -> bool:
     """A removable entity cannot leave a precise residual with no owner in the live roster."""
 
+    if any(member_id in (row.get("from_member_id"), row.get("to_member_id"))
+           and row.get("amount", 0) > 0 for row in balances.get("transfers") or []):
+        return False
     precise = precise_entity_net(balances, member_id)
     return is_settled(
         entity_net(balances, member_id), balances.get("currency", "INR")

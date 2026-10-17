@@ -25,6 +25,7 @@ from services.payment_attempts import (
 )
 from services.push_notifications import classify_payment_notification, enqueue_notification_event
 from services.money_audit import record_money_normalizations
+from services.direct_debts import settlement_mode
 from services.trip_activity import with_trip_activity
 from utils.balances import _compute_balances
 from utils.common import gen_id, now_utc
@@ -596,6 +597,7 @@ async def _confirm_received_transaction(
             "recorded_by": user["id"],
             "note": None,
             "source": "upi_recipient_confirmed",
+            "settlement_mode": settlement_mode(trip),
             "payment_attempt_id": attempt_id,
             **audit_fields,
         }

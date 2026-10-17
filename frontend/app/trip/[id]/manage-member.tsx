@@ -29,7 +29,7 @@ type Member = {
 type Trip = { id: string; name: string; currency: string; owner_id: string; admin_ids: string[]; user_ids?: string[]; members: Member[];
   expense_settlement_activation_version?: number; financial_write_guard_version?: number };
 type FamRow = { id: string; name: string; net: number };
-type Balances = { net: Record<string, number>; per_person: { member_id: string; members?: FamRow[] }[] };
+type Balances = { net: Record<string, number>; transfers?: { from_member_id: string; to_member_id: string; amount: number }[]; per_person: { member_id: string; members?: FamRow[] }[] };
 
 export default function ManageMember() {
   const { id, mid } = useLocalSearchParams<{ id: string; mid: string }>();
@@ -108,10 +108,10 @@ export default function ManageMember() {
     ? (balances.per_person.find((p) => p.member_id === member.id)?.members ?? [])
     : [];
   const blockReason = balances
-    ? entityBlockReason(member, entityNet, famRows, trip.currency)
+    ? entityBlockReason(member, entityNet, famRows, trip.currency, balances.transfers)
     : null;
   const removable =
-    !!balances && entityRemovable(member, entityNet, famRows, trip.currency);
+    !!balances && entityRemovable(member, entityNet, famRows, trip.currency, balances.transfers);
 
   const toggleAdmin = async (uid: string | null | undefined, currentlyAdmin: boolean) => {
     if (!uid) return;

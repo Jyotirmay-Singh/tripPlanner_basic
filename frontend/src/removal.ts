@@ -10,6 +10,7 @@ export type RemovalMember = {
   user_id?: string | null;
 };
 export type RemovalTrip = { owner_id?: string | null };
+type RemovalTransfer = { from_member_id: string; to_member_id: string; amount: number };
 export type BreakdownRow = { id: string; name: string; net: number };
 
 export const SETTLED_EPS = 0.5;
@@ -36,7 +37,10 @@ export function entityRemovable(
   entityNet: number,
   rows: BreakdownRow[],
   currency = 'INR',
+  transfers: RemovalTransfer[] = [],
 ): boolean {
+  if (transfers.some((row) => row.amount > 0
+    && (row.from_member_id === member.id || row.to_member_id === member.id))) return false;
   if (member.kind === 'family') {
     return isSettled(entityNet, currency) && unsettledNames(rows, currency).length === 0;
   }
@@ -49,8 +53,9 @@ export function entityBlockReason(
   entityNet: number,
   rows: BreakdownRow[],
   currency = 'INR',
+  transfers: RemovalTransfer[] = [],
 ): string | null {
-  if (entityRemovable(member, entityNet, rows, currency)) return null;
+  if (entityRemovable(member, entityNet, rows, currency, transfers)) return null;
   if (member.kind === 'family') {
     const names = unsettledNames(rows, currency);
     const who = names.length ? names.join(', ') : (member.name ?? 'this family');

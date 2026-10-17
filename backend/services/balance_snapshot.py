@@ -1,0 +1,96 @@
+"""Authoritative trip balance calculation and derived settlement projection."""
+
+from decimal import Decimal
+
+from fastapi import HTTPException
+
+from services.member_breakdown import family_member_breakdown
+from services.direct_debts import build_direct_projection, settlement_mode
+from services.settlement_engine import (
+    SettlementLedgerError,
+    build_precise_net,
+    build_settlement_projection,
+    joint_round,
+    scaled_number,
+    settlement_increment,
+)
+from utils.money_policy import whole_money
+
+
+def _weight_of_member(member: dict) -> int:
+    if member["kind"] == "family":
+        return max(1, len(member.get("family_members", [])))
+    return 1
+
+
+def compute_balance_snapshot(trip: dict, expenses: list, settlements: list, payments: list,
+                             migration_adjustment=None, *, diagnostic: bool = False) -> dict:
+    """Evaluate the existing balance rules against one already-loaded, read-only snapshot."""
+    members = trip["members"]
+    try:
+        precise_net = build_precise_net(
+            members,
+            expenses,
+            settlements,
+            payments,
+            migration_adjustments=(migration_adjustment or {}).get("vector"),
+        )
+
+        # Keep the legacy numeric ``net`` response shape while jointly projecting every currency to
+        # the application-wide one-major-unit increment so the vector remains conserving.
+        currency = trip.get("currency", "INR")
+        compatibility_increment, _ = settlement_increment(currency, True)
+        compatibility_counts = joint_round(precise_net, compatibility_increment)
+        net = {
+            member_id: scaled_number(count * compatibility_increment)
+            for member_id, count in compatibility_counts.items()
+        }
+        transfers, projection = build_settlement_projection(
+            precise_net,
+            currency,
+            whole_unit_enabled=True,
+        )
+        if settlement_mode(trip) == "direct":
+            transfers, projection = build_direct_projection(
+                members, expenses, settlements, payments, precise_net, projection,
+                migration_adjustments=(migration_adjustment or {}).get("vector"),
+            )
+    except SettlementLedgerError as exc:
+        generic = (
+            "Settlement is temporarily unavailable because this group's ledger needs review. "
+            "Ask a group admin."
+        )
+        detail = f"{generic} [{exc.code}: {exc}]" if diagnostic else generic
+        raise HTTPException(status_code=409, detail=detail) from exc
+
+    # Display-only family positions replay the same effective events and reconcile to the compatible
+    # currency-rounded family net. They never drive recommendations.
+    breakdown = family_member_breakdown(
+        members, expenses, settlements + payments, net, trip.get("currency", "INR")
+    )
+
+    return {
+        "net": net,
+        "transfers": transfers,
+        "members": members,
+        "currency": trip.get("currency", "INR"),
+        "settlement_projection": projection,
+        "per_person": [
+            {
+                "member_id": member["id"],
+                "member_name": member["name"],
+                "kind": member["kind"],
+                "people_count": _weight_of_member(member),
+                "net_total": net.get(member["id"], 0.0),
+                "net_per_person": whole_money(
+                    Decimal(str(net.get(member["id"], 0)))
+                    / Decimal(_weight_of_member(member)),
+                    label="Per-person balance",
+                    reject_nonzero_to_zero=False,
+                ),
+                "family_members": member.get("family_members", []),
+                "members": breakdown.get(member["id"], []),
+            }
+            for member in members
+        ],
+    }

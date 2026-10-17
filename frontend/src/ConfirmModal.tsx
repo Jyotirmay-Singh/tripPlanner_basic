@@ -24,7 +24,7 @@ export type ConfirmTextInput = {
 type Props = {
   visible: boolean;
   title: string;
-  message?: string;
+  message?: React.ReactNode;
   actions: ConfirmAction[];
   onRequestClose?: () => void; // hardware back / scrim tap
   testID?: string;
