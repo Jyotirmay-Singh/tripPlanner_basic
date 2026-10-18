@@ -12,6 +12,7 @@ class TripIn(BaseModel):
     end_date: Optional[str] = None    # YYYY-MM-DD; when both exist, must be >= start_date
     budget: Optional[Decimal] = None
     currency: str = "INR"
+    simplify_debts: StrictBool = True
     # Phase 26 — the creator's own identity in this trip. Default "individual" preserves the legacy
     # behavior (creator is a standalone member carrying their login email). "family" makes the creator
     # ONE member inside a family they set up here: family_name + family_members (names) + self_index

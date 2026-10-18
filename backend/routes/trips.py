@@ -134,7 +134,7 @@ async def create_trip(body: TripIn, user=Depends(get_current_user)):
         "id": tid, "code": code, "name": body.name,
         "start_date": start_date, "end_date": end_date,
         "budget": budget, "currency": currency,
-        "simplify_debts": True,
+        "simplify_debts": body.simplify_debts,
         "owner_id": user["id"], "user_ids": [user["id"]],
         "admin_ids": [user["id"]],
         "members": [owner_member],

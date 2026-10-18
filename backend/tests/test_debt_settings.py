@@ -69,6 +69,22 @@ def test_new_trips_are_enabled_and_legacy_reads_default_to_enabled(store):
     assert store.doc["simplify_debts"] is True
 
 
+@pytest.mark.parametrize("simplify_debts", [True, False])
+@pytest.mark.parametrize("self_kind", ["individual", "family"])
+def test_creation_persists_the_selected_mode_for_individuals_and_families(store, simplify_debts, self_kind):
+    user = {"id": "owner", "name": "Owner", "email": "owner@gmail.com"}
+    body = TripIn(
+        name="Goa", simplify_debts=simplify_debts, self_kind=self_kind,
+        family_name="Owner family", family_members=["Owner", "Partner"], self_index=0,
+    )
+    created = asyncio.run(trips.create_trip(body, user))
+    assert created["simplify_debts"] is simplify_debts
+    assert created["owner_id"] == user["id"]
+    assert created["members"][0]["kind"] == self_kind
+    assert store.doc["simplify_debts"] is simplify_debts
+    assert asyncio.run(trips.get_trip(created["id"], user))["simplify_debts"] is simplify_debts
+
+
 def test_owner_can_disable_reenable_and_round_trip_false_without_changing_expenses(store):
     saved = asyncio.run(trips.update_trip("t1", TripUpdate(simplify_debts=False), {"id": "owner"}))
     assert saved["simplify_debts"] is False
@@ -134,10 +150,11 @@ def test_legacy_version_is_initialized_without_overwriting_other_fields(store):
     assert saved["currency"] == "INR"
 
 
+@pytest.mark.parametrize("model", [TripIn, TripUpdate])
 @pytest.mark.parametrize("invalid", [None, "false", "true", 0, 1])
-def test_setting_requires_a_real_boolean(invalid):
+def test_setting_requires_a_real_boolean(invalid, model):
     with pytest.raises(ValidationError):
-        TripUpdate(simplify_debts=invalid)
+        model(name="Goa", simplify_debts=invalid)
 
 
 def test_omitting_the_field_never_turns_it_back_on():
