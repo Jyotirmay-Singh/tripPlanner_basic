@@ -761,8 +761,7 @@ describe('Trip identity header', () => {
         + 'Group code: UCK3RZ\n'
         + 'You can also enter this code in Trip Splitter to join manually.\n\n'
         + 'Download Trip Splitter for Android:\n'
-        + `${APK_DOWNLOAD_URL}\n\n`
-        + 'A group admin can reset this private invitation link at any time.',
+        + APK_DOWNLOAD_URL,
     });
     nativeShare.mockRestore();
   });

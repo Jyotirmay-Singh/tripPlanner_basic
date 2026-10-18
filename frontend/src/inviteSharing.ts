@@ -29,6 +29,5 @@ export function tripInviteShareMessage(
     + `\n\nGroup code: ${code}`
     + '\nYou can also enter this code in Trip Splitter to join manually.'
     + '\n\nDownload Trip Splitter for Android:'
-    + `\n${ANDROID_APK_DOWNLOAD_URL}`
-    + '\n\nA group admin can reset this private invitation link at any time.';
+    + `\n${ANDROID_APK_DOWNLOAD_URL}`;
 }
