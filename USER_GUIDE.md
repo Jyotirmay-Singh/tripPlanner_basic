@@ -160,6 +160,9 @@ Settled groups remain tappable and can still be opened normally.
      The picker contains the supported currencies. Every budget, expense, allocation, balance, and
      payment uses whole major-currency units regardless of currency; exchange-rate ratios are the
      only decimal values in normal entry. For example, enter `400`, not `400.00`.
+   - **Simplify group debts** — enabled by default, directly below Official currency. To use direct
+     repayments from the start, turn it off and confirm **Turn off**. The choice is saved when you tap
+     **Create group**. The ⓘ beside the title explains how simplification works.
    - **Who are you in this group?** — choose **I'm an individual** (default) or **I'm in a family**.
      If you pick *family*, enter the **family name**, add a row per member (your name is pre-filled on
      the first row), and tap **"This is me"** on your own row. Your login email + account attach to
@@ -499,6 +502,10 @@ Inside a group, the **Balances** tab shows:
   Currency selectors, field labels, accessibility text, APIs, and reports continue to use ISO codes.
 
 ### Choose how the group settles
+
+Choose **Simplify group debts** below **Official currency** when creating a group; it starts **on**,
+and **Create group** saves the selected mode. The same compact control and confirmation are used
+when editing an existing group.
 
 Open the group and tap the **pencil (Edit trip)**. Below **Official currency**, the group owner can
 change **Simplify group debts** and tap **Save**. The setting starts **on** for new and existing trips.

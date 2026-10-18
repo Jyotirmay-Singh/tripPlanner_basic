@@ -10,6 +10,7 @@ import { FormScreen, Input, DateField, Button, CurrencyPicker, Pill, Icon, Segme
 import { toISO, isRangeValid, INVALID_DATE_MESSAGE, END_BEFORE_START_MESSAGE } from '../src/date';
 import { SelfKind, identityIssue, buildIdentityFields } from '../src/createIdentity';
 import { currencyAmountPlaceholder, currencyPrecisionIssue } from '../src/currencies';
+import DebtSimplificationSetting from '../src/DebtSimplificationSetting';
 
 export default function CreateTrip() {
   const { colors } = useTheme();
@@ -24,6 +25,7 @@ export default function CreateTrip() {
   } | null>(null);
   const [budget, setBudget] = useState('');
   const [currency, setCurrency] = useState('INR');
+  const [simplifyDebts, setSimplifyDebts] = useState(true);
   const [saving, setSaving] = useState(false);
   const [fieldError, setFieldError] = useState<{
     field: 'name' | 'budget' | 'familyName' | 'member'; message: string; index?: number;
@@ -92,7 +94,7 @@ export default function CreateTrip() {
         method: 'POST',
         body: {
           name: name.trim(), start_date: startISO, end_date: endISO,
-          budget: budget ? Number(budget) : null, currency,
+          budget: budget ? Number(budget) : null, currency, simplify_debts: simplifyDebts,
           ...buildIdentityFields({ self_kind: selfKind, familyName, memberNames, selfIndex }),
         },
       });
@@ -151,6 +153,13 @@ export default function CreateTrip() {
               value={currency}
               onChange={setCurrency}
               helper="Choose carefully — the official currency is locked after the group is created."
+            />
+
+            <DebtSimplificationSetting
+              value={simplifyDebts}
+              onChange={setSimplifyDebts}
+              disabled={saving}
+              testIDPrefix="ct"
             />
 
             <View style={{ gap: SPACING.sm }}>
