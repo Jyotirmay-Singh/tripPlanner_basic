@@ -75,9 +75,30 @@ def can_change_debt_simplification(trip: dict, viewer: Viewer) -> bool:
 
 
 def can_modify_any_expense(trip: dict, viewer: Viewer) -> bool:
-    # creator-or-admin for a *specific* expense stays in deps.can_modify_expense;
-    # this is the blanket "may touch any expense" capability of owner/admin.
+    # This is the blanket "may touch any expense" capability of owner/admin.
     return role_of(trip, viewer) in ("super_admin", "owner", "admin")
+
+
+def can_modify_expense(trip: dict, expense: dict, viewer: Viewer) -> bool:
+    """Allow admins, the creator, and accounts linked to the creator's current family.
+
+    Use account links in this trip's roster, never the payer or split participants.
+    Legacy expenses without a creator remain admin-only.
+    """
+    if can_modify_any_expense(trip, viewer):
+        return True
+    user_id = viewer_id(viewer)
+    creator_id = expense.get("created_by")
+    if not user_id or not creator_id:
+        return False
+    if creator_id == user_id:
+        return True
+    return any(
+        member.get("kind") == "family"
+        and is_linked_to_member(member, creator_id)
+        and is_linked_to_member(member, user_id)
+        for member in (trip.get("members") or [])
+    )
 
 
 def can_manage_admins(trip: dict, viewer: Viewer) -> bool:

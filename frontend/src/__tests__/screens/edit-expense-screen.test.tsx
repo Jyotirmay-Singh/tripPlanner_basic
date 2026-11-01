@@ -52,6 +52,31 @@ it('requires explicit approved selection for unknown historical values and keeps
   expect(renderer.root.findByProps({ testID: 'ee-amount' }).props.value).toBe('100');
 });
 
+it.each([true, false])('allows editing only when the expense creator shares the current family: %s', async (sameFamily) => {
+  const loaded = { ...baseline, created_by: 'family-creator' };
+  const family = { id: 'family', name: 'Family', kind: 'family', family_members: ['Creator', 'Relative'],
+    family_member_ids: ['person-creator', 'person-relative'],
+    family_member_user_ids: ['family-creator', sameFamily ? 'u1' : 'unrelated-account'] };
+  const group = { ...trip, owner_id: 'owner', members: [...trip.members, family] };
+  (getExpense as jest.Mock).mockResolvedValue(loaded);
+  (api as jest.Mock).mockImplementation(async (_path: string, options: any) => options?.method === 'PATCH'
+    ? { ...loaded, ...options.body } : group);
+  const renderer = await mount();
+  expect(renderer.root.findAllByProps({ testID: 'expense-readonly-note' }).length > 0).toBe(!sameFamily);
+  expect(renderer.root.findAllByProps({ testID: 'ee-save' }).length > 0).toBe(sameFamily);
+  expect(renderer.root.findByProps({ testID: 'ee-amount' }).props.editable).toBe(sameFamily);
+  if (sameFamily) {
+    await act(async () => renderer.root.findByProps({ testID: 'ee-desc' }).props.onChangeText('Updated by family'));
+    await act(async () => renderer.root.findByProps({ testID: 'ee-save' }).props.onPress());
+    const patch = (api as jest.Mock).mock.calls.find((call) => call[1]?.method === 'PATCH');
+    expect(patch?.[1].body.description).toBe('Updated by family');
+    expect(mockBack).toHaveBeenCalledTimes(1);
+  } else {
+    expect((api as jest.Mock).mock.calls.some((call) => call[1]?.method === 'PATCH')).toBe(false);
+  }
+  await act(async () => renderer.unmount());
+});
+
 function formControl(r: any, id: string, event = 'onPress') { return r.root.findAll((n: any) => n.props.testID === id && typeof n.props[event] === 'function')[0]; }
 async function exerciseChooser(r: any, prefix: string) {
   await act(async () => formControl(r, `${prefix}-category`).props.onPress());

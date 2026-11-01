@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import Depends, HTTPException, Header
 
 from database import db
-from utils.permissions import role_of, can_record_payment, can_modify_any_expense, is_super_admin, viewer_id
+from utils.permissions import role_of, can_record_payment, can_modify_expense, is_super_admin, viewer_id
 from utils.security import decode_token
 
 
@@ -64,18 +64,11 @@ async def _expense_or_404(trip_id: str, expense_id: str) -> dict:
     return expense
 
 
-def can_modify_expense(trip: dict, expense: dict, viewer) -> bool:
-    # Step 10: an expense may be edited/deleted only by its creator or a trip admin
-    # (the trip owner is always seeded into admin_ids). Legacy rows without created_by
-    # fall through to admin-only.
-    return expense.get("created_by") == viewer_id(viewer) or can_modify_any_expense(trip, viewer)
-
-
 async def _expense_modify_or_403(trip_id: str, expense_id: str, viewer) -> tuple[dict, dict]:
     trip = await _trip_or_404(trip_id, viewer)
     expense = await _expense_or_404(trip_id, expense_id)
     if not can_modify_expense(trip, expense, viewer):
-        raise HTTPException(403, "Only the expense creator or a group admin can modify this expense")
+        raise HTTPException(403, "Only the expense creator, their family members, or a group admin can modify this expense")
     return trip, expense
 
 

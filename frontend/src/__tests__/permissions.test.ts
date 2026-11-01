@@ -48,6 +48,49 @@ describe('canModifyExpense', () => {
     expect(canModifyExpense({ created_by: 'u1' }, 'u3', { admin_ids: null })).toBe(false);
     expect(canModifyExpense({ created_by: 'u1' }, 'u1', {})).toBe(true);
   });
+
+  const familyTrip = {
+    owner_id: 'owner',
+    admin_ids: ['admin'],
+    members: [
+      { kind: 'family', family_member_user_ids: ['u1', null, 'relative'] },
+      { kind: 'family', family_member_user_ids: ['other-creator', 'other-relative'] },
+      { kind: 'family', family_member_user_ids: null },
+    ],
+  };
+
+  it('allows another linked account in the expense creator\'s family', () => {
+    expect(canModifyExpense({ created_by: 'u1' }, 'relative', familyTrip)).toBe(true);
+    expect(canModifyExpense({ created_by: 'relative' }, 'u1', familyTrip)).toBe(true);
+  });
+
+  it('does not grant access between different families', () => {
+    expect(canModifyExpense({ created_by: 'u1' }, 'other-relative', familyTrip)).toBe(false);
+    expect(canModifyExpense({ created_by: 'other-creator' }, 'relative', familyTrip)).toBe(false);
+    expect(canModifyExpense({ created_by: 'unknown' }, 'relative', familyTrip)).toBe(false);
+  });
+
+  it('preserves owner/admin access without relying on the creator\'s family', () => {
+    expect(canModifyExpense({}, 'owner', familyTrip)).toBe(true);
+    expect(canModifyExpense({}, 'admin', familyTrip)).toBe(true);
+  });
+
+  it('requires a known creator and a signed-in family account', () => {
+    expect(canModifyExpense({}, 'relative', familyTrip)).toBe(false);
+    expect(canModifyExpense({ created_by: null }, 'relative', familyTrip)).toBe(false);
+    expect(canModifyExpense({ created_by: '' }, 'relative', familyTrip)).toBe(false);
+    expect(canModifyExpense({ created_by: 'u1' }, undefined, familyTrip)).toBe(false);
+  });
+
+  it('uses current family links and tolerates missing roster data', () => {
+    const removed = { members: [{ kind: 'family', family_member_user_ids: ['relative'] }] };
+    expect(canModifyExpense({ created_by: 'u1' }, 'relative', removed)).toBe(false);
+    expect(canModifyExpense({ created_by: 'u1' }, 'relative', { members: null })).toBe(false);
+    expect(canModifyExpense({ created_by: 'u1' }, 'relative', { members: [{ kind: 'family' }] })).toBe(false);
+    expect(canModifyExpense({ created_by: 'u1' }, 'relative', {
+      members: [{ kind: 'individual', family_member_user_ids: ['u1', 'relative'] }],
+    })).toBe(false);
+  });
 });
 
 // owner is seeded into admin_ids in production, so the fixture mirrors that.

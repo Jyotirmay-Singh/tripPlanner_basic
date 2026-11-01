@@ -47,7 +47,7 @@ async def _resolve_user(token: Optional[str], authorization: Optional[str]) -> d
 @router.post("/trips/{trip_id}/expenses/{expense_id}/receipt")
 async def upload_receipt(trip_id: str, expense_id: str, file: UploadFile = File(...),
                          user=Depends(get_current_user)):
-    # RBAC (Step 10): only the expense creator or a trip admin may attach/replace.
+    # Only the expense creator, their family, or an admin may attach/replace.
     trip, _expense = await _expense_modify_or_403(trip_id, expense_id, user)
     data = await file.read()
     validate_receipt_upload(file.content_type, len(data))
@@ -104,7 +104,7 @@ async def get_receipt(trip_id: str, expense_id: str, token: Optional[str] = None
 
 @router.delete("/trips/{trip_id}/expenses/{expense_id}/receipt")
 async def remove_receipt(trip_id: str, expense_id: str, user=Depends(get_current_user)):
-    # RBAC (Step 10): only the expense creator or a trip admin may remove. Idempotent.
+    # Only the expense creator, their family, or an admin may remove. Idempotent.
     trip, expense = await _expense_modify_or_403(trip_id, expense_id, user)
     if activated(trip):
         return await switch(trip_id, expense_id, None, user)

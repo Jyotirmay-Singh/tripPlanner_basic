@@ -21,7 +21,7 @@ from services.ledger_snapshot import load_ledger
 from services.settlement_engine import SCALE, to_scaled
 from services.trip_activity import with_trip_activity
 from utils.common import now_utc
-from utils.permissions import role_of, can_record_payment
+from utils.permissions import role_of, can_record_payment, can_modify_expense
 
 ADMIN = {"owner", "admin", "super_admin"}
 INDEXES = {
@@ -244,7 +244,7 @@ async def plan(trip, actor, ledger, body, operation_id, at, *, session=None):
         expense = next((row for row in ledger.expenses if row["id"] == body.target_id), None)
         if not expense:
             raise workflow.error("expense_not_found", 404)
-        if not admin and expense.get("created_by") != actor["id"]:
+        if not can_modify_expense(trip, expense, actor):
             raise workflow.error("insufficient_authority", 403)
         revision = next(row for row in snapshot.revisions if row["expense_id"] == expense["id"])
         expense_ids = [expense["id"]]
@@ -469,7 +469,7 @@ async def apply(trip, actor, correction, session):
     if role_of(trip, actor) not in ADMIN and not correction["required_person_ids"]:
         if correction["operation"] in {"replace_expense", "void_expense"}:
             target = next((row for row in ledger.expenses if row["id"] == correction["target_id"]), {})
-            if target.get("created_by") != actor["id"]:
+            if not can_modify_expense(trip, target, actor):
                 raise workflow.error("insufficient_authority", 403)
         elif correction["operation"] == "leave_group":
             if _accounts(trip).get(correction["target_id"]) != actor["id"] or trip["owner_id"] == actor["id"]:

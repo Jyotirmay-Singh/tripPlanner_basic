@@ -4,7 +4,7 @@ from uuid import uuid4
 from services import settlement_intents as workflow
 from services.coverage_support import CoverageError, stable_id
 from utils.common import now_utc
-from utils.permissions import role_of
+from utils.permissions import can_modify_expense
 
 
 async def switch(trip_id, expense_id, receipt_id, user):
@@ -14,7 +14,7 @@ async def switch(trip_id, expense_id, receipt_id, user):
         row = await workflow.db.expenses.find_one({"id": expense_id, "trip_id": trip_id}, {"_id": 0}, session=session)
         if not row or row.get("deleted_at"):
             raise workflow.error("expense_not_found", 404)
-        if row.get("created_by") != actor["id"] and role_of(trip, actor) not in workflow.ADMIN_ROLES:
+        if not can_modify_expense(trip, row, actor):
             raise workflow.error("insufficient_authority", 403)
         at = now_utc().isoformat()
         previous = row.get("receipt_version_id")

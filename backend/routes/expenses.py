@@ -867,7 +867,7 @@ async def delete_expense(trip_id: str, expense_id: str, user=Depends(get_current
                          body: CorrectionCreate | None = None):
     if body is not None:
         return await reviewed_adapters.correct(trip_id, expense_id, {"void_expense"}, body, user)
-    # Step 10: only the expense creator or a trip admin may delete (404 if missing, 403 otherwise).
+    # Creator, their family, or an admin may delete (404 if missing, 403 otherwise).
     trip, _expense = await _expense_modify_or_403(trip_id, expense_id, user)
     reject_legacy_write(trip, code="settlement_correction_required")
     activity_at = activity_timestamp()

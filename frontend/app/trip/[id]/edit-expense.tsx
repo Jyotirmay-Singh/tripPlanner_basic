@@ -42,7 +42,8 @@ import {
 } from '../../../src/ui';
 import type { ApprovedConversion, LockedConversion } from '../../../src/ui';
 
-type Member = { id: string; name: string; kind: string; family_members: string[]; family_member_ids?: string[] };
+type Member = { id: string; name: string; kind: string; family_members: string[]; family_member_ids?: string[];
+  family_member_user_ids?: (string | null)[] | null };
 type Trip = { id: string; name: string; currency: string; owner_id: string; admin_ids: string[]; members: Member[];
   expense_settlement_activation_version?: number; financial_write_guard_version?: number };
 type Expense = {
@@ -463,7 +464,7 @@ export default function EditExpense() {
               <View testID="expense-readonly-note" style={[styles.readonlyNote, { backgroundColor: colors.surfaceMuted, borderColor: colors.border }]}>
                 <Icon name="lock" size={16} color={colors.textMuted} />
                 <T variant="caption" muted style={{ flex: 1 }}>
-                  Only the person who added this transaction or a group admin can edit it.
+                  Only the person who added this transaction, their family members, or a group admin can edit it.
                 </T>
               </View>
             )}

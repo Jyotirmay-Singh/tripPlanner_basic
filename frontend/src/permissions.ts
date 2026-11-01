@@ -5,13 +5,20 @@
 // rejected call still surfaces the backend's `detail`.
 
 export type ExpenseLike = { created_by?: string | null };
-export type TripLike = { admin_ids?: string[] | null };
+export type TripLike = {
+  owner_id?: string | null;
+  admin_ids?: string[] | null;
+  members?: {
+    kind?: string;
+    family_member_user_ids?: (string | null)[] | null;
+  }[] | null;
+};
 
 /**
- * True iff the given user may edit/delete the expense: they created it, or they are a
- * trip admin. A missing `created_by` (legacy rows) makes the creator branch false, so
- * only an admin can modify — matching the backend's safe default. An undefined user
- * (not signed in / still loading) can never modify.
+ * Allow the creator, accounts linked to the creator's current family in this trip,
+ * and admins to edit/delete. The payer and split participants do not grant access.
+ * Legacy rows without `created_by` remain admin-only. A missing user cannot modify
+ * unless the server has verified that they are the application admin.
  */
 export function canModifyExpense(
   expense: ExpenseLike,
@@ -21,7 +28,13 @@ export function canModifyExpense(
 ): boolean {
   if (isSuperAdmin) return true;
   if (!userId) return false;
-  return expense.created_by === userId || (trip.admin_ids ?? []).includes(userId);
+  const creatorId = expense.created_by;
+  if (creatorId === userId || trip.owner_id === userId
+    || (trip.admin_ids ?? []).includes(userId)) return true;
+  if (!creatorId) return false;
+  return (trip.members ?? []).some((member) => member.kind === 'family'
+    && (member.family_member_user_ids ?? []).includes(creatorId)
+    && (member.family_member_user_ids ?? []).includes(userId));
 }
 
 // ---------------------------------------------------------------------------

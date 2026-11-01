@@ -4,7 +4,7 @@ from services.coverage_support import CoverageError
 from services.expense_conversion import (serialize_bson, stored_original_amount,
     stored_original_currency, stored_original_custom_amounts)
 from services.settlement_engine import to_scaled
-from utils.permissions import role_of
+from utils.permissions import can_modify_expense
 
 
 def metadata_changes(expense, body, currency):
@@ -50,7 +50,7 @@ async def expense_metadata(trip_id, expense_id, body, user):
         expense = await workflow.db.expenses.find_one({"id": expense_id, "trip_id": trip_id}, {"_id": 0}, session=session)
         if not expense or expense.get("deleted_at"):
             raise workflow.error("expense_not_found", 404)
-        if expense.get("created_by") != actor["id"] and role_of(trip, actor) not in workflow.ADMIN_ROLES:
+        if not can_modify_expense(trip, expense, actor):
             raise workflow.error("insufficient_authority", 403)
         updates = metadata_changes(expense, body, trip.get("currency", "INR"))
         if updates:

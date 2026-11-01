@@ -114,7 +114,7 @@ export default function FinancialReviewSheet({ tripId, request, currency, names,
         {review ? <>
           <ReviewEffectsView effects={review.effects} currency={currency} names={names} />
           <T>{review.requires_admin ? 'A current group admin must approve this correction.' : review.required_person_ids?.length
-            ? 'Every affected person must approve, or a group admin must approve with a reason.' : 'The expense creator or a group admin may apply this uncovered change.'}</T>
+            ? 'Every affected person must approve, or a group admin must approve with a reason.' : 'The expense creator, their family members, or a group admin may apply this uncovered change.'}</T>
           <Button label="Submit reviewed correction" loading={busy} onPress={() => void run(true)} testID="financial-review-submit" />
         </> : null}
         <Button label={review ? 'Refresh preview' : 'Preview effects'} disabled={!reason.trim()} loading={busy}
