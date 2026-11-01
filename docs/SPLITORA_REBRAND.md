@@ -2,7 +2,9 @@
 
 Splitora is the official application name from November 1, 2026. This is a rename of the
 existing application, with **Splitora** for production and **Splitora QA** for existing QA builds.
-The existing T/S symbol, icons, colors, and splash art are retained; only the name text changes.
+The current logo places the mint **S upper-left** and coral **T lower-right**. The Splitora
+wordmark, diagonal divider, pin/route motif, and existing visual style are retained.
+The initial name-only phase preserved the original T/S artwork; its verification is recorded below.
 
 ## Implementation
 
@@ -37,19 +39,19 @@ the frontend Expo configuration. The independent `q/` app retains its QA identit
 
 ## Artwork provenance and regeneration
 
-The bottom wordmark was edited with the built-in image-generation tool using the existing
+The initial wordmark was edited with the built-in image-generation tool using the existing
 `frontend/assets/logo/source-app-logo.jpg` as the reference/edit target. Only the resulting
 wordmark band is integrated into the maintained source artwork; the original symbol tile is
-stored losslessly as `assets/logo/source-symbol.png` in each app.
+stored independently in each app. `assets/logo/source-symbol.png` now holds the later S/T revision.
 
 Prompt: Replace only “TRIP SPLITTER” with the exact text “Splitora” (capital S, lowercase
 remainder), centered in the existing bottom band, with the existing slender italic typography
 and coral-to-mint colors. Preserve the T/S monogram, route/pin, divider, background, frame,
 lighting, canvas, and layout; add no other text or redesign.
 
-Run `node scripts/crop-brand-assets.mjs` from each app to regenerate its assets. The symbol
-source is separate from the wordmark so future regeneration preserves the original icons,
-favicon, and splash images byte for byte. The wordmark crop includes the lowercase descender.
+Run `node scripts/crop-brand-assets.mjs` from each app to regenerate its assets. Separate symbol
+and wordmark sources keep each edit independent. Use `--symbol-only` when changing the symbol
+to preserve the current wordmark bytes. The wordmark crop includes the lowercase descender.
 
 ## Release acceptance
 
@@ -59,7 +61,7 @@ Record actual verification outcomes and release references below before marking 
 - [x] Type checks, lint, Expo dependency/Doctor checks, full frontend tests, offline backend tests,
       and production web export pass.
 - [x] Production configuration and signed APK show Splitora; QA configuration shows Splitora QA.
-- [x] Original icons/favicons/splash images remain byte for byte identical after regeneration.
+- [x] The initial name-only revision preserved the original icon/favicon/splash bytes at `54b2c7e`.
 - [ ] Login/registration/invitation wordmarks render in light/dark themes and narrow layouts.
 - [ ] Signed upgrade, stored/offline data, old invitations, Google sign-in, and push behavior are
       checked on an isolated device/emulator; record any untested authenticated/physical-device steps.
@@ -95,8 +97,37 @@ remains pending until browser control is available. The edited wordmark itself w
 
 [Build 23 verification](releases/android-1.0.0-build-23.md) records the signed Splitora APK and native checks. An isolated emulator upgraded build 22 without losing a harmless app-data marker; fresh install/restart, light/dark/320dp login, and legacy-scheme registration passed. Real sign-in, authenticated offline queues, physical-device checks, and web/invitation visual checks remain unverified.
 
-[Draft PR #73](https://github.com/Jyotirmay-Singh/tripPlanner_basic/pull/73) contains the source and prepared stable-link change. Automatic approval review rejected direct main-branch publication because it triggers production deployments. The draft release and main/production promotion await explicit approval; the existing live URLs and old public artifact remain intact.
+[Draft PR #73](https://github.com/Jyotirmay-Singh/tripPlanner_basic/pull/73) contains the source and release records. Automatic approval review rejected direct main-branch publication because it triggers production deployments. The current logo needs a replacement APK before publication and stable-link promotion; existing live URLs and the old public artifact remain intact.
 
 Native acceptance completed after recovering an emulator System UI timeout and correcting the
 verification helper's outdated registration-heading expectation. No application change was
 needed for those retries. The final native run passed with no application crash.
+
+## Latest logo revision: S/T interchange
+
+The later instruction to interchange T and S supersedes the initial decision to retain their
+positions. The mint S is now upper-left and the coral T is lower-right. Updated source artwork,
+icons, adaptive icons, splash images, favicon, and white notification monograms are mirrored
+in production and QA assets, including all 50 checked-in Android density resources.
+Both existing `wordmark.png` files remain byte for byte unchanged.
+
+Mode: built-in image editing. Prompt: interchange the existing letter positions while keeping
+their colors, sculpted italic styling, divider, pin/route, dark topographic background, and rounded
+frame. Keep the Splitora wordmark unchanged. A second image edit repaired inherited lower-frame
+copy/paste bands in the text-free master.
+
+Current masters: `frontend/assets/logo/source-symbol.png` and
+`frontend/assets/logo/source-app-logo.jpg`, mirrored under `q/`; `app logo.jpg` is the full reference.
+Run `node scripts/crop-brand-assets.mjs --symbol-only` from either app to regenerate symbol
+outputs while retaining its existing wordmark bytes. Notification SVG paths were repositioned
+without redesigning their glyphs and re-rasterized to the existing white/transparent format.
+
+**Build 23 predates this logo revision and is superseded as a release candidate.** Its verified APK
+and metadata remain historical evidence. Build and verify a new APK from the updated logo source
+before publishing the current design. The proposed build-23 redirect was withdrawn; the existing
+stable download target remains build 22 until a replacement artifact is verified and approved.
+
+Logo checks: notification configuration passed in both apps; repeated symbol generation is
+deterministic; production/QA symbol outputs match; all 50 native image dimensions and formats
+are retained; 40 existing native alpha masks are unchanged. PNG outputs are replaced atomically
+to avoid partial images when Windows interrupts an overwrite.

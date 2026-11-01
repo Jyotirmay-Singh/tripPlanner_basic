@@ -1,6 +1,8 @@
 # Splitora 1.0.0 — Android build 23
 
-Status: **prepared; publication and production deployment await approval**. The production stable link still serves the prior build until rollout.
+Status: **verified historical candidate; superseded by the S/T logo revision**. This APK contains
+the earlier T/S symbol. Preserve its verification record and artifact, and build a new APK for
+the current logo before publication. The production stable link continues to serve the prior release.
 
 - Source: `54b2c7eebee1e9a36b7ddb99a6d70119da864c8d`
 - EAS build: [29f121b3-e48f-4ada-ab85-62b3deedca46](https://expo.dev/accounts/jyotirmay03/projects/frontend/builds/29f121b3-e48f-4ada-ab85-62b3deedca46)
@@ -19,9 +21,12 @@ No physical phone, real Google/password sign-in, or authenticated offline-queue 
 
 ## Rollout order
 
-Publish the verified draft release and confirm its APK downloads anonymously. Then merge [PR #73](https://github.com/Jyotirmay-Singh/tripPlanner_basic/pull/73), which deploys the backend/web rename and the temporary download redirect together. Verify the stable download checksum, homepage title, invitation privacy headers/app links, backend health, and API documentation title.
+Rebuild and verify an APK from the updated S/T logo source before publishing the latest design.
+Publish that replacement artifact and verify its anonymous download, then update the stable
+redirect and promote [PR #73](https://github.com/Jyotirmay-Singh/tripPlanner_basic/pull/73).
+Build 23 must not be published as the current-logo release.
 
-Planned asset: https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/download/android-v1.0.0-build.23/splitora-android-1.0.0-build-23.apk
+Superseded draft asset: `splitora-android-1.0.0-build-23.apk`
 Stable endpoint: https://tripsplitter-web.vercel.app/download/android
 
 Automatic approval review rejected a direct push to main because it can trigger production deployment. No production changes are claimed.

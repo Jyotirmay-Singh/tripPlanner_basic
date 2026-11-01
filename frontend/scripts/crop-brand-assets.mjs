@@ -1,18 +1,20 @@
-// Brand asset generator — keeps the original T/S symbol independent of the
+// Brand asset generator — keeps the S/T symbol independent of the
 // Splitora wordmark, so changing the name never changes app icons or splash art.
 //
 // The source is a single flattened tile holding two visual elements:
-//   • the SYMBOL  — location pin + dashed route + "T/S" monogram
+//   • the SYMBOL  — location pin + dashed route + "S/T" monogram
 //   • the WORDMARK — "Splitora" text along the bottom
-// The lossless source-symbol.png preserves the original textless symbol tile.
+// The lossless source-symbol.png is the current textless symbol tile.
 // The wordmark from source-app-logo.jpg (keyed to transparent) is used on the
 // sign-in screens. Supersedes the old procedural generate-logo-assets.mjs.
 //
 // Run:  node scripts/crop-brand-assets.mjs        (needs `sharp`; already a devDep)
+// Add --symbol-only to preserve the existing wordmark bytes when editing the symbol.
 //
 // The source tile is 1254 square; the wordmark band includes the lowercase p's descender.
 
 import { fileURLToPath } from 'node:url';
+import { writeFile, rename, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import sharp from 'sharp';
 
@@ -31,7 +33,13 @@ async function symbolTile() {
 }
 
 async function writePng(buf, name, msg) {
-  await sharp(buf).png().toFile(join(IMAGES, name));
+  const temporary = join(IMAGES, `.${name}.${process.pid}.tmp`);
+  try {
+    await writeFile(temporary, await sharp(buf).png().toBuffer());
+    await rename(temporary, join(IMAGES, name));
+  } finally {
+    await unlink(temporary).catch(() => {});
+  }
   console.log('wrote', name, msg || '');
 }
 
@@ -68,6 +76,7 @@ async function main() {
 
   // Login wordmark — crop + luminance→alpha key so the dark card drops out and the
   // orange/teal letters read on BOTH light and dark sign-in backgrounds.
+  if (process.argv.includes('--symbol-only')) return;
   const { data, info } = await sharp(SRC)
     .extract(WORDMARK)
     .ensureAlpha()
