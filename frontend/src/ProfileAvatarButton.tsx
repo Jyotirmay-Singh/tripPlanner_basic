@@ -50,13 +50,13 @@ export default function ProfileAvatarButton({ containerStyle }: Props) {
         accessibilityLabel={profileLabel}
         style={({ focused }: any) => [
           styles.circle,
-          { backgroundColor: colors.surfaceMuted, borderColor: colors.border },
+          { backgroundColor: colors.primary, borderColor: colors.primary },
           focused && Platform.OS === 'web' && { outlineWidth: 2, outlineColor: colors.primary, outlineStyle: 'solid', outlineOffset: 2 } as any,
         ]}
       >
         {ini !== ''
-          ? <T style={styles.initials} color={colors.primary}>{ini}</T>
-          : <Icon name="user-round" size={20} color={colors.primary} />}
+          ? <T style={styles.initials} color={colors.primaryText}>{ini}</T>
+          : <Icon name="user-round" size={20} color={colors.primaryText} />}
       </Pressable>
     </Animated.View>
   );
