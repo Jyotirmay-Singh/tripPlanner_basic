@@ -58,7 +58,7 @@ Record actual verification outcomes and release references below before marking 
 - [x] Affected frontend/QA and backend email/report/invitation checks pass.
 - [x] Type checks, lint, Expo dependency/Doctor checks, full frontend tests, offline backend tests,
       and production web export pass.
-- [ ] Production configuration and signed APK show Splitora; QA configuration shows Splitora QA.
+- [x] Production configuration and signed APK show Splitora; QA configuration shows Splitora QA.
 - [x] Original icons/favicons/splash images remain byte for byte identical after regeneration.
 - [ ] Login/registration/invitation wordmarks render in light/dark themes and narrow layouts.
 - [ ] Signed upgrade, stored/offline data, old invitations, Google sign-in, and push behavior are
@@ -90,3 +90,13 @@ Browser control stopped because it could not verify the active browser URL. Exte
 Store listing and Google OAuth/provider branding are therefore **unverified and pending**;
 no external console changes are claimed. Browser theme/narrow-layout visual acceptance also
 remains pending until browser control is available. The edited wordmark itself was inspected.
+
+## Prepared Android build 23
+
+[Build 23 verification](releases/android-1.0.0-build-23.md) records the signed Splitora APK and native checks. An isolated emulator upgraded build 22 without losing a harmless app-data marker; fresh install/restart, light/dark/320dp login, and legacy-scheme registration passed. Real sign-in, authenticated offline queues, physical-device checks, and web/invitation visual checks remain unverified.
+
+[Draft PR #73](https://github.com/Jyotirmay-Singh/tripPlanner_basic/pull/73) contains the source and prepared stable-link change. Automatic approval review rejected direct main-branch publication because it triggers production deployments. The draft release and main/production promotion await explicit approval; the existing live URLs and old public artifact remain intact.
+
+Native acceptance completed after recovering an emulator System UI timeout and correcting the
+verification helper's outdated registration-heading expectation. No application change was
+needed for those retries. The final native run passed with no application crash.
