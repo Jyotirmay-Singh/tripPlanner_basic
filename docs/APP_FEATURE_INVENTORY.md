@@ -150,7 +150,7 @@ Status meanings used below:
 
 ## Application Summary
 
-Trip Splitter is a collaborative trip-expense application for mobile and web. It serves groups whose costs may be attributed to standalone people or family units. Authenticated users create or join trips, chat under their trip-specific person identity, record positive expenses and negative refunds in the trip currency or a converted foreign currency, split each transaction per person, per family, or by exact per-person amounts, inspect balances, record partial payments, attach receipt images, and export reports.
+Splitora is a collaborative trip-expense application for mobile and web. It serves groups whose costs may be attributed to standalone people or family units. Authenticated users create or join trips, chat under their trip-specific person identity, record positive expenses and negative refunds in the trip currency or a converted foreign currency, split each transaction per person, per family, or by exact per-person amounts, inspect balances, record partial payments, attach receipt images, and export reports.
 
 The code is substantially ahead of the older MVP documents. Current code includes per-person family identity linking, three-tier trip RBAC, GridFS receipts, partial payments, exact splits, and PDF reports. Older claims in [memory/ARCHITECTURE.md](../memory/ARCHITECTURE.md#L251) and [memory/PRD.md](../memory/PRD.md#L28) that receipts are inline and PDF/RBAC are future work are no longer accurate.
 

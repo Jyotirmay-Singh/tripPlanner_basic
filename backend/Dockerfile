@@ -1,4 +1,4 @@
-# Trip Splitter FastAPI backend image.
+# Splitora FastAPI backend image.
 # All runtime deps (incl. bcrypt for hashing and python-multipart for receipt uploads) are
 # pinned in requirements.txt.
 FROM python:3.11-slim

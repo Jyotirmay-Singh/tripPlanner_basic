@@ -1,4 +1,4 @@
-# Trip Expense Splitter — PRD
+# Splitora — PRD
 
 ## Overview
 Mobile (Expo React Native) + FastAPI + MongoDB app for sharing trip expenses, tracking who owes whom, settling up, budgeting, and exporting reports.

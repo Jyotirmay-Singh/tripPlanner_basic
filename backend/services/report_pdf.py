@@ -148,7 +148,7 @@ def build_report_pdf(data: ReportData) -> bytes:
     width = landscape(A4)[0] - 24 * mm
     doc = SimpleDocTemplate(output, pagesize=landscape(A4), leftMargin=12 * mm, rightMargin=12 * mm,
                             topMargin=12 * mm, bottomMargin=15 * mm,
-                            title=str(data.snapshot.trip.get('name', 'Group')) + ' - Report', author='Trip Splitter')
+                            title=str(data.snapshot.trip.get('name', 'Group')) + ' - Report', author='Splitora')
     meta, symbol = data.metadata, currency_symbol(data.currency)
     title = ParagraphStyle('Title', parent=HEADING, fontSize=20, leading=25, spaceBefore=0)
     story = [Paragraph(escape(meta.trip_name), title)]

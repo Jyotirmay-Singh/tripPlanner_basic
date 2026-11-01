@@ -147,7 +147,7 @@ async function showRationaleOnce(): Promise<boolean> {
   return new Promise((resolve) => {
     Alert.alert(
       'Stay updated on your groups',
-      'Trip Splitter alerts may appear on your lock screen. They can show the group name and activity type; a chat sender; an expense creator and description or category; or payment parties, amount, and currency. Payment notes, UPI details, email addresses, receipts, message text, credentials, and rejection reasons are never included.',
+      'Splitora alerts may appear on your lock screen. They can show the group name and activity type; a chat sender; an expense creator and description or category; or payment parties, amount, and currency. Payment notes, UPI details, email addresses, receipts, message text, credentials, and rejection reasons are never included.',
       [
         {
           text: 'Not now',

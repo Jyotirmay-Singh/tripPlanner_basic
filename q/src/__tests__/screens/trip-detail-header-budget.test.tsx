@@ -150,10 +150,10 @@ const BASE_TRIP = {
   members: [INDIVIDUAL],
 };
 const APK_DOWNLOAD_URL = 'https://tripsplitter-web.vercel.app/download/android';
-const CODE_FALLBACK_MESSAGE = 'You have been invited to join the trip "Lakshadweep" on Trip Splitter.\n\n'
+const CODE_FALLBACK_MESSAGE = 'You have been invited to join the trip "Lakshadweep" on Splitora.\n\n'
   + 'Trip code: UCK3RZ\n'
-  + 'Enter this code in Trip Splitter to join the trip.\n\n'
-  + 'Download Trip Splitter for Android:\n'
+  + 'Enter this code in Splitora to join the trip.\n\n'
+  + 'Download Splitora for Android:\n'
   + APK_DOWNLOAD_URL;
 
 type Fixture = {
@@ -719,11 +719,11 @@ describe('Trip identity header', () => {
     expect(mockRefreshRuntimeConfig).toHaveBeenCalledTimes(1);
     expect(mockGetTripInviteLink).toHaveBeenCalledWith('t1');
     expect(nativeShare).toHaveBeenCalledWith({
-      message: 'You have been invited to join the trip "Lakshadweep" on Trip Splitter.\n\n'
+      message: 'You have been invited to join the trip "Lakshadweep" on Splitora.\n\n'
         + `Open the invitation link:\n${url}\n\n`
         + 'Trip code: UCK3RZ\n'
-        + 'You can also enter this code in Trip Splitter to join manually.\n\n'
-        + 'Download Trip Splitter for Android:\n'
+        + 'You can also enter this code in Splitora to join manually.\n\n'
+        + 'Download Splitora for Android:\n'
         + `${APK_DOWNLOAD_URL}\n\n`
         + 'A trip admin can reset this private invitation link at any time.',
     });

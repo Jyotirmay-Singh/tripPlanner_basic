@@ -65,7 +65,7 @@ export default function NotificationSettingsRow() {
     } catch {
       Alert.alert(
         'Unable to open settings',
-        'Open Android Settings, select Trip Splitter, then choose Notifications.',
+        'Open Android Settings, select Splitora, then choose Notifications.',
       );
     } finally {
       actionInFlight.current = false;
@@ -76,7 +76,7 @@ export default function NotificationSettingsRow() {
   const showBlockedHelp = useCallback(() => {
     Alert.alert(
       'Notifications blocked by Android',
-      'Go to Settings > Apps > Trip Splitter > Notifications, then turn on Allow notifications.',
+      'Go to Settings > Apps > Splitora > Notifications, then turn on Allow notifications.',
       [
         { text: 'Cancel', style: 'cancel' },
         {

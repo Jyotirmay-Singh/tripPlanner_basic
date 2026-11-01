@@ -595,7 +595,7 @@ export default function SettleUp() {
                 </View>
                 <View style={styles.attemptAmounts}>
                   <View style={styles.flex}>
-                    <T variant="caption" muted>Reported outside Trip Splitter</T>
+                    <T variant="caption" muted>Reported outside Splitora</T>
                     <T variant="h4">INR {attempt.inr_amount}</T>
                   </View>
                   {attempt.posted_amount != null ? (

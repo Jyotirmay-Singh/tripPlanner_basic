@@ -152,7 +152,7 @@ function HandoffInstructions({
     `Paste the copied UPI ID (${upiId}) into the payment app.`,
     `Verify that the recipient is ${recipientName} before continuing.`,
     `Enter exactly INR ${inrAmount}. Do not let the app replace the amount.`,
-    'Review and authorize inside the payment app. Trip Splitter never asks for your UPI PIN.',
+    'Review and authorize inside the payment app. Splitora never asks for your UPI PIN.',
   ];
   return (
     <Card variant="muted" style={styles.instructions} testID="upi-handoff-instructions">
@@ -296,7 +296,7 @@ export default function UpiPaymentSheet({
       if (sawAppBackground.current) {
         setWaitingForAppReturn(false);
         setDecisionReady(true);
-        setNotice('You are back in Trip Splitter. Report what happened in the payment app.');
+        setNotice('You are back in Splitora. Report what happened in the payment app.');
       }
     });
     return () => subscription.remove();
@@ -681,7 +681,7 @@ export default function UpiPaymentSheet({
                         setTransactionReference(value);
                         if (referenceError) setReferenceError(null);
                       }}
-                      helper="This is your note only. Trip Splitter does not verify it with a bank."
+                      helper="This is your note only. Splitora does not verify it with a bank."
                       error={referenceError}
                       errorTestID="upi-reference-error"
                       accessibilityLabel="Optional transaction reference, not bank verified"

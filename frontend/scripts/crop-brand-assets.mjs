@@ -1,17 +1,16 @@
-// Brand asset generator — derives every app icon/splash/favicon PLUS the login
-// wordmark from ONE source tile: assets/logo/source-app-logo.jpg (1254x1254).
+// Brand asset generator — keeps the original T/S symbol independent of the
+// Splitora wordmark, so changing the name never changes app icons or splash art.
 //
 // The source is a single flattened tile holding two visual elements:
 //   • the SYMBOL  — location pin + dashed route + "T/S" monogram
-//   • the WORDMARK — "TRIP SPLITTER" text along the bottom
-// This script splits them: the symbol (text removed) feeds every app-wide surface
-// wired through app.json; the wordmark (keyed to transparent) is used only on the
+//   • the WORDMARK — "Splitora" text along the bottom
+// The lossless source-symbol.png preserves the original textless symbol tile.
+// The wordmark from source-app-logo.jpg (keyed to transparent) is used on the
 // sign-in screens. Supersedes the old procedural generate-logo-assets.mjs.
 //
 // Run:  node scripts/crop-brand-assets.mjs        (needs `sharp`; already a devDep)
 //
-// Crop boxes were measured from the source by pixel projection; a ~78px pure-dark
-// gap (y 930..1008) cleanly separates the symbol art from the wordmark.
+// The source tile is 1254 square; the wordmark band includes the lowercase p's descender.
 
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -20,27 +19,15 @@ import sharp from 'sharp';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 const SRC = join(ROOT, 'assets', 'logo', 'source-app-logo.jpg');
+const SYMBOL = join(ROOT, 'assets', 'logo', 'source-symbol.png');
 const IMAGES = join(ROOT, 'assets', 'images');
 
 const DARK = '#0A0D0C'; // app dark base (matches android.adaptiveIcon.backgroundColor)
 
-// Card (rounded tile) bbox within the 1254² source, and the wordmark band.
-const CARD = { left: 40, top: 45, width: 1172, height: 1172 };
-const WORDMARK = { left: 225, top: 990, width: 830, height: 90 };
-// A clean, textless strip of card copied UP over the wordmark to erase it while
-// preserving the card's subtle topographic texture (a flat fill leaves a visible patch).
-const CLEAN_BAND = { left: 0, top: 1064, width: 1254, height: 88 };
-const ERASE_AT = { top: 998, left: 0 };
+const WORDMARK = { left: 225, top: 988, width: 830, height: 100 };
 
 async function symbolTile() {
-  // 1) erase the wordmark by compositing the clean card band over it
-  const band = await sharp(SRC).extract(CLEAN_BAND).png().toBuffer();
-  const cleaned = await sharp(SRC)
-    .composite([{ input: band, top: ERASE_AT.top, left: ERASE_AT.left }])
-    .png()
-    .toBuffer();
-  // 2) crop to the full-bleed card tile (no words)
-  return sharp(cleaned).extract(CARD).png().toBuffer();
+  return sharp(SYMBOL).png().toBuffer();
 }
 
 async function writePng(buf, name, msg) {

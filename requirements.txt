@@ -1,4 +1,4 @@
-# Trip Expense Splitter — backend dependencies
+# Splitora — backend dependencies
 # Target: Python 3.13 (all pins below ship cp313 / abi3 wheels)
 #
 # Only difference vs backend/requirements.txt: motor + pymongo are bumped to a

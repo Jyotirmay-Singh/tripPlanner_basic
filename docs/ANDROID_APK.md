@@ -1,9 +1,11 @@
 # Android APK — Build & Install Guide
 
-A standalone, side-loadable Android APK of Trip Splitter, pointed at the production backend
+A standalone, side-loadable Android APK of Splitora, pointed at the production backend
 (`https://tripsplitter-api.onrender.com`).
 
-App: **Trip Splitter** · package `com.tripsplitter.app` · version **1.0.0**.
+App: **Splitora** · package `com.tripsplitter.app` · version **1.0.0**.
+Splitora is the official name of the existing app. Historical binaries below were released as
+Trip Splitter; their filenames, signatures, checksums, and download URLs remain unchanged.
 Current public binary: **build 22**, built from commit `005075f84aed5beed336126c0a68c23d31e95193`.
 The saved GPay UI branch was not merged or included.
 

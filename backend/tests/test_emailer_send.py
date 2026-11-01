@@ -14,7 +14,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import utils.emailer as emailer  # noqa: E402
 
-LOGGER_NAME = "trip-splitter"
+LOGGER_NAME = "splitora"
 
 
 def _run(coro):
@@ -45,13 +45,16 @@ def test_send_email_no_api_key_logs_link_and_skips_send(monkeypatch, mock_resend
 # --------------------------------------------------------------------------- #
 # send_email — configured branch: dispatches via Resend with the right payload
 # --------------------------------------------------------------------------- #
-def test_send_email_with_key_dispatches_via_resend(monkeypatch, mock_resend):
+@pytest.mark.parametrize("sender", [
+    "no-reply@tripsplitter.com", "Previous name <no-reply@tripsplitter.com>",
+])
+def test_send_email_with_key_dispatches_via_resend(monkeypatch, mock_resend, sender):
     monkeypatch.setattr(emailer, "RESEND_API_KEY", "re_key")
-    monkeypatch.setattr(emailer, "SENDER_EMAIL", "no-reply@tripsplitter.com")
+    monkeypatch.setattr(emailer, "SENDER_EMAIL", sender)
     _run(emailer.send_email("u@gmail.com", "Verify", "<b>body</b>", link_for_log="lnk"))
     mock_resend.assert_called_once()
     payload = mock_resend.call_args.args[0]
-    assert payload["from"] == "no-reply@tripsplitter.com"
+    assert payload["from"] == "Splitora <no-reply@tripsplitter.com>"
     assert payload["to"] == ["u@gmail.com"]
     assert payload["subject"] == "Verify"
     assert payload["html"] == "<b>body</b>"

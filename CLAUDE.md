@@ -4,7 +4,7 @@ Repository guidance for Claude Code. Treat this file as current operating guidan
 
 ## 1. Project Summary and Sources of Truth
 
-Trip Expense Splitter is an Expo/React Native app with a FastAPI/MongoDB backend. It helps groups track trip expenses, split costs among individuals and families, reconcile balances, record payments, attach receipts, and export XLSX/PDF reports.
+Splitora is an Expo/React Native app with a FastAPI/MongoDB backend. It helps groups track trip expenses, split costs among individuals and families, reconcile balances, record payments, attach receipts, and export XLSX/PDF reports.
 
 1. Current code, schemas, routes, and tests are authoritative for implementation behavior.
 2. `docs/APP_FEATURE_INVENTORY.md` is the current audited feature snapshot.

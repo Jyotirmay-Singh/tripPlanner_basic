@@ -1,4 +1,4 @@
-# Trip Splitter local stack: MongoDB (durable) + FastAPI backend.
+# Splitora local stack: MongoDB (durable) + FastAPI backend.
 # The Expo frontend stays host-run (`cd frontend && yarn web`) against http://127.0.0.1:8000.
 #
 #   docker compose up -d --build      # start

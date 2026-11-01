@@ -1,4 +1,7 @@
-# Trip Expense Splitter
+# Splitora
+
+Splitora is the official name of the existing application. Existing installations, accounts,
+data, package IDs, and URLs are retained. See [the rename and rollout record](docs/SPLITORA_REBRAND.md).
 
 A mobile app for tracking shared expenses, splitting costs between individuals and
 families, settling balances, and exporting reports.

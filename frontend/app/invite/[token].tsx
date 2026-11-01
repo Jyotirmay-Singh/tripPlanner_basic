@@ -172,7 +172,7 @@ export default function InviteLanding() {
             source={require('../../assets/images/wordmark.png')}
             style={styles.wordmark}
             resizeMode="contain"
-            accessibilityLabel="Trip Splitter"
+            accessibilityLabel="Splitora"
           />
 
           <View style={[styles.pass, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -195,7 +195,7 @@ export default function InviteLanding() {
                       source={APP_LOGO}
                       style={styles.appLogo}
                       resizeMode="contain"
-                      accessibilityLabel="Trip Splitter app logo"
+                      accessibilityLabel="Splitora app logo"
                       testID="invite-app-logo"
                     />
                   </View>
@@ -207,7 +207,7 @@ export default function InviteLanding() {
                   {Platform.OS === 'web' ? (
                     <View style={styles.actions}>
                       <Button
-                        label="Open Trip Splitter"
+                        label="Open Splitora"
                         iconSource={APP_LOGO}
                         onPress={openApp}
                         fullWidth
@@ -272,7 +272,7 @@ export default function InviteLanding() {
               <T variant="h4">Installing for the first time?</T>
               <T variant="caption" muted>
                 Download and install the APK. Then return to WhatsApp and tap the original invite
-                link again; Trip Splitter will open directly on the joining page.
+                link again; Splitora will open directly on the joining page.
               </T>
             </View>
           ) : null}

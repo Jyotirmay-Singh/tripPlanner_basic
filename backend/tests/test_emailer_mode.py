@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import utils.emailer as emailer  # noqa: E402
 
@@ -26,9 +28,12 @@ def test_mode_test_sender(monkeypatch):
     assert "onboarding@resend.dev" in msg
 
 
-def test_mode_test_sender_is_case_and_space_insensitive(monkeypatch):
+@pytest.mark.parametrize("sender", [
+    "  Onboarding@Resend.Dev  ", "Splitora <onboarding@resend.dev>",
+])
+def test_mode_test_sender_is_case_and_space_insensitive(monkeypatch, sender):
     monkeypatch.setattr(emailer, "RESEND_API_KEY", "re_secret_key_value")
-    monkeypatch.setattr(emailer, "SENDER_EMAIL", "  Onboarding@Resend.Dev  ")
+    monkeypatch.setattr(emailer, "SENDER_EMAIL", sender)
     assert "test sender" in emailer.sender_mode_summary()
 
 

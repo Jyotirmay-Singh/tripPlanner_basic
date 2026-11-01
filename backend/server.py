@@ -301,7 +301,7 @@ async def lifespan(app: FastAPI):
         client.close()
 
 
-app = FastAPI(title="Trip Splitter", lifespan=lifespan)
+app = FastAPI(title="Splitora", lifespan=lifespan)
 api = APIRouter(prefix="/api")
 
 for module in (auth, departure, trips, join_requests, invites, members, expenses, balances, reports, meta, receipts, spend, payments, payment_attempts, chat, push, exchange_rates, admin, expense_settlement):
