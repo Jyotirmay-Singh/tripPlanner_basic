@@ -10,7 +10,6 @@ import { useAuth } from '../src/AuthContext';
 import { useTheme } from '../src/ThemeContext';
 import {
   canonicalMobileNumber,
-  countryFromLocale,
   formatMobileDraft,
   MOBILE_INVALID_MESSAGE,
 } from '../src/mobileNumber';
@@ -44,8 +43,7 @@ export default function SetMobile() {
   const router = useRouter();
   const toast = useToast();
   const { colors } = useTheme();
-  const localeCountry = useRef(countryFromLocale()).current;
-  const savedCountry = (user?.mobile_country_code || localeCountry) as CountryCode;
+  const savedCountry = (user?.mobile_country_code || 'IN') as CountryCode;
   const initialDraft = user?.mobile_number
     ? formatMobileDraft(user.mobile_number, savedCountry)
     : { country: savedCountry, display: '' };
@@ -65,13 +63,13 @@ export default function SetMobile() {
   useEffect(() => {
     if (!profileMode || profileValueInitialized.current || !userLoaded) return;
     profileValueInitialized.current = true;
-    const nextCountry = (user?.mobile_country_code || localeCountry) as CountryCode;
+    const nextCountry = (user?.mobile_country_code || 'IN') as CountryCode;
     const nextDraft = user?.mobile_number
       ? formatMobileDraft(user.mobile_number, nextCountry)
       : { country: nextCountry, display: '' };
     setCountry(nextDraft.country);
     setMobileNumber(nextDraft.display);
-  }, [localeCountry, profileMode, user?.mobile_country_code, user?.mobile_number, userLoaded]);
+  }, [profileMode, user?.mobile_country_code, user?.mobile_number, userLoaded]);
 
   const finishOnboarding = () => {
     completeMobileOnboarding();
