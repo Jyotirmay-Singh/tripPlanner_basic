@@ -27,12 +27,12 @@ def test_pdf_and_excel_share_financial_measures_and_separate_report_sections():
     data, reader, pages = render()
     text = ' '.join(' '.join(pages).split())
     workbook = load_workbook(io.BytesIO(build_report_xlsx(data)))
-    for col, value in [('A8', data.gross), ('D8', data.money_back), ('G8', data.net), ('J8', data.outstanding)]:
+    for col, value in [('B7', data.gross), ('B8', data.money_back), ('B9', data.net), ('B10', data.outstanding)]:
         assert workbook['Summary'][col].value == value
         assert indian_number(value) in text
     for label in ['Gross spending', 'Money back', 'Net spending', 'Still to settle', 'Funding by account',
-                  'Expense shares by family and person', 'Members & Families', 'Outstanding settlement plan',
-                  'Recorded settlement history', 'Transactions', 'Balance reconciliation notes']:
+                  'Net expense shares by person and category', 'Members & Families', 'Outstanding settlement plan',
+                  'Recorded settlement history', 'Transactions']:
         assert label in text
     assert 'Split Math' not in text and 'Split Allocations' not in text
     assert '82,905' in text and '70,503' in text  # actual cost and final family position differ
@@ -45,7 +45,9 @@ def test_pdf_and_excel_share_financial_measures_and_separate_report_sections():
     assert all(float(p.mediabox.width) > float(p.mediabox.height) for p in reader.pages)
     assert all(f'Page {n} of {len(pages)}' in p for n, p in enumerate(pages, 1))
     assert not any(p.strip().startswith('Adjustments') for p in pages)
-    assert all(a.explanation in text for a in data.adjustments)
+    assert all(a.explanation not in text for a in data.adjustments)
+    assert 'Adjustments' not in text and 'reconciliation notes' not in text.lower()
+    assert 'Net spending by category' not in text
     assert all(label not in text for label in ['Share code', 'Exported at (IST)', 'Whole-history snapshot', data.metadata.share_code])
     assert 'Members' not in pages[0] and 'Currency' not in pages[0]
 
@@ -70,8 +72,8 @@ def test_fx_evidence_and_private_payment_fields_are_handled_consistently():
                      if e['id'] == 'e07' else e for e in source.expenses)
     _, _, pages = render(replace(source, payments=payments, expenses=expenses))
     text = ' '.join(' '.join(pages).split())
-    for expected in ['Original amount: 100.00 USD', 'Stored rate: 82.000000000000', 'Effective date: 2026-10-02',
-                     'Stored reference rate', 'Mode: manual', 'Original exact allocations: p3: 50; s3: 50']:
+    for expected in ['Original amount', '100.00', 'USD', 'Stored rate', '82.000000000000', 'Effective date', '2026-10-02',
+                     'Stored reference rate', 'manual', 'Original exact allocations', 'p3: 50; s3: 50']:
         assert expected in text
     for private in ['private-attempt', 'private@upi', 'PRIVATE-REFERENCE']:
         assert private not in text
@@ -87,7 +89,7 @@ def test_empty_report_has_meaningful_empty_sections_without_dummy_expenses():
     assert 'Expense ID:' not in text
 
 
-def test_long_names_categories_descriptions_and_payment_notes_wrap_and_paginate():
+def test_long_names_categories_descriptions_wrap_and_payment_notes_are_omitted():
     source = sample_snapshot()
     source.trip['name'] = 'Long <literal> & report'
     for m in source.trip['members']:
@@ -103,7 +105,8 @@ def test_long_names_categories_descriptions_and_payment_notes_wrap_and_paginate(
     assert '<Expense> & literal description' in text
     assert text.count('Family / account') >= 4
     assert all(f'Page {n} of {len(pages)}' in page for n, page in enumerate(pages, 1))
-    assert 'Event ID: payment-1' in text
+    assert 'payment-1' in text
+    assert 'A long payment note.' not in text
 
 
 @pytest.mark.parametrize('currency,amount,expected', [('JPY', 1235, '1,235'), ('KWD', 1235.5, '1,236')])
@@ -129,17 +132,26 @@ def test_transaction_continuations_repeat_the_source_expense_identity():
     assert all('Expense ID: large-expense' in page for page in pages[first:])
 
 
+def test_expense_headers_stay_with_their_participant_table():
+    data, _, pages = render()
+    for expense in {a.expense_id: a for a in data.allocations}.values():
+        title = f'{expense.number}. {expense.description}'
+        page = next(' '.join(page.split()) for page in pages if title in ' '.join(page.split()))
+        assert f'Expense {expense.number}. Expense ID: {expense.expense_id}' in page
+
+
 @pytest.mark.parametrize('currency,symbol', [('AED', 'AED'), ('EUR', '€')])
 def test_pdf_financial_columns_follow_trip_currency(currency, symbol):
     source = sample_snapshot()
     data, _, pages = render(replace(source, trip={**source.trip, 'currency': currency}))
     text = ' '.join(' '.join(pages).split())
     for label in ['Gross funded', 'Money back', 'Net funded', 'Expense share', 'Before settlements',
-                  'Settlements paid', 'Settlements received', 'Adjustments', 'Balance now', 'Amount']:
+                  'Settlements paid', 'Settlements received', 'Balance now', 'Amount']:
         assert f'{label} ({symbol})' in text
     assert f'Accommodation ({symbol})' in text
-    assert f'All categories ({symbol})' in text
-    assert f'Net spending by category ({currency})' in text
-    assert f'{symbol} {indian_number(data.net)}' in text
+    assert f'Total ({symbol})' in text
+    assert 'Net expense shares by person and category' in text
+    assert 'Adjustments' not in text
+    assert indian_number(data.net) in text
     assert 'INR' not in text and '₹' not in text
-    assert 'Original amount: 100 USD' in text
+    assert 'Original amount' in text and 'USD' in text

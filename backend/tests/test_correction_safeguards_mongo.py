@@ -207,10 +207,10 @@ def test_effective_report_xlsx_and_pdf_use_compensated_money_and_current_revisio
             async def content(response):
                 return b"".join([part if isinstance(part, bytes) else part.encode() async for part in response.body_iterator])
             book = load_workbook(io.BytesIO(await content(xlsx)), data_only=True)
-            review = " ".join(str(cell.value or "") for row in book["Financial Review"] for cell in row)
             pdf_text = " ".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(await content(pdf))).pages)
-            assert "replace_cash" in review and "replace_expense" in review and "60 INR" in review
-            assert "replace_cash" in pdf_text and "replace_expense" in pdf_text and "60 INR" in pdf_text
+            assert book.sheetnames == ["Summary", "Members & Families", "Transactions", "Payments"]
+            assert book["Summary"]["B9"].value == 120
+            assert "Financial Review" not in pdf_text and "replace_cash" not in pdf_text and "replace_expense" not in pdf_text
             payment_values = [cell.value for row in book["Payments"] for cell in row]
             assert 60 in payment_values and 100 not in payment_values
             assert await database.payments.count_documents({}) == 1
