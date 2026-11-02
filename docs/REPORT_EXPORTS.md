@@ -52,8 +52,10 @@ Its historical differences are not used as compensating values in the ledger or 
 ## Excel implementation
 
 `services/report_xlsx.py` writes exactly four tabs: Summary, Members & Families, Transactions and
-Payments. Supporting adjustment amounts stay in the balance table with reconciliation notes below it;
-there is no Adjustments tab or dangling worksheet hyperlink. `services/report_formatting.py` holds shared
+Payments. The presentation omits adjustment columns, reconciliation commentary, payment notes and
+the optional Financial Review appendix. Supporting adjustments and correction evidence remain in the
+shared model and source ledger, with unchanged final balances and reconciliation checks. There is no
+Adjustments tab or dangling worksheet hyperlink. `services/report_formatting.py` holds shared
 branding, semantic colours, currency symbols and Indian grouping.
 
 `services/report_pivot.py` is a dedicated adapter for the pinned openpyxl 3.1.5 OOXML types. It writes
@@ -71,8 +73,13 @@ pivot cache. Stable identities remain internal, with disambiguated display names
 The expense ID and original-currency/rate evidence are grouped in columns L:T. Monetary headings use
 the trip's currency; original-currency evidence retains its recorded currency.
 
-The one category chart has its own whole-trip source and saved data cache. It is independent of pivot
-filters. Its source columns are placed beyond the visible matrix even for wide category sets.
+Summary presents its four spending measures vertically in a Measure/Amount table, alongside account
+funding. The person/category pivot follows immediately below the fixed tables, leaving its expansion
+area clear. It has bold account/grand totals and a
+bold Total column, including a native last-column style retained on pivot refresh. There are no charts
+or chart helper columns. All tabs are unfrozen. Headers follow titles directly, row heights fit their
+content, hidden detail does not inflate visible rows, and unused spacer rows/columns are omitted.
+Pivot filters affect only the pivot; headline figures continue to represent the complete export.
 Empty reports show a meaningful message and contain no dummy allocation rows or pivot.
 
 ## PDF implementation
@@ -80,11 +87,11 @@ Empty reports show a meaningful message and contain no dummy allocation rows or 
 `services/report_pdf.py` consumes the same finished report data. It uses A4 landscape, embedded
 Noto Sans (included under `backend/assets/fonts` with its OFL licence), 10.5-point table text,
 repeated headers and page numbers. Category matrices use up to four categories per band, with
-identifiers repeated and all-category totals in the final band. The vector chart can continue across
-pages. Transactions are expense groups with participant allocations and source IDs beneath them.
+identifiers repeated and bold all-category totals in the final band. Transactions are expense groups
+with structured expense metadata, participant allocations and source IDs beneath them.
 Long text can wrap and table rows can split across pages. Extra pages preserve readable type.
-Every financial column uses the trip's currency. Supporting reconciliation notes follow the balance
-table rather than appearing in an adjustment appendix.
+Every financial column uses the trip's currency. Spending measures are vertical, with compact table
+padding and no charts, adjustment columns or report notes. FX source evidence remains structured data.
 
 ## Reproducing review samples
 
@@ -114,7 +121,18 @@ This uses synthetic data only and does not connect to a database. The sample inc
 modes, partial families, refunds, zero allocations, duplicate names, historical people/accounts,
 locked FX evidence, legacy settlements, distinct matching payments and migration adjustments.
 
-## Verification record
+## Compact-layout verification (3 November 2026)
+
+The focused report/model/layout checks passed 116 unique tests, including the final PDF grouping check.
+Authenticated download contract checks and
+the effective-ledger correction regression suite passed a further 36 tests against an isolated local
+replica set. The checks confirm cached person/category shares, unchanged final balances, no frozen
+panes or chart parts, transposed spending measures, omitted adjustment columns/notes, and bold totals.
+These are synthetic tests; no production financial records or private workbook are used.
+All four final workbook tabs and all 13 sample PDF pages were visually reviewed. Native desktop
+Excel interaction remains unverified; this presentation revision has not yet been deployed.
+
+## Previous verification record
 
 The final focused export suite passed 54 tests, including AED/EUR currency and compact-layout checks.
 The wider offline financial regression run passed 241 tests before the additional PDF continuation
@@ -126,7 +144,7 @@ were visually reviewed.
   account/child boundaries, missing dates, empty groups, wide category sets and financial parity.
 - Local ASGI HTTP tests exercise the unchanged download URLs, required token, streamed response
   types, filenames, access failures and reconciliation failures using synthetic database doubles.
-- Generated workbooks are reopened and their XML parts, cached pivot records, totals, chart cache,
+- Generated workbooks are reopened and their XML parts, cached pivot records, person/category totals,
   named tables and styles are checked. All workbook tabs are rendered with the bundled preview tool.
 - Every page of the representative PDF is rendered for visual review. Text extraction additionally
   checks totals, source identities, repeated page numbers, embedded fonts and the rupee glyph.

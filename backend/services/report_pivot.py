@@ -37,6 +37,7 @@ def _forest_style(workbook):
         ("firstSubtotalRow", "EAF0EE", BRAND, True),
         ("secondSubtotalRow", "EAF0EE", BRAND, True),
         ("totalRow", "DDE9E5", BRAND, True),
+        ("lastColumn", "EAF0EE", BRAND, True),
         ("firstRowStripe", "F4F7F6", "121A18", False),
         ("secondRowStripe", "FFFFFF", "121A18", False),
         ("pageFieldLabels", "FFFFFF", BRAND, True),
@@ -130,6 +131,8 @@ def add_allocation_pivot(workbook, sheet, source_headers, source_rows, data, sta
     sheet.cell(start_row - 2, 2, "(All)")
     measure_caption = f"Net expense share ({currency_symbol(data.currency)})"
     sheet.cell(start_row, 1, measure_caption)
+    sheet.cell(start_row, 1).font = Font(name="Calibri", size=13, bold=True, color=BRAND)
+    sheet.cell(start_row, 1).alignment = Alignment(wrap_text=True, vertical="center")
     sheet.cell(start_row, 3, "Category")
     captions = ["Family / account", "Person", *categories, f"Total ({currency_symbol(data.currency)})"]
     for col, caption in enumerate(captions, 1):

@@ -75,7 +75,7 @@ def test_download_loads_each_source_once_and_preserves_public_contract(monkeypat
     if kind == 'xlsx':
         wb = load_workbook(io.BytesIO(content))
         assert wb.sheetnames == ['Summary', 'Members & Families', 'Transactions', 'Payments']
-        assert wb['Summary']['G8'].value == build_report_data(source).net
+        assert wb['Summary']['B9'].value == build_report_data(source).net
     else:
         assert content.startswith(b'%PDF')
         assert len(PdfReader(io.BytesIO(content)).pages) >= 4
@@ -125,7 +125,7 @@ def test_exports_use_the_same_plan_as_the_authoritative_balance_route(monkeypatc
     actual = [(r[0], r[1], r[2]) for r in rows if r[3] == 'Suggested']
     assert actual == [(expected_names[t['from_member_id']], expected_names[t['to_member_id']], t['amount']) for t in balance['transfers']]
     label = 'Minimum payment plan' if simplify else 'Direct repayment plan'
-    assert wb['Payments']['B3'].value == label
+    assert wb['Payments']['B2'].value == label
     assert next(r[2] for r in rows if r[0] == 'Outstanding plan total') == sum(t['amount'] for t in balance['transfers'])
 
 
@@ -157,14 +157,14 @@ def test_http_download_stream_uses_existing_url_token_and_response_type(monkeypa
     assert response.headers['content-disposition'].endswith('_report.' + kind)
     if kind == 'xlsx':
         assert 'spreadsheet' in response.headers['content-type']
-        assert load_workbook(io.BytesIO(response.content))['Summary']['G8'].value == 251152
+        assert load_workbook(io.BytesIO(response.content))['Summary']['B9'].value == 251152
     else:
         assert response.headers['content-type'] == 'application/pdf'
         assert PdfReader(io.BytesIO(response.content)).pages
 
 
 @pytest.mark.parametrize("kind", ["xlsx", "pdf"])
-def test_versioned_exports_reuse_effective_ledger_and_keep_review_evidence(monkeypatch, kind):
+def test_versioned_exports_reuse_effective_ledger_without_review_notes(monkeypatch, kind):
     source, fake = install(monkeypatch)
     effective = SimpleNamespace(
         trip={**source.trip, "expense_settlement_schema_version": 2},
@@ -182,7 +182,10 @@ def test_versioned_exports_reuse_effective_ledger_and_keep_review_evidence(monke
         collection.find.assert_not_called()
     if kind == "xlsx":
         workbook = load_workbook(io.BytesIO(content))
-        assert workbook["Financial Review"]["A2"].value == explanation
+        assert workbook.sheetnames == ['Summary', 'Members & Families', 'Transactions', 'Payments']
+        assert workbook['Summary']['B9'].value == build_report_data(source).net
+        assert explanation not in [cell.value for sheet in workbook for row in sheet for cell in row]
     else:
         text = " ".join(page.extract_text() for page in PdfReader(io.BytesIO(content)).pages)
-        assert explanation in text
+        assert explanation not in text and 'Financial Review' not in text
+        assert '2,51,152' in text

@@ -718,16 +718,17 @@ Values use Indian digit grouping and a currency symbol, such as **₹2,72,628**.
 
 The workbook contains four standard tabs:
 
-1. **Summary** shows gross spending, money back, net spending, and the amount still to settle.
+1. **Summary** shows gross spending, money back, net spending, and the amount still to settle
+   as a vertical Measure/Amount table. The person-by-category pivot follows immediately.
    One funding table separates each account's gross funding, money back, and net funding.
    A native Excel PivotTable groups **family/account → person** by category and sums **Expense share**.
    Expand or collapse families, filter categories/accounts/people, or use the date and entry-type
    filters. Saved results are available before refreshing. In desktop Excel, select the pivot to open
    its field list; double-click a value to inspect its contributing allocation rows.
-   One bar chart shows whole-trip net spending by category. **Pivot filters change only the pivot**;
-   the chart and headline figures continue to show the whole trip.
+   There are no charts. **Pivot filters change only the pivot**; headline figures continue to show the
+   whole trip. The Total column, account subtotals and grand totals are bold.
 2. **Members & Families** separates **Expense share**, **Net funded**, **Before settlements**,
-   **Settlements paid**, **Settlements received**, optional **Adjustments**, **Balance now**, and **Action**.
+   **Settlements paid**, **Settlements received**, **Balance now**, and **Action**.
    Family totals are bold and their member rows are indented and expandable. Members show their own
    expense shares and existing positions within the family. Funding and payments stay on the family
    account. Child rows are included in the family total and excluded from account grand totals and
@@ -744,9 +745,10 @@ The workbook contains four standard tabs:
    and remain sortable. UPI IDs, mobile numbers, private payment attempts, and transaction references
    are omitted.
 
-Supporting migration or verified historical rounding amounts remain in the **Members & Families**
-balance table, with reconciliation notes below it. There is no separate Adjustments tab.
-These explain the existing balance and remain separate from expense shares and payments.
+All tabs are unfrozen and use compact rows and columns. The exports omit adjustment columns,
+payment notes and reconciliation or review commentary. There is no separate Adjustments tab.
+Supporting migration, verified historical rounding and correction evidence remain in the app's ledger
+and internal reporting model. Final balances and expense shares are unchanged.
 A report that cannot explain its source ledger returns a reconciliation error instead of a download.
 Historical people/accounts retain their stable IDs; missing names or person attribution are labelled.
 
@@ -765,7 +767,7 @@ selected direct or simplified plan.
 The **PDF** contains the same figures in A4 landscape with an embedded Noto Sans font supporting ₹,
 readable body text, repeated table headers, and page numbers. Wide category matrices continue in labelled
 column bands with participant identifiers repeated. Transaction sections group each expense with its
-participating people beneath it. Reconciliation notes follow the balance table in both formats.
+participating people beneath it, with structured source metadata and no report notes or charts.
 
 The standard exports no longer contain **Split Math** or a second person-total table. Allocation details
 remain available in Transactions and the pivot. Opening, filtering, refreshing, or drilling into the

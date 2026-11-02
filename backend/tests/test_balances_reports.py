@@ -243,20 +243,20 @@ class TestReports:
         wb = load_workbook(io.BytesIO(response.content))
         assert wb.sheetnames == ["Summary", "Members & Families", "Transactions", "Payments"]
         summary = wb["Summary"]
-        assert (summary["A8"].value, summary["D8"].value, summary["G8"].value) == (270, 20, 250)
-        assert len(summary._pivots) == len(summary._charts) == 1
+        assert (summary["B7"].value, summary["B8"].value, summary["B9"].value) == (270, 20, 250)
+        assert len(summary._pivots) == 1 and not summary._charts
         assert summary._pivots[0].cache.cacheSource.worksheetSource.name == "ReportAllocations"
         mf = wb["Members & Families"]
-        headers = [c.value for c in mf[4]]
+        headers = [c.value for c in mf[2]]
         assert headers[0] == "Name" and headers[1].startswith("Expense share")
         assert headers[4].startswith("Settlements paid") and headers[5].startswith("Settlements received")
-        account_rows = [r for r in mf.iter_rows(min_row=5, values_only=True)
+        account_rows = [r for r in mf.iter_rows(min_row=3, values_only=True)
                         if isinstance(r[2], (int, float))]
         assert len(account_rows) >= 3
         for row in account_rows:
             assert row[6] == row[2] - row[1] + row[4] - row[5]
         transactions = wb["Transactions"]
-        allocations = [r for r in transactions.iter_rows(min_row=5, values_only=True) if isinstance(r[0], int)]
+        allocations = [r for r in transactions.iter_rows(min_row=3, values_only=True) if isinstance(r[0], int)]
         assert sum(row[10] for row in allocations) == 250
         for expense_id in {r[11] for r in allocations}:
             expense_rows = [r for r in allocations if r[11] == expense_id]
@@ -296,7 +296,7 @@ class TestReports:
         resp = api_client.get(f"{BASE_URL}/api/trips/{trip_id}/report.xlsx?token={token}")
         assert resp.status_code == 200
         wb = load_workbook(io.BytesIO(resp.content))
-        rows = [r for r in wb["Members & Families"].iter_rows(min_row=5, values_only=True)
+        rows = [r for r in wb["Members & Families"].iter_rows(min_row=3, values_only=True)
                 if isinstance(r[2], (int, float)) and r[0] != "Total"]
         payer = next(r for r in rows if r[2] == 200)
         debtor = next(r for r in rows if r[2] == 0)
