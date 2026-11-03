@@ -123,7 +123,7 @@ async def start_exchange_rate_client() -> None:
         timeout = httpx.Timeout(connect=2.0, read=5.0, write=5.0, pool=2.0)
         _client = httpx.AsyncClient(
             timeout=timeout,
-            headers={"Accept": "application/json", "User-Agent": "TripSplitter/1 exchange-rates"},
+            headers={"Accept": "application/json", "User-Agent": "Splitora/1 exchange-rates"},
         )
 
 

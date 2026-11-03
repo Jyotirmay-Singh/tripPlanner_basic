@@ -31,7 +31,7 @@ Run every item on both **Android API 24** and **Android API 36** using consentin
 - [ ] Missing app after discovery falls back to the copied ID without losing the saved attempt.
 - [ ] Cancellation in each external app returns to an unchanged balance and allows **Not paid**.
 - [ ] Native launch failure falls back to copy-only and exposes the paid/not-paid decision.
-- [ ] A launch that never backgrounds Trip Splitter can use
+- [ ] A launch that never backgrounds Splitora can use
       **App didn't open / continue manually**.
 - [ ] Background/foreground return exposes the paid/not-paid decision exactly once.
 - [ ] Process termination and restart restores the initiating payer's unresolved attempt.

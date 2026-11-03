@@ -4,6 +4,7 @@ Send via Resend off the event loop. If Resend isn't configured (or the send fail
 development link so local and free-tier testing remains possible.
 """
 import asyncio
+from email.utils import formataddr, parseaddr
 from typing import Optional
 
 import resend
@@ -17,10 +18,11 @@ def sender_mode_summary() -> str:
     if not RESEND_API_KEY:
         return ("EMAIL: no RESEND_API_KEY configured - verification/reset links are only LOGGED "
                 "(look for '[EMAIL] ... link='); no email is sent")
-    if SENDER_EMAIL.strip().lower() == "onboarding@resend.dev":
+    sender_address = parseaddr(SENDER_EMAIL.strip())[1]
+    if sender_address.lower() == "onboarding@resend.dev":
         return ("EMAIL: Resend test sender (onboarding@resend.dev) - delivers ONLY to the Resend "
                 "account owner's inbox; all other recipients fall back to logged links")
-    return f"EMAIL: live sender {SENDER_EMAIL} - delivering to all recipients"
+    return f"EMAIL: live sender {sender_address} - delivering to all recipients"
 
 
 def build_link(path: str, token: str) -> str:
@@ -43,7 +45,8 @@ async def send_email(to: str, subject: str, html: str, *, link_for_log: Optional
         return
     try:
         await asyncio.to_thread(resend.Emails.send, {
-            "from": SENDER_EMAIL, "to": [to], "subject": subject, "html": html,
+            "from": formataddr(("Splitora", parseaddr(SENDER_EMAIL.strip())[1])),
+            "to": [to], "subject": subject, "html": html,
         })
         logger.debug(f"[EMAIL] dispatched via Resend (sender={SENDER_EMAIL}) to={to}")
     except Exception as e:  # never let an email failure surface to the caller
@@ -62,7 +65,7 @@ def verification_html(name: str, link: str, token: str) -> str:
         f"<div style='font-family:sans-serif'>"
         f"<h2>Verify your email</h2>"
         f"<p>Hi {name},</p>"
-        f"<p>Confirm your email to finish setting up your Trip Splitter account. "
+        f"<p>Confirm your email to finish setting up your Splitora account. "
         f"This link expires in 24 hours.</p>"
         f"{_button(link, 'Verify email')}"
         f"<p>Or paste this token in the app: <b>{token}</b></p>"

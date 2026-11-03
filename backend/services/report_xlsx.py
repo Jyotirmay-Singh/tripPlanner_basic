@@ -325,7 +325,7 @@ def build_report_workbook(data: ReportData):
     workbook.active.title = "Summary"
     workbook.properties.title = str(data.snapshot.trip.get("name", "Group")) + " - Report"
     workbook.properties.subject = "Trip report; report format 3"
-    workbook.properties.creator = "Trip Splitter"
+    workbook.properties.creator = "Splitora"
     headers, source_rows = _transactions(workbook, data)
     _summary(workbook, data, headers, source_rows)
     _members(workbook, data)

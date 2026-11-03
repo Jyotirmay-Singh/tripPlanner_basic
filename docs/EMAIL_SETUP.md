@@ -5,6 +5,10 @@ the **reset-your-password** link. Both go through Resend (`backend/utils/emailer
 explains why test emails often don't arrive, how the app decides whether to actually send, and the
 exact **USER ACTION** steps to enable real delivery to any Gmail address.
 
+Splitora is the official application name. Outgoing mail uses the sender display name
+**Splitora** with the existing `SENDER_EMAIL` address; no sender-domain migration is needed.
+New verification/reset subjects use Splitora. The dated log example below predates the rename.
+
 > No code change is required to switch to real delivery — it's all environment variables.
 
 ---

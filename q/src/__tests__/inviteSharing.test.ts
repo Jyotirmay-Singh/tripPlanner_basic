@@ -27,11 +27,11 @@ it('allows the application super-admin to share without joining the trip', () =>
 it('builds the exact secure invitation message with link, code, APK, and expiry', () => {
   const url = `https://tripsplitter-web.vercel.app/invite/${'a'.repeat(43)}`;
   expect(tripInviteShareMessage('Coast trip', 'ABC123', url)).toBe(
-    `You have been invited to join the trip "Coast trip" on Trip Splitter.\n\n`
+    `You have been invited to join the trip "Coast trip" on Splitora.\n\n`
     + `Open the invitation link:\n${url}\n\n`
     + 'Trip code: ABC123\n'
-    + 'You can also enter this code in Trip Splitter to join manually.\n\n'
-    + 'Download Trip Splitter for Android:\n'
+    + 'You can also enter this code in Splitora to join manually.\n\n'
+    + 'Download Splitora for Android:\n'
     + 'https://tripsplitter-web.vercel.app/download/android\n\n'
     + 'A trip admin can reset this private invitation link at any time.',
   );
@@ -39,10 +39,10 @@ it('builds the exact secure invitation message with link, code, APK, and expiry'
 
 it('builds the exact code fallback with the Android-only APK download', () => {
   expect(tripCodeShareMessage('Coast trip', 'ABC123')).toBe(
-    'You have been invited to join the trip "Coast trip" on Trip Splitter.\n\n'
+    'You have been invited to join the trip "Coast trip" on Splitora.\n\n'
     + 'Trip code: ABC123\n'
-    + 'Enter this code in Trip Splitter to join the trip.\n\n'
-    + 'Download Trip Splitter for Android:\n'
+    + 'Enter this code in Splitora to join the trip.\n\n'
+    + 'Download Splitora for Android:\n'
     + 'https://tripsplitter-web.vercel.app/download/android',
   );
 });

@@ -1,9 +1,9 @@
 ---
-description: Create a spec file and feature branch for the next Trip Expense Splitter build-plan step
+description: Create a spec file and feature branch for the next Splitora build-plan step
 argument-hint: "<step number> <feature name> — e.g. 5 isolate math, or 13 join wizard"
 allowed-tools: Read, Write, Glob, Bash(git:*)
 ---
-You are a senior developer spinning up a new feature for **Trip Expense Splitter**. Always follow the rules and the Implementation Roadmap in `CLAUDE.md`. The app stack is **React Native (Expo Router) + FastAPI (Python) + MongoDB (Motor AsyncIOMotorClient)**.
+You are a senior developer spinning up a new feature for **Splitora**. Always follow the rules and the Implementation Roadmap in `CLAUDE.md`. The app stack is **React Native (Expo Router) + FastAPI (Python) + MongoDB (Motor AsyncIOMotorClient)**.
 
 User input: $ARGUMENTS
 
@@ -54,7 +54,7 @@ Generate a spec document with this exact structure:
 # Spec: <feature_title>  (Step <step_number>)
 
 ## Overview
-One paragraph describing what this feature does and why it exists at this point in the Trip Expense Splitter Roadmap (reference the matching step in `CLAUDE.md`).
+One paragraph describing what this feature does and why it exists at this point in the Splitora Roadmap (reference the matching step in `CLAUDE.md`).
 
 ## Depends on
 Which previous Roadmap steps must be complete before this one.

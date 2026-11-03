@@ -351,7 +351,7 @@ def test_websocket_rejects_invalid_auth_without_logging_token(monkeypatch, caplo
         raise HTTPException(401, "Invalid token")
 
     monkeypatch.setattr(chat, "decode_token", reject_token)
-    caplog.set_level("WARNING", logger="trip-splitter")
+    caplog.set_level("WARNING", logger="splitora")
     run(chat.chat_websocket(socket, "t1"))
 
     assert socket.closed == [4401]

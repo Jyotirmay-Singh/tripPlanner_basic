@@ -247,7 +247,7 @@ describe('Profile notification settings row', () => {
 
     expect(mockAlert).toHaveBeenCalledWith(
       'Notifications blocked by Android',
-      'Go to Settings > Apps > Trip Splitter > Notifications, then turn on Allow notifications.',
+      'Go to Settings > Apps > Splitora > Notifications, then turn on Allow notifications.',
       expect.any(Array),
     );
     expect(mockOpenSettings).not.toHaveBeenCalled();
@@ -334,7 +334,7 @@ describe('Profile notification settings row', () => {
 
     expect(mockAlert).toHaveBeenLastCalledWith(
       'Unable to open settings',
-      'Open Android Settings, select Trip Splitter, then choose Notifications.',
+      'Open Android Settings, select Splitora, then choose Notifications.',
     );
   });
 });

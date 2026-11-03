@@ -73,7 +73,7 @@ async def _send_verification(user: dict) -> None:
     raw = await issue_token(user["id"], VERIFY_EMAIL, VERIFY_TTL)
     link = build_link("verify-email", raw)
     await send_email(
-        user["email"], "Verify your Trip Splitter email",
+        user["email"], "Verify your Splitora email",
         verification_html(user.get("name", "there"), link, raw), link_for_log=link,
     )
 
@@ -270,7 +270,7 @@ async def request_password_reset(body: RequestPasswordResetIn):
             raw = await issue_token(user["id"], RESET_PASSWORD, RESET_TTL)
             link = build_link("reset-password", raw)
             await send_email(
-                email, "Reset your Trip Splitter password",
+                email, "Reset your Splitora password",
                 password_reset_html(user.get("name", "there"), link, raw), link_for_log=link,
             )
     return {"ok": True, "message": "If this email exists, a reset link has been sent."}

@@ -11,7 +11,7 @@ import resend
 
 # ---------- Setup ----------
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-logger = logging.getLogger("trip-splitter")
+logger = logging.getLogger("splitora")
 
 MONGO_URL = os.environ['MONGO_URL']
 DB_NAME = os.environ['DB_NAME']

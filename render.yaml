@@ -1,4 +1,4 @@
-# Render Blueprint for the Trip Splitter FastAPI backend (free tier, Singapore).
+# Render Blueprint for the Splitora FastAPI backend (free tier, Singapore).
 # Infra-only: builds backend/Dockerfile.prod and runs gunicorn bound to Render's injected $PORT.
 # Secrets are NEVER committed here — every var is `sync: false`, i.e. pasted in the Render
 # dashboard (Environment tab). PORT is injected by Render automatically; do not add it.

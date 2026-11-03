@@ -1,12 +1,14 @@
 # Google Play — Internal Testing Setup
 
-Distribute Trip Splitter to testers through the Play Store (up to 100 testers, **no
+Distribute Splitora to testers through the Play Store (up to 100 testers, **no
 "unknown source" / Play Protect warnings**, and **no review delay**). This reuses the same
 Expo project and the existing `production` EAS profile (which builds a Play-ready `.aab`
 with the prod backend URL + public Google Web/iOS client IDs baked in). Nothing about the backend, split
 engine, auth, or the Vercel/Render deploys changes.
 
-App: **Trip Splitter** · package `com.tripsplitter.app` · Play App Signing (Google-managed).
+App: **Splitora** · package `com.tripsplitter.app` · Play App Signing (Google-managed).
+Rename the existing store entry when present; reuse its package registration and signing.
+The bundle recorded below predates the rename and retains its original release name.
 
 ---
 
@@ -23,7 +25,7 @@ App: **Trip Splitter** · package `com.tripsplitter.app` · Play App Signing (Go
 ## Step 1 — Create the app  *(you, after verification)*
 
 Play Console → **Create app**:
-- App name: **Trip Splitter** · Default language: your choice · Type: **App** · **Free**.
+- App name: **Splitora** · Default language: your choice · Type: **App** · **Free**.
 - Accept the developer-program / US-export declarations.
 - (The package `com.tripsplitter.app` is registered automatically on your first bundle upload.)
 

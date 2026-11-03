@@ -1,6 +1,6 @@
 # Android trip invitation links
 
-Trip Splitter invitations use one HTTPS URL on web and Android:
+Splitora invitations use one HTTPS URL on web and Android:
 
 ```text
 https://tripsplitter-web.vercel.app/invite/<opaque-token>
@@ -20,7 +20,7 @@ their existing 90-day audit window ends.
 3. If the app is installed, the link opens `/invite/<token>` in package `com.tripsplitter.app`, then
    routes an authenticated user directly to the existing identity-aware Join wizard.
 4. If the app is absent or the link opens in an embedded browser, the same URL renders the invite
-   landing page. Android browsers stay there with **Open Trip Splitter**, **Download Android APK**,
+   landing page. Android browsers stay there with **Open Splitora**, **Download Android APK**,
    and **Continue on web** controls; no APK download starts automatically. Signed-in desktop and iOS
    web users proceed directly to the join preview, while signed-out users return there after auth.
 5. A raw APK has no Play Store install-referrer/deferred-deep-link handoff. After installation, the

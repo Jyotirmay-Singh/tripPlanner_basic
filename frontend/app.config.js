@@ -42,7 +42,7 @@ const notificationIconHash = crypto
   .digest('hex')
   .slice(0, 12);
 const notificationIcon = path.join(
-  os.tmpdir(), `trip-splitter-notification-${notificationIconHash}.png`,
+  os.tmpdir(), `splitora-notification-${notificationIconHash}.png`,
 );
 if (!fs.existsSync(notificationIcon)) {
   fs.writeFileSync(notificationIcon, Buffer.from(notificationIconBase64, 'base64'));
@@ -68,7 +68,7 @@ module.exports = {
   ...base,
   expo: {
     ...base.expo,
-    name: offlineQaBuild ? 'Trip Splitter QA' : base.expo.name,
+    name: offlineQaBuild ? 'Splitora QA' : base.expo.name,
     extra: {
       ...base.expo.extra,
       offlineQaBuild,

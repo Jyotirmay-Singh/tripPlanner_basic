@@ -1,11 +1,11 @@
-# Trip Splitter — Architecture
+# Splitora — Architecture
 
 A codebase map for new developers (human or AI). For setup/commands see `../CLAUDE.md`. For end-user
 behavior see `../USER_GUIDE.md`. For product scope see `PRD.md`.
 
 ## 1. Overview
 
-Trip Splitter is a mobile app (Expo/React Native, file-based routing via `expo-router`) backed by a
+Splitora is a mobile app (Expo/React Native, file-based routing via `expo-router`) backed by a
 single-file FastAPI service (`backend/server.py`) and MongoDB (via Motor). Users register with an
 email + 4-digit PIN, create "trips" (each with a unique 6-character join code), add "members" who can
 be individuals or families, log expenses (a signed amount — positive is spending, negative is money

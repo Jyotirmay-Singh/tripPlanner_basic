@@ -12,7 +12,7 @@ type Props = {
   subtitle?: string;
   brandIcon?: IconName;
   /** Wide brand wordmark. When provided it replaces the square medallion (e.g. the sign-in
-   *  screens show the "TRIP SPLITTER" wordmark). Transparent PNG ⇒ theme-agnostic. */
+   *  screens show the "Splitora" wordmark). Transparent PNG ⇒ theme-agnostic. */
   brandImage?: ImageSourcePropType;
   children: React.ReactNode;
   /** Visible navigator headers already own the top inset. */
@@ -49,7 +49,7 @@ export default function AuthShell({
                 style={styles.wordmark}
                 resizeMode="contain"
                 accessibilityRole="image"
-                accessibilityLabel="Trip Splitter"
+                accessibilityLabel="Splitora"
               />
             ) : (
               <View style={[styles.brand, { backgroundColor: colors.primary }]}>

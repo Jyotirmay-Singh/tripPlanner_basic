@@ -243,7 +243,7 @@ describe('invite landing', () => {
     }
   });
 
-  it('uses the Trip Splitter app logo for the invite badge and open-app button', async () => {
+  it('uses the Splitora app logo for the invite badge and open-app button', async () => {
     const originalPlatform = Platform.OS;
     const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
     Object.defineProperty(Platform, 'OS', { configurable: true, value: 'web' });

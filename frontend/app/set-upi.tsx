@@ -154,7 +154,7 @@ export default function SetUpi() {
       <Card variant="muted" style={styles.safetyCard} testID="upi-security-note">
         <Icon name="shield-check" size={20} color={colors.primary} />
         <T variant="caption" style={styles.safetyCopy}>
-          Trip Splitter never requests a UPI PIN, bank password, or QR upload.
+          Splitora never requests a UPI PIN, bank password, or QR upload.
         </T>
       </Card>
 

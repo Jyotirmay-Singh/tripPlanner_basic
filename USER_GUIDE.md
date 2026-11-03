@@ -1,4 +1,4 @@
-# 🧳 Trip Expense Splitter — User Guide
+# 🧳 Splitora — User Guide
 
 A simple, multi-user mobile app to track shared expenses, split costs fairly between individuals and families, and settle balances when ready. Built for Android & iOS via Expo Go.
 
@@ -86,7 +86,7 @@ A simple, multi-user mobile app to track shared expenses, split costs fairly bet
   UPI ID. A saved ID can also be removed after confirmation.
 - Returning sign-ins and restored sessions are not prompted automatically, even when no UPI ID is
   saved. Use Profile whenever you want to configure one later.
-- Trip Splitter validates the address format but does not verify that you own it. Trip Splitter
+- Splitora validates the address format but does not verify that you own it. Splitora
   never requests your UPI PIN, bank password, or a QR upload.
 
 ### 1.6 Delete your account
@@ -174,8 +174,8 @@ Settled groups remain tappable and can still be opened normally.
   **Members → Group invite link** or share it through WhatsApp, email, or another share target. The
   message includes the link, permanent six-character code, and Android-only APK download URL.
   Owners/admins can reset the link when needed; the previous link then stops working immediately.
-- On Android, the link opens the Join wizard directly when Trip Splitter is installed. Without the
-  app, it stays on a branded page with **Open Trip Splitter**, **Download Android APK**, and
+- On Android, the link opens the Join wizard directly when Splitora is installed. Without the
+  app, it stays on a branded page with **Open Splitora**, **Download Android APK**, and
   **Continue on web**. The APK downloads only after a manual tap. After installing it, return to the
   original invitation and open it again so Android can pass the invitation in.
 - Signed-in desktop and iOS web users go straight to the join preview. Existing group members land on
@@ -443,7 +443,7 @@ For UPI, review the saved recipient, address, exact INR amount, and any conversi
 or opening an app. Check the payment app or bank afterward, then choose **Payment sent**,
 **I did not pay**, or **Not sure / check payment app**. Missing apps or failed launches keep the
 same payment open. A clipboard failure prevents opening the app. Expiry, interruption, copying,
-and returning to Trip Splitter never prove that money was received. If an old handoff is uncertain,
+and returning to Splitora never prove that money was received. If an old handoff is uncertain,
 check it before paying the same shares again. Changed recipient details require renewed sending
 review; money already sent can still be reported against the original evidence.
 
@@ -564,7 +564,7 @@ is off. The app, XLSX, and PDF use the same transfers. Reports label optimized s
 - The account linked to the suggested payer can tap **Pay via UPI**. Choose a linked recipient who
   has saved a UPI ID, enter a full or partial group-currency amount, and review the server's INR
   conversion. Approving this screen does not move money or change the group balance.
-- Before copying anything or opening an app, Trip Splitter saves a payment attempt with the reviewed
+- Before copying anything or opening an app, Splitora saves a payment attempt with the reviewed
   recipient, UPI ID revision, original group amount, exact INR amount, quote, and handoff method. If
   that save fails, the UPI ID is not copied and no payment app opens. Only one unresolved attempt can
   exist for the same payer → receiver direction, including when several accounts belong to a payer
@@ -572,12 +572,12 @@ is off. The app, XLSX, and PDF use the same transfers. Reports label optimized s
   a generic pending message and is not shown the attempt snapshot or payer-entered reference.
 - In the external payment app, complete all four steps yourself: **paste the copied UPI ID**, **verify
   the recipient shown by the app**, **enter the displayed INR amount**, and **review and authorize the
-  payment inside that app**. Trip Splitter does not submit a payment, receive an intent result, or ask
+  payment inside that app**. Splitora does not submit a payment, receive an intent result, or ask
   for your UPI PIN.
-- After a copy-only handoff, **I've paid** and **Not paid** appear immediately. After Trip Splitter
-  opens a supported UPI app, those choices appear when you return to Trip Splitter. A failed copy or
+- After a copy-only handoff, **I've paid** and **Not paid** appear immediately. After Splitora
+  opens a supported UPI app, those choices appear when you return to Splitora. A failed copy or
   launch falls back to copy-only and remains saved so the initiating payer can resume or cancel it
-  from **UPI payment activity**. If an app launch reports success but never leaves Trip Splitter, tap
+  from **UPI payment activity**. If an app launch reports success but never leaves Splitora, tap
   **App didn't open / continue manually** to reach the same paid/not-paid decision without getting
   stuck.
 - If you choose **I've paid**, you may add a transaction reference of up to 100 characters. It is a
@@ -595,7 +595,7 @@ is off. The app, XLSX, and PDF use the same transfers. Reports label optimized s
 - Confirmation recomputes the latest payable for that same direction. It posts exactly one normal
   ledger payment for the smaller of the originally approved group amount and the current payable. If
   the payable is now zero, the attempt moves to **Needs review** and posts nothing. The activity card
-  keeps both the actual INR amount reported outside Trip Splitter and the capped group-currency ledger
+  keeps both the actual INR amount reported outside Splitora and the capped group-currency ledger
   amount visible.
 - Only the selected UPI owner is notified when confirmation is requested; only the initiating payer
   is notified of confirmation, non-receipt, or review closure. A successful confirmation uses the
