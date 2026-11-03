@@ -21,7 +21,7 @@ export default function ResetPassword() {
   const [busy, setBusy] = useState(false);
   useEmailActionNavigation('reset-password', router.replace);
   const [fieldError, setFieldError] = useState<{
-    field: 'token' | 'password' | 'confirm'; message: string;
+    field: 'password' | 'confirm'; message: string;
   } | null>(null);
 
   const passwordError = fieldError?.field === 'password'
@@ -30,10 +30,7 @@ export default function ResetPassword() {
     ? fieldError.message : !!confirm && confirm !== password ? PASSWORD_MISMATCH_MESSAGE : null;
 
   const submit = async () => {
-    if (!token.trim()) {
-      setFieldError({ field: 'token', message: 'Enter the token from your email' });
-      return toast.show('Enter the token from your email', 'error');
-    }
+    if (!token.trim()) return;
     if (!isValidPassword(password)) {
       setFieldError({ field: 'password', message: PASSWORD_TOO_SHORT_MESSAGE });
       return toast.show(PASSWORD_TOO_SHORT_MESSAGE, 'error');
@@ -58,27 +55,26 @@ export default function ResetPassword() {
     } finally { setBusy(false); }
   };
 
+  const requestNewLink = () => router.replace('/(auth)/forgot-password');
+
+  if (!token.trim()) {
+    return (
+      <AuthShell
+        brandIcon="lock"
+        title="Open your reset email"
+        subtitle="Open the password reset link in your email to continue, or request a new link."
+      >
+        <Button label="Request a new reset link" onPress={requestNewLink} fullWidth size="lg" testID="reset-pw-request-link" />
+      </AuthShell>
+    );
+  }
+
   return (
     <AuthShell
       brandIcon="lock"
       title="Reset password"
       subtitle="Choose a secure new password for your account."
     >
-      <Input
-        testID="reset-pw-token"
-        label="Reset token"
-        value={token}
-        onChangeText={(value) => { setToken(value); if (fieldError?.field === 'token') setFieldError(null); }}
-        autoCapitalize="none"
-        autoCorrect={false}
-        autoComplete="one-time-code"
-        textContentType="oneTimeCode"
-        placeholder="Token from email"
-        icon="key"
-        error={fieldError?.field === 'token' ? fieldError.message : null}
-        focusOnError={fieldError?.field === 'token'}
-        returnKeyType="next"
-      />
       <Input
         testID="reset-pw-password"
         label="New password"
@@ -119,6 +115,7 @@ export default function ResetPassword() {
         size="lg"
         testID="reset-pw-submit"
       />
+      <Button label="Request a new reset link" variant="ghost" onPress={requestNewLink} disabled={busy} fullWidth testID="reset-pw-request-link" />
     </AuthShell>
   );
 }
