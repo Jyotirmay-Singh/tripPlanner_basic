@@ -177,6 +177,25 @@ it('shows unavailable rather than zero when a trip has no complete saved snapsho
   expect(result).toMatchObject({ data: null, source: 'unavailable', fetchedAt: null });
 });
 
+it.each([
+  [500, 'Internal Server Error', 'The server could not load this view. Please try again shortly.'],
+  [409, 'This group needs an admin review.', 'This group needs an admin review.'],
+  [429, 'Too many requests', 'Too many requests. Wait a moment, then try again.'],
+])('reports HTTP %s without calling it an offline failure', async (status, message, expected) => {
+  online({ '/trips/trip-1': Object.assign(new Error(message), { code: 'http', status }) });
+  const result = await loadTripReadBundle('user-1', 'trip-1');
+  expect(result).toMatchObject({ data: null, source: 'unavailable', error: expected });
+});
+
+it('keeps a complete saved group available during a temporary server failure', async () => {
+  online();
+  await loadTripReadBundle('user-1', 'trip-1');
+  online({ '/trips/trip-1': Object.assign(new Error('Internal Server Error'), { code: 'http', status: 500 }) });
+  const result = await loadTripReadBundle('user-1', 'trip-1');
+  expect(result.source).toBe('cache');
+  expect(result.data?.trip).toMatchObject({ id: 'trip-1' });
+});
+
 it('does not reopen a cached trip after a confirmed access denial', async () => {
   online();
   await loadTripReadBundle('user-1', 'trip-1');

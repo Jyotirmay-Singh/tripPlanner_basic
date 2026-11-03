@@ -16,7 +16,7 @@ from pymongo.errors import DuplicateKeyError
 from database import db
 from services.ledger_transactions import run_optional_transaction
 from utils.common import now_utc
-from utils.members import padded_family_member_ids
+from utils.members import family_slot_values, padded_family_member_ids
 
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ def linked_identity(trip: dict, user_id: str) -> Optional[dict]:
 
         names = member.get("family_members") or []
         ids = padded_family_member_ids(member)
-        user_ids = member.get("family_member_user_ids") or []
+        user_ids = family_slot_values(member.get("family_member_user_ids"), len(names))
         for index, linked_user_id in enumerate(user_ids):
             if linked_user_id == user_id:
                 return {
@@ -317,7 +317,8 @@ async def enrich_trip_mobile_numbers(trip: dict) -> dict:
 
         names = member.get("family_members") or []
         member_ids = padded_family_member_ids(member)
-        user_ids = member.get("family_member_user_ids") or []
+        user_ids = family_slot_values(member.get("family_member_user_ids"), len(names))
+        member["family_member_user_ids"] = user_ids
         mobile_numbers: list[Optional[str]] = []
         for index in range(len(names)):
             claim = by_user.get(user_ids[index] if index < len(user_ids) else None)

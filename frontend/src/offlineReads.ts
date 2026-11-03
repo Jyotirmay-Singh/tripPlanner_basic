@@ -117,6 +117,11 @@ function failureMessage(error: unknown): string {
   if (isApiError(error) && error.status === 403) return 'Access to this group is unavailable.';
   if (isApiError(error) && error.status === 404) return 'This group is no longer available.';
   if (isApiError(error) && error.status === 401) return 'Sign in again to open this group.';
+  if (isApiError(error) && error.code === 'http') {
+    if ((error.status ?? 0) >= 500) return 'The server could not load this view. Please try again shortly.';
+    if (error.status === 429) return 'Too many requests. Wait a moment, then try again.';
+    return error.message || 'This view could not be loaded. Please try again.';
+  }
   return 'No saved copy is available. Open this view while connected, then try again.';
 }
 

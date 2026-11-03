@@ -525,7 +525,7 @@ export default function TripDetail() {
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['bottom', 'left', 'right']}>
         <View style={{ padding: SPACING.lg, gap: SPACING.md }}>
           {read?.source === 'unavailable' ? (
-            <EmptyState icon="alert" title="Group unavailable offline"
+            <EmptyState icon="alert" title="Group unavailable"
               body={read.error || 'Open this group online to save a copy on this device.'}
               ctaLabel="Try again" onCta={load} testID="trip-unavailable" />
           ) : <SkeletonCard count={4} />}

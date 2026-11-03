@@ -118,6 +118,63 @@ def individual(member_id, user_id, name):
     }
 
 
+def test_legacy_family_account_slots_open_group_and_keep_contacts_private(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routes import trips
+
+    family = {
+        "id": "family", "name": "Family", "kind": "family",
+        "family_members": ["Ada", "Unlinked", "Bob"],
+        "family_member_ids": ["person-a", "person-empty", "person-b"],
+        # MongoDB dotted writes to a missing array can leave this legacy object shape.
+        "family_member_user_ids": {"2": "u2", "0": "u1"},
+    }
+    trip = {"id": "t1", "name": "Legacy group", "currency": "INR", "members": [family]}
+    original = deepcopy(trip)
+    claims = Claims([
+        {"trip_id": "t1", "user_id": "u1", "member_id": "family",
+         "family_member_id": "person-a", "mobile_number": "+919111111111"},
+        # A stale claim for a different slot must not expose its number.
+        {"trip_id": "t1", "user_id": "u2", "member_id": "family",
+         "family_member_id": "person-a", "mobile_number": "+919222222222"},
+    ])
+    monkeypatch.setattr(mobile_claims, "db", SimpleNamespace(trip_mobile_claims=claims))
+
+    async def authorized_trip(trip_id, user):
+        assert trip_id == "t1"
+        return deepcopy(trip)
+
+    monkeypatch.setattr(trips, "_trip_or_404", authorized_trip)
+    app = FastAPI()
+    app.include_router(trips.router, prefix="/api")
+    app.dependency_overrides[trips.get_current_user] = lambda: {"id": "u1"}
+    response = TestClient(app).get("/api/trips/t1")
+
+    assert response.status_code == 200
+    member = response.json()["members"][0]
+    assert member["family_member_user_ids"] == ["u1", None, "u2"]
+    assert member["family_member_mobile_numbers"] == ["+919111111111", None, None]
+    assert mobile_claims.linked_identity(trip, "u2") == {
+        "member_id": "family", "family_member_id": "person-b", "member_name": "Bob",
+    }
+    assert mobile_claims.linked_identity(trip, "2") is None
+    assert trip == original
+    assert claims.replace_count == claims.delete_many_count == 0
+
+
+def test_editing_legacy_family_account_slots_preserves_links_by_person():
+    from utils.members import align_family_member_user_ids
+
+    linked, vanished = align_family_member_user_ids(
+        ["person-b", "person-a", "person-empty"],
+        ["person-a", "person-empty", "person-b"],
+        {"2": "u2", "0": "u1"},
+    )
+    assert linked == ["u2", "u1", None]
+    assert vanished == set()
+
+
 def test_claim_conflict_names_live_trip_and_member(monkeypatch):
     trip = {
         "id": "t1", "name": "Kerala Escape", "user_ids": ["u1", "u2"],

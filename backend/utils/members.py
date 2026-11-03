@@ -13,6 +13,18 @@ def normalize_name(name: Optional[str]) -> str:
     return " ".join(name.split())
 
 
+def family_slot_values(values, count: int) -> list:
+    """Read roster-aligned slots, including legacy MongoDB numeric-keyed objects.
+
+    Dotted writes into a missing array historically stored {"0": value} instead of a list.
+    Resolve by explicit position so sparse objects and key order never move a person's account.
+    """
+    if isinstance(values, dict):
+        return [values.get(str(index)) for index in range(count)]
+    values = values or []
+    return [values[index] if index < len(values) else None for index in range(count)]
+
+
 def assign_family_member_ids(
     names: Optional[List[str]],
     provided_ids: Optional[List[Optional[str]]] = None,
@@ -91,7 +103,7 @@ def align_family_member_user_ids(
     """
     new_ids = new_ids or []
     old_ids = old_ids or []
-    old_user_ids = old_user_ids or []
+    old_user_ids = family_slot_values(old_user_ids, len(old_ids))
     by_id = {oid: uid for oid, uid in zip(old_ids, old_user_ids) if oid and uid}
     aligned = [by_id.get(nid) for nid in new_ids]
     carried = {uid for uid in aligned if uid}
