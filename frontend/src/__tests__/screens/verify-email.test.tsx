@@ -4,8 +4,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 
-// Component test for the email-verification landing screen (app/verify-email.tsx): it auto-submits
-// a token from the URL on mount, shows a success/retry state, and supports manual token entry.
+// Email-link tokens stay out of the rendered UI, and only explicit confirmation verifies them.
 const mockReplace = jest.fn();
 let mockParams: any = {};
 const mockToast = { show: jest.fn() };
@@ -57,11 +56,14 @@ describe('VerifyEmail screen', () => {
     mockParams = { token: 'goodtok' };
     const r = await mountAsync();
     expect(apiMock).not.toHaveBeenCalled();
+    expect(has(r, 'verify-token')).toBe(false);
+    expect(JSON.stringify(r.toJSON())).not.toContain('goodtok');
     await act(async () => { await node(r, 'verify-submit').props.onPress(); });
 
     expect(apiMock).toHaveBeenCalledWith('/auth/verify-email', {
       method: 'POST', body: { token: 'goodtok' }, auth: false,
     });
+    expect(apiMock).toHaveBeenCalledTimes(1);
     expect(mockRefresh).toHaveBeenCalled();
     expect(has(r, 'verify-continue')).toBe(true); // success branch rendered
   });
@@ -74,19 +76,31 @@ describe('VerifyEmail screen', () => {
     await act(async () => { await node(r, 'verify-submit').props.onPress(); });
 
     expect(mockToast.show).toHaveBeenCalledWith('This link is invalid or has expired.', 'error');
-    expect(has(r, 'verify-submit')).toBe(true); // back to manual-entry / retry
+    expect(has(r, 'verify-submit')).toBe(true);
+    expect(has(r, 'verify-token')).toBe(false);
+    expect(JSON.stringify(r.toJSON())).not.toContain('badtok');
   });
 
-  it('does not auto-submit without a token and supports manual entry', async () => {
-    apiMock.mockResolvedValue({ ok: true });
-    mockParams = {};
+  it('offers sign-in to request a new link when no email link was provided', async () => {
     const r = await mountAsync();
     expect(apiMock).not.toHaveBeenCalled();
+    expect(has(r, 'verify-token')).toBe(false);
+    expect(has(r, 'verify-submit')).toBe(false);
+    expect(node(r, 'verify-back').props.label).toBe('Sign in to request a new link');
 
-    act(() => { node(r, 'verify-token').props.onChangeText('typedtok'); });
-    await act(async () => { await node(r, 'verify-submit').props.onPress(); });
-    expect(apiMock).toHaveBeenCalledWith('/auth/verify-email', {
-      method: 'POST', body: { token: 'typedtok' }, auth: false,
-    });
+    act(() => { node(r, 'verify-back').props.onPress(); });
+    expect(mockReplace).toHaveBeenCalledWith('/(auth)/login');
+    expect(apiMock).not.toHaveBeenCalled();
+  });
+
+  it('returns signed-in users to the dashboard to request a new link', async () => {
+    mockUser = { id: 'user1' };
+    const r = await mountAsync();
+
+    expect(has(r, 'verify-submit')).toBe(false);
+    expect(node(r, 'verify-back').props.label).toBe('Go to dashboard');
+    act(() => { node(r, 'verify-back').props.onPress(); });
+    expect(mockReplace).toHaveBeenCalledWith('/(tabs)/dashboard');
+    expect(apiMock).not.toHaveBeenCalled();
   });
 });

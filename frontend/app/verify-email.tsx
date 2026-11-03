@@ -5,7 +5,7 @@ import { api } from '../src/api';
 import { useAuth } from '../src/AuthContext';
 import { useTheme } from '../src/ThemeContext';
 import { SPACING } from '../src/theme';
-import { AuthShell, Input, Button, Icon, useToast } from '../src/ui';
+import { AuthShell, Button, Icon, useToast } from '../src/ui';
 import { clearEmailActionToken, readEmailActionToken, useEmailActionNavigation } from '../src/emailActionToken';
 
 type Status = 'verifying' | 'success' | 'error' | 'idle';
@@ -20,18 +20,13 @@ export default function VerifyEmail() {
   const params = useLocalSearchParams<{ token?: string }>();
   const [token, setToken] = useState(() => readEmailActionToken('verify-email', params.token));
   const [status, setStatus] = useState<Status>('idle');
-  const [tokenError, setTokenError] = useState<string | null>(null);
   useEmailActionNavigation('verify-email', router.replace);
 
-  const verify = async (t: string) => {
-    if (!t.trim()) {
-      setTokenError('Enter the token from your email');
-      return toast.show('Enter the token from your email', 'error');
-    }
-    setTokenError(null);
+  const verify = async () => {
+    if (!token.trim()) return;
     setStatus('verifying');
     try {
-      await api('/auth/verify-email', { method: 'POST', body: { token: t.trim() }, auth: false });
+      await api('/auth/verify-email', { method: 'POST', body: { token: token.trim() }, auth: false });
       setStatus('success');
       setToken('');
       clearEmailActionToken('verify-email');
@@ -65,31 +60,32 @@ export default function VerifyEmail() {
     );
   }
 
-  // idle (manual entry) or error — let the user paste/retry the token.
+  if (!token.trim()) {
+    return (
+      <AuthShell
+        brandIcon="mail"
+        title="Open your verification email"
+        subtitle="Open the verification link in your email to continue. You can request a new email from your dashboard."
+      >
+        <Button
+          label={user ? 'Go to dashboard' : 'Sign in to request a new link'}
+          onPress={goOn}
+          fullWidth
+          size="lg"
+          testID="verify-back"
+        />
+      </AuthShell>
+    );
+  }
+
   return (
     <AuthShell
       brandIcon="mail"
       title="Verify your email"
-      subtitle={token ? 'Confirm that you want to verify the email address this link was sent to.' : 'Paste the token from your verification email.'}
+      subtitle="Confirm that you want to verify the email address this link was sent to."
     >
-      <Input
-        testID="verify-token"
-        label="Verification token"
-        value={token}
-        onChangeText={(value) => { setToken(value); setTokenError(null); }}
-        autoCapitalize="none"
-        autoCorrect={false}
-        autoComplete="one-time-code"
-        textContentType="oneTimeCode"
-        placeholder="Token from email"
-        icon="key"
-        error={tokenError}
-        focusOnError={!!tokenError}
-        returnKeyType="done"
-        onSubmitEditing={() => verify(token)}
-      />
-      <Button label="Verify email" icon="check" onPress={() => verify(token)} fullWidth size="lg" testID="verify-submit" />
-      <Button label="Back to sign in" variant="ghost" onPress={goOn} fullWidth testID="verify-back" />
+      <Button label="Verify email" icon="check" onPress={verify} fullWidth size="lg" testID="verify-submit" />
+      <Button label={user ? 'Go to dashboard' : 'Back to sign in'} variant="ghost" onPress={goOn} fullWidth testID="verify-back" />
     </AuthShell>
   );
 }

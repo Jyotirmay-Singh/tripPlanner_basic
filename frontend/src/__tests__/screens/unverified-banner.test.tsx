@@ -36,14 +36,20 @@ const node = (r: any, id: string) =>
   r.root.find((n: any) => typeof n.type === 'string' && n.props.testID === id);
 const has = (r: any, id: string) =>
   r.root.findAll((n: any) => n.props && n.props.testID === id).length > 0;
+const mounted: { unmount(): void }[] = [];
 
 beforeEach(() => {
   mockToast.show.mockClear(); mockRefresh.mockClear(); apiMock.mockReset(); mockUser = null;
 });
 
+afterEach(() => {
+  act(() => { mounted.splice(0).forEach((renderer) => renderer.unmount()); });
+});
+
 function mount() {
   let r: any;
   act(() => { r = TestRenderer.create(React.createElement(UnverifiedBanner)); });
+  mounted.push(r);
   return r;
 }
 
