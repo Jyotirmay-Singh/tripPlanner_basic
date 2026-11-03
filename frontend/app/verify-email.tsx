@@ -6,7 +6,7 @@ import { useAuth } from '../src/AuthContext';
 import { useTheme } from '../src/ThemeContext';
 import { SPACING } from '../src/theme';
 import { AuthShell, Input, Button, Icon, useToast } from '../src/ui';
-import { clearEmailActionToken, readEmailActionToken } from '../src/emailActionToken';
+import { clearEmailActionToken, readEmailActionToken, useEmailActionNavigation } from '../src/emailActionToken';
 
 type Status = 'verifying' | 'success' | 'error' | 'idle';
 
@@ -21,6 +21,7 @@ export default function VerifyEmail() {
   const [token, setToken] = useState(() => readEmailActionToken('verify-email', params.token));
   const [status, setStatus] = useState<Status>('idle');
   const [tokenError, setTokenError] = useState<string | null>(null);
+  useEmailActionNavigation('verify-email', router.replace);
 
   const verify = async (t: string) => {
     if (!t.trim()) {

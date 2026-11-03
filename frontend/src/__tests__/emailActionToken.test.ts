@@ -1,4 +1,4 @@
-import { captureEmailActionToken, clearEmailActionToken, readEmailActionToken } from '../emailActionToken';
+import { captureEmailActionToken, clearEmailActionToken, finishEmailActionNavigation, readEmailActionToken } from '../emailActionToken';
 jest.mock('react-native', () => ({ Platform: { OS: 'web' } }));
 
 const replaceState = jest.fn();
@@ -37,4 +37,16 @@ it('ignores token-looking fragments on other pages', () => {
   captureEmailActionToken();
   expect(replaceState).not.toHaveBeenCalled();
   expect(readEmailActionToken('verify-email')).toBe('');
+});
+
+it('replaces restored router fragments once while retaining the in-memory token', () => {
+  location('https://app.example.com/verify-email#token=secret-token');
+  const replace = jest.fn();
+  captureEmailActionToken();
+  // Expo restores the initial location after the initial module-level capture.
+  finishEmailActionNavigation('verify-email', replace);
+  finishEmailActionNavigation('verify-email', replace);
+  expect(replace).toHaveBeenCalledTimes(1);
+  expect(replace).toHaveBeenCalledWith('/verify-email');
+  expect(readEmailActionToken('verify-email')).toBe('secret-token');
 });

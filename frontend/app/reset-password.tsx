@@ -6,7 +6,7 @@ import {
   isValidPassword, PASSWORD_TOO_SHORT_MESSAGE, PASSWORD_MISMATCH_MESSAGE,
 } from '../src/validation';
 import { AuthShell, Input, Button, useToast } from '../src/ui';
-import { clearEmailActionToken, readEmailActionToken } from '../src/emailActionToken';
+import { clearEmailActionToken, readEmailActionToken, useEmailActionNavigation } from '../src/emailActionToken';
 
 // Landing page for the password-reset email link (top-level — works signed-out). Collects a new
 // password (same rules as registration) and posts the token + password to the reset endpoint.
@@ -19,6 +19,7 @@ export default function ResetPassword() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
+  useEmailActionNavigation('reset-password', router.replace);
   const [fieldError, setFieldError] = useState<{
     field: 'token' | 'password' | 'confirm'; message: string;
   } | null>(null);
