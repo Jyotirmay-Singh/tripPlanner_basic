@@ -1,123 +1,90 @@
-# Unit tests for utils/emailer.py::send_email + build_link + the html templates. Pure: the
-# `resend` SDK is replaced with a spy and config flags (RESEND_API_KEY / SENDER_EMAIL / APP_URL)
-# are monkeypatched, so no real network call and no real email ever leaves. This is the layer
-# the mocked endpoint tests stub out — here we exercise the actual fallback + dispatch branches,
-# including the "Resend unconfigured -> link only logged, no crash" config case.
 import asyncio
-import logging
-import sys
-from pathlib import Path
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import utils.emailer as emailer  # noqa: E402
-
-LOGGER_NAME = "splitora"
-
-
-def _run(coro):
-    return asyncio.run(coro)
+import utils.emailer as emailer
 
 
 @pytest.fixture
-def mock_resend(monkeypatch):
-    """Replace resend.Emails.send with a spy so a 'send' never touches the network."""
-    send = MagicMock(return_value={"id": "email_123"})
-    monkeypatch.setattr(emailer.resend.Emails, "send", send)
-    return send
+def configured(monkeypatch):
+    for name in ['EMAILJS_SERVICE_ID', 'EMAILJS_PUBLIC_KEY', 'EMAILJS_PRIVATE_KEY',
+                 'EMAILJS_VERIFICATION_TEMPLATE_ID', 'EMAILJS_RESET_TEMPLATE_ID']:
+        monkeypatch.setattr(emailer, name, name.lower())
+    monkeypatch.setattr(emailer, 'APP_URL', 'https://app.example.com')
+    monkeypatch.setattr(emailer, '_send_lock', asyncio.Lock())
+    monkeypatch.setattr(emailer, '_last_send', 0.0)
+    post = AsyncMock(return_value=SimpleNamespace(status_code=200, text='DO-NOT-LOG-RAW-TOKEN'))
+    client = MagicMock()
+    client.__aenter__ = AsyncMock(return_value=SimpleNamespace(post=post))
+    client.__aexit__ = AsyncMock(return_value=False)
+    constructor = MagicMock(return_value=client)
+    monkeypatch.setattr(emailer.httpx, 'AsyncClient', constructor)
+    return post, constructor
 
 
-# --------------------------------------------------------------------------- #
-# send_email — fallback (no key) branch: link logged, nothing sent, no crash
-# --------------------------------------------------------------------------- #
-def test_send_email_no_api_key_logs_link_and_skips_send(monkeypatch, mock_resend, caplog):
-    monkeypatch.setattr(emailer, "RESEND_API_KEY", "")
-    link = "https://app.example.com/verify-email?token=abc"
-    with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
-        result = _run(emailer.send_email("u@gmail.com", "Subj", "<b>hi</b>", link_for_log=link))
-    assert result is None                       # returns cleanly, never raises
-    mock_resend.assert_not_called()             # no send attempted without a key
-    assert any(f"link={link}" in r.message for r in caplog.records)  # link logged for offline flows
-
-
-# --------------------------------------------------------------------------- #
-# send_email — configured branch: dispatches via Resend with the right payload
-# --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("sender", [
-    "no-reply@tripsplitter.com", "Previous name <no-reply@tripsplitter.com>",
+@pytest.mark.parametrize('purpose,path,key,template', [
+    ('verify_email', 'verify-email', 'verification_url', 'emailjs_verification_template_id'),
+    ('reset_password', 'reset-password', 'reset_url', 'emailjs_reset_template_id'),
 ])
-def test_send_email_with_key_dispatches_via_resend(monkeypatch, mock_resend, sender):
-    monkeypatch.setattr(emailer, "RESEND_API_KEY", "re_key")
-    monkeypatch.setattr(emailer, "SENDER_EMAIL", sender)
-    _run(emailer.send_email("u@gmail.com", "Verify", "<b>body</b>", link_for_log="lnk"))
-    mock_resend.assert_called_once()
-    payload = mock_resend.call_args.args[0]
-    assert payload["from"] == "Splitora <no-reply@tripsplitter.com>"
-    assert payload["to"] == ["u@gmail.com"]
-    assert payload["subject"] == "Verify"
-    assert payload["html"] == "<b>body</b>"
+def test_private_authorization_and_backend_selected_recipient(configured, purpose, path, key, template, caplog):
+    post, constructor = configured
+    link = emailer.build_link(path, 'RAW-TOKEN')
+    assert link == 'https://app.example.com/' + path + '#token=RAW-TOKEN'
+    asyncio.run(emailer.send_auth_email('account@gmail.com', purpose, link))
+    url = post.call_args.args[0]
+    payload = post.call_args.kwargs['json']
+    assert url == emailer.EMAILJS_URL
+    assert payload['accessToken'] == 'emailjs_private_key'
+    assert payload['template_id'] == template
+    assert payload['template_params'] == {'to_email': 'account@gmail.com', 'app_name': 'Splitora', key: link}
+    assert constructor.call_args.kwargs == {'timeout': 10.0, 'follow_redirects': False}
+    assert 'RAW-TOKEN' not in caplog.text
+    assert 'emailjs_private_key' not in caplog.text
 
 
-# --------------------------------------------------------------------------- #
-# send_email — a Resend failure is swallowed (never surfaces to the caller)
-# --------------------------------------------------------------------------- #
-def test_send_email_swallows_send_failure(monkeypatch, mock_resend, caplog):
-    monkeypatch.setattr(emailer, "RESEND_API_KEY", "re_key")
-    mock_resend.side_effect = RuntimeError("resend down")
-    with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
-        result = _run(emailer.send_email("u@gmail.com", "S", "<b>b</b>"))  # must NOT raise
-    assert result is None
-    assert any("Resend send failed" in r.message for r in caplog.records)
+@pytest.mark.parametrize('url', ['', 'http://app.example.com', 'https://user:secret@app.example.com',
+                                 'https://app.example.com/elsewhere', 'https://app.example.com?evil=1'])
+def test_untrusted_or_missing_application_url_fails_closed(monkeypatch, url):
+    monkeypatch.setattr(emailer, 'APP_URL', url)
+    with pytest.raises(emailer.EmailDeliveryError): emailer.build_link('verify-email', 'RAW')
 
 
-# --------------------------------------------------------------------------- #
-# send_email — the link is logged even on the configured (dispatching) path
-# --------------------------------------------------------------------------- #
-def test_send_email_logs_link_even_when_dispatching(monkeypatch, mock_resend, caplog):
-    monkeypatch.setattr(emailer, "RESEND_API_KEY", "re_key")
-    link = "https://app.example.com/reset-password?token=t"
-    with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
-        _run(emailer.send_email("u@gmail.com", "S", "<b>b</b>", link_for_log=link))
-    assert any(f"link={link}" in r.message for r in caplog.records)
-    mock_resend.assert_called_once()
+def test_unconfigured_never_sends_or_logs_link(configured, monkeypatch, caplog):
+    monkeypatch.setattr(emailer, 'EMAILJS_PRIVATE_KEY', '')
+    with pytest.raises(emailer.EmailDeliveryError):
+        asyncio.run(emailer.send_auth_email('account@gmail.com', 'verify_email', emailer.build_link('verify-email', 'RAW')))
+    configured[0].assert_not_awaited()
+    assert 'RAW' not in caplog.text
 
 
-# --------------------------------------------------------------------------- #
-# build_link — deep link when APP_URL is set, bare token when it isn't
-# --------------------------------------------------------------------------- #
-def test_build_link_with_app_url(monkeypatch):
-    monkeypatch.setattr(emailer, "APP_URL", "https://app.example.com")
-    assert emailer.build_link("verify-email", "tok123") == \
-        "https://app.example.com/verify-email?token=tok123"
+@pytest.mark.parametrize('status', [401, 403, 412, 429, 500])
+def test_provider_rejections_do_not_log_response_content(configured, caplog, status):
+    post, _ = configured
+    post.return_value.status_code = status
+    with pytest.raises(emailer.EmailDeliveryError):
+        asyncio.run(emailer.send_auth_email('account@gmail.com', 'verify_email', emailer.build_link('verify-email', 'RAW')))
+    assert str(status) in caplog.text
+    assert 'DO-NOT-LOG' not in caplog.text
+    assert 'RAW' not in caplog.text
 
 
-def test_build_link_trims_trailing_slash(monkeypatch):
-    monkeypatch.setattr(emailer, "APP_URL", "https://app.example.com/")
-    assert emailer.build_link("reset-password", "tok") == \
-        "https://app.example.com/reset-password?token=tok"
+def test_network_errors_are_sanitized(configured, caplog):
+    configured[0].side_effect = httpx.ReadTimeout('secret=RAW-TOKEN')
+    with pytest.raises(emailer.EmailDeliveryError):
+        asyncio.run(emailer.send_auth_email('account@gmail.com', 'verify_email', emailer.build_link('verify-email', 'RAW')))
+    assert 'RAW' not in caplog.text
 
 
-def test_build_link_without_app_url_returns_bare_token(monkeypatch):
-    monkeypatch.setattr(emailer, "APP_URL", "")
-    assert emailer.build_link("verify-email", "tok123") == "tok123"
-
-
-# --------------------------------------------------------------------------- #
-# html templates — each carries the link, the raw token, and the correct lifetime
-# --------------------------------------------------------------------------- #
-def test_verification_html_carries_token_link_and_24h():
-    html = emailer.verification_html("Alice", "https://app/verify-email?token=abc", "abc")
-    assert "https://app/verify-email?token=abc" in html
-    assert "abc" in html
-    assert "24 hours" in html
-    assert "Alice" in html
-
-
-def test_password_reset_html_carries_token_link_and_one_hour_expiry():
-    html = emailer.password_reset_html("Bob", "https://app/reset-password?token=xyz", "xyz")
-    assert "https://app/reset-password?token=xyz" in html
-    assert "xyz" in html
-    assert "1 hour" in html
-    assert "expires in 1 hour" in html
+def test_sends_are_serialized_and_paced(configured, monkeypatch):
+    sleeps = []
+    async def sleep(delay): sleeps.append(delay)
+    monkeypatch.setattr(emailer.asyncio, 'sleep', sleep)
+    monkeypatch.setattr(emailer.time, 'monotonic', lambda: 100.0)
+    async def scenario():
+        link = emailer.build_link('verify-email', 'RAW')
+        await asyncio.gather(*[emailer.send_auth_email('account@gmail.com', 'verify_email', link) for _ in range(3)])
+    asyncio.run(scenario())
+    assert sleeps == [0, 1.05, 1.05]

@@ -19,6 +19,9 @@ import { authRedirectTarget, navResetTo, isPublicTokenRoute } from '../src/authN
 import PushNotificationCoordinator from '../src/PushNotificationCoordinator';
 import AppSystemBars from '../src/AppSystemBars';
 import { AppKeyboardProvider } from '../src/KeyboardController';
+import { captureEmailActionToken } from '../src/emailActionToken';
+
+captureEmailActionToken();
 
 // Keep the native splash up until our fonts are ready, so text never flashes in a fallback face.
 SplashScreen.preventAutoHideAsync().catch(() => {});

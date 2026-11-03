@@ -67,6 +67,14 @@ class ChatConnectionManager:
         for websocket in targets:
             await self._close_and_remove(trip_id, websocket, 4404)
 
+    async def revoke_user(self, user_id: str) -> None:
+        """Close every session for this account, including application-admin sockets."""
+        async with self._lock:
+            targets = [(trip_id, ws) for trip_id, connections in self._connections.items()
+                       for ws, connection in connections.items() if connection[0] == user_id]
+        for trip_id, websocket in targets:
+            await self._close_and_remove(trip_id, websocket, 4401)
+
     async def _close_and_remove(self, trip_id: str, websocket: WebSocket, code: int) -> None:
         await self.disconnect(trip_id, websocket)
         try:

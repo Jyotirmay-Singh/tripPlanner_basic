@@ -10,7 +10,7 @@ you control. The code is already deployed and auto-builds from `main`:
 | Web (Expo export) | `https://tripsplitter-web.vercel.app` | Vercel, auto-deploy from `main` |
 | Database | MongoDB Atlas M0 (AWS Singapore) | n/a (managed) |
 
-> Related: `docs/EMAIL_SETUP.md` (Resend real-delivery), `render.yaml`, `backend/.env.example`,
+> Related: `docs/EMAIL_SETUP.md` (EmailJS delivery and the authorization rollout gate), `render.yaml`, `backend/.env.example`,
 > and `CLAUDE.md` Phase 8–9 / Step 37 (this runbook is the actionable version of Step 37).
 
 ---
@@ -67,23 +67,9 @@ curl -s "https://tripsplitter-web.vercel.app$BUNDLE" | grep -c "307368957277-58j
 
 ---
 
-## 1. Render — `APP_URL` (emailed verify/reset links)
+## 1. Render — authentication email
 
-If `APP_URL` is blank, the verify-email / reset-password emails carry a **bare token** instead of a
-clickable link. Email/password login still works, but `APP_URL` is required for polished self-serve
-password-reset and email-verification flows.
-
-1. Render dashboard → **tripsplitter-api** → **Environment**.
-2. Set:
-   - **Key:** `APP_URL`
-   - **Value:** `https://tripsplitter-web.vercel.app`  ← **no trailing slash**
-3. **Save Changes** → Render auto-redeploys.
-4. **Verify:** trigger "Forgot password?" for a known account. The emailed (or Render-logged, if using
-   the Resend test sender) link must read `https://tripsplitter-web.vercel.app/reset-password?token=…`.
-
-*Why it works:* the backend builds links as `{APP_URL}/verify-email?token=` and
-`{APP_URL}/reset-password?token=`, and the web app has matching routes
-(`frontend/app/verify-email.tsx`, `frontend/app/reset-password.tsx`).
+Follow `docs/EMAIL_SETUP.md` for backend-only EmailJS settings and its security gate. Keep delivery disabled until both templates reject every unauthorized request. Action links use the configured HTTPS web origin and URL fragments; never inspect or copy tokens from server logs. Disabling delivery never verifies a new account.
 
 ---
 
@@ -175,9 +161,9 @@ access to specific egress IPs.
 
 ## 4. Optional: real email delivery (not in current scope)
 
-Verification/reset emails only reach the **Resend account owner** while `SENDER_EMAIL` is the shared
+Verification/reset emails only reach the **Resend account owner** while `APP_NAME` is the shared
 `onboarding@resend.dev` test sender; everyone else gets a logged link. To deliver to any Gmail address,
-verify a sending domain in Resend and point `SENDER_EMAIL` at it. Full steps: **`docs/EMAIL_SETUP.md`**.
+verify a sending domain in Resend and point `APP_NAME` at it. Full steps: **`docs/EMAIL_SETUP.md`**.
 
 ---
 
@@ -193,7 +179,7 @@ verify a sending domain in Resend and point `SENDER_EMAIL` at it. Full steps: **
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | seed admin (`@gmail.com`) — secret |
 | `APP_URL` | `https://tripsplitter-web.vercel.app` — **§1** |
 | `GOOGLE_CLIENT_ID` | comma-separated audiences incl. **web** ID — **§2c** |
-| `RESEND_API_KEY` / `SENDER_EMAIL` | email delivery — optional, see §4 |
+| `EMAILJS_PRIVATE_KEY` / `APP_NAME` | email delivery — optional, see §4 |
 
 ### Vercel (`tripsplitter-web` → Settings → Environment Variables, Production + Preview)
 

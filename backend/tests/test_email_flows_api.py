@@ -1,16 +1,14 @@
-# Live-API tests for the Phase-9 email flows (email verification + forgot-PASSWORD), driven with
-# `requests` against a RUNNING server (reuses conftest's api_client / BASE_URL). Run the server with
-# RESEND_API_KEY UNSET so nothing is actually emailed — the link is only logged (the tested behavior
-# is identical either way). These cover only the TOKEN-FREE surfaces: the Phase-9 tokens are SHA-256
-# hashed in db.auth_tokens and never returned by the API, so a live client can't recover a raw token —
-# the full happy-path chains (valid token -> verified / password changed) live in the in-process
-# test_auth_flows_integration.py, which captures the raw token by wrapping issue_token.
-import os
+# API contract tests with real auth logic, isolated storage, and fully mocked delivery.
 import uuid
 
-import requests
+import pytest
 
-BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL', 'http://localhost:8000').rstrip('/')
+BASE_URL = ''
+
+
+@pytest.fixture
+def api_client(email_env):
+    return email_env.client
 
 GENERIC_RESET_MSG = "If this email exists, a reset link has been sent."
 
@@ -130,3 +128,11 @@ def test_reset_password_bad_tokens_rejected(api_client):
     assert missing.status_code == 422  # missing new_password
     for resp in (empty, unknown, missing):
         assert resp.status_code != 500
+
+
+def test_retired_authentication_surfaces_stay_removed(api_client):
+    schema = api_client.get("/openapi.json").json()
+    for path in ["/api/auth/forgot-pin", "/api/auth/reset-pin", "/api/auth/reset-pin-by-password"]:
+        assert path not in schema["paths"]
+    assert "pin" not in schema["components"]["schemas"]["RegisterIn"]["properties"]
+    assert "pin" not in schema["components"]["schemas"]["LoginIn"]["properties"]

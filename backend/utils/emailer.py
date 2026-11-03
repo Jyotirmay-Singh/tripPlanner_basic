@@ -1,87 +1,81 @@
-"""Reusable transactional-email helper for verify-email and reset-password flows.
-
-Send via Resend off the event loop. If Resend isn't configured (or the send fails), log the
-development link so local and free-tier testing remains possible.
-"""
+"""Server-only EmailJS delivery. Never log payloads, credentials or action links."""
 import asyncio
-from email.utils import formataddr, parseaddr
-from typing import Optional
+import time
+from urllib.parse import quote, urlsplit
 
-import resend
+import httpx
 
-from config import logger, RESEND_API_KEY, SENDER_EMAIL, APP_URL
+from config import (
+    logger, APP_NAME, APP_URL, EMAILJS_SERVICE_ID, EMAILJS_PUBLIC_KEY,
+    EMAILJS_PRIVATE_KEY, EMAILJS_VERIFICATION_TEMPLATE_ID, EMAILJS_RESET_TEMPLATE_ID,
+)
+
+EMAILJS_URL = "https://api.emailjs.com/api/v1.0/email/send"
+_send_lock = asyncio.Lock()
+_last_send = 0.0
+
+
+class EmailDeliveryError(RuntimeError):
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__("Email delivery is temporarily unavailable. Please try again later.")
+
+
+def _trusted_origin() -> str:
+    parsed = urlsplit(APP_URL)
+    if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password
+            or parsed.path not in ("", "/") or parsed.query or parsed.fragment):
+        raise EmailDeliveryError("invalid_app_url")
+    return APP_URL.rstrip("/")
 
 
 def sender_mode_summary() -> str:
-    """One-line, secret-free description of the active email delivery mode (for the startup log).
-    Pure detection from existing config - never prints the API key or any token."""
-    if not RESEND_API_KEY:
-        return ("EMAIL: no RESEND_API_KEY configured - verification/reset links are only LOGGED "
-                "(look for '[EMAIL] ... link='); no email is sent")
-    sender_address = parseaddr(SENDER_EMAIL.strip())[1]
-    if sender_address.lower() == "onboarding@resend.dev":
-        return ("EMAIL: Resend test sender (onboarding@resend.dev) - delivers ONLY to the Resend "
-                "account owner's inbox; all other recipients fall back to logged links")
-    return f"EMAIL: live sender {sender_address} - delivering to all recipients"
+    configured = all((EMAILJS_SERVICE_ID, EMAILJS_PUBLIC_KEY, EMAILJS_PRIVATE_KEY,
+                      EMAILJS_VERIFICATION_TEMPLATE_ID, EMAILJS_RESET_TEMPLATE_ID))
+    return "EMAIL: EmailJS configured" if configured else "EMAIL: EmailJS unavailable (configuration incomplete)"
 
 
 def build_link(path: str, token: str) -> str:
-    """Build the app deep link for an emailed token. Falls back to the bare token when
-    APP_URL is unset."""
-    base = APP_URL.rstrip("/") if APP_URL else ""
-    if not base:
-        return token
-    return f"{base}/{path.lstrip('/')}?token={token}"
+    if path not in ("verify-email", "reset-password"):
+        raise ValueError("Unsupported email action")
+    # Fragments never enter HTTP requests to Vercel or Referrer headers.
+    return f"{_trusted_origin()}/{path}#token={quote(token, safe='')}"
 
 
-async def send_email(to: str, subject: str, html: str, *, link_for_log: Optional[str] = None) -> None:
-    """Send an email via Resend in a worker thread. The link is always logged (so the flow
-    is testable and survives an unconfigured / unreachable sender); a send failure is logged,
-    never raised, so email problems can't break the request that triggered them."""
-    if link_for_log:
-        logger.info(f"[EMAIL] to={to} subject={subject!r} link={link_for_log}")
-    if not RESEND_API_KEY:
-        logger.debug(f"[EMAIL] send skipped (no RESEND_API_KEY) - link logged only, to={to}")
-        return
+async def send_auth_email(to: str, purpose: str, link: str) -> None:
+    global _last_send
+    templates = {"verify_email": EMAILJS_VERIFICATION_TEMPLATE_ID,
+                 "reset_password": EMAILJS_RESET_TEMPLATE_ID}
+    template = templates.get(purpose)
+    if not all((EMAILJS_SERVICE_ID, EMAILJS_PUBLIC_KEY, EMAILJS_PRIVATE_KEY, template)):
+        raise EmailDeliveryError("unconfigured")
+    expected_path = "verify-email" if purpose == "verify_email" else "reset-password"
+    if not link.startswith(f"{_trusted_origin()}/{expected_path}#token="):
+        raise EmailDeliveryError("invalid_action_url")
+    params = {"to_email": to, "app_name": APP_NAME,
+              "verification_url" if purpose == "verify_email" else "reset_url": link}
+    payload = {"service_id": EMAILJS_SERVICE_ID, "template_id": template,
+               "user_id": EMAILJS_PUBLIC_KEY, "accessToken": EMAILJS_PRIVATE_KEY,
+               "template_params": params}
+    # Production runs one worker. Pace both templates and concurrent requests together.
     try:
-        await asyncio.to_thread(resend.Emails.send, {
-            "from": formataddr(("Splitora", parseaddr(SENDER_EMAIL.strip())[1])),
-            "to": [to], "subject": subject, "html": html,
-        })
-        logger.debug(f"[EMAIL] dispatched via Resend (sender={SENDER_EMAIL}) to={to}")
-    except Exception as e:  # never let an email failure surface to the caller
-        logger.warning(f"Resend send failed: {e}")
-
-
-def _button(link: str, label: str) -> str:
-    return (
-        f"<p><a href='{link}' style='background:#1C3F39;color:#fff;padding:12px 20px;"
-        f"border-radius:24px;text-decoration:none;display:inline-block'>{label}</a></p>"
-    )
-
-
-def verification_html(name: str, link: str, token: str) -> str:
-    return (
-        f"<div style='font-family:sans-serif'>"
-        f"<h2>Verify your email</h2>"
-        f"<p>Hi {name},</p>"
-        f"<p>Confirm your email to finish setting up your Splitora account. "
-        f"This link expires in 24 hours.</p>"
-        f"{_button(link, 'Verify email')}"
-        f"<p>Or paste this token in the app: <b>{token}</b></p>"
-        f"<p style='color:#888;font-size:12px'>If you didn't create this account, ignore this email.</p>"
-        f"</div>"
-    )
-
-
-def password_reset_html(name: str, link: str, token: str) -> str:
-    return (
-        f"<div style='font-family:sans-serif'>"
-        f"<h2>Reset your password</h2>"
-        f"<p>Hi {name},</p>"
-        f"<p>Tap below to choose a new password. This link expires in 1 hour.</p>"
-        f"{_button(link, 'Reset password')}"
-        f"<p>Or paste this token in the app: <b>{token}</b></p>"
-        f"<p style='color:#888;font-size:12px'>If you didn't request this, ignore this email.</p>"
-        f"</div>"
-    )
+        await asyncio.wait_for(_send_lock.acquire(), timeout=5.0)
+    except asyncio.TimeoutError:
+        logger.warning("email.delivery_failed reason=busy")
+        raise EmailDeliveryError("busy") from None
+    try:
+        await asyncio.sleep(max(0, 1.05 - (time.monotonic() - _last_send)))
+        _last_send = time.monotonic()
+        try:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+                response = await client.post(EMAILJS_URL, json=payload)
+        except httpx.HTTPError:
+            logger.warning("email.delivery_failed reason=network")
+            raise EmailDeliveryError("network") from None
+    finally:
+        _send_lock.release()
+    if response.status_code != 200:
+        # Provider responses can echo variables. Retain only the status code.
+        logger.warning("email.delivery_failed status=%s", response.status_code)
+        raise EmailDeliveryError("provider_rejected")
+    logger.info("email.dispatched purpose=%s", purpose)

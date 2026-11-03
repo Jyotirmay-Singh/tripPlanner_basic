@@ -18,8 +18,13 @@ services:
       - { key: DB_NAME,          sync: false }   # unchanged from local
       - { key: JWT_SECRET,       sync: false }   # SECRET — reuse local, or swap to generateValue: true
       - { key: ADMIN_PASSWORD,   sync: false }   # SECRET — seed the fixed application admin if missing
-      - { key: RESEND_API_KEY,   sync: false }   # SECRET — optional (unset => reset token logged)
-      - { key: SENDER_EMAIL,     sync: false }   # optional, defaults onboarding@resend.dev
+      - { key: EMAIL_FEATURES_ENABLED, sync: false } # keep false until provider authorization passes
+      - { key: APP_NAME, sync: false }
+      - { key: EMAILJS_SERVICE_ID, sync: false }
+      - { key: EMAILJS_PUBLIC_KEY, sync: false }
+      - { key: EMAILJS_PRIVATE_KEY, sync: false } # SECRET — backend only
+      - { key: EMAILJS_VERIFICATION_TEMPLATE_ID, sync: false }
+      - { key: EMAILJS_RESET_TEMPLATE_ID, sync: false }
       - { key: APP_URL,          sync: false }   # set to the web URL (verification/password-reset links)
       - { key: GOOGLE_CLIENT_ID, sync: false }   # public client id(s), comma-separated audiences
       - { key: PUSH_NOTIFICATIONS_ENABLED, sync: false } # set true only after EAS/FCM setup

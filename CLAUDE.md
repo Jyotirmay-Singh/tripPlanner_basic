@@ -106,7 +106,7 @@ Backend (`backend/.env`):
 - `MONGO_URL`, `DB_NAME`: MongoDB connection and database.
 - `JWT_SECRET`: HS256 signing secret.
 - `ADMIN_EMAIL`, `ADMIN_PASSWORD`: seeded administrator credentials; email must be Gmail.
-- `RESEND_API_KEY`, `SENDER_EMAIL`, `APP_URL`: transactional email and public-link configuration.
+- `EMAILJS_SERVICE_ID`, `EMAILJS_PUBLIC_KEY`, `EMAILJS_PRIVATE_KEY`, `EMAILJS_VERIFICATION_TEMPLATE_ID`, `EMAILJS_RESET_TEMPLATE_ID`, `APP_NAME`, `APP_URL`: backend-only EmailJS configuration. Keep `EMAIL_FEATURES_ENABLED` disabled until the authorization checks in `docs/EMAIL_SETUP.md` pass.
 - `GOOGLE_CLIENT_ID`: one accepted OAuth audience or a comma-separated list; include the Web client
   used by Android Credential Manager/web and the iOS client when iOS sign-in is enabled.
 - `MULTI_CURRENCY_EXPENSES_ENABLED`: runtime rollout flag for expense conversion; defaults to
@@ -120,7 +120,7 @@ Frontend (`frontend/.env` or build environment):
 
 Android OAuth clients are Google Cloud package/SHA registrations, not runtime environment values.
 
-If Resend is not configured, current backend behavior may log a link/token for development. Never expose those values in output.
+Never log email action links or token variables. There is no development link-logging fallback; use mocked delivery and isolated test data.
 
 ## 6. Critical Domain Invariants
 
@@ -314,7 +314,7 @@ Historical roadmap caveats:
 
 - Former Step 70 (member-spend drill-down) still lacked its live-API verification/commit gate even though implementation, docs, and local tests were present.
 - Former Step 74 (PDF frontend/report integration) was left unchecked even though the frontend PDF URL/button code is present. Treat it as implemented but not fully live-verified until the end-to-end download is exercised.
-- External services such as MongoDB, Resend, Google OAuth, Render, Vercel, Expo, and EAS can be configured in code while inactive or stale at runtime.
+- External services such as MongoDB, EmailJS, Google OAuth, Render, Vercel, Expo, and EAS can be configured in code while inactive or stale at runtime.
 
 ## 8. Change and Verification Rules
 

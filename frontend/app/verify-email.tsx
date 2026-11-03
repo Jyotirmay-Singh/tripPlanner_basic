@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { api } from '../src/api';
@@ -6,19 +6,20 @@ import { useAuth } from '../src/AuthContext';
 import { useTheme } from '../src/ThemeContext';
 import { SPACING } from '../src/theme';
 import { AuthShell, Input, Button, Icon, useToast } from '../src/ui';
+import { clearEmailActionToken, readEmailActionToken } from '../src/emailActionToken';
 
 type Status = 'verifying' | 'success' | 'error' | 'idle';
 
 // Landing page for the verification email link (top-level so it works whether or not the visitor
-// is signed in — see PUBLIC_TOKEN_ROUTES). Auto-submits the token from the URL on mount.
+// is signed in — see PUBLIC_TOKEN_ROUTES). Only an explicit press consumes the token.
 export default function VerifyEmail() {
   const router = useRouter();
   const toast = useToast();
   const { colors } = useTheme();
   const { user, refresh } = useAuth();
   const params = useLocalSearchParams<{ token?: string }>();
-  const [token, setToken] = useState((params.token as string) || '');
-  const [status, setStatus] = useState<Status>(params.token ? 'verifying' : 'idle');
+  const [token, setToken] = useState(() => readEmailActionToken('verify-email', params.token));
+  const [status, setStatus] = useState<Status>('idle');
   const [tokenError, setTokenError] = useState<string | null>(null);
 
   const verify = async (t: string) => {
@@ -31,18 +32,14 @@ export default function VerifyEmail() {
     try {
       await api('/auth/verify-email', { method: 'POST', body: { token: t.trim() }, auth: false });
       setStatus('success');
+      setToken('');
+      clearEmailActionToken('verify-email');
       await refresh().catch(() => {}); // clear the unverified banner if signed in
     } catch (e: any) {
       setStatus('error');
       toast.show(e.message || 'This link is invalid or has expired.', 'error');
     }
   };
-
-  // Auto-verify once if a token arrived in the URL.
-  useEffect(() => {
-    if (params.token) verify(params.token as string);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const goOn = () => router.replace(user ? '/(tabs)/dashboard' : '/(auth)/login');
 
@@ -72,7 +69,7 @@ export default function VerifyEmail() {
     <AuthShell
       brandIcon="mail"
       title="Verify your email"
-      subtitle="Paste the token from your verification email."
+      subtitle={token ? 'Confirm that you want to verify the email address this link was sent to.' : 'Paste the token from your verification email.'}
     >
       <Input
         testID="verify-token"

@@ -15,7 +15,7 @@ from services.admin_audit import record_admin_action
 from utils.common import gen_id, now_utc
 from utils.deps import get_current_user, _trip_or_404, _trip_owner_or_403
 from utils.permissions import is_super_admin
-from utils.security import decode_token
+from utils.security import decode_token, validate_session
 
 router = APIRouter()
 
@@ -375,13 +375,18 @@ async def chat_websocket(websocket: WebSocket, trip_id: str):
             await websocket.close(code=4401)
             return
         user = await db.users.find_one(
-            {"id": payload.get("sub")}, {"_id": 0, "id": 1, "email": 1, "role": 1}
+            {"id": payload.get("sub")}, {"_id": 0, "id": 1, "email": 1, "role": 1, "session_version": 1}
         )
         if not user:
             logger.warning(
                 "chat.websocket_rejected trip_id=%s reason=user_missing close_code=4401",
                 trip_id,
             )
+            await websocket.close(code=4401)
+            return
+        try:
+            validate_session(payload, user)
+        except HTTPException:
             await websocket.close(code=4401)
             return
         trip = await db.trips.find_one({"id": trip_id}, {"_id": 0, "user_ids": 1})
@@ -399,6 +404,16 @@ async def chat_websocket(websocket: WebSocket, trip_id: str):
         else:
             await chat_connections.connect(trip_id, user["id"], websocket)
         connected = True
+        # The connection is registered before this recheck, so a reset racing the initial
+        # authentication either closes it through revoke_user or fails this version check.
+        current_user = await db.users.find_one({"id": user["id"]}, {"session_version": 1})
+        try:
+            if not current_user:
+                raise HTTPException(401, "User not found")
+            validate_session(payload, current_user)
+        except HTTPException:
+            await websocket.close(code=4401)
+            return
         await websocket.send_json({"type": "ready"})
         logger.info("chat.websocket_ready trip_id=%s", trip_id)
         while True:

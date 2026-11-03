@@ -1,11 +1,9 @@
-from datetime import timedelta
-
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
 from google.auth.transport import requests as google_requests
 from google.auth.exceptions import TransportError
 from google.oauth2 import id_token as google_id_token
 
-from config import GOOGLE_CLIENT_ID, EMAIL_FEATURES_ENABLED
+from config import GOOGLE_CLIENT_ID, EMAIL_FEATURES_ENABLED, logger
 from database import db
 from models.auth import (
     RegisterIn, LoginIn, GoogleAuthIn,
@@ -14,18 +12,20 @@ from models.auth import (
 )
 from services.mobile_claims import update_account_mobile
 from utils.common import gen_id, now_utc
-from utils.email_rules import assert_gmail, normalize_email
+from utils.email_rules import assert_gmail, normalize_email, email_is_verified
 from utils.security import hash_secret, verify_secret, create_token
 from utils.deps import get_current_user
 from utils.permissions import is_super_admin
 from utils.auth_tokens import (
-    issue_token, consume_token, seconds_since_last, VERIFY_EMAIL, RESET_PASSWORD,
+    issue_token, consume_token, AuthTokenError, TOKEN_TTL, VERIFY_EMAIL, RESET_PASSWORD,
 )
-from utils.emailer import send_email, build_link, verification_html, password_reset_html
+from utils.emailer import send_auth_email, build_link, EmailDeliveryError
+from utils.email_limits import claim_email_send, enforce_email_ip_limit
+from services.ledger_transactions import TransactionUnavailableError
+from services.chat_realtime import chat_connections
 
-# Email-token lifetimes (Phase 9): verification link 24h, password-reset link 1h.
-VERIFY_TTL = timedelta(hours=24)
-RESET_TTL = timedelta(hours=1)
+VERIFY_TTL = TOKEN_TTL
+RESET_TTL = TOKEN_TTL
 # Minimum seconds between "resend verification email" requests (per user).
 RESEND_COOLDOWN_SECONDS = 60
 
@@ -38,15 +38,12 @@ MIN_PASSWORD_LENGTH = 9
 
 # ---------- Auth ----------
 def _user_payload(user: dict) -> dict:
-    """The public user object returned alongside an access token. `email_verified` /
-    `credentials_set` default True so legacy rows (read before the startup backfill) and
-    any caller-built dict behave as already-provisioned rather than locked out. The
-    credential flag now means that a Google-created account has configured a local password."""
+    """Public profile. Pending email verification never restricts application access."""
     return {
         "id": user["id"], "email": user["email"], "name": user["name"],
         "role": user.get("role", "user"),
         "is_super_admin": is_super_admin(user),
-        "email_verified": user.get("email_verified", True),
+        "email_verified": email_is_verified(user),
         "credentials_set": user.get("credentials_set", True),
         "upi_id": user.get("upi_id"),
         "upi_updated_at": user.get("upi_updated_at"),
@@ -59,6 +56,10 @@ def _user_payload(user: dict) -> dict:
 def _self_profile_payload(user: dict) -> dict:
     """Preserve the existing /auth/me shape while stabilizing nullable UPI fields."""
     payload = dict(user)
+    payload["email_verified"] = email_is_verified(user)
+    payload.pop("auth_token_versions", None)
+    payload.pop("session_version", None)
+    payload.pop("email_security_migration", None)
     payload["is_super_admin"] = is_super_admin(user)
     payload["upi_id"] = user.get("upi_id")
     payload["upi_updated_at"] = user.get("upi_updated_at")
@@ -70,15 +71,16 @@ def _self_profile_payload(user: dict) -> dict:
 
 async def _send_verification(user: dict) -> None:
     """Issue a fresh verify-email token (invalidating older ones) and email the link."""
+    retry = await claim_email_send(user["email"], VERIFY_EMAIL)
+    if retry:
+        raise HTTPException(429, {"code": "email_cooldown", "message": "Please wait before requesting another email."},
+                            headers={"Retry-After": str(retry)})
     raw = await issue_token(user["id"], VERIFY_EMAIL, VERIFY_TTL)
     link = build_link("verify-email", raw)
-    await send_email(
-        user["email"], "Verify your Splitora email",
-        verification_html(user.get("name", "there"), link, raw), link_for_log=link,
-    )
+    await send_auth_email(user["email"], VERIFY_EMAIL, link)
 
 
-@router.post("/auth/register")
+@router.post("/auth/register", dependencies=[Depends(enforce_email_ip_limit)])
 async def register(body: RegisterIn):
     email = body.email.lower().strip()
     assert_gmail(email)
@@ -92,11 +94,9 @@ async def register(body: RegisterIn):
         "id": uid, "email": email, "name": body.name,
         "password_hash": password_hash,
         "role": "user",
-        # Phase 9: new email/password signups start UNVERIFIED (soft gate — they can still
-        # log in, the app shows a "verify your email" banner) but already have credentials.
-        # When email features are ghosted (EMAIL_FEATURES_ENABLED=false) there is no way to
-        # deliver/verify, so new signups are marked verified up-front and no email is sent.
-        "email_verified": not EMAIL_FEATURES_ENABLED,
+        "email_verified": False,
+        "session_version": 0,
+        "email_security_migration": 1,
         "credentials_set": True,
         "mobile_number": None,
         "mobile_country_code": None,
@@ -104,10 +104,16 @@ async def register(body: RegisterIn):
         "created_at": now_utc().isoformat(),
     }
     await db.users.insert_one(doc)
+    delivery = "disabled"
     if EMAIL_FEATURES_ENABLED:
-        await _send_verification(doc)
+        try:
+            await _send_verification(doc)
+            delivery = "sent"
+        except (EmailDeliveryError, TransactionUnavailableError, HTTPException):
+            logger.warning("email.registration_delivery_unavailable")
+            delivery = "unavailable"
     token = create_token(uid, email)
-    return {"access_token": token, "user": _user_payload(doc)}
+    return {"access_token": token, "user": _user_payload(doc), "verification_delivery": delivery}
 
 
 @router.post("/auth/login")
@@ -118,7 +124,7 @@ async def login(body: LoginIn):
     password_hash = user.get("password_hash") if user else None
     if not password_hash or not verify_secret(body.password, password_hash):
         raise HTTPException(401, "Invalid email or password")
-    token = create_token(user["id"], email)
+    token = create_token(user["id"], email, user.get("session_version", 0))
     return {"access_token": token, "user": _user_payload(user)}
 
 
@@ -200,6 +206,8 @@ async def google_auth(body: GoogleAuthIn):
     except TransportError:
         raise HTTPException(503, "Google sign-in is temporarily unavailable")
 
+    if idinfo.get("email_verified") is not True:
+        raise HTTPException(401, "Google has not verified this email address")
     email = normalize_email(idinfo.get("email"))
     if not email:
         raise HTTPException(401, "Invalid Google token")
@@ -216,6 +224,11 @@ async def google_auth(body: GoogleAuthIn):
             # credentials_set=False routes the user through mandatory local-password setup
             # before the client allows access to protected application screens.
             "email_verified": True,
+            "email_verified_at": now_utc(),
+            "email_verified_for": email,
+            "email_verification_method": "google",
+            "email_security_migration": 1,
+            "session_version": 0,
             "credentials_set": False,
             "mobile_number": None,
             "mobile_country_code": None,
@@ -223,75 +236,88 @@ async def google_auth(body: GoogleAuthIn):
             "created_at": now_utc().isoformat(),
         }
         await db.users.insert_one(user)
+    else:
+        proof = {"email_verified": True, "email_verified_at": now_utc(),
+                 "email_verified_for": email, "email_verification_method": "google"}
+        await db.users.update_one({"id": user["id"], "email": email}, {"$set": proof})
+        user.update(proof)
 
-    token = create_token(user["id"], email)
+    token = create_token(user["id"], email, user.get("session_version", 0))
     return {"access_token": token, "user": _user_payload(user)}
 
 
 # ---------- Email verification (Phase 9) ----------
-@router.post("/auth/verify-email")
+@router.post("/auth/verify-email", dependencies=[Depends(enforce_email_ip_limit)])
 async def verify_email(body: VerifyEmailIn):
     # Unauthenticated: the single-use token in the email link is the proof of ownership.
-    user_id = await consume_token(body.token, VERIFY_EMAIL)
-    if not user_id:
-        raise HTTPException(400, "Invalid or expired verification link")
-    await db.users.update_one({"id": user_id}, {"$set": {"email_verified": True}})
+    await _consume_email_token(body.token, VERIFY_EMAIL)
     return {"ok": True}
 
 
-@router.post("/auth/resend-verification")
+@router.post("/auth/resend-verification", dependencies=[Depends(enforce_email_ip_limit)])
 async def resend_verification(user=Depends(get_current_user)):
     if not EMAIL_FEATURES_ENABLED:
-        # Ghosted: nothing to send (and new users are already marked verified).
         return {"ok": True, "message": "Email verification is currently disabled"}
-    if user.get("email_verified", True):
+    if email_is_verified(user):
         return {"ok": True, "message": "Email already verified"}
     email = user["email"]
     assert_gmail(email)
-    last = await seconds_since_last(user["id"], VERIFY_EMAIL)
-    if last is not None and last < RESEND_COOLDOWN_SECONDS:
-        raise HTTPException(429, "Please wait a moment before requesting another email")
-    await _send_verification(user)
+    try:
+        await _send_verification(user)
+    except (EmailDeliveryError, TransactionUnavailableError):
+        raise HTTPException(503, {"code": "email_unavailable", "message": "Email is temporarily unavailable. Please try again later."},
+                            headers={"Retry-After": "60"}) from None
     return {"ok": True, "message": "Verification email sent"}
 
 
 # ---------- Forgot PASSWORD (email link) (Phase 9) ----------
-@router.post("/auth/request-password-reset")
-async def request_password_reset(body: RequestPasswordResetIn):
+async def _send_reset_for_address(email: str) -> None:
+    try:
+        if await claim_email_send(email, RESET_PASSWORD):
+            return
+        user = await db.users.find_one({"email": email})
+        if user:
+            raw = await issue_token(user["id"], RESET_PASSWORD, RESET_TTL)
+            await send_auth_email(user["email"], RESET_PASSWORD, build_link("reset-password", raw))
+    except Exception:
+        # Background errors must not disclose existence or echo a provider/database payload.
+        logger.warning("email.reset_delivery_unavailable")
+
+
+async def _consume_email_token(raw: str, purpose: str, **kwargs) -> str:
+    try:
+        return await consume_token(raw, purpose, **kwargs)
+    except AuthTokenError as exc:
+        raise HTTPException(400, {"code": f"email_link_{exc.code}", "message": str(exc)}) from None
+    except TransactionUnavailableError:
+        raise HTTPException(503, {"code": "auth_temporarily_unavailable", "message": "Please try again shortly."}) from None
+
+
+@router.post("/auth/request-password-reset", dependencies=[Depends(enforce_email_ip_limit)])
+async def request_password_reset(body: RequestPasswordResetIn, background_tasks: BackgroundTasks):
     # ALWAYS returns the same generic response so the endpoint never reveals whether an
     # account exists (no enumeration). The link is only emailed when the account is real.
     email = body.email.lower().strip()
     assert_gmail(email)
-    # When ghosted, skip issuing/sending entirely (nothing would deliver) — but keep the SAME
-    # generic response so the endpoint's behavior is indistinguishable and reveals nothing.
     if EMAIL_FEATURES_ENABLED:
-        user = await db.users.find_one({"email": email})
-        if user:
-            raw = await issue_token(user["id"], RESET_PASSWORD, RESET_TTL)
-            link = build_link("reset-password", raw)
-            await send_email(
-                email, "Reset your Splitora password",
-                password_reset_html(user.get("name", "there"), link, raw), link_for_log=link,
-            )
+        background_tasks.add_task(_send_reset_for_address, email)
     return {"ok": True, "message": "If this email exists, a reset link has been sent."}
 
 
-@router.post("/auth/reset-password")
+@router.post("/auth/reset-password", dependencies=[Depends(enforce_email_ip_limit)])
 async def reset_password(body: ResetPasswordIn):
     # Validate the new password BEFORE consuming the token so a rejected password doesn't
     # burn the user's single-use link. Completing reset also finishes password setup for a
     # Google-created account that has not yet configured local credentials.
     if len(body.new_password) < MIN_PASSWORD_LENGTH:
         raise HTTPException(400, f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
-    user_id = await consume_token(body.token, RESET_PASSWORD)
-    if not user_id:
-        raise HTTPException(400, "Invalid or expired reset link")
-    await db.users.update_one(
-        {"id": user_id}, {"$set": {
+    user_id = await _consume_email_token(body.token, RESET_PASSWORD, user_update={
+        "$set": {
             "password_hash": hash_secret(body.new_password),
             "credentials_set": True,
-        }}
-    )
+        }, "$inc": {"session_version": 1},
+    })
+    await chat_connections.revoke_user(user_id)
     return {"ok": True}
 
 

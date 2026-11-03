@@ -9,7 +9,7 @@ from database import db
 from utils.deps import get_current_user, _trip_or_404, is_trip_admin
 from utils.date_rules import ensure_date_range
 from utils.balances import _compute_balances, project_ledger_balances
-from utils.security import decode_token
+from utils.security import decode_token, validate_session
 from utils.money_policy import whole_money
 from services.report_model import ReportSnapshot, ReportReconciliationError, build_report_data
 from services.report_xlsx import build_report_xlsx
@@ -61,6 +61,7 @@ async def _download_report_data(trip_id: str, token: str):
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
     if not user:
         raise HTTPException(401, "User not found")
+    validate_session(payload, user)
     trip = ensure_date_range(await _trip_or_404(trip_id, user))
     effective = await _effective_report(trip, user)
     if effective:

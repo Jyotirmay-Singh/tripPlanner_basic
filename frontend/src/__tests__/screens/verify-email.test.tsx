@@ -52,10 +52,12 @@ async function mountAsync() {
 }
 
 describe('VerifyEmail screen', () => {
-  it('auto-verifies a token from the URL and shows the success state', async () => {
+  it('waits for confirmation before verifying the URL token', async () => {
     apiMock.mockResolvedValue({ ok: true });
     mockParams = { token: 'goodtok' };
     const r = await mountAsync();
+    expect(apiMock).not.toHaveBeenCalled();
+    await act(async () => { await node(r, 'verify-submit').props.onPress(); });
 
     expect(apiMock).toHaveBeenCalledWith('/auth/verify-email', {
       method: 'POST', body: { token: 'goodtok' }, auth: false,
@@ -68,6 +70,8 @@ describe('VerifyEmail screen', () => {
     apiMock.mockRejectedValue(new Error('This link is invalid or has expired.'));
     mockParams = { token: 'badtok' };
     const r = await mountAsync();
+    expect(apiMock).not.toHaveBeenCalled();
+    await act(async () => { await node(r, 'verify-submit').props.onPress(); });
 
     expect(mockToast.show).toHaveBeenCalledWith('This link is invalid or has expired.', 'error');
     expect(has(r, 'verify-submit')).toBe(true); // back to manual-entry / retry

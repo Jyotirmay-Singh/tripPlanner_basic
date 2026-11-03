@@ -68,6 +68,7 @@ def fake_users(monkeypatch):
     users = SimpleNamespace(
         find_one=AsyncMock(return_value=None),
         insert_one=AsyncMock(return_value=None),
+        update_one=AsyncMock(return_value=None),
     )
     monkeypatch.setattr(auth_module, "db", SimpleNamespace(users=users))
     return users
@@ -90,7 +91,7 @@ def _stub_verify(monkeypatch, idinfo=None, error=False):
     else:
         monkeypatch.setattr(
             auth_module.google_id_token, "verify_oauth2_token",
-            lambda *a, **k: idinfo,
+            lambda *a, **k: {'email_verified': True, **idinfo},
         )
 
 
@@ -192,7 +193,7 @@ class TestGoogleAuthUnit:
 
         def capture(token, request, audience, *a, **k):
             captured["audience"] = audience
-            return {"email": "crossplatform@gmail.com", "name": "X Plat"}
+            return {"email": "crossplatform@gmail.com", "name": "X Plat", "email_verified": True}
 
         monkeypatch.setattr(auth_module.google_id_token, "verify_oauth2_token", capture)
         r = client.post("/api/auth/google", json={"id_token": "good"})
@@ -225,3 +226,12 @@ class TestGoogleAuthUnit:
         assert r.json()["detail"] == "Google sign-in is temporarily unavailable"
         fake_users.find_one.assert_not_called()
         fake_users.insert_one.assert_not_called()
+
+
+def test_unverified_google_claim_never_establishes_identity(email_env, monkeypatch):
+    env = email_env
+    monkeypatch.setattr(env.auth, "GOOGLE_CLIENT_ID", "test-client")
+    monkeypatch.setattr(env.auth.google_id_token, "verify_oauth2_token", lambda *a, **k: {"email": "real@gmail.com", "email_verified": False})
+    response = env.client.post("/api/auth/google", json={"id_token": "unverified"})
+    assert response.status_code == 401
+    assert not env.db.users.docs

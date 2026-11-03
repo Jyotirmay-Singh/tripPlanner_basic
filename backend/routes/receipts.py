@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 
 from database import db
 from utils.deps import get_current_user, _trip_or_404, _expense_or_404, _expense_modify_or_403
-from utils.security import decode_token
+from utils.security import decode_token, validate_session
 from services.receipts import (
     validate_receipt_upload,
     store_receipt,
@@ -41,6 +41,7 @@ async def _resolve_user(token: Optional[str], authorization: Optional[str]) -> d
     user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
     if not user:
         raise HTTPException(401, "User not found")
+    validate_session(payload, user)
     return user
 
 

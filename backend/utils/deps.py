@@ -4,7 +4,7 @@ from fastapi import Depends, HTTPException, Header
 
 from database import db
 from utils.permissions import role_of, can_record_payment, can_modify_expense, is_super_admin, viewer_id
-from utils.security import decode_token
+from utils.security import decode_token, validate_session
 
 
 async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
@@ -17,6 +17,7 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> dict:
     )
     if not user:
         raise HTTPException(401, "User not found")
+    validate_session(payload, user)
     user["is_super_admin"] = is_super_admin(user)
     return user
 

@@ -2,6 +2,40 @@ import pytest
 import requests
 import os
 
+
+@pytest.fixture
+def email_env(monkeypatch):
+    """Exercise real auth/routes against a transactional fake, with delivery fully mocked."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from fastapi.testclient import TestClient
+    from server import app
+    from email_fakes import FakeDB
+    import routes.auth as auth
+    import routes.meta as meta
+    import utils.auth_tokens as tokens
+    import utils.deps as deps
+    import utils.email_limits as limits
+    import utils.emailer as emailer
+
+    db = FakeDB()
+    for module in (auth, tokens, deps, limits):
+        monkeypatch.setattr(module, "db", db)
+    monkeypatch.setattr(tokens, "run_required_transaction", db.transaction)
+    monkeypatch.setattr(auth, "EMAIL_FEATURES_ENABLED", True)
+    monkeypatch.setattr(meta, "EMAIL_FEATURES_ENABLED", True)
+    monkeypatch.setattr(emailer, "APP_URL", "https://app.example.com")
+    send = AsyncMock()
+    monkeypatch.setattr(auth, "send_auth_email", send)
+    issued = []
+    async def issue(user_id, purpose, ttl):
+        raw = await tokens.issue_token(user_id, purpose, ttl)
+        issued.append((purpose, raw))
+        return raw
+    monkeypatch.setattr(auth, "issue_token", issue)
+    monkeypatch.setattr(auth.chat_connections, "revoke_user", AsyncMock())
+    return SimpleNamespace(db=db, send=send, issued=issued, client=TestClient(app), auth=auth)
+
 # Use backend URL from frontend env or fallback to local server
 BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL', 'http://localhost:8000').rstrip('/')
 SUPER_ADMIN_EMAIL = "jyotirmaysingh03@gmail.com"

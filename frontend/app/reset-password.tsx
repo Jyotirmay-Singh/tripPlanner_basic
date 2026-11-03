@@ -6,15 +6,16 @@ import {
   isValidPassword, PASSWORD_TOO_SHORT_MESSAGE, PASSWORD_MISMATCH_MESSAGE,
 } from '../src/validation';
 import { AuthShell, Input, Button, useToast } from '../src/ui';
+import { clearEmailActionToken, readEmailActionToken } from '../src/emailActionToken';
 
 // Landing page for the password-reset email link (top-level — works signed-out). Collects a new
 // password (same rules as registration) and posts the token + password to the reset endpoint.
 export default function ResetPassword() {
   const router = useRouter();
-  const { refresh } = useAuth();
+  const { handleAuthenticationRequired } = useAuth();
   const toast = useToast();
   const params = useLocalSearchParams<{ token?: string }>();
-  const [token, setToken] = useState((params.token as string) || '');
+  const [token, setToken] = useState(() => readEmailActionToken('reset-password', params.token));
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
@@ -46,9 +47,11 @@ export default function ResetPassword() {
       await api('/auth/reset-password', {
         method: 'POST', body: { token: token.trim(), new_password: password }, auth: false,
       });
-      await refresh();
+      clearEmailActionToken('reset-password');
+      setToken(''); setPassword(''); setConfirm('');
+      await handleAuthenticationRequired();
       toast.show('Password updated. Sign in with your new password.', 'success');
-      setTimeout(() => router.replace('/(auth)/login'), 900);
+      router.replace('/(auth)/login');
     } catch (e: any) {
       toast.show(e.message || 'This link is invalid or has expired.', 'error');
     } finally { setBusy(false); }

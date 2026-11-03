@@ -1,103 +1,64 @@
-# Email Setup — Resend Sender Modes & Enabling Real Delivery
+# EmailJS authentication email setup
 
-This app sends two kinds of transactional email: the **verify-your-email** link on registration and
-the **reset-your-password** link. Both go through Resend (`backend/utils/emailer.py`). This doc
-explains why test emails often don't arrive, how the app decides whether to actually send, and the
-exact **USER ACTION** steps to enable real delivery to any Gmail address.
+Splitora uses server-side HTTPS requests to EmailJS for verification and password reset. The Gmail sender and agreed test inbox are teamsplitora@gmail.com. The application needs no custom domain.
 
-Splitora is the official application name. Outgoing mail uses the sender display name
-**Splitora** with the existing `SENDER_EMAIL` address; no sender-domain migration is needed.
-New verification/reset subjects use Splitora. The dated log example below predates the rename.
+## Release gate: sending remains disabled
 
-> No code change is required to switch to real delivery — it's all environment variables.
+Live authorization checks on 2026-11-03 found that, with non-browser access and Use Private Key enabled, both configured templates return HTTP 403 for missing/incorrect private keys without an Origin header, but HTTP 200 for an Origin-bearing request with no private key. Both accepted probes used only the agreed inbox and invalid tokens.
 
----
+This fails the required protection against unauthorized use of authentication templates. Domain allowlists and hiding the public key are not substitutes for required private-key authentication. Do not enable EMAIL_FEATURES_ENABLED until EmailJS can reject every unauthorized request. Do not upgrade plans or change providers without the user's direction. No production authentication-email journey is claimed as verified while this gate fails.
 
-## 1. Why your test emails don't arrive
+## Account configuration
 
-By default `SENDER_EMAIL` is **`onboarding@resend.dev`**, Resend's shared test sender. Resend only
-delivers messages from that test address to **the inbox of the Resend account owner** (the email you
-signed up to Resend with). Every **other** recipient gets nothing in their inbox — instead the app
-logs the link so the flow still works for testing.
+- Free account: 200 monthly requests, exactly two templates. Keep the provider footer required by the free plan.
+- Gmail is connected through Google's official authorization flow; no Gmail password is stored by the application.
+- Verification template: use backend/email_templates/verification.html; subject: Verify your {{app_name}} email.
+- Reset template: use backend/email_templates/password-reset.html; subject: Reset your {{app_name}} password.
+- Both templates: To Email {{to_email}}, From Name {{app_name}}, default Gmail From Email, Reply To the sender inbox, empty CC/BCC, no auto-reply or contact collection.
+- Enable Do not save private data on both templates; template parameters must not appear in history. Disable analytics/tracking. The .txt files alongside the HTML are the required plain-text reference; inspect the received MIME alternative before signing off delivery.
+- Enable non-browser API access with Use Private Key checked. The current browser-origin bypass described above must be resolved before rollout.
 
-So if you register/reset with an address that isn't your Resend account owner, **this is expected, not
-a bug.** Look in the backend log for a line like:
+## Environment names (values are never recorded here)
 
-```
-2026-06-23 17:44:11 INFO [EMAIL] to=someone@gmail.com subject='Verify your Trip Splitter email' link=https://.../verify-email?token=...
-```
+Set these directly on the existing Render service, merging with other settings:
 
-Open that `link=` URL directly and the flow completes normally.
+| Name | Purpose |
+| --- | --- |
+| EMAIL_FEATURES_ENABLED | Delivery rollout switch; keep disabled until authorization and deployment checks pass |
+| APP_NAME | Sender display name and template branding |
+| APP_URL | Trusted HTTPS web origin for action links |
+| EMAILJS_SERVICE_ID | Connected Gmail service |
+| EMAILJS_PUBLIC_KEY | EmailJS account identifier; keep server-side alongside the other sending settings |
+| EMAILJS_PRIVATE_KEY | Required server authorization secret |
+| EMAILJS_VERIFICATION_TEMPLATE_ID | Verification template |
+| EMAILJS_RESET_TEMPLATE_ID | Password-reset template |
 
----
+Sending settings must never use EXPO_PUBLIC_ names, enter mobile/browser bundles, appear in source control, or be logged. Resend credentials are no longer read. The production host's existing unrelated variables remain intact. Blueprint sync:false entries do not populate existing services; configure the names in Render explicitly.
 
-## 2. How the app decides: send vs. log
+## Authentication behavior
 
-On startup the backend logs **one secret-free line** stating the active mode (it never prints the API
-key or any token). You'll see exactly one of:
+Tokens contain 256 random bits, are purpose-specific, and expire in 15 minutes. Only SHA-256 hashes are stored. MongoDB transactions bind issuance and consumption to the user and email, replace older tokens, roll back unsuccessful account changes, and make consumption single-use. Replica-set transaction support is required; no standalone fallback is permitted.
 
-| Startup log line | What's happening | Driven by |
-|---|---|---|
-| `EMAIL: no RESEND_API_KEY configured — verification/reset links are only LOGGED …` | Nothing is emailed at all; links only appear in the log. | `RESEND_API_KEY` empty/unset |
-| `EMAIL: Resend test sender (onboarding@resend.dev) — delivers ONLY to the Resend account owner's inbox; all other recipients fall back to logged links` | Real send is attempted, but only the account owner actually receives it. | key set **and** `SENDER_EMAIL=onboarding@resend.dev` |
-| `EMAIL: live sender <addr> — delivering to all recipients` | Real delivery to everyone. | key set **and** a verified-domain `SENDER_EMAIL` |
+Opening an email link changes no account state. New links use URL fragments; the web client captures the token in memory and removes it from browser history. The action pages have no-store, no-referrer and no-index headers. Mobile email links use the hosted web fallback.
 
-The relevant env vars (`backend/config.py`): `RESEND_API_KEY`, `SENDER_EMAIL` (default
-`onboarding@resend.dev`), `APP_URL` (base for the emailed link). In every mode the link is **also**
-logged as `[EMAIL] … link=…`, so flows are always testable. (Lower the log level to `DEBUG` to also see
-a per-send line showing whether each message dispatched or only logged.)
+Verification stays optional for access. Legacy accounts without dated confirmation evidence for their current email become pending, without credential changes or access restrictions. Google sign-in establishes confirmation only when the verified claim is explicitly true. Old unbound links are invalidated.
 
----
+A successful password reset updates the bcrypt hash, invalidates reset tokens, increments the session version and closes existing chat connections. Older version-zero JWTs remain valid until reset. Remote offline devices learn of revocation on their next server connection; no disconnected device can accept new server operations.
 
-## 3. USER ACTION — enable real delivery to any Gmail
+## Limits and failure handling
 
-Do this once to move from the test sender to live delivery. **No code change needed.**
+Mongo-backed limits survive restarts: ten email-flow requests per minute per trusted client IP; one send per 60 seconds and five sends per hour per normalized address/purpose. Unknown reset addresses use the same limits and public response. HTTP 429 includes Retry-After. Delivery requests are serialized at at most one per 1.05 seconds in the existing single-worker deployment; introducing multiple workers requires shared provider pacing first.
 
-1. **Add a domain in Resend.** Go to <https://resend.com/domains> → **Add Domain** and enter a domain
-   you own (e.g. `tripsplitter.com`). You must own/control the domain's DNS — you can't verify
-   `gmail.com` or `resend.dev`.
-2. **Add the DNS records Resend shows you** at your domain registrar / DNS host (Cloudflare,
-   Namecheap, GoDaddy, etc.):
-   - **SPF** (a `TXT` record) and **DKIM** (one or more `TXT`/`CNAME` records) — required.
-   - **DMARC** (a `TXT` record at `_dmarc`) — recommended for deliverability.
-   Copy the host/value pairs exactly as Resend displays them.
-3. **Wait for verification.** DNS can take minutes to a few hours to propagate. Refresh the Resend
-   domains page until the domain status flips to **Verified**.
-4. **Point the app at the verified domain.** Set `SENDER_EMAIL` to an address **on that domain**
-   (e.g. `no-reply@tripsplitter.com`) and make sure `RESEND_API_KEY` is set, in **both** places:
-   - **Render** (production): Service → **Environment** → add/update `SENDER_EMAIL` and
-     `RESEND_API_KEY`. Also confirm `APP_URL` points at your web origin
-     (e.g. `https://tripsplitter-web.vercel.app`) so the emailed links resolve.
-   - **Local** (`backend/.env`): set the same `SENDER_EMAIL` / `RESEND_API_KEY` for local testing.
-5. **Redeploy / restart and confirm.** After Render redeploys (or you restart `uvicorn` locally),
-   check the startup log reads:
-   ```
-   EMAIL: live sender no-reply@tripsplitter.com — delivering to all recipients
-   ```
-   Then trigger a registration or password reset to a normal Gmail and confirm it lands in the inbox.
+Registration survives mail failure. Authenticated resend failures give retry guidance; reset requests always return the same generic response. Provider exceptions, response bodies, recipient details and action links are never logged. An accepted EmailJS API request proves acceptance, not inbox delivery. Do not retry ambiguous sends automatically or repeatedly retry quota failures.
 
----
+EmailJS's free account stops accepting sends when the monthly limit is exhausted. Monitor its usage notifications and dashboard. Gmail connection revocation/expiry requires the owner to reconnect through Google. Keep sending disabled during an authorization incident and verify both templates again after any security-setting change.
 
-## 4. Free-tier limits
+## Validation and deployment
 
-Resend's free plan allows roughly **100 emails/day** and **3,000 emails/month**, with **one** verified
-custom domain. That's ample for testing and light production. See <https://resend.com/pricing> for
-current limits.
+Run the focused backend auth/provider suites and frontend recovery-screen tests, TypeScript, lint and web export. Automated delivery is mocked. The opt-in real Mongo suite uses only a local replica set on port 27019 and disposable email_auth_test_ databases; set EMAIL_AUTH_TEST_MONGO_URL for that suite.
 
----
+Deploy through the existing main-branch workflow with email sending disabled. Verify both deployed revisions, the public capability flag, action-page headers and explicit confirmation behavior. Only after mandatory provider authorization passes should keys be supplied directly in Render and delivery enabled. Then use the agreed inbox for registration, one resend after cooldown, and reset; inspect HTML/plain text, complete both journeys, and verify old sessions fail while a fresh login works.
 
-## 5. Troubleshooting
+Never restore the retired link-logging fallback during troubleshooting or rollback.
 
-- **Domain stuck "Not Started" / "Pending" in Resend** — DNS hasn't propagated or a record is wrong.
-  Re-check that each host/value matches Resend exactly (watch for a trailing-dot or an auto-appended
-  domain suffix your DNS host adds to the host field). Give it more time, then refresh.
-- **Startup still logs `test sender` after you set a domain** — `SENDER_EMAIL` is still
-  `onboarding@resend.dev` (or wasn't picked up). Confirm the env var is set in the environment that's
-  actually running (Render service vs. local shell vs. `backend/.env`) and restart.
-- **Startup logs `no RESEND_API_KEY configured`** — the key isn't set in the running environment. Set
-  `RESEND_API_KEY` and restart.
-- **Send fails after going live** — the app logs `Resend send failed: <reason>` (WARNING) and never
-  crashes the request; the link is still logged. Common causes: sending from an address not on the
-  verified domain, or hitting the daily/monthly quota.
-- **Links point to the wrong host** — set `APP_URL` to your web origin; otherwise the emailer falls
-  back to emitting the bare token instead of a full URL.
+References: https://www.emailjs.com/docs/rest-api/send/ and https://www.emailjs.com/pricing/.

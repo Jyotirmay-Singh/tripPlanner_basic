@@ -795,7 +795,7 @@ workbook affects the local file only and never writes to the app.
 ## 11. Tips & Troubleshooting
 
 - **Icons missing or "font is empty"?** Close Expo Go fully and reopen → re-scan the QR. Asset caches can corrupt; this re-downloads them.
-- **Reset emails not arriving?** The Resend account is in test mode — emails only deliver to the account owner. Verify a domain at resend.com/domains to send to anyone. Until then, the reset token is also printed in the backend logs (admin can fetch it).
+- **Reset emails unavailable?** Authentication email delivery remains disabled until the required EmailJS authorization protection passes verification. Recovery links are never printed in logs. Once delivery is enabled, check spam and request a fresh link; links expire after 15 minutes and require an explicit confirmation or password submission.
 - **Forgot password?** Sign-in screen → *Forgot password?* → email link → choose a new password. If the link is hidden, outbound email is currently disabled; use Google sign-in or contact the administrator.
 - **Want to edit a past family split?** Edit the family → choose **Re-split with new members** when prompted. To preserve the old splits, choose **Keep original**.
 - **Currency conversion unavailable?** The backend rollout flag may still be off, the historical rate

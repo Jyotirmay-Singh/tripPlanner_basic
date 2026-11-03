@@ -1,8 +1,16 @@
 from typing import Optional
+from datetime import datetime
 
 from fastapi import HTTPException
 
 ALLOWED_EMAIL_DOMAIN = "gmail.com"
+
+
+def email_is_verified(user: dict) -> bool:
+    return (user.get("email_verified") is True
+            and user.get("email_verified_for") == user.get("email")
+            and isinstance(user.get("email_verified_at"), datetime)
+            and user.get("email_verification_method") in ("email_link", "google"))
 
 
 def normalize_email(email: Optional[str]) -> Optional[str]:

@@ -8,7 +8,7 @@ import TestRenderer, { act } from 'react-test-renderer';
 // dependencies (expo-router, the api fetch wrapper, the themed `ui` kit) are mocked so we can
 // drive the form and assert the request it makes — no renderer-provider plumbing needed.
 const mockReplace = jest.fn();
-const mockRefresh = jest.fn();
+const mockInvalidateSession = jest.fn();
 let mockParams: any = {};
 const mockToast = { show: jest.fn() };
 
@@ -17,7 +17,7 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => mockParams,
 }));
 jest.mock('../../api', () => ({ api: jest.fn() }));
-jest.mock('../../AuthContext', () => ({ useAuth: () => ({ refresh: mockRefresh }) }));
+jest.mock('../../AuthContext', () => ({ useAuth: () => ({ handleAuthenticationRequired: mockInvalidateSession }) }));
 jest.mock('../../ui', () => {
   const R = require('react');
   return {
@@ -41,7 +41,7 @@ const node = (r: any, id: string) =>
 
 beforeEach(() => {
   mockReplace.mockClear();
-  mockRefresh.mockReset().mockResolvedValue(undefined);
+  mockInvalidateSession.mockReset().mockResolvedValue(undefined);
   mockToast.show.mockClear();
   apiMock.mockReset();
   mockParams = { token: 't' }; // arrives from the email link
@@ -57,6 +57,7 @@ describe('ResetPassword screen', () => {
   it('rejects a too-short password (inline error, no API call)', async () => {
     apiMock.mockResolvedValue({});
     const r = mount();
+    expect(apiMock).not.toHaveBeenCalled();
     act(() => { node(r, 'reset-pw-password').props.onChangeText('short'); });
     act(() => { node(r, 'reset-pw-confirm').props.onChangeText('short'); });
     await act(async () => { await node(r, 'reset-pw-submit').props.onPress(); });
@@ -87,6 +88,8 @@ describe('ResetPassword screen', () => {
     expect(apiMock).toHaveBeenCalledWith('/auth/reset-password', {
       method: 'POST', body: { token: 't', new_password: 'validpass123' }, auth: false,
     });
+    expect(mockInvalidateSession).toHaveBeenCalled();
+    expect(mockReplace).toHaveBeenCalledWith('/(auth)/login');
     expect(mockToast.show).toHaveBeenCalledWith(expect.stringContaining('Password updated'), 'success');
   });
 });

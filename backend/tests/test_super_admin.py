@@ -127,7 +127,7 @@ def test_startup_promotion_preserves_existing_credentials(monkeypatch):
     users.insert_one.assert_not_awaited()
     users.update_one.assert_awaited_once_with(
         {"id": SUPER_ADMIN["id"]},
-        {"$set": {"role": "super_admin", "email_verified": True}},
+        {"$set": {"role": "super_admin"}},
     )
     update = users.update_one.await_args.args[1]["$set"]
     assert "password_hash" not in update
@@ -150,6 +150,7 @@ def test_startup_seeds_fixed_admin_only_when_missing(monkeypatch):
     inserted = users.insert_one.await_args.args[0]
     assert inserted["email"] == SUPER_ADMIN_EMAIL
     assert inserted["role"] == "super_admin"
+    assert inserted["email_verified"] is False
     assert inserted["password_hash"] == "hashed:configured-secret"
     users.update_one.assert_not_awaited()
 

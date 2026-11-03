@@ -55,7 +55,9 @@ async def _ensure_super_admin() -> None:
             "password_hash": hash_secret(admin_password),
             "role": "super_admin",
             "created_at": now_utc().isoformat(),
-            "email_verified": True,
+            "email_verified": False,
+            "email_security_migration": 1,
+            "session_version": 0,
             "credentials_set": True,
         })
         logger.info("Seeded application super-admin user")
@@ -63,7 +65,7 @@ async def _ensure_super_admin() -> None:
     if existing.get("role") != "super_admin":
         await db.users.update_one(
             {"id": existing["id"]},
-            {"$set": {"role": "super_admin", "email_verified": True}},
+            {"$set": {"role": "super_admin"}},
         )
         logger.info("Promoted existing application super-admin user")
 
@@ -170,6 +172,8 @@ async def lifespan(app: FastAPI):
     # TTL index purges expired rows (expireAfterSeconds=0 => delete once expires_at passes).
     await db.auth_tokens.create_index("token_hash", unique=True)
     await db.auth_tokens.create_index("expires_at", expireAfterSeconds=0)
+    await db.auth_tokens.create_index([("user_id", 1), ("type", 1), ("created_at", -1)])
+    await db.auth_rate_limits.create_index("expires_at", expireAfterSeconds=0)
     await db.admin_audit_logs.create_index("id", unique=True)
     await db.admin_audit_logs.create_index([("created_at", -1), ("id", -1)])
     await db.admin_audit_logs.create_index([("trip_id", 1), ("created_at", -1)])
@@ -178,10 +182,8 @@ async def lifespan(app: FastAPI):
     await db.money_migration_audits.create_index("id", unique=True)
     await db.money_migration_audits.create_index("migration_key", unique=True)
     await db.money_migration_adjustments.create_index("trip_id", unique=True)
-    # Phase 9: grandfather every pre-existing user (incl. the seeded admin) as already
-    # verified and credential-complete so the new email-verification / set-credentials flows
-    # never lock anyone out. Idempotent: only touches docs missing the field.
-    await db.users.update_many({"email_verified": {"$exists": False}}, {"$set": {"email_verified": True}})
+    from services.email_security_migration import migrate_email_security
+    await migrate_email_security(db)
     await db.users.update_many({"credentials_set": {"$exists": False}}, {"$set": {"credentials_set": True}})
     await db.users.update_many({"mobile_number": {"$exists": False}}, {"$set": {"mobile_number": None}})
     await db.users.update_many({"mobile_country_code": {"$exists": False}}, {"$set": {"mobile_country_code": None}})
