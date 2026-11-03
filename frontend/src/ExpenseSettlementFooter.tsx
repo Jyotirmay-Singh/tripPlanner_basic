@@ -13,8 +13,8 @@ export default function ExpenseSettlementFooter({ expenseId, summary, data, load
 }) {
   const { colors } = useTheme();
   const unavailable = ['disabled', 'not_activated'].includes(data?.availability?.status ?? '');
-  const label = loading && !summary ? 'Checking settlement…' : unavailable
-    ? 'Expense settlement is not enabled for this group' : footerProgress(summary);
+  if (unavailable) return null;
+  const label = loading && !summary ? 'Checking settlement…' : footerProgress(summary);
   const settle = !loading && source === 'live' && data?.availability?.new_starts_available
     && summary?.viewer_status === 'unpaid' && !summary.review_required && summary.remaining_amount !== null;
   return <View style={[styles.footer, { borderTopColor: colors.border }]} testID={`expense-settlement-footer-${expenseId}`}>
