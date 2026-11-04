@@ -15,7 +15,7 @@ import { FormScreen, Card, Input, Button, useToast } from '../src/ui';
 export default function ChangePassword() {
   const router = useRouter();
   const toast = useToast();
-  const { sessionMode } = useAuth();
+  const { sessionMode, emailFeaturesEnabled } = useAuth();
   const offline = sessionMode === 'offline';
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
@@ -26,7 +26,7 @@ export default function ChangePassword() {
 
   const newError = !!next && !isValidPassword(next) ? PASSWORD_TOO_SHORT_MESSAGE : null;
   const confirmError = !!confirm && confirm !== next ? PASSWORD_MISMATCH_MESSAGE : null;
-  const canSubmit = !!current && isValidPassword(next) && next === confirm && !busy;
+  const canSubmit = !!current && isValidPassword(next) && next === confirm && !busy && !offline;
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -47,7 +47,7 @@ export default function ChangePassword() {
   return (
     <FormScreen>
       <Card style={{ gap: SPACING.md }}>
-        <T muted>Choose a new password for signing in with your email.</T>
+        <T muted>Use your current password to set a new password for your account.</T>
         <Input
           testID="cp-current"
           label="Current password"
@@ -63,17 +63,6 @@ export default function ChangePassword() {
           autoComplete="current-password"
           returnKeyType="next"
         />
-        <Button
-          label="Forgot password?"
-          icon="mail"
-          variant="ghost"
-          size="sm"
-          onPress={() => router.push('/(auth)/forgot-password')}
-          disabled={offline}
-          fullWidth
-          testID="cp-forgot-password"
-        />
-        {offline ? <T variant="caption" muted>Connect to request a password reset email.</T> : null}
         <Input
           testID="cp-new"
           label="New password"
@@ -113,6 +102,24 @@ export default function ChangePassword() {
           size="lg"
           testID="cp-submit"
         />
+      </Card>
+      <Card style={{ gap: SPACING.md }}>
+        <T variant="h3">Forgot your current password?</T>
+        <T muted>Reset it using a secure email link. If your email is unverified, we’ll help you verify it first.</T>
+        <Button
+          label="Reset password by email"
+          icon="mail"
+          variant="secondary"
+          onPress={() => router.push('/(auth)/forgot-password')}
+          disabled={offline || emailFeaturesEnabled === false}
+          fullWidth
+          testID="cp-forgot-password"
+        />
+        {offline || emailFeaturesEnabled === false ? (
+          <T variant="caption" muted>{offline
+            ? 'Connect to request a password reset email.'
+            : 'Email recovery is temporarily unavailable. Please try again later.'}</T>
+        ) : null}
       </Card>
     </FormScreen>
   );

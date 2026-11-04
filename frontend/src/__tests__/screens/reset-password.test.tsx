@@ -127,4 +127,20 @@ describe('ResetPassword screen', () => {
     act(() => { node(r, 'reset-pw-request-link').props.onPress(); });
     expect(mockReplace).toHaveBeenCalledWith('/(auth)/forgot-password');
   });
+
+  it('directs an unverified legacy-link holder to verification without changing credentials', async () => {
+    apiMock.mockRejectedValue(Object.assign(new Error('Verify your email before resetting your password.'), {
+      detailCode: 'email_link_verification_required',
+    }));
+    const r = mount();
+    act(() => { node(r, 'reset-pw-password').props.onChangeText('validpass123'); });
+    act(() => { node(r, 'reset-pw-confirm').props.onChangeText('validpass123'); });
+    await act(async () => { await node(r, 'reset-pw-submit').props.onPress(); });
+    expect(has(r, 'reset-pw-submit')).toBe(false);
+    expect(r.root.findAll((n: any) => n.type === 'Input')).toHaveLength(0);
+    expect(node(r, 'reset-pw-request-link').props.label).toBe('Get a recovery email');
+    expect(mockInvalidateSession).not.toHaveBeenCalled();
+    act(() => { node(r, 'reset-pw-request-link').props.onPress(); });
+    expect(mockReplace).toHaveBeenCalledWith('/(auth)/forgot-password');
+  });
 });

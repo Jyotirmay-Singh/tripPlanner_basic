@@ -103,4 +103,37 @@ describe('VerifyEmail screen', () => {
     expect(mockReplace).toHaveBeenCalledWith('/(tabs)/dashboard');
     expect(apiMock).not.toHaveBeenCalled();
   });
+
+  it('continues a recovery request only after successful verification, using the proved address', async () => {
+    mockParams = { token: 'recovery-verification-token' };
+    mockUser = { id: 'other-account', email: 'someone.else@gmail.com' };
+    apiMock.mockResolvedValueOnce({ ok: true, password_reset_email: 'proved@gmail.com' });
+    apiMock.mockResolvedValueOnce({ ok: true });
+    const r = await mountAsync();
+    expect(has(r, 'verify-request-reset')).toBe(false);
+    await act(async () => { await node(r, 'verify-submit').props.onPress(); });
+    expect(apiMock).toHaveBeenCalledTimes(1);
+    expect(has(r, 'verify-submit')).toBe(false);
+    expect(has(r, 'verify-request-reset')).toBe(true);
+    await act(async () => { await node(r, 'verify-request-reset').props.onPress(); });
+    expect(apiMock).toHaveBeenLastCalledWith('/auth/request-password-reset', {
+      method: 'POST', body: { email: 'proved@gmail.com' }, auth: false,
+    });
+    expect(has(r, 'verify-request-reset')).toBe(false);
+    expect(has(r, 'verify-recovery-back')).toBe(true);
+    expect(mockReplace).not.toHaveBeenCalledWith('/(tabs)/dashboard');
+    expect(JSON.stringify(r.toJSON())).not.toContain('recovery-verification-token');
+  });
+
+  it('preserves a retry after a recovery delivery request fails', async () => {
+    mockParams = { token: 'recovery-token' };
+    apiMock.mockResolvedValueOnce({ ok: true, password_reset_email: 'proved@gmail.com' });
+    const r = await mountAsync();
+    await act(async () => { await node(r, 'verify-submit').props.onPress(); });
+    apiMock.mockRejectedValueOnce(new Error('Unable to connect.'));
+    await act(async () => { await node(r, 'verify-request-reset').props.onPress(); });
+    expect(mockToast.show).toHaveBeenCalledWith('Unable to connect.', 'error');
+    expect(node(r, 'verify-request-reset').props.loading).toBe(false);
+    expect(has(r, 'verify-request-reset')).toBe(true);
+  });
 });

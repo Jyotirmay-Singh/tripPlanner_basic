@@ -17,7 +17,8 @@ from utils.security import hash_secret, verify_secret, create_token
 from utils.deps import get_current_user
 from utils.permissions import is_super_admin
 from utils.auth_tokens import (
-    issue_token, consume_token, AuthTokenError, TOKEN_TTL, VERIFY_EMAIL, RESET_PASSWORD,
+    issue_token, consume_token, consume_verification_token, mark_verification_for_recovery,
+    AuthTokenError, TOKEN_TTL, VERIFY_EMAIL, RESET_PASSWORD,
 )
 from utils.emailer import send_auth_email, build_link, EmailDeliveryError
 from utils.email_limits import claim_email_send, enforce_email_ip_limit
@@ -69,13 +70,14 @@ def _self_profile_payload(user: dict) -> dict:
     return payload
 
 
-async def _send_verification(user: dict) -> None:
+async def _send_verification(user: dict, *, password_reset_requested: bool = False) -> None:
     """Issue a fresh verify-email token (invalidating older ones) and email the link."""
     retry = await claim_email_send(user["email"], VERIFY_EMAIL)
     if retry:
         raise HTTPException(429, {"code": "email_cooldown", "message": "Please wait before requesting another email."},
                             headers={"Retry-After": str(retry)})
-    raw = await issue_token(user["id"], VERIFY_EMAIL, VERIFY_TTL)
+    options = {"password_reset_requested": True} if password_reset_requested else {}
+    raw = await issue_token(user["id"], VERIFY_EMAIL, VERIFY_TTL, **options)
     link = build_link("verify-email", raw)
     await send_auth_email(user["email"], VERIFY_EMAIL, link)
 
@@ -250,8 +252,12 @@ async def google_auth(body: GoogleAuthIn):
 @router.post("/auth/verify-email", dependencies=[Depends(enforce_email_ip_limit)])
 async def verify_email(body: VerifyEmailIn):
     # Unauthenticated: the single-use token in the email link is the proof of ownership.
-    await _consume_email_token(body.token, VERIFY_EMAIL)
-    return {"ok": True}
+    result = await _consume_email_token(body.token, VERIFY_EMAIL, verification_context=True)
+    response = {"ok": True}
+    if result.password_reset_requested:
+        # Reveal the continuation address only after the single-use ownership proof commits.
+        response["password_reset_email"] = result.email
+    return response
 
 
 @router.post("/auth/resend-verification", dependencies=[Depends(enforce_email_ip_limit)])
@@ -273,19 +279,32 @@ async def resend_verification(user=Depends(get_current_user)):
 # ---------- Forgot PASSWORD (email link) (Phase 9) ----------
 async def _send_reset_for_address(email: str) -> None:
     try:
+        user = await db.users.find_one({"email": email})
+        if user and not email_is_verified(user):
+            # Share verification limits with registration/Profile, without using up the
+            # reset-email cooldown that the user needs immediately after verification.
+            try:
+                await _send_verification(user, password_reset_requested=True)
+            except HTTPException as exc:
+                if exc.status_code != 429:
+                    raise
+                await mark_verification_for_recovery(user["id"], user["email"])
+            return
         if await claim_email_send(email, RESET_PASSWORD):
             return
-        user = await db.users.find_one({"email": email})
-        if user:
-            raw = await issue_token(user["id"], RESET_PASSWORD, RESET_TTL)
-            await send_auth_email(user["email"], RESET_PASSWORD, build_link("reset-password", raw))
+        if not user:
+            return
+        raw = await issue_token(user["id"], RESET_PASSWORD, RESET_TTL)
+        await send_auth_email(user["email"], RESET_PASSWORD, build_link("reset-password", raw))
     except Exception:
         # Background errors must not disclose existence or echo a provider/database payload.
         logger.warning("email.reset_delivery_unavailable")
 
 
-async def _consume_email_token(raw: str, purpose: str, **kwargs) -> str:
+async def _consume_email_token(raw: str, purpose: str, *, verification_context: bool = False, **kwargs):
     try:
+        if verification_context:
+            return await consume_verification_token(raw)
         return await consume_token(raw, purpose, **kwargs)
     except AuthTokenError as exc:
         raise HTTPException(400, {"code": f"email_link_{exc.code}", "message": str(exc)}) from None
@@ -296,12 +315,12 @@ async def _consume_email_token(raw: str, purpose: str, **kwargs) -> str:
 @router.post("/auth/request-password-reset", dependencies=[Depends(enforce_email_ip_limit)])
 async def request_password_reset(body: RequestPasswordResetIn, background_tasks: BackgroundTasks):
     # ALWAYS returns the same generic response so the endpoint never reveals whether an
-    # account exists (no enumeration). The link is only emailed when the account is real.
+    # account exists or is verified. Unverified accounts receive verification instructions.
     email = body.email.lower().strip()
     assert_gmail(email)
     if EMAIL_FEATURES_ENABLED:
         background_tasks.add_task(_send_reset_for_address, email)
-    return {"ok": True, "message": "If this email exists, a reset link has been sent."}
+    return {"ok": True, "message": "If this email exists, recovery instructions have been sent."}
 
 
 @router.post("/auth/reset-password", dependencies=[Depends(enforce_email_ip_limit)])

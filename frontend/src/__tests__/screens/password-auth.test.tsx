@@ -102,10 +102,10 @@ describe('password-only authentication screens', () => {
     expect(mockReplace).toHaveBeenCalledWith('/(tabs)/dashboard');
   });
 
-  it('hides password recovery when outbound email is disabled', () => {
+  it('keeps password recovery discoverable when outbound email is temporarily disabled', () => {
     mockAuthState.emailFeaturesEnabled = false;
     const renderer = mount(<Login />);
-    expect(hasTestId(renderer, 'login-forgot-password-link')).toBe(false);
+    expect(hasTestId(renderer, 'login-forgot-password-link')).toBe(true);
   });
 
   it('submits the saved email restored after the sign-in form first renders', async () => {

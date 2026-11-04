@@ -28,8 +28,8 @@ def email_env(monkeypatch):
     send = AsyncMock()
     monkeypatch.setattr(auth, "send_auth_email", send)
     issued = []
-    async def issue(user_id, purpose, ttl):
-        raw = await tokens.issue_token(user_id, purpose, ttl)
+    async def issue(user_id, purpose, ttl, **kwargs):
+        raw = await tokens.issue_token(user_id, purpose, ttl, **kwargs)
         issued.append((purpose, raw))
         return raw
     monkeypatch.setattr(auth, "issue_token", issue)

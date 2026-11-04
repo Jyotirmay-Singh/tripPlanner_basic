@@ -12,7 +12,7 @@ import { mobileSetupHref, postAuthHref } from '../../src/inviteNavigation';
 
 export default function Login() {
   const {
-    signIn, savedEmail, forgetSavedEmail, emailFeaturesEnabled, pendingInvitePath,
+    signIn, savedEmail, forgetSavedEmail, pendingInvitePath,
     sessionNotice, offlineStorageError,
   } = useAuth();
   const { colors } = useTheme();
@@ -119,15 +119,18 @@ export default function Login() {
         focusOnError={fieldError?.field === 'password'}
       />
 
-      <Button label="Sign in" icon="lock" onPress={submit} loading={loading} fullWidth size="lg" testID="login-submit" />
+      <View style={styles.linksRow}>
+        <Button
+          label="Forgot password?"
+          variant="ghost"
+          size="sm"
+          testID="login-forgot-password-link"
+          onPress={() => router.push('/(auth)/forgot-password')}
+          haptic={false}
+        />
+      </View>
 
-      {emailFeaturesEnabled !== false ? (
-        <View style={styles.linksRow}>
-          <Pressable testID="login-forgot-password-link" onPress={() => router.push('/(auth)/forgot-password')} hitSlop={8}>
-            <T color={colors.primary}>Forgot password?</T>
-          </Pressable>
-        </View>
-      ) : null}
+      <Button label="Sign in" icon="lock" onPress={submit} loading={loading} fullWidth size="lg" testID="login-submit" />
 
       {googleAuthAvailable && (
         <View style={styles.divider}>
@@ -157,7 +160,7 @@ export default function Login() {
 
 const styles = StyleSheet.create({
   savedRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, borderRadius: RADIUS.lg },
-  linksRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: SPACING.lg },
+  linksRow: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center' },
   divider: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
   rule: { flex: 1, height: StyleSheet.hairlineWidth },
   bottomRule: { height: StyleSheet.hairlineWidth, alignSelf: 'stretch' },

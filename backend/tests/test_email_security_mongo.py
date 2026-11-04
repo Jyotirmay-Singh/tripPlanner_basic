@@ -33,6 +33,8 @@ def test_real_transactions_concurrency_rollback_migration_and_limits(monkeypatch
             await db.auth_tokens.create_index('token_hash', unique=True)
             await migrate_email_security(db)
             assert not (await db.users.find_one({'id': 'u1'}))['email_verified']
+            verification = await tokens.issue_token('u1', tokens.VERIFY_EMAIL)
+            assert await tokens.consume_token(verification, tokens.VERIFY_EMAIL) == 'u1'
             raw = await tokens.issue_token('u1', tokens.RESET_PASSWORD)
             results = await asyncio.gather(*[
                 tokens.consume_token(raw, tokens.RESET_PASSWORD, user_update={'$inc': {'session_version': 1}})

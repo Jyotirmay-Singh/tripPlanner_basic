@@ -10,7 +10,7 @@ BASE_URL = ''
 def api_client(email_env):
     return email_env.client
 
-GENERIC_RESET_MSG = "If this email exists, a reset link has been sent."
+GENERIC_RESET_MSG = "If this email exists, recovery instructions have been sent."
 
 
 def _gmail():

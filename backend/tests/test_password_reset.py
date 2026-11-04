@@ -1,6 +1,6 @@
 from utils.emailer import EmailDeliveryError
 
-GENERIC = {'ok': True, 'message': 'If this email exists, a reset link has been sent.'}
+GENERIC = {'ok': True, 'message': 'If this email exists, recovery instructions have been sent.'}
 
 
 def test_known_unknown_throttled_and_delivery_failure_share_response(email_env):

@@ -19,6 +19,7 @@ export default function ResetPassword() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
   useEmailActionNavigation('reset-password', router.replace);
   const [fieldError, setFieldError] = useState<{
     field: 'password' | 'confirm'; message: string;
@@ -30,7 +31,7 @@ export default function ResetPassword() {
     ? fieldError.message : !!confirm && confirm !== password ? PASSWORD_MISMATCH_MESSAGE : null;
 
   const submit = async () => {
-    if (!token.trim()) return;
+    if (!token.trim() || busy || verificationError) return;
     if (!isValidPassword(password)) {
       setFieldError({ field: 'password', message: PASSWORD_TOO_SHORT_MESSAGE });
       return toast.show(PASSWORD_TOO_SHORT_MESSAGE, 'error');
@@ -51,20 +52,24 @@ export default function ResetPassword() {
       toast.show('Password updated. Sign in with your new password.', 'success');
       router.replace('/(auth)/login');
     } catch (e: any) {
+      if (e.detailCode === 'email_link_verification_required') {
+        setVerificationError(e.message);
+        setPassword(''); setConfirm('');
+      }
       toast.show(e.message || 'This link is invalid or has expired.', 'error');
     } finally { setBusy(false); }
   };
 
   const requestNewLink = () => router.replace('/(auth)/forgot-password');
 
-  if (!token.trim()) {
+  if (!token.trim() || verificationError) {
     return (
       <AuthShell
         brandIcon="lock"
-        title="Open your reset email"
-        subtitle="Open the password reset link in your email to continue, or request a new link."
+        title={verificationError ? 'Verify your email first' : 'Open your reset email'}
+        subtitle={verificationError || 'Open the password reset link in your email to continue, or request a new link.'}
       >
-        <Button label="Request a new reset link" onPress={requestNewLink} fullWidth size="lg" testID="reset-pw-request-link" />
+        <Button label={verificationError ? 'Get a recovery email' : 'Request a new reset link'} onPress={requestNewLink} fullWidth size="lg" testID="reset-pw-request-link" />
       </AuthShell>
     );
   }

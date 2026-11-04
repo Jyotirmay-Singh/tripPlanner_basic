@@ -111,7 +111,6 @@ describe('Profile access after removing its visible tab', () => {
 
     act(() => { root.findByProps({ testID: 'toggle-dark-mode' }).props.onValueChange(true); });
     act(() => { root.findByProps({ testID: 'profile-change-password' }).props.onPress(); });
-    act(() => { root.findByProps({ testID: 'profile-reset-password-email' }).props.onPress(); });
     act(() => { root.findByProps({ testID: 'profile-mobile-number' }).props.onPress(); });
     act(() => { root.findByProps({ testID: 'profile-payment-details' }).props.onPress(); });
     act(() => { root.findByProps({ testID: 'profile-delete-account' }).props.onPress(); });
@@ -119,7 +118,7 @@ describe('Profile access after removing its visible tab', () => {
 
     expect(mockToggle).toHaveBeenCalledTimes(1);
     expect(mockPush).toHaveBeenCalledWith('/change-password');
-    expect(mockPush).toHaveBeenCalledWith('/(auth)/forgot-password');
+    expect(root.findAllByProps({ testID: 'profile-reset-password-email' })).toHaveLength(0);
     expect(mockPush).toHaveBeenCalledWith('/set-mobile?mode=profile');
     expect(mockPush).toHaveBeenCalledWith('/set-upi?mode=profile');
     expect(mockPush).toHaveBeenCalledWith('/delete-account');

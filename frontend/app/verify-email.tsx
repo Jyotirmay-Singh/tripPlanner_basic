@@ -5,6 +5,7 @@ import { api } from '../src/api';
 import { useAuth } from '../src/AuthContext';
 import { useTheme } from '../src/ThemeContext';
 import { SPACING } from '../src/theme';
+import T from '../src/T';
 import { AuthShell, Button, Icon, useToast } from '../src/ui';
 import { clearEmailActionToken, readEmailActionToken, useEmailActionNavigation } from '../src/emailActionToken';
 
@@ -16,17 +17,23 @@ export default function VerifyEmail() {
   const router = useRouter();
   const toast = useToast();
   const { colors } = useTheme();
-  const { user, refresh } = useAuth();
+  const { user, refresh, emailFeaturesEnabled } = useAuth();
   const params = useLocalSearchParams<{ token?: string }>();
   const [token, setToken] = useState(() => readEmailActionToken('verify-email', params.token));
   const [status, setStatus] = useState<Status>('idle');
+  const [recoveryEmail, setRecoveryEmail] = useState<string | null>(null);
+  const [requestingReset, setRequestingReset] = useState(false);
+  const [resetRequested, setResetRequested] = useState(false);
   useEmailActionNavigation('verify-email', router.replace);
 
   const verify = async () => {
-    if (!token.trim()) return;
+    if (!token.trim() || status === 'verifying') return;
     setStatus('verifying');
     try {
-      await api('/auth/verify-email', { method: 'POST', body: { token: token.trim() }, auth: false });
+      const result = await api<{ password_reset_email?: string }>('/auth/verify-email', {
+        method: 'POST', body: { token: token.trim() }, auth: false,
+      });
+      setRecoveryEmail(result?.password_reset_email || null);
       setStatus('success');
       setToken('');
       clearEmailActionToken('verify-email');
@@ -39,6 +46,19 @@ export default function VerifyEmail() {
 
   const goOn = () => router.replace(user ? '/(tabs)/dashboard' : '/(auth)/login');
 
+  const requestReset = async () => {
+    if (!recoveryEmail || requestingReset || emailFeaturesEnabled === false) return;
+    setRequestingReset(true);
+    try {
+      await api('/auth/request-password-reset', {
+        method: 'POST', body: { email: recoveryEmail }, auth: false,
+      });
+      setResetRequested(true);
+    } catch (e: any) {
+      toast.show(e.message || 'Could not request your reset link. Please try again.', 'error');
+    } finally { setRequestingReset(false); }
+  };
+
   if (status === 'verifying') {
     return (
       <AuthShell brandIcon="mail" title="Verifying your email" subtitle="Just a moment…">
@@ -50,6 +70,41 @@ export default function VerifyEmail() {
   }
 
   if (status === 'success') {
+    if (recoveryEmail) {
+      return (
+        <AuthShell
+          brandIcon={resetRequested ? 'mail' : 'shield-check'}
+          title={resetRequested ? 'Check your email' : 'Email verified'}
+          subtitle={resetRequested
+            ? `Check ${recoveryEmail} for your password reset link.`
+            : 'You can now reset your password using a secure email link.'}
+        >
+          {!resetRequested ? (
+            <>
+              <T muted testID="verify-recovery-email">We’ll send the reset link to {recoveryEmail}.</T>
+              {emailFeaturesEnabled === false ? <T muted>Email recovery is temporarily unavailable. Please try again later.</T> : null}
+              <Button
+                label="Send password reset link"
+                icon="mail"
+                onPress={requestReset}
+                loading={requestingReset}
+                disabled={emailFeaturesEnabled === false}
+                fullWidth
+                size="lg"
+                testID="verify-request-reset"
+              />
+            </>
+          ) : <T muted>Open the link to choose a new password. Check your spam folder if the email doesn’t appear.</T>}
+          <Button
+            label="Back to sign in"
+            variant={resetRequested ? 'primary' : 'ghost'}
+            onPress={() => router.replace('/(auth)/login')}
+            fullWidth
+            testID="verify-recovery-back"
+          />
+        </AuthShell>
+      );
+    }
     return (
       <AuthShell brandIcon="check-circle" title="Email verified" subtitle="Your account is all set.">
         <View style={{ alignItems: 'center', gap: SPACING.md }}>

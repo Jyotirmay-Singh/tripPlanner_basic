@@ -10,11 +10,12 @@ import { AuthShell, Input, Button, useToast } from '../../src/ui';
 export default function ForgotPassword() {
   const router = useRouter();
   const toast = useToast();
-  const { user, emailFeaturesEnabled } = useAuth();
+  const { user, savedEmail, emailFeaturesEnabled, sessionMode } = useAuth();
   // Prefill restored sessions too, without overwriting an address the user has edited.
   const [emailInput, setEmailInput] = useState<string | null>(null);
-  const email = emailInput ?? user?.email ?? '';
-  const emailUnavailable = emailFeaturesEnabled === false;
+  const email = emailInput ?? user?.email ?? savedEmail ?? '';
+  const offline = sessionMode === 'offline';
+  const emailUnavailable = emailFeaturesEnabled === false || offline;
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -47,8 +48,10 @@ export default function ForgotPassword() {
         nativeHeader
         brandIcon="mail"
         title="Check your email"
-        subtitle="If an account exists for that address, we've sent a link to reset your password."
+        subtitle="If an account exists for that address, you'll receive an email with your next step."
       >
+        <T testID="forgot-pw-next-steps">Already verified? Follow the password reset link. Otherwise, verify your email first, then continue to request your reset link.</T>
+        <T muted variant="caption">Check your spam folder too. If you recently requested an email, use the latest link or wait a minute before trying again.</T>
         <Button
           label={user ? 'Back to password settings' : 'Back to sign in'}
           icon="chevron-left"
@@ -65,8 +68,8 @@ export default function ForgotPassword() {
     <AuthShell
       nativeHeader
       brandIcon="lock"
-      title="Forgot password"
-      subtitle="Enter your email and we'll send you a link to reset your password."
+      title="Reset your password"
+      subtitle="Enter your account email to recover access."
     >
       <Input
         testID="forgot-pw-email"
@@ -85,13 +88,15 @@ export default function ForgotPassword() {
         returnKeyType="done"
         onSubmitEditing={submit}
       />
+      <T muted variant="caption" testID="forgot-pw-verification-note">For your security, an unverified email must be verified before you can reset your password.</T>
       {emailUnavailable ? (
         <T variant="caption" muted testID="forgot-pw-unavailable">
-          Email password recovery is temporarily unavailable. Please try again later.
+          {offline ? 'Connect to the internet to recover your password.'
+            : 'Email password recovery is temporarily unavailable. Please try again later.'}
         </T>
       ) : null}
       <Button
-        label={busy ? 'Sending…' : 'Send reset link'}
+        label={busy ? 'Sending…' : 'Send recovery email'}
         icon="mail"
         onPress={submit}
         loading={busy}
@@ -99,6 +104,13 @@ export default function ForgotPassword() {
         fullWidth
         size="lg"
         testID="forgot-pw-submit"
+      />
+      <Button
+        label={user ? 'Back to password settings' : 'Back to sign in'}
+        variant="ghost"
+        onPress={() => router.replace(user ? '/change-password' : '/(auth)/login')}
+        fullWidth
+        testID="forgot-pw-cancel"
       />
     </AuthShell>
   );

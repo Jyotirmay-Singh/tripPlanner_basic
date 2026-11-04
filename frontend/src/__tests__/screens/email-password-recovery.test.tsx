@@ -75,6 +75,29 @@ it('prefills the signed-in email and requests a link without a password or sign-
   expect(mockReplace).toHaveBeenCalledWith('/change-password');
 });
 
+it('prefills the saved login email for a signed-out user', () => {
+  mockAuth.user = null;
+  mockAuth.savedEmail = 'saved.user@gmail.com';
+  const renderer = mount(<ForgotPassword />);
+  expect(node(renderer, 'forgot-pw-email').props.value).toBe('saved.user@gmail.com');
+  delete mockAuth.savedEmail;
+});
+
+it('explains that verification comes before recovery without exposing account status', async () => {
+  const renderer = mount(<ForgotPassword />);
+  expect(node(renderer, 'forgot-pw-verification-note').props.children).toContain('verified before');
+  await act(async () => { await node(renderer, 'forgot-pw-submit').props.onPress(); });
+  expect(node(renderer, 'forgot-pw-next-steps').props.children).toContain('verify your email first');
+});
+
+it('blocks recovery requests during offline sessions', async () => {
+  mockAuth.sessionMode = 'offline';
+  const renderer = mount(<ForgotPassword />);
+  await act(async () => { await node(renderer, 'forgot-pw-submit').props.onPress(); });
+  expect(mockApi).not.toHaveBeenCalled();
+  expect(node(renderer, 'forgot-pw-submit').props.disabled).toBe(true);
+});
+
 it('prefills an asynchronously restored account without overwriting an edited email', () => {
   mockAuth.user = undefined;
   const renderer = mount(<ForgotPassword />);

@@ -41,6 +41,7 @@ def test_verification_journey_keeps_access_and_requires_post(email_env):
 def test_reset_changes_password_and_revokes_old_sessions(email_env):
     env = email_env
     created = register(env)
+    assert env.client.post('/api/auth/verify-email', json={'token': latest(env, VERIFY_EMAIL)}).status_code == 200
     response = env.client.post('/api/auth/request-password-reset', json={'email': 'flow@gmail.com'})
     assert response.status_code == 200
     raw = latest(env, RESET_PASSWORD)
@@ -58,7 +59,7 @@ def test_reset_changes_password_and_revokes_old_sessions(email_env):
     assert reused.status_code == 400
     assert env.db.users.docs[0]['session_version'] == 1
     assert verify_secret('newpassword123', env.db.users.docs[0]['password_hash'])
-    assert not env.db.users.docs[0]['email_verified']  # Resetting does not verify an address.
+    assert env.db.users.docs[0]['email_verified'] is True  # Ownership was proved before reset.
 
 
 def test_expired_and_wrong_purpose_links(email_env):

@@ -1,5 +1,5 @@
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -10,7 +10,9 @@ from email_fakes import FakeDB
 @pytest.fixture
 def fake_db(monkeypatch):
     db = FakeDB()
-    db.users.docs.append({'_id': 1, 'id': 'u1', 'email': 'one@gmail.com', 'session_version': 0})
+    db.users.docs.append({'_id': 1, 'id': 'u1', 'email': 'one@gmail.com', 'session_version': 0,
+                          'email_verified': True, 'email_verified_for': 'one@gmail.com',
+                          'email_verified_at': datetime.now(timezone.utc), 'email_verification_method': 'email_link'})
     monkeypatch.setattr(at, 'db', db)
     monkeypatch.setattr(at, 'run_required_transaction', db.transaction)
     return db
@@ -65,7 +67,8 @@ def test_email_changed_rejects_and_rolls_back_consumption(fake_db):
     with pytest.raises(at.AuthTokenError):
         run(at.consume_token(raw, at.VERIFY_EMAIL))
     assert not fake_db.auth_tokens.docs[0]['used']
-    assert 'email_verified' not in fake_db.users.docs[0]
+    assert fake_db.users.docs[0]['email_verified_for'] == 'one@gmail.com'
+    assert not at.email_is_verified(fake_db.users.docs[0])
 
 
 def test_reissue_replaces_only_same_purpose(fake_db):
