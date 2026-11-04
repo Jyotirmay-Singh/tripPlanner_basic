@@ -11,6 +11,7 @@ import T from '../../src/T';
 import TabPageHeader from '../../src/TabPageHeader';
 import { TabScreen, Card, Icon, IconButton, useToast } from '../../src/ui';
 import NotificationSettingsRow from '../../src/NotificationSettingsRow';
+import UnverifiedBanner from '../../src/UnverifiedBanner';
 import { mobileProfileHref, upiProfileHref } from '../../src/inviteNavigation';
 import { formatMobileForDisplay } from '../../src/mobileNumber';
 
@@ -61,6 +62,8 @@ export default function Profile() {
           <T muted variant="caption" numberOfLines={1}>{user?.email}</T>
         </View>
       </Card>
+
+      <UnverifiedBanner dismissible={false} />
 
       <Card style={styles.row}>
         <Icon name={mode === 'dark' ? 'moon' : 'sun'} size={20} color={colors.primary} />

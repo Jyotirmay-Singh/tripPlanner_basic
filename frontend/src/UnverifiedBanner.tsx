@@ -7,16 +7,18 @@ import { SPACING, RADIUS } from './theme';
 import T from './T';
 import { Icon, IconButton, Button, useToast } from './ui';
 
-// Dashboard reminder for new and existing accounts explicitly marked as unverified.
-// Dismissal lasts until the next sign-in or app restart and never changes verification status.
-export default function UnverifiedBanner() {
+// Dismissal hides only the Dashboard reminder; Profile keeps a verification action available.
+// Neither dismissal nor requesting an email changes verification status.
+export default function UnverifiedBanner({ dismissible = true }: { dismissible?: boolean }) {
   const {
     user, refresh, emailFeaturesEnabled, verificationReminderDismissed, dismissVerificationReminder,
+    sessionMode,
   } = useAuth();
   const { colors } = useTheme();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [remaining, setRemaining] = useState(0);
+  const offline = sessionMode === 'offline';
   useEffect(() => {
     if (remaining <= 0) return;
     const timer = setTimeout(() => setRemaining((value) => Math.max(0, value - 1)), 1000);
@@ -27,9 +29,10 @@ export default function UnverifiedBanner() {
   // that omit the flag keep the existing behavior).
   if (emailFeaturesEnabled === false) return null;
   if (!user || user.email_verified !== false) return null;
-  if (verificationReminderDismissed) return null;
+  if (dismissible && verificationReminderDismissed) return null;
 
   const resend = async () => {
+    if (offline || busy || remaining > 0) return;
     setBusy(true);
     try {
       const res = await api<{ message?: string }>('/auth/resend-verification', { method: 'POST' });
@@ -51,18 +54,30 @@ export default function UnverifiedBanner() {
         <Icon name="mail" size={20} color={colors.warning} />
         <View style={styles.copy}>
           <T variant="h4">Verify your email</T>
-          <T muted variant="caption">Check {user.email} for a verification link to secure your account.</T>
+          <T muted variant="caption">Confirm {user.email} to secure your account.</T>
         </View>
-        <IconButton
-          name="close"
-          size={20}
-          color={colors.textMuted}
-          accessibilityLabel="Dismiss email verification reminder"
-          testID="unverified-dismiss"
-          onPress={dismissVerificationReminder}
-        />
+        {dismissible ? (
+          <IconButton
+            name="close"
+            size={20}
+            color={colors.textMuted}
+            accessibilityLabel="Dismiss email verification reminder"
+            testID="unverified-dismiss"
+            onPress={dismissVerificationReminder}
+          />
+        ) : null}
       </View>
-      <Button label={remaining ? `Resend in ${remaining}s` : 'Resend email'} icon="refresh" variant="ghost" size="sm" onPress={resend} loading={busy} disabled={remaining > 0} testID="unverified-resend" />
+      {offline ? <T muted variant="caption">Connect to the internet to request a verification email.</T> : null}
+      <Button
+        label={remaining ? `Resend in ${remaining}s` : 'Send verification email'}
+        icon="mail"
+        variant="ghost"
+        size="sm"
+        onPress={resend}
+        loading={busy}
+        disabled={offline || remaining > 0}
+        testID="unverified-resend"
+      />
     </View>
   );
 }

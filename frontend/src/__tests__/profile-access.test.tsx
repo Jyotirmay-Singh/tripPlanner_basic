@@ -28,6 +28,7 @@ jest.mock('expo-haptics', () => ({ __esModule: true, selectionAsync: mockSelecti
 jest.mock('expo-clipboard', () => ({
   setStringAsync: (value: string) => mockSetStringAsync(value),
 }));
+jest.mock('../api', () => ({ api: jest.fn() }));
 jest.mock('../AuthContext', () => ({
   useAuth: () => ({ user: mockUser, refreshUserProfile: mockRefreshUserProfile }),
 }));
@@ -56,6 +57,7 @@ jest.mock('../ui', () => {
     Screen: stub('Screen'),
     TabScreen: stub('Screen'),
     Card: stub('Card'),
+    Button: stub('Button'),
     Icon: stub('Icon'),
     IconButton: stub('IconButton'),
     useToast: () => ({ show: mockToastShow }),
@@ -147,6 +149,21 @@ describe('Profile access after removing its visible tab', () => {
     render(<Profile />);
 
     expect(mockRefreshUserProfile).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers email verification from Profile for an unverified account', () => {
+    mockUser = { ...mockUser, email_verified: false };
+    const root = render(<Profile />);
+
+    expect(root.findByProps({ testID: 'unverified-resend' }).props.label).toBe('Send verification email');
+    expect(root.findAllByProps({ testID: 'unverified-dismiss' })).toHaveLength(0);
+  });
+
+  it('shows no verification prompt or status for an already verified account', () => {
+    mockUser = { ...mockUser, email_verified: true };
+    const root = render(<Profile />);
+
+    expect(root.findAllByProps({ testID: 'unverified-banner' })).toHaveLength(0);
   });
 
   it('copies the UPI ID without navigating and confirms only after clipboard success', async () => {
