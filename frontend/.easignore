@@ -2,6 +2,8 @@
 # android/ folder is retained for local QA and must not be uploaded to EAS.
 /android/
 /modules/upi-app-launcher/android/build/
+/.release-tmp/
+/expo-env.d.ts
 
 # Dependencies and generated output
 /node_modules/
