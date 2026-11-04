@@ -36,7 +36,7 @@
   "redirects": [
     {
       "source": "/download/android",
-      "destination": "https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/download/android-v1.0.0-build.22/trip-splitter-android-1.0.0-build-22.apk",
+      "destination": "https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/download/android-v1.0.0-build.24/splitora-android-1.0.0-build-24.apk",
       "permanent": false
     }
   ],

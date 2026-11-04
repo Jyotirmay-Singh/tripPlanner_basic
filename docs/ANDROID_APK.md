@@ -4,22 +4,24 @@ A standalone, side-loadable Android APK of Splitora, pointed at the production b
 (`https://tripsplitter-api.onrender.com`).
 
 App: **Splitora** · package `com.tripsplitter.app` · version **1.0.0**.
-Splitora is the official name of the existing app. Historical binaries below were released as
-Trip Splitter; their filenames, signatures, checksums, and download URLs remain unchanged.
-Current public binary: **build 22**, built from commit `005075f84aed5beed336126c0a68c23d31e95193`.
-The saved GPay UI branch was not merged or included.
+Current public binary: **build 24**, built from commit `4e964ba37a6911bc2f966b068b48c208bb3e9a88`.
+The saved GPay-style UI branch is separate and is not included.
 
-- Stable APK: <https://tripsplitter-web.vercel.app/download/android>
-- Durable APK asset: <https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/download/android-v1.0.0-build.22/trip-splitter-android-1.0.0-build-22.apk>
-- Release: <https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/tag/android-v1.0.0-build.22>
-- SHA-256: `8e39fc0228f009ae605434b8d943445992a202fc9cef4e56877f72bc42a8889c`
-- Size: 131,183,148 bytes
-- EAS build: <https://expo.dev/accounts/jyotirmay03/projects/frontend/builds/30c83801-195a-42c9-a15d-1f2d2cb2b66f>
-- The older signed Play bundle remains build 20; see [the Play Console guide](PLAY_INTERNAL_TESTING.md).
+- Stable latest-APK link: <https://tripsplitter-web.vercel.app/download/android>
+- Durable APK asset: <https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/download/android-v1.0.0-build.24/splitora-android-1.0.0-build-24.apk>
+- Release: <https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/tag/android-v1.0.0-build.24>
+- EAS build: <https://expo.dev/accounts/jyotirmay03/projects/frontend/builds/15988520-f034-48ad-b5cb-43089e529c5d>
+- Size: 132,270,264 bytes
+- SHA-256: `039332ef1229df83e0371cac439c0393c50609badd842c7a8f68876d36e56f4b`
+- Full verification: [release report](releases/android-1.0.0-build-24.md)
 
-See [the release report](releases/android-1.0.0-build-22.md) for full verification.
-Build 22 passed fresh installation, upgrade from build 19, cold launch, restart, and login/registration
-screen checks on an isolated Android 15 emulator. No physical-phone or real sign-in test was performed.
+Group invitations and group-code fallbacks include the stable latest-APK link. The redirect
+is temporary and uncached; update it after every verified APK release so previously shared
+messages continue to reach the newest public build.
+
+Build 24 passed fresh installation, upgrade from build 22 with app-data marker retention,
+cold launch/restart, login/registration screens, and invitation routing on an isolated Android 15 emulator.
+No physical-phone or real sign-in test was performed.
 
 ---
 
