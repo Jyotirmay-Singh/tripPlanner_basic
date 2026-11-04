@@ -10,6 +10,14 @@ This fails the original requirement that every send must require private-key aut
 
 Keep the existing non-browser/private-key settings enabled and supply the private key on every backend send. Keep all EmailJS identifiers and credentials on Render. Preserve token validation, transactions, rate limits, and sanitized logging. Domain allowlists and hiding the public key do not replace required private-key authorization. Do not upgrade plans or change providers without the owner's direction. Confirm operational delivery and the current rollout flag separately before claiming activation or a successful inbox journey.
 
+## Activation verified on 2026-11-04
+
+The owner supplied the public/private keys directly in Render. The configuration deployment dep-dblcc3oae00c73brg33g runs backend revision 6a86c33 with EMAIL_FEATURES_ENABLED=true; the public /api/meta/config flag and /api/health were checked successfully. Render startup diagnostics confirmed that all required EmailJS settings are present without printing credential values.
+
+An isolated test account delivering to the agreed Gmail inbox exercised live registration, verification resends, and password reset through the deployed backend. EmailJS accepted four messages: the registration verification email, a password-reset email, and two verification resends. One extra resend occurred after a mistimed cooldown check; the subsequent immediate retry returned HTTP 429 with Retry-After. The owner confirmed receipt of all four messages and successful verification and password update through the action pages. The backend independently reported the account verified, then rejected both the previous authenticated session and the old password with HTTP 401 after reset.
+
+The 46 focused backend checks passed with mocked delivery before activation. Received plain-text MIME alternatives and a fresh login with the owner's chosen test password were not independently inspected. The provider authorization limitation remains unresolved and accepted for this interim rollout while EmailJS support investigates. The current feature state is controlled in Render; no sending key values belong in this repository.
+
 ## Account configuration
 
 - Free account: 200 monthly requests, exactly two templates. Keep the provider footer required by the free plan.
