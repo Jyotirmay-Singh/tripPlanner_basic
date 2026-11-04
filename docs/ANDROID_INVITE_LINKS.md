@@ -33,14 +33,15 @@ their existing 90-day audit window ends.
 The share message includes the private URL, permanent group code, and a link to download the latest
 Android APK. The group-code fallback includes the same download link. Both use the stable
 `https://tripsplitter-web.vercel.app/download/android` URL, so previously shared messages also reach
-the newest published APK when the release redirect is updated. The redirect uses `no-store` to
-avoid retaining an older download target in a browser cache.
+the newest published APK when the release redirect is updated. Vercel serves the temporary
+redirect with `Cache-Control: public, max-age=0, must-revalidate`, so browsers must recheck the
+download target before using a cached redirect.
 
 ## Rollout order
 
 1. Build and verify the newest APK from the approved release source, then publish it as a durable
    GitHub release asset. Keep the GPay-style UI work separate from this release.
-2. Point the temporary, uncached `/download/android` redirect at that durable release asset and verify the
+2. Point the temporary, revalidated `/download/android` redirect at that durable release asset and verify the
    anonymous download, package/version, checksum, and signing certificate.
 3. Deploy this web flow and verify the invite landing page plus Digital Asset Links document.
 4. Confirm `INVITE_BASE_URL=https://tripsplitter-web.vercel.app`, set

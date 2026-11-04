@@ -4,12 +4,6 @@
   "outputDirectory": "dist",
   "headers": [
     {
-      "source": "/download/android",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-store, max-age=0" }
-      ]
-    },
-    {
       "source": "/(verify-email|reset-password)",
       "headers": [
         { "key": "Cache-Control", "value": "no-store" },

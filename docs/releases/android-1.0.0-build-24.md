@@ -17,7 +17,7 @@ The saved GPay-style UI branch is separate and is not included.
 
 Group invitation messages and group-code fallbacks include the stable latest-APK link.
 The invitation landing page also offers **Download latest Android APK**. The temporary
-download redirect uses `Cache-Control: no-store, max-age=0`, so new releases can update
+download redirect uses `Cache-Control: public, max-age=0, must-revalidate`, so new releases can update
 the destination for both new and previously shared invitations.
 
 ## Verification

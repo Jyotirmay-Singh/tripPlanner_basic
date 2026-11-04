@@ -16,7 +16,7 @@ The saved GPay-style UI branch is separate and is not included.
 - Full verification: [release report](releases/android-1.0.0-build-24.md)
 
 Group invitations and group-code fallbacks include the stable latest-APK link. The redirect
-is temporary and uncached; update it after every verified APK release so previously shared
+is temporary and revalidated on each request; update it after every verified APK release so previously shared
 messages continue to reach the newest public build.
 
 Build 24 passed fresh installation, upgrade from build 22 with app-data marker retention,
