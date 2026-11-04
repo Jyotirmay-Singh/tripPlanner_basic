@@ -31,7 +31,7 @@ it('builds the exact secure invitation message ending with the APK download link
     + `Open the invitation link:\n${url}\n\n`
     + 'Group code: ABC123\n'
     + 'You can also enter this code in Splitora to join manually.\n\n'
-    + 'Download Splitora for Android:\n'
+    + 'Download the latest Splitora APK for Android:\n'
     + 'https://tripsplitter-web.vercel.app/download/android',
   );
 });
@@ -41,7 +41,7 @@ it('builds the exact code fallback with the Android-only APK download', () => {
     'You have been invited to join the group "Coast trip" on Splitora.\n\n'
     + 'Group code: ABC123\n'
     + 'Enter this code in Splitora to join the group.\n\n'
-    + 'Download Splitora for Android:\n'
+    + 'Download the latest Splitora APK for Android:\n'
     + 'https://tripsplitter-web.vercel.app/download/android',
   );
 });

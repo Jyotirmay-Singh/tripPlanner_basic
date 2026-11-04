@@ -220,7 +220,7 @@ export default function InviteLanding() {
                         </T>
                       ) : null}
                       <Button
-                        label="Download Android APK"
+                        label="Download latest Android APK"
                         icon="download"
                         variant="secondary"
                         onPress={downloadApp}
@@ -259,7 +259,7 @@ export default function InviteLanding() {
                       <Button label="Try again" icon="retry" onPress={() => setRetryKey((value) => value + 1)} fullWidth />
                     ) : null}
                     {Platform.OS === 'web' ? (
-                      <Button label="Download Android APK" icon="download" variant="secondary" onPress={downloadApp} fullWidth />
+                      <Button label="Download latest Android APK" icon="download" variant="secondary" onPress={downloadApp} fullWidth />
                     ) : null}
                   </View>
                 </>

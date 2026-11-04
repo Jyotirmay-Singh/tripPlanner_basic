@@ -155,7 +155,7 @@ const APK_DOWNLOAD_URL = 'https://tripsplitter-web.vercel.app/download/android';
 const CODE_FALLBACK_MESSAGE = 'You have been invited to join the group "Lakshadweep" on Splitora.\n\n'
   + 'Group code: UCK3RZ\n'
   + 'Enter this code in Splitora to join the group.\n\n'
-  + 'Download Splitora for Android:\n'
+  + 'Download the latest Splitora APK for Android:\n'
   + APK_DOWNLOAD_URL;
 
 type Fixture = {
@@ -760,7 +760,7 @@ describe('Trip identity header', () => {
         + `Open the invitation link:\n${url}\n\n`
         + 'Group code: UCK3RZ\n'
         + 'You can also enter this code in Splitora to join manually.\n\n'
-        + 'Download Splitora for Android:\n'
+        + 'Download the latest Splitora APK for Android:\n'
         + APK_DOWNLOAD_URL,
     });
     nativeShare.mockRestore();
