@@ -59,7 +59,7 @@ EXPENSE_SETTLEMENT_ENABLED = os.environ.get(
     "EXPENSE_SETTLEMENT_ENABLED", "false"
 ).strip().lower() in ("true", "1", "yes", "on")
 
-# Opt in after verifying private-key enforcement, templates and disabled history.
+# Operator-controlled delivery rollout; see docs/EMAIL_SETUP.md for the accepted provider limitation.
 # Disabling delivery never establishes email ownership or changes account access.
 EMAIL_FEATURES_ENABLED = os.environ.get("EMAIL_FEATURES_ENABLED", "false").strip().lower() not in (
     "false", "0", "no", "off",

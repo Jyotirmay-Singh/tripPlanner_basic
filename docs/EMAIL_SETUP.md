@@ -2,11 +2,13 @@
 
 Splitora uses server-side HTTPS requests to EmailJS for verification and password reset. The Gmail sender and agreed test inbox are teamsplitora@gmail.com. The application needs no custom domain.
 
-## Release gate: sending remains disabled
+## Interim rollout authorized by the owner
 
 Live authorization checks on 2026-11-03 found that, with non-browser access and Use Private Key enabled, both configured templates return HTTP 403 for missing/incorrect private keys without an Origin header, but HTTP 200 for an Origin-bearing request with no private key. Both accepted probes used only the agreed inbox and invalid tokens.
 
-This fails the required protection against unauthorized use of authentication templates. Domain allowlists and hiding the public key are not substitutes for required private-key authentication. Do not enable EMAIL_FEATURES_ENABLED until EmailJS can reject every unauthorized request. Do not upgrade plans or change providers without the user's direction. No production authentication-email journey is claimed as verified while this gate fails.
+This fails the original requirement that every send must require private-key authorization. On 2026-11-04, after contacting EmailJS support, the owner explicitly authorized enabling automatic verification and password-reset emails with this known limitation while awaiting the support response. This instruction supersedes the earlier release hold for the provider authorization check. It does not establish that the provider authorization issue is fixed.
+
+Keep the existing non-browser/private-key settings enabled and supply the private key on every backend send. Keep all EmailJS identifiers and credentials on Render. Preserve token validation, transactions, rate limits, and sanitized logging. Domain allowlists and hiding the public key do not replace required private-key authorization. Do not upgrade plans or change providers without the owner's direction. Confirm operational delivery and the current rollout flag separately before claiming activation or a successful inbox journey.
 
 ## Account configuration
 
@@ -16,7 +18,7 @@ This fails the required protection against unauthorized use of authentication te
 - Reset template: use backend/email_templates/password-reset.html; subject: Reset your {{app_name}} password.
 - Both templates: To Email {{to_email}}, From Name {{app_name}}, default Gmail From Email, Reply To the sender inbox, empty CC/BCC, no auto-reply or contact collection.
 - Enable Do not save private data on both templates; template parameters must not appear in history. Disable analytics/tracking. The .txt files alongside the HTML are the required plain-text reference; inspect the received MIME alternative before signing off delivery.
-- Enable non-browser API access with Use Private Key checked. The current browser-origin bypass described above must be resolved before rollout.
+- Enable non-browser API access with Use Private Key checked. The browser-origin authorization limitation above remains open with EmailJS support; the owner has accepted it for this interim rollout.
 
 ## Environment names (values are never recorded here)
 
@@ -24,7 +26,7 @@ Set these directly on the existing Render service, merging with other settings:
 
 | Name | Purpose |
 | --- | --- |
-| EMAIL_FEATURES_ENABLED | Delivery rollout switch; keep disabled until authorization and deployment checks pass |
+| EMAIL_FEATURES_ENABLED | Delivery rollout switch; enable only after configuration and operational checks, subject to the owner's rollout decision above |
 | APP_NAME | Sender display name and template branding |
 | APP_URL | Trusted HTTPS web origin for action links |
 | EMAILJS_SERVICE_ID | Connected Gmail service |
@@ -59,7 +61,9 @@ EmailJS's free account stops accepting sends when the monthly limit is exhausted
 
 Run the focused backend auth/provider suites and frontend recovery-screen tests, TypeScript, lint and web export. Automated delivery is mocked. The opt-in real Mongo suite uses only a local replica set on port 27019 and disposable email_auth_test_ databases; set EMAIL_AUTH_TEST_MONGO_URL for that suite.
 
-Deploy through the existing main-branch workflow with email sending disabled. Verify both deployed revisions, the public capability flag, action-page headers and explicit confirmation behavior. Only after mandatory provider authorization passes should keys be supplied directly in Render and delivery enabled. Then use the agreed inbox for registration, one resend after cooldown, and reset; inspect HTML/plain text, complete both journeys, and verify old sessions fail while a fresh login works.
+Deploy through the existing main-branch workflow, preserving the existing non-email configuration. Provision EmailJS credentials directly in Render; never copy their values into this document. Verify deployed revisions, action-page headers, database readiness, and explicit confirmation behavior. For the owner-authorized interim rollout, activate sending despite the documented provider authorization limitation, then use the agreed inbox for registration, one resend after cooldown, and reset. Inspect HTML/plain text, complete both journeys, and verify old sessions fail while a fresh login works. Confirm the public capability flag after the configuration deployment and record verified delivery separately from provider acceptance.
+
+To disable sending safely, set EMAIL_FEATURES_ENABLED=false on the existing Render service and deploy the configuration change. Verify /api/meta/config reports email_features_enabled=false. This stops automatic registration/reset sends and hides the dashboard reminder and forgot-password entry point; existing credentials and account access remain intact. Disabling this application flag does not revoke the EmailJS templates or prevent direct provider requests; an incident involving provider access also requires action in EmailJS.
 
 Never restore the retired link-logging fallback during troubleshooting or rollback.
 
