@@ -56,6 +56,8 @@ type Ctx = {
   // "Forgot password?" link are hidden (those flows are ghosted until a deliverable domain exists).
   // Defaults to true so nothing is hidden while it loads or if the fetch fails.
   emailFeaturesEnabled: boolean;
+  verificationReminderDismissed: boolean;
+  dismissVerificationReminder: () => void;
   inviteLinksEnabled: boolean;
   pendingInvitePath: string | null;
   // Volatile: explicit authentication may offer mobile setup, but token restoration never does.
@@ -102,6 +104,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const lastVerifiedAt = useRef(0);
   const [savedEmail, setSavedEmail] = useState<string | null>(null);
   const [emailFeaturesEnabled, setEmailFeaturesEnabled] = useState(true);
+  // Keep dismissal through dashboard remounts, but scope it to this account and sign-in.
+  const [dismissedVerificationReminder, setDismissedVerificationReminder] = useState<{
+    accountId: string; email: string; generation: number;
+  } | null>(null);
+  const verificationReminderDismissed = !!user
+    && dismissedVerificationReminder?.accountId === user.id
+    && dismissedVerificationReminder.email === user.email
+    && dismissedVerificationReminder.generation === authGeneration.current;
+  const dismissVerificationReminder = useCallback(() => {
+    if (!user) return;
+    setDismissedVerificationReminder({
+      accountId: user.id, email: user.email, generation: authGeneration.current,
+    });
+  }, [user]);
   const [inviteLinksEnabled, setInviteLinksEnabled] = useState(false);
   const [pendingInvitePath, setPendingInvitePath] = useState<string | null>(null);
   const [mobileOnboardingPending, setMobileOnboardingPending] = useState(false);
@@ -625,6 +641,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       offlineStorageError,
       savedEmail,
       emailFeaturesEnabled,
+      verificationReminderDismissed,
+      dismissVerificationReminder,
       inviteLinksEnabled,
       pendingInvitePath,
       mobileOnboardingPending,

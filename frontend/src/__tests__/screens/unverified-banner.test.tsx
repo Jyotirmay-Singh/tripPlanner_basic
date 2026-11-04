@@ -9,9 +9,15 @@ import TestRenderer, { act } from 'react-test-renderer';
 const mockToast = { show: jest.fn() };
 let mockUser: any = null;
 const mockRefresh = jest.fn().mockResolvedValue(undefined);
+let mockEmailFeaturesEnabled = true;
+let mockReminderDismissed = false;
+const mockDismissReminder = jest.fn(() => { mockReminderDismissed = true; });
 
 jest.mock('../../api', () => ({ api: jest.fn() }));
-jest.mock('../../AuthContext', () => ({ useAuth: () => ({ user: mockUser, refresh: mockRefresh }) }));
+jest.mock('../../AuthContext', () => ({ useAuth: () => ({
+  user: mockUser, refresh: mockRefresh, emailFeaturesEnabled: mockEmailFeaturesEnabled,
+  verificationReminderDismissed: mockReminderDismissed, dismissVerificationReminder: mockDismissReminder,
+}) }));
 jest.mock('../../ThemeContext', () => ({ useTheme: () => ({ colors: { surfaceMuted: '#eee', warning: '#fa0' } }) }));
 jest.mock('../../T', () => {
   const R = require('react');
@@ -23,6 +29,7 @@ jest.mock('../../ui', () => {
   return {
     __esModule: true,
     Icon: (p: any) => R.createElement('Icon', p),
+    IconButton: (p: any) => R.createElement('IconButton', p),
     Button: (p: any) => R.createElement('Button', p),
     useToast: () => mockToast,
   };
@@ -40,6 +47,7 @@ const mounted: { unmount(): void }[] = [];
 
 beforeEach(() => {
   mockToast.show.mockClear(); mockRefresh.mockClear(); apiMock.mockReset(); mockUser = null;
+  mockEmailFeaturesEnabled = true; mockReminderDismissed = false; mockDismissReminder.mockClear();
 });
 
 afterEach(() => {
@@ -61,6 +69,26 @@ describe('UnverifiedBanner', () => {
 
   it('renders nothing for a verified user', () => {
     mockUser = { id: 'u1', email: 'a@gmail.com', email_verified: true };
+    expect(has(mount(), 'unverified-banner')).toBe(false);
+  });
+
+  it('closes the reminder without sending an email or changing verification', () => {
+    mockUser = { id: 'u1', email: 'a@gmail.com', email_verified: false };
+    const r = mount();
+    const close = node(r, 'unverified-dismiss');
+    expect(close.props.name).toBe('close');
+    expect(close.props.accessibilityLabel).toBe('Dismiss email verification reminder');
+    act(() => { close.props.onPress(); });
+    act(() => { r.update(React.createElement(UnverifiedBanner)); });
+    expect(has(r, 'unverified-banner')).toBe(false);
+    expect(mockDismissReminder).toHaveBeenCalledTimes(1);
+    expect(apiMock).not.toHaveBeenCalled();
+    expect(mockUser.email_verified).toBe(false);
+  });
+
+  it('stays hidden while email sending is disabled', () => {
+    mockUser = { id: 'u1', email: 'a@gmail.com', email_verified: false };
+    mockEmailFeaturesEnabled = false;
     expect(has(mount(), 'unverified-banner')).toBe(false);
   });
 

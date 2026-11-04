@@ -43,6 +43,8 @@ Opening an email link changes no account state. New links use URL fragments; the
 
 Verification stays optional for access. Legacy accounts without dated confirmation evidence for their current email become pending, without credential changes or access restrictions. Google sign-in establishes confirmation only when the verified claim is explicitly true. Old unbound links are invalidated.
 
+When email features are enabled, new and existing unverified accounts see the same dashboard reminder. Its cross button hides it for the current app session, including tab changes and profile refreshes. It returns after a new sign-in, an app restart/web reload, or a change of email address if verification is still pending. Verified accounts see no reminder. Showing or closing the reminder sends no email; resend requires an explicit press. No scheduled reminder emails are sent.
+
 A successful password reset updates the bcrypt hash, invalidates reset tokens, increments the session version and closes existing chat connections. Older version-zero JWTs remain valid until reset. Remote offline devices learn of revocation on their next server connection; no disconnected device can accept new server operations.
 
 ## Limits and failure handling

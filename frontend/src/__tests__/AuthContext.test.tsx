@@ -128,6 +128,56 @@ it('marks the deployed chat protocol as supported', async () => {
   expect(latest.user).toBeNull();
 });
 
+it.each(['login', 'registration', 'Google'] as const)(
+  'keeps a dismissed reminder across dashboard remounts and refreshes after %s until the next sign-in',
+  async (flow) => {
+    const user = { id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user', email_verified: false };
+    const jwt = token(user.id, Date.now() + 3_600_000);
+    (apiModule.getToken as jest.Mock).mockResolvedValue(jwt);
+    (apiModule.api as jest.Mock).mockImplementation((path: string) => {
+      if (path === '/meta/config') return Promise.resolve({ email_features_enabled: true });
+      if (path === '/auth/me') return Promise.resolve({ ...user });
+      if (['/auth/login', '/auth/register', '/auth/google'].includes(path)) {
+        return Promise.resolve({ access_token: jwt, user });
+      }
+      return Promise.reject(new Error('unexpected path'));
+    });
+    await mount();
+    await act(async () => {
+      if (flow === 'registration') await latest.register(user.email, user.name, 'password123');
+      else if (flow === 'Google') await latest.signInWithGoogle('google-id-token');
+      else await latest.signIn(user.email, 'password123');
+    });
+    expect(latest.verificationReminderDismissed).toBe(false);
+    act(() => latest.dismissVerificationReminder());
+    await act(async () => { await latest.refreshUserProfile(); });
+    act(() => { renderer!.update(<AuthProvider><Consumer key="dashboard-return" /></AuthProvider>); });
+    expect(latest.verificationReminderDismissed).toBe(true);
+
+    await act(async () => { await latest.signOut(); });
+    expect(latest.verificationReminderDismissed).toBe(false);
+    await act(async () => { await latest.signIn(user.email, 'password123'); });
+    expect(latest.verificationReminderDismissed).toBe(false);
+    expect(latest.user?.email_verified).toBe(false);
+  },
+);
+
+it('shows the reminder again when the account email changes', async () => {
+  let user = { id: 'u1', email: 'saved@gmail.com', name: 'Ravi', role: 'user', email_verified: false };
+  (apiModule.getToken as jest.Mock).mockResolvedValue(token(user.id, Date.now() + 3_600_000));
+  (apiModule.api as jest.Mock).mockImplementation((path: string) => {
+    if (path === '/meta/config') return Promise.resolve({});
+    if (path === '/auth/me') return Promise.resolve(user);
+    return Promise.reject(new Error('unexpected path'));
+  });
+  await mount();
+  act(() => latest.dismissVerificationReminder());
+  expect(latest.verificationReminderDismissed).toBe(true);
+  user = { ...user, email: 'changed@gmail.com' };
+  await act(async () => { await latest.refreshUserProfile(); });
+  expect(latest.verificationReminderDismissed).toBe(false);
+});
+
 it('refreshes a changed invite rollout flag on demand before sharing', async () => {
   (apiModule.api as jest.Mock)
     .mockResolvedValueOnce({ chat_protocol_version: 1, invite_links_enabled: false })
