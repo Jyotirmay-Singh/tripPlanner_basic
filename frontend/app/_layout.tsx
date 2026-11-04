@@ -15,7 +15,7 @@ import ProfileAvatarButton from '../src/ProfileAvatarButton';
 import HeaderBackButton from '../src/HeaderBackButton';
 import { ToastProvider } from '../src/ui';
 import { FONTS } from '../src/theme';
-import { authRedirectTarget, navResetTo, isPublicTokenRoute } from '../src/authNav';
+import { authRedirectTarget, navResetTo, isPublicAuthRoute } from '../src/authNav';
 import PushNotificationCoordinator from '../src/PushNotificationCoordinator';
 import AppSystemBars from '../src/AppSystemBars';
 import { AppKeyboardProvider } from '../src/KeyboardController';
@@ -34,6 +34,7 @@ function Inner() {
   const segments = useSegments();
   const searchParams = useGlobalSearchParams<{ mode?: string | string[] }>();
   const firstSegment = segments[0] as string | undefined;
+  const secondSegment = segments[1] as string | undefined;
   const mode = Array.isArray(searchParams.mode) ? searchParams.mode[0] : searchParams.mode;
 
   // Declarative auth guard: redirect on any session change (logout, token expiry) and fully
@@ -43,7 +44,7 @@ function Inner() {
     const target = authRedirectTarget(
       user,
       firstSegment === '(auth)',
-      isPublicTokenRoute(firstSegment),
+      isPublicAuthRoute(firstSegment, secondSegment),
       firstSegment === 'set-credentials',
       pendingInvitePath,
       upiOnboardingPending,
@@ -54,7 +55,7 @@ function Inner() {
     );
     if (target) navResetTo(router, target);
   }, [
-    user, firstSegment, router, pendingInvitePath,
+    user, firstSegment, secondSegment, router, pendingInvitePath,
     mode, mobileOnboardingPending, upiOnboardingPending,
   ]);
 

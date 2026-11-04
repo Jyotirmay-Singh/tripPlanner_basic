@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { api } from '../src/api';
+import { useAuth } from '../src/AuthContext';
 import { SPACING } from '../src/theme';
 import T from '../src/T';
 import {
@@ -14,6 +15,8 @@ import { FormScreen, Card, Input, Button, useToast } from '../src/ui';
 export default function ChangePassword() {
   const router = useRouter();
   const toast = useToast();
+  const { sessionMode } = useAuth();
+  const offline = sessionMode === 'offline';
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -60,6 +63,17 @@ export default function ChangePassword() {
           autoComplete="current-password"
           returnKeyType="next"
         />
+        <Button
+          label="Forgot password?"
+          icon="mail"
+          variant="ghost"
+          size="sm"
+          onPress={() => router.push('/(auth)/forgot-password')}
+          disabled={offline}
+          fullWidth
+          testID="cp-forgot-password"
+        />
+        {offline ? <T variant="caption" muted>Connect to request a password reset email.</T> : null}
         <Input
           testID="cp-new"
           label="New password"

@@ -13,6 +13,13 @@ jest.mock('expo-router', () => ({
   useRouter: () => ({ replace: mockReplace, push: jest.fn(), back: jest.fn() }),
 }));
 jest.mock('../../api', () => ({ api: jest.fn() }));
+jest.mock('../../AuthContext', () => ({
+  useAuth: () => ({ user: null, emailFeaturesEnabled: true }),
+}));
+jest.mock('../../T', () => {
+  const R = require('react');
+  return { __esModule: true, default: (props: any) => R.createElement('T', props, props.children) };
+});
 jest.mock('../../ui', () => {
   const R = require('react');
   return {

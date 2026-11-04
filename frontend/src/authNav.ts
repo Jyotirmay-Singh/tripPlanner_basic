@@ -17,6 +17,16 @@ export function isPublicTokenRoute(firstSegment: string | undefined): boolean {
   return !!firstSegment && (PUBLIC_TOKEN_ROUTES as readonly string[]).includes(firstSegment);
 }
 
+// Recovery is also needed by signed-in users who no longer know their local password.
+// Other routes in the auth group still redirect authenticated users to their account.
+export function isPublicAuthRoute(
+  firstSegment: string | undefined,
+  secondSegment?: string,
+): boolean {
+  return isPublicTokenRoute(firstSegment)
+    || (firstSegment === '(auth)' && secondSegment === 'forgot-password');
+}
+
 // Decision table for the root layout's declarative auth guard.
 // `user === undefined` means the session is still loading — stay put so the splash shows.
 // `isPublicRoute` (optional, defaults false) short-circuits the email-link landing pages so a

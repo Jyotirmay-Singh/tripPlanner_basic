@@ -108,6 +108,17 @@ describe('password-only authentication screens', () => {
     expect(hasTestId(renderer, 'login-forgot-password-link')).toBe(false);
   });
 
+  it('submits the saved email restored after the sign-in form first renders', async () => {
+    const renderer = mount(<Login />);
+    mockAuthState.savedEmail = 'restored@gmail.com';
+    act(() => renderer.update(<Login />));
+    expect(hasTestId(renderer, 'login-email')).toBe(false);
+    act(() => findByTestId(renderer, 'login-password').props.onChangeText('password123'));
+    await act(async () => findByTestId(renderer, 'login-submit').props.onPress());
+    expect(mockSignIn).toHaveBeenCalledWith('restored@gmail.com', 'password123');
+    expect(mockToastShow).not.toHaveBeenCalledWith('Enter your email', 'error');
+  });
+
   it('registers with name, email, and password without a PIN field', async () => {
     const renderer = mount(<Register />);
     expect(hasTestId(renderer, 'reg-pin')).toBe(false);

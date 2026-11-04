@@ -86,6 +86,20 @@ export default function Profile() {
       </Card>
 
       <Card
+        onPress={offline ? undefined : () => router.push('/(auth)/forgot-password')}
+        testID="profile-reset-password-email"
+        accessibilityLabel="Reset password by email"
+        style={styles.row}
+      >
+        <Icon name="mail" size={20} color={colors.primary} />
+        <View style={styles.paymentCopy}>
+          <T variant="h4">Reset password by email</T>
+          <T muted variant="caption">Forgot your password? Get a reset link.</T>
+        </View>
+        <Icon name="chevron-right" size={18} color={colors.textMuted} />
+      </Card>
+
+      <Card
         onPress={offline ? undefined : () => router.push(mobileProfileHref())}
         testID="profile-mobile-number"
         accessibilityLabel={`Mobile number, ${

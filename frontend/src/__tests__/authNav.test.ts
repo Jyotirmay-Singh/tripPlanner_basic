@@ -1,12 +1,28 @@
 import {
   authRedirectTarget,
   isPublicTokenRoute,
+  isPublicAuthRoute,
   AUTH_LOGIN_HREF,
   DASHBOARD_HREF,
   PASSWORD_SETUP_HREF,
 } from '../authNav';
 
 const user = { id: 'u1', email: 'a@gmail.com', name: 'A', role: 'user' } as any;
+
+describe('password recovery navigation', () => {
+  it('keeps recovery reachable without signing out, including unfinished Google accounts', () => {
+    const isRecovery = isPublicAuthRoute('(auth)', 'forgot-password');
+    expect(authRedirectTarget(user, true, isRecovery)).toBeNull();
+    expect(authRedirectTarget({ ...user, credentials_set: false }, true, isRecovery)).toBeNull();
+    expect(authRedirectTarget(null, true, isRecovery)).toBeNull();
+  });
+
+  it('still redirects signed-in users away from login and registration', () => {
+    expect(authRedirectTarget(user, true, isPublicAuthRoute('(auth)', 'login'))).toBe(DASHBOARD_HREF);
+    expect(authRedirectTarget(user, true, isPublicAuthRoute('(auth)', 'register'))).toBe(DASHBOARD_HREF);
+    expect(authRedirectTarget(null, false, isPublicAuthRoute('(tabs)', 'profile'))).toBe(AUTH_LOGIN_HREF);
+  });
+});
 
 // The 2-arg contract is exercised in logout.test.ts; here we cover the Phase 9 additions:
 // the optional `isPublicRoute` short-circuit and the route-name helper.

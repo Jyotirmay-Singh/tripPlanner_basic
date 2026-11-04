@@ -18,7 +18,9 @@ export default function Login() {
   const { colors } = useTheme();
   const router = useRouter();
   const toast = useToast();
-  const [email, setEmail] = useState(savedEmail || '');
+  const [emailInput, setEmailInput] = useState('');
+  // The account shown in the saved-email card may arrive after the first render.
+  const email = savedEmail || emailInput;
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [fieldError, setFieldError] = useState<{ field: 'email' | 'password'; message: string } | null>(null);
@@ -54,7 +56,7 @@ export default function Login() {
 
   const useDifferent = async () => {
     await forgetSavedEmail();
-    setEmail('');
+    setEmailInput('');
     setPassword('');
     setFieldError(null);
   };
@@ -81,7 +83,7 @@ export default function Login() {
           label="Email"
           value={email}
           onChangeText={(value) => {
-            setEmail(value);
+            setEmailInput(value);
             if (fieldError?.field === 'email') setFieldError(null);
           }}
           autoCapitalize="none"
