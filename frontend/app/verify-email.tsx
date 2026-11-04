@@ -96,9 +96,9 @@ export default function VerifyEmail() {
             </>
           ) : <T muted>Open the link to choose a new password. Check your spam folder if the email doesn’t appear.</T>}
           <Button
-            label="Back to sign in"
+            label={user ? 'Back to password settings' : 'Back to sign in'}
             variant={resetRequested ? 'primary' : 'ghost'}
-            onPress={() => router.replace('/(auth)/login')}
+            onPress={() => router.replace(user ? '/change-password' : '/(auth)/login')}
             fullWidth
             testID="verify-recovery-back"
           />

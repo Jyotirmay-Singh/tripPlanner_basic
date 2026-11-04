@@ -121,6 +121,9 @@ describe('VerifyEmail screen', () => {
     });
     expect(has(r, 'verify-request-reset')).toBe(false);
     expect(has(r, 'verify-recovery-back')).toBe(true);
+    expect(node(r, 'verify-recovery-back').props.label).toBe('Back to password settings');
+    act(() => { node(r, 'verify-recovery-back').props.onPress(); });
+    expect(mockReplace).toHaveBeenCalledWith('/change-password');
     expect(mockReplace).not.toHaveBeenCalledWith('/(tabs)/dashboard');
     expect(JSON.stringify(r.toJSON())).not.toContain('recovery-verification-token');
   });
@@ -135,5 +138,6 @@ describe('VerifyEmail screen', () => {
     expect(mockToast.show).toHaveBeenCalledWith('Unable to connect.', 'error');
     expect(node(r, 'verify-request-reset').props.loading).toBe(false);
     expect(has(r, 'verify-request-reset')).toBe(true);
+    expect(node(r, 'verify-recovery-back').props.label).toBe('Back to sign in');
   });
 });
