@@ -105,7 +105,6 @@ export default function ChangePassword() {
       </Card>
       <Card style={{ gap: SPACING.md }}>
         <T variant="h3">Forgot your current password?</T>
-        <T muted>Reset it using a secure email link. If your email is unverified, we’ll help you verify it first.</T>
         <Button
           label="Reset password by email"
           icon="mail"
