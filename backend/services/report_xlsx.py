@@ -206,7 +206,7 @@ def _transactions(workbook, data):
     headers = ["Expense No", "Date (IST)", "Category", "Description", "Entry type", "Paid by",
                "Family / account", "Person", "Split method", f"Expense total ({symbol})", f"Expense share ({symbol})",
                "Expense ID", "Original amount", "Original currency",
-               "Stored exchange rate", "Effective rate date", "Rate provider", "Rate mode", "Original exact allocations", "Requested rate date"]
+               f"Stored rate ({data.currency} per original unit)", "Effective rate date", "Rate provider", "Rate mode", "Original exact allocations", "Requested rate date"]
     _title(sheet, "Transactions", 11)
     _row(sheet, 2, headers)
     header_row(sheet, 2, len(headers))
@@ -255,7 +255,7 @@ def _expense_register(workbook, data):
     _title(sheet, "Expense Register", 8)
     for row, caption in (
         (2, "One row per expense. Filter scope: register rows only; totals show the full export."),
-        (5, "Money back is negative. Expand columns I:Q for expense IDs and currency conversion details."),
+        (5, f"Totals use {data.currency}; money back is negative. Expand columns I:Q for expense IDs, original amounts and saved rates."),
     ):
         sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
         cell = text_cell(sheet, row, 1, caption)
@@ -278,7 +278,7 @@ def _expense_register(workbook, data):
     sheet.row_dimensions[4].height = 24
     headers = ["Expense No", "Date (IST)", "Category", "Description", "Entry type", "Paid by",
                "Split method", f"Amount ({symbol})", "Expense ID", "Original amount", "Original currency",
-               "Stored exchange rate", "Effective rate date", "Rate provider", "Rate mode",
+               f"Stored rate ({data.currency} per original unit)", "Effective rate date", "Rate provider", "Rate mode",
                "Original exact allocations", "Requested rate date"]
     _row(sheet, 6, headers)
     header_row(sheet, 6, len(headers))

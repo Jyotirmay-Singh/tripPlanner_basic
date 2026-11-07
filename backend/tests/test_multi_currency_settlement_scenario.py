@@ -7,21 +7,41 @@ derived with the production currency or settlement helpers that the tests exerci
 from __future__ import annotations
 
 import asyncio
+import io
 from datetime import datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from openpyxl import load_workbook
 
 from models.exchange_rate import ConversionRequest
 from services import exchange_rates, expense_conversion
 from services.settlement_engine import SCALE, build_precise_net, build_settlement_projection
+from services.report_model import ReportSnapshot, build_report_data
+from services.report_xlsx import build_report_xlsx
 
 
 REQUESTED_DATE = "2026-08-28"
 RELATIVE_ERROR_LIMIT_PERCENT = Decimal("0.1")
 ZERO_BALANCE_LIMIT = Decimal("0.01")
+
+
+def test_ten_currency_conversion_scenario_reconciles_into_the_expense_register(converted_scenario):
+    expenses = tuple({**expense, 'date': REQUESTED_DATE, 'category': 'Mixed currencies'}
+                     for expense in converted_scenario['expenses'])
+    data = build_report_data(ReportSnapshot(
+        {'id': 'ten', 'name': 'Ten currencies', 'currency': 'INR', 'members': converted_scenario['members']}, expenses))
+    workbook = load_workbook(io.BytesIO(build_report_xlsx(data)))
+    rows = list(workbook['Expense Register'].iter_rows(min_row=7, max_row=6 + len(expenses), values_only=True))
+    saved = {row[8]: row for row in rows}
+    for case in EXPENSE_CASES:
+        assert saved[case['id']][7] == Decimal(case['expected_canonical'])
+        assert saved[case['id']][10] == case['original_currency']
+        assert Decimal(saved[case['id']][11]) == Decimal(case['rate'])
+    assert sum(row[7] for row in rows) == data.net
+    assert {row[10] for row in rows} == {'INR', 'USD', 'EUR', 'GBP', 'AED', 'JPY', 'KRW', 'KWD', 'BHD', 'OMR'}
 
 MEMBERS = [
     {"id": "a", "name": "A", "kind": "individual"},

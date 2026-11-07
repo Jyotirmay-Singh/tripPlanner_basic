@@ -8,7 +8,7 @@ expense write.
 
 import asyncio
 from datetime import date as calendar_date, datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, DecimalException, InvalidOperation, localcontext
 from typing import Any, Optional
 
 import httpx
@@ -94,7 +94,19 @@ def positive_decimal(value: Any, label: str) -> Decimal:
 
 
 def _decimal128(value: Decimal) -> Decimal128:
-    return Decimal128(value)
+    try:
+        return Decimal128(value)
+    except (DecimalException, ValueError, TypeError) as exc:
+        raise ValueError("Value exceeds the supported decimal precision or range") from exc
+
+
+def _rate_product(amount: Decimal, rate: Decimal) -> Decimal:
+    """Multiply exactly before applying the whole-money rounding policy once."""
+    rate = positive_decimal(rate, "Exchange rate")
+    _decimal128(rate)
+    with localcontext() as context:
+        context.prec = max(60, len(amount.as_tuple().digits) + len(rate.as_tuple().digits))
+        return amount * rate
 
 
 def _decimal(value: Any) -> Decimal:
@@ -151,6 +163,7 @@ def _validate_provider_payload(payload: Any, source: str, target: str,
         raise MalformedProviderResponse("Exchange-rate provider returned a future effective date")
     try:
         rate = positive_decimal(payload.get("rate"), "Provider rate")
+        _decimal128(rate)
     except ValueError as exc:
         raise MalformedProviderResponse(str(exc))
 
@@ -164,6 +177,7 @@ def _validate_provider_payload(payload: Any, source: str, target: str,
                 raise MalformedProviderResponse("Exchange-rate provider attribution is invalid")
             try:
                 source_rate = positive_decimal(item.get("rate"), "Provider source rate")
+                _decimal128(source_rate)
             except ValueError as exc:
                 raise MalformedProviderResponse(str(exc))
             sources.append({
@@ -445,7 +459,7 @@ async def create_quote(*, user_id: str, source_currency: str, target_currency: s
     elif mode == "manual":
         if manual_input_type == "rate":
             rate = positive_decimal(manual_rate, "Manual rate")
-            raw_target = source * rate
+            raw_target = _rate_product(source, rate)
             target = Decimal(whole_money(raw_target, label="Converted amount"))
             changes.append(normalization_change("target_amount", raw_target, target))
             manual_value = rate
@@ -477,7 +491,7 @@ async def create_quote(*, user_id: str, source_currency: str, target_currency: s
         rate_data = await get_reference_rate(
             source_currency, target_currency, requested_date, refresh=refresh
         )
-        raw_target = source * rate_data["rate"]
+        raw_target = _rate_product(source, rate_data["rate"])
         target = Decimal(whole_money(raw_target, label="Converted amount"))
         changes.append(normalization_change("target_amount", raw_target, target))
         manual_input_type = None

@@ -19,6 +19,7 @@ from services.settlement_engine import (
 )
 from utils.display_names import family_member_display_names, member_display_names
 from utils.money_policy import apportion_whole_amounts, decimal_money, whole_money
+from utils.currency_rules import normalize_currency
 from utils.date_rules import trip_date_label
 
 
@@ -257,6 +258,35 @@ def _unique_labels(labels: dict[str, str]) -> dict[str, str]:
     return result
 
 
+def _original_currency(expense: dict, group_currency: str) -> str:
+    recorded = expense.get("original_currency")
+    if recorded and str(recorded).strip():
+        return str(recorded).strip().upper()
+    # Foreign conversion evidence cannot establish a missing original ISO code.
+    # Legacy identity expenses without FX metadata still inherit the group code.
+    evidence = ("original_amount", "original_custom_amounts", "exchange_rate", "exchange_rate_provider",
+                "exchange_rate_mode", "conversion_version")
+    if any(expense.get(key) not in (None, "") for key in evidence):
+        return "Not recorded"
+    return group_currency
+
+
+def validate_report_currency(trip, *, expenses=(), settlements=(), payments=()):
+    """Amounts must already use the group unit; source currencies live in FX metadata."""
+    try:
+        group_currency = normalize_currency(trip.get("currency"))
+    except ValueError as exc:
+        raise ReportReconciliationError("The group currency is unsupported.") from exc
+    for kind, records in (("Expense", expenses), ("Settlement", settlements), ("Payment", payments)):
+        for record in records:
+            stored_currency = record.get("currency")
+            if stored_currency and str(stored_currency).strip().upper() != group_currency:
+                raise ReportReconciliationError(
+                    f"{kind} {record.get('id', '')} is not stored in the group currency {group_currency}. "
+                    "Review its saved conversion before exporting.")
+    return group_currency
+
+
 def build_report_data(snapshot: ReportSnapshot, *, diagnostic: bool = False) -> ReportData:
     """Build both exports from one snapshot, independently checking each financial bridge."""
     trip = snapshot.trip
@@ -265,6 +295,8 @@ def build_report_data(snapshot: ReportSnapshot, *, diagnostic: bool = False) -> 
     settlements = [row for row in snapshot.settlements if row.get("status") != "pending"]
     payments = list(snapshot.payments)
     migration = snapshot.migration_adjustment or {}
+    group_currency = validate_report_currency(trip, expenses=expenses, settlements=settlements, payments=payments)
+    trip = {**trip, "currency": group_currency}
     balances = compute_balance_snapshot(
         trip, expenses, settlements, payments, migration, diagnostic=diagnostic,
     )
@@ -384,7 +416,7 @@ def build_report_data(snapshot: ReportSnapshot, *, diagnostic: bool = False) -> 
                 person_shares[account_id, person_id] += value
                 block_sum += value
                 original = expense.get("original_amount")
-                original_currency = str(expense.get("original_currency") or trip.get("currency", "INR"))
+                original_currency = _original_currency(expense, group_currency)
                 foreign = original_currency != trip.get("currency", "INR")
                 original = decimal_money(original) if original is not None else None if foreign else _decimal_scaled(raw_amount)
                 allocations.append(Allocation(

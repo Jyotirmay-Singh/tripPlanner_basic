@@ -50,6 +50,53 @@ def test_provider_payload_accepts_weekend_fallback_effective_date():
     assert result["provider_sources"][0]["key"] == "ECB"
 
 
+@pytest.mark.parametrize('mode', ['manual', 'automatic'])
+@pytest.mark.parametrize('sign', [1, -1])
+def test_high_precision_rates_do_not_round_across_the_whole_unit_midpoint(monkeypatch, mode, sign):
+    rate = Decimal('0.1499999999999999999999999999999999')
+    monkeypatch.setattr(rates, 'db', SimpleNamespace(exchange_rate_quotes=SimpleNamespace(insert_one=AsyncMock())))
+    monkeypatch.setattr(rates, 'get_reference_rate', AsyncMock(return_value={
+        'rate_id': 'r', 'rate': rate, 'effective_date': '2026-08-28', 'provider': rates.PROVIDER,
+        'provider_sources': [], 'cache_revision': 1, 'cache_hit': True, 'stale': False,
+    }))
+    result = run(rates.create_quote(
+        user_id='precision', source_currency='USD', target_currency='INR', source_amount=10 * sign,
+        requested_date='2026-08-28', mode=mode,
+        **({'manual_input_type': 'rate', 'manual_rate': rate} if mode == 'manual' else {})))
+    assert Decimal(result['target_amount']) == sign
+    assert Decimal(result['rate']) == rate
+
+
+def test_manual_rate_too_precise_for_storage_is_a_validation_error(monkeypatch):
+    write = AsyncMock()
+    monkeypatch.setattr(rates, 'db', SimpleNamespace(exchange_rate_quotes=SimpleNamespace(insert_one=write)))
+    with pytest.raises(ValueError, match='precis'):
+        run(rates.create_quote(user_id='precision', source_currency='USD', target_currency='INR',
+                              source_amount=100, requested_date='2026-08-28', mode='manual',
+                              manual_input_type='rate', manual_rate='1.23456789012345678901234567890123456789'))
+    write.assert_not_awaited()
+
+
+def test_quote_endpoint_returns_validation_error_for_unstorable_rate(monkeypatch):
+    from fastapi import HTTPException
+    from routes import exchange_rates as route
+    monkeypatch.setattr(route, 'MULTI_CURRENCY_EXPENSES_ENABLED', True)
+    with pytest.raises(HTTPException) as error:
+        run(route.quote_exchange_rate(
+            from_currency='USD', to_currency='INR', amount=Decimal(100), date='2026-08-28',
+            mode='manual', manual_input_type='rate',
+            manual_rate=Decimal('1.23456789012345678901234567890123456789'),
+            manual_target_amount=None, refresh=False, user={'id': 'precision'}))
+    assert error.value.status_code == 422
+    assert error.value.detail['code'] == 'invalid_conversion'
+
+
+def test_provider_rate_too_precise_for_storage_is_a_provider_error():
+    with pytest.raises(rates.MalformedProviderResponse):
+        rates._validate_provider_payload(provider_payload(rate='1.23456789012345678901234567890123456789'),
+                                         'INR', 'LKR', '2026-08-30')
+
+
 def test_provider_payload_accepts_historical_weekday_effective_date():
     result = rates._validate_provider_payload(
         provider_payload(effective="2026-08-27"), "INR", "LKR", "2026-08-27"

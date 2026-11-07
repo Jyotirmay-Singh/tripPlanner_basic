@@ -14,7 +14,7 @@ from utils.date_rules import ensure_date_range
 from utils.balances import _compute_balances, project_ledger_balances
 from utils.security import decode_token, validate_session
 from utils.money_policy import whole_money
-from services.report_model import ReportSnapshot, ReportReconciliationError, build_report_data
+from services.report_model import ReportSnapshot, ReportReconciliationError, build_report_data, validate_report_currency
 from services.report_xlsx import build_report_xlsx
 from services.report_pdf import build_report_pdf
 
@@ -41,6 +41,14 @@ def _download_disposition(name: str, extension: str) -> str:
 async def _load_report_expenses(trip_id: str) -> list:
     """Load the complete transaction set, including money-back entries."""
     return await db.expenses.find({"trip_id": trip_id}, {"_id": 0}).to_list(length=None)
+
+
+async def _load_report_transfers(trip_id: str) -> tuple[list, list]:
+    settlements = await db.settlements.find(
+        {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}
+    ).to_list(None)
+    payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}).to_list(None)
+    return [row for row in settlements if row.get("status") != "pending"], payments
 
 
 async def _effective_report(trip, user):
@@ -88,10 +96,7 @@ async def _download_report_data(trip_id: str, token: str):
         migration = {"vector": effective.adjustments} if effective.adjustments else None
     else:
         expenses = await _load_report_expenses(trip_id)
-        settlements = await db.settlements.find(
-            {"trip_id": trip_id, "status": {"$ne": "pending"}}, {"_id": 0}
-        ).to_list(None)
-        payments = await db.payments.find({"trip_id": trip_id}, {"_id": 0}).to_list(None)
+        settlements, payments = await _load_report_transfers(trip_id)
         migration = await _load_migration_adjustment(trip_id)
     snapshot = ReportSnapshot(trip, tuple(expenses), tuple(settlements), tuple(payments), migration,
                               financial_review=tuple(_review_explanations(effective)))
@@ -110,10 +115,18 @@ async def report(trip_id: str, user=Depends(get_current_user)):
     effective = await _effective_report(trip, user)
     if effective:
         trip = effective.trip
-        expenses, bal = effective.expenses, project_ledger_balances(effective)
+        expenses = effective.expenses
+        settlements = [row for row in effective.settlements if row.get("status") != "pending"]
+        payments = effective.payments
     else:
         expenses = await _load_report_expenses(trip_id)
-        bal = await _compute_balances(trip_id, diagnostic=is_trip_admin(trip, user))
+        settlements, payments = await _load_report_transfers(trip_id)
+    try:
+        currency = validate_report_currency(trip, expenses=expenses, settlements=settlements, payments=payments)
+    except ReportReconciliationError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    bal = project_ledger_balances(effective) if effective else await _compute_balances(
+        trip_id, diagnostic=is_trip_admin(trip, user))
     # category breakdown — signed amounts net together (a refund reduces its category + the total).
     by_cat = {}
     by_date = {}
@@ -122,7 +135,6 @@ async def report(trip_id: str, user=Depends(get_current_user)):
         by_cat[e["category"]] = by_cat.get(e["category"], 0) + e["amount"]
         by_date[e["date"]] = by_date.get(e["date"], 0) + e["amount"]
         total_expense += e["amount"]
-    currency = trip.get("currency", "INR")
     return {
         "trip": trip,
         "total_expense": _money_value(total_expense, currency),

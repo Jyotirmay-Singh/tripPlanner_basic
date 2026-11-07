@@ -160,6 +160,24 @@ def test_json_report_contract_still_uses_existing_aggregation(monkeypatch):
     assert result['balances'] == {'net': {'example': 0}}
 
 
+@pytest.mark.parametrize('kind', ['xlsx', 'pdf', 'json'])
+@pytest.mark.parametrize('collection', ['expenses', 'settlements', 'payments'])
+def test_reports_reject_unconverted_foreign_amounts_instead_of_mislabelling_totals(monkeypatch, kind, collection):
+    source = sample_snapshot()
+    getattr(source, collection)[0]['currency'] = 'USD'
+    install(monkeypatch, source)
+    balance = AsyncMock()
+    monkeypatch.setattr(reports, '_compute_balances', balance)
+    with pytest.raises(HTTPException) as error:
+        if kind == 'json':
+            asyncio.run(reports.report('sample-group', {'id': 'owner'}))
+        else:
+            asyncio.run(getattr(reports, 'report_' + kind)('sample-group', 'token'))
+    assert error.value.status_code == 409
+    assert 'group currency' in error.value.detail
+    balance.assert_not_awaited()
+
+
 def test_expense_loader_has_no_accounting_row_cap(monkeypatch):
     _, fake = install(monkeypatch)
     asyncio.run(reports._load_report_expenses('sample-group'))

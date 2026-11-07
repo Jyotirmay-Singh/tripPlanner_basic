@@ -49,6 +49,55 @@ Balance now = Net funded - Expense share + Settlements paid - Settlements receiv
 The original private reference workbook is neither an application template nor a test fixture.
 Its historical differences are not used as compensating values in the ledger or reports.
 
+## Multiple currencies and saved exchange rates
+
+Each group has one fixed ledger/report currency. An expense may originate in another supported
+currency, but its approved converted `amount` is saved in the group currency. Balances, register
+totals and pivot shares use that saved amount. Exporting never fetches a new rate, reloads a quote,
+or recalculates an old expense at today's rate. Different expenses in the same original currency
+may retain different approved historical rates.
+
+The existing `whole_unit_v1` policy is retained by explicit user choice: source money is rounded
+half-up to a whole original-currency unit before conversion, and converted money is rounded half-up
+to a whole group-currency unit. Rates retain their stored decimal precision. Multiplication uses
+enough Decimal precision to avoid crossing a whole-unit midpoint before the money rounding step.
+For example, `10 * 0.1499999999999999999999999999999999` rounds to `1`, and the corresponding refund
+rounds to `-1`. Rates that cannot be represented by BSON Decimal128 return a validation/provider
+error instead of an internal storage exception.
+
+Transactions and Expense Register group the original amount/currency, stored rate, provider, mode,
+requested date and effective date in expandable columns. Rate headings specify the direction, for
+example `Stored rate (INR per original unit)`. The register states which currency its totals use.
+Missing original currency with conversion evidence displays `Not recorded`; it is not reconstructed
+from the group currency. Legacy records without any FX evidence retain the group-currency fallback.
+
+XLSX, PDF and JSON reports reject an included expense, payment or recorded settlement explicitly
+tagged with a different canonical currency, returning HTTP 409 for review before presenting totals.
+Original foreign currency metadata is allowed. Historical records without a canonical currency tag
+continue to inherit the group currency; pending legacy settlements remain excluded. This safeguard
+does not change stored financial records or silently reconvert them.
+
+### FX verification (7 November 2026)
+
+The final backend regression run passed **398 tests** across quotes, conversion services/routes,
+report generation/downloads, currency precision, currency lock, balances, split allocation, payment
+handoffs and effective-ledger corrections. A separate frontend run passed **24 tests** covering the
+quote hook, conversion panel, currency picker, offline conversion and expense payloads.
+
+- Four reporting currencies (INR, EUR, AED and KWD) exercise automatic quotes, manual rates, manual
+  final amounts, signed refunds, Per-Person/Per-Family/Exact splits and saved report totals.
+- A ten-source-currency scenario reconciles INR, USD, EUR, GBP, AED, JPY, KRW, KWD, BHD and OMR into
+  the register and balance calculations.
+- Real authenticated HTTP flows against disposable loopback MongoDB replica sets create INR/AED
+  groups and expenses, change a cached reference rate, edit an old description and repeatedly
+  download XLSX/PDF/JSON reports. Saved amounts/rates/versions remain unchanged. Incorrect canonical
+  currency fixtures produce HTTP 409. No production financial records are used.
+- Read-only live Frankfurter requests succeeded for historical USD/INR, EUR/AED and JPY/KWD pairs.
+  Failure/retry/cache/weekend behavior is covered separately by controlled provider fixtures.
+- The mixed-currency workbook and its expanded FX headers were rendered and visually reviewed.
+  Native desktop Excel refresh remains unverified because Excel automation is unavailable on this
+  machine; the preview does not establish native Excel acceptance.
+
 ## Excel implementation
 
 `services/report_xlsx.py` writes five tabs: Summary, Members & Families, Expense Register,

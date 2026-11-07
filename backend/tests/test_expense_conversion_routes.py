@@ -42,6 +42,15 @@ def run(awaitable):
     return asyncio.run(awaitable)
 
 
+@pytest.fixture(autouse=True)
+def use_in_memory_writes(monkeypatch):
+    # These unit tests replace the collections; never open a real Mongo session.
+    async def write_without_session(_transactional_write, standalone_write):
+        return await standalone_write()
+
+    monkeypatch.setattr(expenses, "run_optional_transaction", write_without_session)
+
+
 def test_budget_warning_details_expose_whole_overage_and_iso_currency():
     result = expenses._budget_warning_details(
         {"budget": 1_000, "currency": "GBP"},
