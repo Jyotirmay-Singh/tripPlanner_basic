@@ -65,8 +65,9 @@ For example, `10 * 0.1499999999999999999999999999999999` rounds to `1`, and the 
 rounds to `-1`. Rates that cannot be represented by BSON Decimal128 return a validation/provider
 error instead of an internal storage exception.
 
-Transactions and Expense Register group the original amount/currency, stored rate, provider, mode,
-requested date and effective date in expandable columns. Rate headings specify the direction, for
+When exchange evidence is needed, Transactions and Expense Register display the original amount,
+original currency and stored rate, with provider, mode, requested date and effective date in
+expandable detail columns. Rate headings specify the direction, for
 example `Stored rate (INR per original unit)`. The register states which currency its totals use.
 Missing original currency with conversion evidence displays `Not recorded`; it is not reconstructed
 from the group currency. Legacy records without any FX evidence retain the group-currency fallback.
@@ -79,7 +80,7 @@ does not change stored financial records or silently reconvert them.
 
 ### FX verification (7 November 2026)
 
-The final backend regression run passed **398 tests** across quotes, conversion services/routes,
+The exchange-rate repair regression run passed **398 tests** across quotes, conversion services/routes,
 report generation/downloads, currency precision, currency lock, balances, split allocation, payment
 handoffs and effective-ledger corrections. A separate frontend run passed **24 tests** covering the
 quote hook, conversion panel, currency picker, offline conversion and expense payloads.
@@ -97,6 +98,58 @@ quote hook, conversion panel, currency picker, offline conversion and expense pa
 - The mixed-currency workbook and its expanded FX headers were rendered and visually reviewed.
   Native desktop Excel refresh remains unverified because Excel automation is unavailable on this
   machine; the preview does not establish native Excel acceptance.
+
+### Automatic Excel layout selection
+
+`services/report_excel_layout.py` defines `ExcelReportType` and a pure
+`select_excel_report_type(ReportData)` selector. The export selects its layout once from the
+reconciled included allocations, before preparing the Excel-only display copy:
+
+- `single_currency`: every included original currency matches the group currency and its saved
+  conversion is an identity conversion. Exchange columns are omitted from both worksheets, their
+  named tables and the pivot cache. Legacy group-currency expenses and empty groups use this layout.
+- `multi_currency`: any original currency differs from the group currency, or historical evidence
+  is unknown/inconsistent. This includes a group containing expenses in just one foreign source
+  currency. Original amount, original currency and saved rate are visible by default. Additional
+  conversion evidence remains expandable.
+
+Both layouts use the same reconciled financial model and worksheet builders. Shared helpers define
+exchange headings, values, widths and number formats. Selection performs no database/provider
+access and does not revalue expenses. All five sheets, public download URLs, signed whole-unit
+amounts and existing scope labels are retained. Workbook subject metadata records format 5 and
+the selected layout.
+
+Transactions has 12 source columns for the compact layout or 20 for the detailed layout. Expense
+Register has 9 or 17 respectively. Expense ID remains available in expandable column L or I in both
+layouts. The native pivot/cache derives its width from the selected Transactions headers and rows;
+its account/person/category/amount/filter field positions remain stable. Print areas include the
+visible original amount/currency/rate columns in the detailed layout. A later export switches back
+to compact automatically when the last included foreign expense is removed.
+
+### Automatic layout verification (7 November 2026)
+
+The final combined report/financial regression suite passed **538 tests**, with no failures or skips.
+This includes **140 new layout tests** plus the existing FX, report, balance, split, payment-handoff
+and effective-ledger correction checks. The existing multipart dependency emitted one deprecation
+warning. Python compilation and `git diff --check` also passed.
+
+- All 26 supported group currencies exercise legacy and saved identity expenses, mixed currencies
+  and a single foreign source currency. Both layouts cover Per-Person, Per-Family and Exact family
+  splits, refunds, empty groups, included zero rows, duplicate IDs, missing dates and literal text.
+- Reopened workbooks verify table/filter widths, visible and grouped columns, print areas, frozen
+  headers, complete pivot cache records, field references and independent category totals. Every
+  generated XML part parses. Large deterministic scenarios cover 120 signed expenses across 13
+  categories with both debt-routing modes and recorded payments.
+- Authenticated INR/AED HTTP tests against disposable local replica sets download compact reports,
+  add foreign expenses, download detailed reports, remove the foreign expenses and download compact
+  reports again. Their saved rates and totals remain consistent; incorrect canonical currencies
+  still return HTTP 409. No production financial data is written.
+- Both sample workbooks were rendered. The affected worksheets were visually reviewed, including
+  the visible rate headings and whole original amounts. Historical fractional amounts are preserved
+  by round-trip tests. Members & Families and Payments render identically for identical financial
+  inputs in either layout.
+- Native Excel refresh/filter/drill-through acceptance remains unverified because a working desktop
+  Excel installation is unavailable. The XML/cache and preview checks do not replace that acceptance.
 
 ## Excel implementation
 
@@ -127,8 +180,9 @@ native pivot data area, including totals, rather than just the original cell rec
 cost shares do not imply a payment instruction. Source text is stored literally, including strings
 beginning with `=`. Transactions omits Account ID and Person ID columns from both the source table and
 pivot cache. Stable identities remain internal, with disambiguated display names in the report.
-The expense ID and original-currency/rate evidence in Transactions are grouped in columns L:T. Monetary headings use
-the trip's currency; original-currency evidence retains its recorded currency.
+Transactions keeps Expense ID in expandable column L. In the detailed layout, original amount,
+original currency and stored rate are visible in M:O, with additional evidence grouped in P:T.
+Monetary headings use the trip's currency; original-currency evidence retains its recorded currency.
 
 XLSX presentation uses a separate copy of the reconciled model. Unsupported XML characters are
 replaced, line endings are normalised, and text is limited to Excel's 32,767-character cell limit
@@ -156,8 +210,9 @@ Expense Register contains one row per included expense, with report number, sort
 description, entry type, payer, split method and signed amount. The named table `ReportExpenses` supports
 column filters and sorting. Full-export gross, money-back and net totals reconcile to Summary, with
 filter scope stated beside them. Money back is negative in the register; it is shown as a positive
-deduction in the top spending totals. Expense IDs and original-currency/rate evidence are grouped in
-columns I:Q. Included zero amounts and distinct records with matching or missing historical IDs are
+deduction in the top spending totals. Expense IDs are expandable in column I. In the detailed layout,
+original amount/currency/rate are visible in J:L, with supporting evidence grouped in M:Q. The compact
+layout ends at I and contains no exchange fields. Included zero amounts and distinct records with matching or missing historical IDs are
 retained by report number. Transactions remains the participant-allocation source for the pivot; use
 Expense Register when summing full expense amounts to avoid counting the same expense per participant.
 The register has a forest-green table style, repeated print headers and frozen rows above its data.

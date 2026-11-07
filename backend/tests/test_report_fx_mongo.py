@@ -114,6 +114,14 @@ def test_saved_mixed_currency_expenses_and_reports_keep_locked_rates(currency, r
                 }, timeout=15)
                 assert response.status_code == 200, response.text
                 created.append(response.json()['expense'])
+                if len(created) == 1:
+                    compact = http.get(url + '/report.xlsx', params={'token': token}, timeout=15)
+                    assert compact.status_code == 200, compact.text
+                    compact_workbook = load_workbook(io.BytesIO(compact.content))
+                    assert compact_workbook['Expense Register'].max_column == 9
+                    assert compact_workbook['Transactions'].max_column == 12
+                    assert compact_workbook['Summary']['B9'].value == 50
+                    assert len(compact_workbook['Summary']._pivots[0].cache.cacheFields) == 12
             assert [expense['amount'] for expense in created] == [50, positive, refund, jpy]
             expected_net = 50 + positive + refund + jpy
             original = database.expenses.find_one({'id': created[1]['id']})
@@ -136,12 +144,26 @@ def test_saved_mixed_currency_expenses_and_reports_keep_locked_rates(currency, r
                     min_row=7, max_row=10, values_only=True)}
                 assert register[created[1]['id']][11] == rate
                 assert sum(row[7] for row in register.values()) == expected_net
+                assert workbook['Expense Register'].max_column == 17
+                assert workbook['Transactions'].max_column == 20
+                assert not workbook['Expense Register'].column_dimensions['J'].hidden
+                assert not workbook['Transactions'].column_dimensions['M'].hidden
             pdf = http.get(url + '/report.pdf', params={'token': token}, timeout=15)
             assert pdf.status_code == 200 and pdf.content.startswith(b'%PDF')
             assert pdf.headers['content-type'] == 'application/pdf'
             summary = http.get(url + '/report', timeout=10)
             assert summary.status_code == 200 and summary.json()['total_expense'] == expected_net
             assert database.expenses.count_documents({'trip_id': trip_id}) == 4
+            for foreign in created[1:]:
+                deleted = http.delete(url + f"/expenses/{foreign['id']}", timeout=15)
+                assert deleted.status_code == 200, deleted.text
+            compact = http.get(url + '/report.xlsx', params={'token': token}, timeout=15)
+            assert compact.status_code == 200, compact.text
+            compact_workbook = load_workbook(io.BytesIO(compact.content))
+            assert compact_workbook['Expense Register'].max_column == 9
+            assert compact_workbook['Transactions'].max_column == 12
+            assert compact_workbook['Summary']['B9'].value == 50
+            assert len(compact_workbook['Summary']._pivots[0].cache.cacheFields) == 12
             bad = {**saved, 'id': str(uuid4()), 'currency': 'USD'}
             bad.pop('_id')
             database.expenses.insert_one(bad)

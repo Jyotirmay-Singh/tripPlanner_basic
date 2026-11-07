@@ -20,6 +20,7 @@ from openpyxl.utils import get_column_letter, column_index_from_string
 
 from services.report_formatting import BRAND, RECEIVE, PAY, NEUTRAL, currency_symbol, indian_format, indian_number
 from services.report_model import ReportData
+from services.report_excel_layout import ExcelReportType, select_excel_report_type
 from services.report_pivot import add_allocation_pivot
 
 
@@ -199,35 +200,58 @@ def finalize_layout(sheet, money_columns=()):
     sheet.oddFooter.center.text = "Page &P of &N"
 
 
-def _transactions(workbook, data):
+_EXCHANGE_WIDTHS = (18, 17, 24, 19, 24, 17, 36, 19)
+
+
+def _exchange_headers(currency):
+    return ["Original amount", "Original currency", f"Stored rate ({currency} per original unit)",
+            "Effective rate date", "Rate provider", "Rate mode", "Original exact allocations", "Requested rate date"]
+
+
+def _exchange_values(allocation):
+    return [float(allocation.original_amount) if allocation.original_amount is not None else None,
+            allocation.original_currency, allocation.exchange_rate,
+            datetime.combine(allocation.rate_date, datetime.min.time()) if allocation.rate_date else None,
+            allocation.rate_provider, allocation.rate_mode, allocation.original_exact,
+            datetime.combine(allocation.rate_requested_date, datetime.min.time()) if allocation.rate_requested_date else None]
+
+
+def _format_exchange_cells(sheet, row, first_column):
+    original = sheet.cell(row, first_column)
+    original.number_format = ('#,##0' if original.value is None or original.value == int(original.value)
+                              else '#,##0.###############')
+    for offset in (3, 7):
+        sheet.cell(row, first_column + offset).number_format = "dd mmm yyyy"
+
+
+def _transactions(workbook, data, report_type: ExcelReportType):
     sheet = workbook.create_sheet("Transactions")
     sheet.freeze_panes = "A3"
+    include_exchange = report_type.includes_exchange_details
+    visible_last_column = 15 if include_exchange else 11
     symbol = currency_symbol(data.currency)
     headers = ["Expense No", "Date (IST)", "Category", "Description", "Entry type", "Paid by",
                "Family / account", "Person", "Split method", f"Expense total ({symbol})", f"Expense share ({symbol})",
-               "Expense ID", "Original amount", "Original currency",
-               f"Stored rate ({data.currency} per original unit)", "Effective rate date", "Rate provider", "Rate mode", "Original exact allocations", "Requested rate date"]
-    _title(sheet, "Transactions", 11)
+               "Expense ID"]
+    if include_exchange:
+        headers.extend(_exchange_headers(data.currency))
+    _title(sheet, "Transactions", visible_last_column)
     _row(sheet, 2, headers)
     header_row(sheet, 2, len(headers))
     source_rows = []
     for number, allocation in enumerate(data.allocations, 3):
         row = [allocation.number, allocation.occurred_at or allocation.date_source or "Not recorded", allocation.category, allocation.description,
                allocation.entry_type, allocation.payer, allocation.account, allocation.person,
-               allocation.split_method, allocation.expense_amount, allocation.share,
-               allocation.expense_id,
-               float(allocation.original_amount) if allocation.original_amount is not None else None, allocation.original_currency, allocation.exchange_rate,
-               datetime.combine(allocation.rate_date, datetime.min.time()) if allocation.rate_date else None,
-               allocation.rate_provider, allocation.rate_mode, allocation.original_exact,
-               datetime.combine(allocation.rate_requested_date, datetime.min.time()) if allocation.rate_requested_date else None]
+               allocation.split_method, allocation.expense_amount, allocation.share, allocation.expense_id]
+        if include_exchange:
+            row.extend(_exchange_values(allocation))
         source_rows.append(row)
         _row(sheet, number, row)
         if allocation.occurred_at and not allocation.time_recorded:
             sheet.cell(number, 2).number_format = 'dd mmm yyyy'
         sheet.cell(number, 1).number_format = "0"
-        sheet.cell(number, 13).number_format = '#,##0.###############'
-        sheet.cell(number, 16).number_format = "dd mmm yyyy"
-        sheet.cell(number, 20).number_format = "dd mmm yyyy"
+        if include_exchange:
+            _format_exchange_cells(sheet, number, 13)
         for col in (10, 11):
             money_cell(sheet.cell(number, col))
         sheet.cell(number, 10).font = Font(name="Calibri", size=11, bold=True, color=BRAND)
@@ -241,23 +265,32 @@ def _transactions(workbook, data):
         _number_rules(sheet, f"J3:K{last + 1}", "J3")
     else:
         text_cell(sheet, 3, 1, "No expenses recorded")
-    _widths(sheet, [9, 23, 18, 32, 14, 20, 23, 21, 14, 17, 17, 23, 17, 16, 23, 18, 20, 16, 36, 18])
-    sheet.column_dimensions.group("L", "T", hidden=True)
+    widths = [9, 23, 18, 32, 14, 20, 23, 21, 14, 17, 17, 23]
+    if include_exchange:
+        widths.extend(_EXCHANGE_WIDTHS)
+    _widths(sheet, widths)
+    sheet.column_dimensions.group("L", "L", hidden=True)
+    if include_exchange:
+        sheet.column_dimensions.group("P", "T", hidden=True)
     sheet.print_title_rows = "1:2"
-    sheet.print_area = f"A1:K{max(last + 1, 3)}"
+    sheet.print_area = f"A1:{get_column_letter(visible_last_column)}{max(last + 1, 3)}"
     return headers, source_rows
 
 
-def _expense_register(workbook, data):
+def _expense_register(workbook, data, report_type: ExcelReportType):
     """One reconciled expense per row, independent of the number of participants."""
     sheet = workbook.create_sheet("Expense Register")
+    include_exchange = report_type.includes_exchange_details
+    visible_last_column = 12 if include_exchange else 8
     symbol = currency_symbol(data.currency)
-    _title(sheet, "Expense Register", 8)
+    _title(sheet, "Expense Register", visible_last_column)
+    detail_hint = ("Expand columns M:Q for rate dates, provider and allocation details."
+                   if include_exchange else "Expand column I for expense IDs.")
     for row, caption in (
         (2, "One row per expense. Filter scope: register rows only; totals show the full export."),
-        (5, f"Totals use {data.currency}; money back is negative. Expand columns I:Q for expense IDs, original amounts and saved rates."),
+        (5, f"Totals use {data.currency}; money back is negative. {detail_hint}"),
     ):
-        sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
+        sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=visible_last_column)
         cell = text_cell(sheet, row, 1, caption)
         cell.font = Font(name="Calibri", size=11, color=NEUTRAL)
         cell.alignment = Alignment(wrap_text=True, vertical="center")
@@ -277,9 +310,9 @@ def _expense_register(workbook, data):
                 money_cell(cell)
     sheet.row_dimensions[4].height = 24
     headers = ["Expense No", "Date (IST)", "Category", "Description", "Entry type", "Paid by",
-               "Split method", f"Amount ({symbol})", "Expense ID", "Original amount", "Original currency",
-               f"Stored rate ({data.currency} per original unit)", "Effective rate date", "Rate provider", "Rate mode",
-               "Original exact allocations", "Requested rate date"]
+               "Split method", f"Amount ({symbol})", "Expense ID"]
+    if include_exchange:
+        headers.extend(_exchange_headers(data.currency))
     _row(sheet, 6, headers)
     header_row(sheet, 6, len(headers))
     # Report numbers identify included records even when historical IDs are absent or duplicated.
@@ -287,20 +320,17 @@ def _expense_register(workbook, data):
     for allocation in data.allocations:
         expenses.setdefault(allocation.number, allocation)
     for row, expense in enumerate(expenses.values(), 7):
-        _row(sheet, row, [expense.number, expense.occurred_at or expense.date_source or "Not recorded",
-                         expense.category, expense.description, expense.entry_type, expense.payer,
-                         expense.split_method, expense.expense_amount, expense.expense_id,
-                         float(expense.original_amount) if expense.original_amount is not None else None,
-                         expense.original_currency, expense.exchange_rate,
-                         datetime.combine(expense.rate_date, datetime.min.time()) if expense.rate_date else None,
-                         expense.rate_provider, expense.rate_mode, expense.original_exact,
-                         datetime.combine(expense.rate_requested_date, datetime.min.time()) if expense.rate_requested_date else None])
+        values = [expense.number, expense.occurred_at or expense.date_source or "Not recorded",
+                  expense.category, expense.description, expense.entry_type, expense.payer,
+                  expense.split_method, expense.expense_amount, expense.expense_id]
+        if include_exchange:
+            values.extend(_exchange_values(expense))
+        _row(sheet, row, values)
         sheet.cell(row, 1).number_format = "0"
         if expense.occurred_at and not expense.time_recorded:
             sheet.cell(row, 2).number_format = "dd mmm yyyy"
-        sheet.cell(row, 10).number_format = '#,##0.###############'
-        for col in (13, 17):
-            sheet.cell(row, col).number_format = "dd mmm yyyy"
+        if include_exchange:
+            _format_exchange_cells(sheet, row, 10)
         sheet.cell(row, 8).font = Font(name="Calibri", size=11, bold=True, color=BRAND)
     last = 6 + len(expenses)
     if expenses:
@@ -325,11 +355,16 @@ def _expense_register(workbook, data):
         sheet.conditional_formatting.add(f"H7:H{last}", CellIsRule(operator="lessThan", formula=["0"], font=Font(color=RECEIVE)))
     else:
         text_cell(sheet, 7, 1, "No expenses recorded")
-    _widths(sheet, [10, 24, 19, 40, 15, 24, 17, 19, 25, 18, 17, 24, 19, 24, 17, 36, 19])
-    sheet.column_dimensions.group("I", "Q", hidden=True)
+    widths = [10, 24, 19, 40, 15, 24, 17, 19, 25]
+    if include_exchange:
+        widths.extend(_EXCHANGE_WIDTHS)
+    _widths(sheet, widths)
+    sheet.column_dimensions.group("I", "I", hidden=True)
+    if include_exchange:
+        sheet.column_dimensions.group("M", "Q", hidden=True)
     sheet.freeze_panes = "A7"
     sheet.print_title_rows = "1:6"
-    sheet.print_area = f"A1:H{max(last + 1, 7)}"
+    sheet.print_area = f"A1:{get_column_letter(visible_last_column)}{max(last + 1, 7)}"
 
 
 def _summary(workbook, data, headers, source_rows):
@@ -491,16 +526,17 @@ def _payments(workbook, data):
 
 
 def build_report_workbook(data: ReportData):
+    report_type = select_excel_report_type(data)
     data = _excel_display_data(data)
     workbook = Workbook()
     workbook.active.title = "Summary"
     workbook.properties.title = data.metadata.trip_name + " - Report"
-    workbook.properties.subject = "Trip report; report format 4"
+    workbook.properties.subject = f"Trip report; report format 5; {report_type.value}"
     workbook.properties.creator = "Splitora"
-    headers, source_rows = _transactions(workbook, data)
+    headers, source_rows = _transactions(workbook, data, report_type)
     _summary(workbook, data, headers, source_rows)
     _members(workbook, data)
-    _expense_register(workbook, data)
+    _expense_register(workbook, data, report_type)
     _payments(workbook, data)
     workbook._sheets.sort(key=lambda sheet: ["Summary", "Members & Families", "Expense Register", "Transactions", "Payments"].index(sheet.title))
     for sheet in workbook:

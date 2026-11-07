@@ -143,7 +143,7 @@ def test_transactions_have_complete_metadata_on_participating_rows_and_sortable_
     assert fx[12:15] == (100, 'USD', '82.000000000000')
     assert fx[15] == datetime(2026, 10, 2)
     assert fx[17] == 'manual'
-    assert workbook['Transactions']['M3'].number_format == '#,##0.###############'
+    assert workbook['Transactions']['M3'].number_format == '#,##0'
     assert workbook['Transactions']['P3'].number_format == 'dd mmm yyyy'
     assert workbook['Transactions']['T3'].number_format == 'dd mmm yyyy'
     assert workbook['Transactions'].column_dimensions['L'].hidden
