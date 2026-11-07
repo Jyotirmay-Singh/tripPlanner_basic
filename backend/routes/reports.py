@@ -1,6 +1,9 @@
 """Report endpoints: unchanged download contracts, one reconciled snapshot per export."""
 
 import io
+import re
+import unicodedata
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
@@ -20,6 +23,19 @@ router = APIRouter()
 
 def _money_value(value, currency: str = "INR") -> int:
     return whole_money(value, reject_nonzero_to_zero=False)
+
+
+def _download_disposition(name: str, extension: str) -> str:
+    # HTTP headers are Latin-1; RFC 6266/5987 carries Unicode names in filename*.
+    # Strip path/header delimiters without changing the group name in the report.
+    stem = re.sub(r'[\x00-\x1f\x7f/\\:"<>|?*\ud800-\udfff]', '_', str(name or 'Group')).strip()
+    stem = stem.replace(' ', '_')[:150] or 'Group'
+    filename = f'{stem}_report.{extension}'
+    if re.fullmatch(r'[A-Za-z0-9_.-]+', filename):
+        return f'attachment; filename={filename}'
+    fallback = unicodedata.normalize('NFKD', stem).encode('ascii', 'ignore').decode('ascii')
+    fallback = re.sub(r'[^A-Za-z0-9_.-]', '_', fallback).strip('._-') or 'Group'
+    return f'attachment; filename="{fallback}_report.{extension}"; filename*=UTF-8\'\'{quote(filename, safe="")}'
 
 
 async def _load_report_expenses(trip_id: str) -> list:
@@ -126,20 +142,18 @@ async def report(trip_id: str, user=Depends(get_current_user)):
 @router.get("/trips/{trip_id}/report.xlsx")
 async def report_xlsx(trip_id: str, token: str, _unused=None):
     data = await _download_report_data(trip_id, token)
-    filename = f"{data.snapshot.trip['name'].replace(' ', '_')}_report.xlsx"
     return StreamingResponse(
         io.BytesIO(build_report_xlsx(data)),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        headers={"Content-Disposition": _download_disposition(data.snapshot.trip.get('name'), 'xlsx')},
     )
 
 
 @router.get("/trips/{trip_id}/report.pdf")
 async def report_pdf(trip_id: str, token: str, _unused=None):
     data = await _download_report_data(trip_id, token)
-    filename = f"{data.snapshot.trip['name'].replace(' ', '_')}_report.pdf"
     return StreamingResponse(
         io.BytesIO(build_report_pdf(data)),
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        headers={"Content-Disposition": _download_disposition(data.snapshot.trip.get('name'), 'pdf')},
     )

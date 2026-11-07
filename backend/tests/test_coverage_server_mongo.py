@@ -121,14 +121,14 @@ def test_actual_server_startup_snapshot_reads_and_existing_reports(legacy_quote_
                 assert report.status_code == 200 and len(report.content) > 100
                 if suffix == "xlsx":
                     workbook = load_workbook(io.BytesIO(report.content))
-                    assert workbook.sheetnames == ["Summary", "Members & Families", "Transactions", "Payments"]
+                    assert workbook.sheetnames == ["Summary", "Members & Families", "Expense Register", "Transactions", "Payments"]
                     assert workbook["Summary"]._pivots[0].cache.cacheSource.worksheetSource.name == "ReportAllocations"
-                    headers = {cell.value for cell in workbook["Transactions"][4]}
+                    headers = {cell.value for cell in workbook["Transactions"][2]}
                     assert "Expense share (₹)" in headers
                     assert not {"Account ID", "Person ID"} & headers
                 else:
                     text = " ".join(page.extract_text() for page in PdfReader(io.BytesIO(report.content)).pages)
-                    assert "Gross spending" in text and "Expense shares by family and person" in text
+                    assert "Gross spending" in text and "Net expense shares by person and category" in text
                     assert "Split Math" not in text and "Whole-history snapshot" not in text
             if legacy_quote_index:
                 assert database.payment_attempts.index_information()["quote_id_1"] == old_index

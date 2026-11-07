@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+from urllib.parse import unquote
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -15,6 +16,27 @@ from routes import reports
 from services.report_model import ReportReconciliationError, build_report_data
 from scripts.generate_report_samples import sample_snapshot
 from utils import balances as balance_service
+
+
+@pytest.mark.parametrize('kind', ['xlsx', 'pdf'])
+@pytest.mark.parametrize('name', ['दिवाली यात्रा 🚗', 'Family; "friends" / trip\r\n'])
+def test_unicode_and_delimited_group_names_download_with_safe_filenames(monkeypatch, kind, name):
+    source, _ = install(monkeypatch)
+    source.trip['name'] = name
+    response = asyncio.run(getattr(reports, 'report_' + kind)('sample-group', 'token'))
+    content = asyncio.run(payload(response))
+    disposition = response.headers['content-disposition']
+    assert disposition.startswith('attachment; filename=')
+    assert 'filename*=UTF-8\'\'' in disposition
+    assert '\r' not in disposition and '\n' not in disposition
+    assert disposition.encode('ascii')
+    filename = unquote(disposition.split("filename*=UTF-8''", 1)[1])
+    assert filename.endswith('_report.' + kind)
+    assert '/' not in filename and '"' not in filename
+    if kind == 'xlsx':
+        assert load_workbook(io.BytesIO(content))['Summary']['A1'].value == name.replace('\r\n', '\n')
+    else:
+        assert content.startswith(b'%PDF')
 
 
 class Cursor:
@@ -74,7 +96,7 @@ def test_download_loads_each_source_once_and_preserves_public_contract(monkeypat
     assert 'status' in fake.settlements.find.call_args.args[0]
     if kind == 'xlsx':
         wb = load_workbook(io.BytesIO(content))
-        assert wb.sheetnames == ['Summary', 'Members & Families', 'Transactions', 'Payments']
+        assert wb.sheetnames == ['Summary', 'Members & Families', 'Expense Register', 'Transactions', 'Payments']
         assert wb['Summary']['B9'].value == build_report_data(source).net
     else:
         assert content.startswith(b'%PDF')
@@ -124,8 +146,8 @@ def test_exports_use_the_same_plan_as_the_authoritative_balance_route(monkeypatc
     expected_names = {a.account_id: a.name for a in build_report_data(source).accounts}
     actual = [(r[0], r[1], r[2]) for r in rows if r[3] == 'Suggested']
     assert actual == [(expected_names[t['from_member_id']], expected_names[t['to_member_id']], t['amount']) for t in balance['transfers']]
-    label = 'Minimum payment plan' if simplify else 'Direct repayment plan'
-    assert wb['Payments']['B2'].value == label
+    assert wb['Payments']['A2'].value == 'Suggested payer'
+    assert wb['Payments']['B2'].value == 'Suggested receiver'
     assert next(r[2] for r in rows if r[0] == 'Outstanding plan total') == sum(t['amount'] for t in balance['transfers'])
 
 
@@ -182,7 +204,7 @@ def test_versioned_exports_reuse_effective_ledger_without_review_notes(monkeypat
         collection.find.assert_not_called()
     if kind == "xlsx":
         workbook = load_workbook(io.BytesIO(content))
-        assert workbook.sheetnames == ['Summary', 'Members & Families', 'Transactions', 'Payments']
+        assert workbook.sheetnames == ['Summary', 'Members & Families', 'Expense Register', 'Transactions', 'Payments']
         assert workbook['Summary']['B9'].value == build_report_data(source).net
         assert explanation not in [cell.value for sheet in workbook for row in sheet for cell in row]
     else:

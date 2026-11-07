@@ -51,8 +51,8 @@ Its historical differences are not used as compensating values in the ledger or 
 
 ## Excel implementation
 
-`services/report_xlsx.py` writes exactly four tabs: Summary, Members & Families, Transactions and
-Payments. The presentation omits adjustment columns, reconciliation commentary, payment notes and
+`services/report_xlsx.py` writes five tabs: Summary, Members & Families, Expense Register,
+Transactions and Payments. The presentation omits adjustment columns, reconciliation commentary, payment notes and
 the optional Financial Review appendix. Supporting adjustments and correction evidence remain in the
 shared model and source ledger, with unchanged final balances and reconciliation checks. There is no
 Adjustments tab or dangling worksheet hyperlink. `services/report_formatting.py` holds shared
@@ -63,24 +63,56 @@ the pivot definition, cache definition, complete cache records and matching init
 The named Excel Table `ReportAllocations` supplies account/person rows, category columns and summed
 signed Expense share. Date and entry-type report filters are native fields. All source fields remain
 available for analysis and drill-through. Cached results do not require refresh on opening.
+The cache identifies the Transactions source sheet explicitly. Its type flags describe the stored
+items, including text, long descriptions, missing values and mixed date/text evidence.
 
-The pivot uses a custom forest-green style, account subtotals and one grand total. Children are
+The pivot uses a custom forest-green style, account subtotals and one grand total. Its page filters
+use matching label/value styles in both the saved cells and native style definition. Displayed
+categories and people follow the order of their native field items; axis references point to field-item
+positions rather than assuming cache encounter order. Saved measure and grand-total captions match
+the native definitions, and tabular account labels appear once per group. Children are
 already included in account subtotals and never counted twice. Numeric conditional formats choose
-the correct Indian grouping magnitude when pivot filters change a total. Money-back shares are green;
+the correct Indian grouping magnitude when pivot filters change a total. Custom number-format IDs
+are registered explicitly rather than reusing General's built-in ID. The rules are bound to the
+native pivot data area, including totals, rather than just the original cell rectangle. Money-back shares are green;
 cost shares do not imply a payment instruction. Source text is stored literally, including strings
 beginning with `=`. Transactions omits Account ID and Person ID columns from both the source table and
 pivot cache. Stable identities remain internal, with disambiguated display names in the report.
-The expense ID and original-currency/rate evidence are grouped in columns L:T. Monetary headings use
+The expense ID and original-currency/rate evidence in Transactions are grouped in columns L:T. Monetary headings use
 the trip's currency; original-currency evidence retains its recorded currency.
+
+XLSX presentation uses a separate copy of the reconciled model. Unsupported XML characters are
+replaced, line endings are normalised, and text is limited to Excel's 32,767-character cell limit
+with an ellipsis on truncation. Distinct category/account/person labels remain distinct after these
+conversions and under Excel's case-insensitive comparisons. The source table and pivot cache use the
+same prepared values. Internal account/person IDs and all financial amounts remain unchanged.
+Row heights respect Excel's 409.5-point maximum. Download headers support Unicode group names through
+the standard UTF-8 filename parameter and remove path/header delimiters.
 
 Summary presents its four spending measures vertically in a Measure/Amount table, alongside account
 funding. The person/category pivot follows immediately below the fixed tables, leaving its expansion
 area clear. It has bold account/grand totals and a
-bold Total column, including a native last-column style retained on pivot refresh. There are no charts
-or chart helper columns. All tabs are unfrozen. Headers follow titles directly, row heights fit their
+bold Grand Total column, including a native last-column style. A scope label above the two native
+filters states that only the pivot is filtered. There are no charts
+or chart helper columns. Summary remains unfrozen. Members & Families, Transactions and Payments freeze
+the first two rows through their main headers. Payments omits the Routing / payment-plan caption row.
+Headers follow titles directly, row heights fit their
 content, hidden detail does not inflate visible rows, and unused spacer rows/columns are omitted.
+The final Total row in Members & Families matches the dark green header with bold white text;
+balance and refund colour rules apply only to the detail rows above it.
 Pivot filters affect only the pivot; headline figures continue to represent the complete export.
 Empty reports show a meaningful message and contain no dummy allocation rows or pivot.
+
+Expense Register contains one row per included expense, with report number, sortable date, category,
+description, entry type, payer, split method and signed amount. The named table `ReportExpenses` supports
+column filters and sorting. Full-export gross, money-back and net totals reconcile to Summary, with
+filter scope stated beside them. Money back is negative in the register; it is shown as a positive
+deduction in the top spending totals. Expense IDs and original-currency/rate evidence are grouped in
+columns I:Q. Included zero amounts and distinct records with matching or missing historical IDs are
+retained by report number. Transactions remains the participant-allocation source for the pivot; use
+Expense Register when summing full expense amounts to avoid counting the same expense per participant.
+The register has a forest-green table style, repeated print headers and frozen rows above its data.
+All five worksheet tabs have an explicit brand colour.
 
 ## PDF implementation
 
@@ -120,6 +152,24 @@ python scripts/generate_report_samples.py --output <review-directory>
 This uses synthetic data only and does not connect to a database. The sample includes multiple split
 modes, partial families, refunds, zero allocations, duplicate names, historical people/accounts,
 locked FX evidence, legacy settlements, distinct matching payments and migration adjustments.
+
+## Pivot and expense-register verification (7 November 2026)
+
+The focused report/model/layout/PDF/download suite passes 147 tests. A further 116 financial and
+database integration checks cover allocation, conversion, settlement, retained corrections, and
+actual server startup/downloads against a private loopback replica set. Regression checks resolve saved
+axis references back to cache values and compare them with displayed captions and amounts. They also
+verify cache type flags, page-filter styles, pivot-scoped conditional rules and custom format IDs in the actual XLSX
+parts, plus register totals, unique expense rows, literal text, refunds, zero rounding, historical IDs,
+missing dates, empty exports, Unicode filenames, unsupported/long text, and large funding/category layouts.
+The 20 download checks use synthetic
+data and mocked storage; local loopback access is needed by the Windows test event loop.
+
+All five sample workbook tabs were rendered and visually reviewed. Desktop Excel refresh, filtering,
+drill-through and no-repair opening remain unverified because Excel automation is unavailable on this
+machine (`0x80040154`, Class not registered). openpyxl's reader drops native pivot conditional-format
+metadata and rebases cell number-format IDs, so raw exported XML is the source of truth for those
+assertions. Existing downloaded reports must be replaced by a fresh export after release.
 
 ## Compact-layout verification (3 November 2026)
 

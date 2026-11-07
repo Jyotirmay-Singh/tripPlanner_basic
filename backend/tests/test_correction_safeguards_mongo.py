@@ -208,7 +208,7 @@ def test_effective_report_xlsx_and_pdf_use_compensated_money_and_current_revisio
                 return b"".join([part if isinstance(part, bytes) else part.encode() async for part in response.body_iterator])
             book = load_workbook(io.BytesIO(await content(xlsx)), data_only=True)
             pdf_text = " ".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(await content(pdf))).pages)
-            assert book.sheetnames == ["Summary", "Members & Families", "Transactions", "Payments"]
+            assert book.sheetnames == ["Summary", "Members & Families", "Expense Register", "Transactions", "Payments"]
             assert book["Summary"]["B9"].value == 120
             assert "Financial Review" not in pdf_text and "replace_cash" not in pdf_text and "replace_expense" not in pdf_text
             payment_values = [cell.value for row in book["Payments"] for cell in row]
@@ -437,7 +437,7 @@ def test_authenticated_legacy_cash_routes_cannot_bypass_and_reviewed_transition_
             for module in (expenses, members, balances, payments, trips, expense_settlement):
                 monkeypatch.setattr(module, "db", database)
                 app.include_router(module.router, prefix="/api")
-            token = jwt.encode({"sub": "admin", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)}, security.JWT_SECRET, algorithm="HS256")
+            token = jwt.encode({"sub": "admin", "type": "access", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)}, security.JWT_SECRET, algorithm="HS256")
             await database.settlements.insert_one({"id": "old", "trip_id": "t", "status": "pending", "amount": 100, "from_member_id": "b", "to_member_id": "a"})
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test", headers={"Authorization": f"Bearer {token}"}) as client:
                 cash = {"amount": 100, "from_member_id": "b", "to_member_id": "a"}
@@ -451,7 +451,7 @@ def test_authenticated_legacy_cash_routes_cannot_bypass_and_reviewed_transition_
                 assert await database.payments.count_documents({}) == 0
                 assert await database.expense_coverage_events.count_documents({}) == 0
                 quote, body = await reviewed(database)
-                payer_token = jwt.encode({"sub": "u_b", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)}, security.JWT_SECRET, algorithm="HS256")
+                payer_token = jwt.encode({"sub": "u_b", "type": "access", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)}, security.JWT_SECRET, algorithm="HS256")
                 contract = ReviewedWrite(quote_id=quote["id"], quote_hash=quote["quote_hash"], client_mutation_id=body.client_mutation_id).model_dump(mode="json")
                 result = await client.patch("/api/trips/t/settlements/old", json=contract, headers={"Authorization": f"Bearer {payer_token}"})
                 assert result.status_code == 200, result.text

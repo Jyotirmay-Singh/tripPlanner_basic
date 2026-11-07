@@ -1,21 +1,82 @@
 """Professional snapshot workbook, rendered from the shared reconciled report model."""
 
 import io
+import re
 from collections import defaultdict
+from dataclasses import fields, replace
 from datetime import datetime
 from textwrap import wrap
 
 from openpyxl import Workbook
 from openpyxl.formatting.rule import CellIsRule, Rule
+from openpyxl.formatting.formatting import ConditionalFormatting
+from openpyxl.pivot.table import ConditionalFormat, ConditionalFormatList, PivotArea
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.styles.differential import DifferentialStyle
 from openpyxl.styles.numbers import NumberFormat
+from openpyxl.styles.table import TableStyle, TableStyleElement
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter, column_index_from_string
 
 from services.report_formatting import BRAND, RECEIVE, PAY, NEUTRAL, currency_symbol, indian_format, indian_number
-from services.report_model import ReportData, routing_label
+from services.report_model import ReportData
 from services.report_pivot import add_allocation_pivot
+
+
+_INVALID_XML_TEXT = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
+
+
+def _excel_text(value):
+    value = value.replace("\r\n", "\n").replace("\r", "\n")
+    value = _INVALID_XML_TEXT.sub("\ufffd", value)
+    return value if len(value) <= 32767 else value[:32766] + "\u2026"
+
+
+def _excel_labels(values):
+    """Keep distinct axis labels distinct under Excel's text and cell-length limits."""
+    labels, used = {}, set()
+    for value in values:
+        if value in labels:
+            continue
+        base = candidate = _excel_text(value)
+        number = 2
+        while candidate.casefold() in used:
+            suffix = f" ({number})"
+            candidate = base[:32767 - len(suffix)] + suffix
+            number += 1
+        labels[value] = candidate
+        used.add(candidate.casefold())
+    return labels
+
+
+def _excel_strings(record, **overrides):
+    values = {field.name: _excel_text(value) for field in fields(record)
+              if field.name not in {"account_id", "person_id", "payer_id", "receiver_id"}
+              and isinstance(value := getattr(record, field.name), str)}
+    return replace(record, **{**values, **overrides})
+
+
+def _excel_display_data(data):
+    # Prepare an export-only copy. Sanitising/truncating cells after building the
+    # pivot cache would leave its keys and values different from the source table.
+    accounts = _excel_labels(account.name for account in data.accounts)
+    people = _excel_labels([*(person.name for person in data.member_positions),
+                            *(allocation.person for allocation in data.allocations)])
+    categories = _excel_labels(data.categories)
+    return replace(
+        data, metadata=_excel_strings(data.metadata),
+        accounts=tuple(_excel_strings(account, name=accounts[account.name]) for account in data.accounts),
+        member_positions=tuple(_excel_strings(person, name=people[person.name]) for person in data.member_positions),
+        allocations=tuple(_excel_strings(
+            allocation, account=accounts[allocation.account], payer=accounts[allocation.payer],
+            person=people[allocation.person], category=categories[allocation.category]) for allocation in data.allocations),
+        transfers=tuple(_excel_strings(transfer, payer=accounts[transfer.payer], receiver=accounts[transfer.receiver])
+                        for transfer in data.transfers),
+        events=tuple(_excel_strings(event, payer=accounts[event.payer], receiver=accounts[event.receiver])
+                     for event in data.events),
+        categories=tuple(categories[category] for category in data.categories),
+        category_totals={categories[category]: amount for category, amount in data.category_totals.items()},
+    )
 
 
 def text_cell(sheet, row, col, value):
@@ -48,11 +109,11 @@ def _row(sheet, row, values, start_column=1):
         cell.alignment = Alignment(vertical="center", horizontal="right" if isinstance(value, (int, float)) else "left", wrap_text=True)
 
 
-def _total(sheet, row, columns, start_column=1):
+def _total(sheet, row, columns, start_column=1, fill="EAF0EE"):
     for col in range(start_column, start_column + columns):
         cell = sheet.cell(row, col)
         cell.font = Font(name="Calibri", size=11, bold=True, color=BRAND)
-        cell.fill = PatternFill("solid", fgColor="EAF0EE")
+        cell.fill = PatternFill("solid", fgColor=fill)
         cell.border = Border(top=Side(style="thin", color=BRAND))
 
 
@@ -68,24 +129,34 @@ def _widths(sheet, widths):
         sheet.column_dimensions[get_column_letter(col)].width = width
 
 
-def _table(sheet, name, header, last, columns):
+def _table(sheet, name, header, last, columns, style="TableStyleMedium4"):
     if last <= header:
         return
     table = Table(displayName=name, ref=f"A{header}:{get_column_letter(columns)}{last}")
-    table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium4", showRowStripes=True)
+    table.tableStyleInfo = TableStyleInfo(name=style, showRowStripes=True)
     sheet.add_table(table)
 
 
 def _number_rules(sheet, area, anchor):
     # Filters can change pivot sums. Select a numeric Indian mask again for the new magnitude.
-    style = DifferentialStyle(numFmt=NumberFormat(numFmtId=0, formatCode=indian_format(0)))
-    sheet.conditional_formatting.add(area, Rule(type="expression", dxf=style,
+    rules = []
+    def number_style(value):
+        code = indian_format(value)
+        # A custom code must not masquerade as built-in format 0 (General).
+        return DifferentialStyle(numFmt=NumberFormat(
+            numFmtId=sheet.parent._number_formats.add(code) + 164, formatCode=code))
+
+    style = number_style(0)
+    rules.append(Rule(type="expression", dxf=style,
         formula=[f"AND(ISNUMBER({anchor}),ABS({anchor})<100000)"]))
     for digits in range(6, 18, 2):
         low, high = 10 ** (digits - 1), 10 ** (digits + 1)
-        style = DifferentialStyle(numFmt=NumberFormat(numFmtId=0, formatCode=indian_format(low)))
-        sheet.conditional_formatting.add(area, Rule(type="expression", dxf=style,
+        style = number_style(low)
+        rules.append(Rule(type="expression", dxf=style,
             formula=[f"AND(ISNUMBER({anchor}),ABS({anchor})>={low},ABS({anchor})<{high})"]))
+    for rule in rules:
+        sheet.conditional_formatting.add(area, rule)
+    return rules
 
 
 def _balance_rules(sheet, area):
@@ -97,13 +168,12 @@ def _balance_rules(sheet, area):
 
 
 def finalize_layout(sheet, money_columns=()):
-    sheet.freeze_panes = None
     sheet.sheet_format.defaultRowHeight = 16
     hidden_columns = {column for key, dimension in sheet.column_dimensions.items() if dimension.hidden
                       for column in range(dimension.min or column_index_from_string(key),
                                           (dimension.max or column_index_from_string(key)) + 1)}
     for row in sheet:
-        height = 16
+        height = max(16, sheet.row_dimensions[row[0].row].height or 0)
         for cell in row:
             if cell.__class__.__name__ == "MergedCell":
                 continue
@@ -119,7 +189,7 @@ def finalize_layout(sheet, money_columns=()):
                 width = max(8, int(sum(sheet.column_dimensions[get_column_letter(col)].width or 13 for col in columns)) - 2)
                 lines = sum(max(1, len(wrap(line, width=width))) for line in cell.value.splitlines() or [""])
                 height = max(height, (cell.font.sz or 11) * 1.35 * lines + 2)
-        sheet.row_dimensions[row[0].row].height = height
+        sheet.row_dimensions[row[0].row].height = min(height, 409.5)
     sheet.sheet_view.showGridLines = False
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
     sheet.page_setup.orientation = "landscape"
@@ -131,6 +201,7 @@ def finalize_layout(sheet, money_columns=()):
 
 def _transactions(workbook, data):
     sheet = workbook.create_sheet("Transactions")
+    sheet.freeze_panes = "A3"
     symbol = currency_symbol(data.currency)
     headers = ["Expense No", "Date (IST)", "Category", "Description", "Entry type", "Paid by",
                "Family / account", "Person", "Split method", f"Expense total ({symbol})", f"Expense share ({symbol})",
@@ -177,6 +248,90 @@ def _transactions(workbook, data):
     return headers, source_rows
 
 
+def _expense_register(workbook, data):
+    """One reconciled expense per row, independent of the number of participants."""
+    sheet = workbook.create_sheet("Expense Register")
+    symbol = currency_symbol(data.currency)
+    _title(sheet, "Expense Register", 8)
+    for row, caption in (
+        (2, "One row per expense. Filter scope: register rows only; totals show the full export."),
+        (5, "Money back is negative. Expand columns I:Q for expense IDs and currency conversion details."),
+    ):
+        sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
+        cell = text_cell(sheet, row, 1, caption)
+        cell.font = Font(name="Calibri", size=11, color=NEUTRAL)
+        cell.alignment = Alignment(wrap_text=True, vertical="center")
+    for start, end, label, amount in (
+        (1, 3, "Gross spending", data.gross),
+        (4, 5, "Money back", data.money_back),
+        (6, 8, "Net spending", data.net),
+    ):
+        for row, value in ((3, f"{label} ({symbol})"), (4, amount)):
+            sheet.merge_cells(start_row=row, start_column=start, end_row=row, end_column=end)
+            cell = text_cell(sheet, row, start, value)
+            cell.fill = PatternFill("solid", fgColor="EAF0EE")
+            cell.font = Font(name="Calibri", size=14 if row == 4 else 11, bold=True,
+                             color=RECEIVE if label == "Money back" else BRAND)
+            cell.alignment = Alignment(vertical="center", horizontal="right" if row == 4 else "left")
+            if row == 4:
+                money_cell(cell)
+    sheet.row_dimensions[4].height = 24
+    headers = ["Expense No", "Date (IST)", "Category", "Description", "Entry type", "Paid by",
+               "Split method", f"Amount ({symbol})", "Expense ID", "Original amount", "Original currency",
+               "Stored exchange rate", "Effective rate date", "Rate provider", "Rate mode",
+               "Original exact allocations", "Requested rate date"]
+    _row(sheet, 6, headers)
+    header_row(sheet, 6, len(headers))
+    # Report numbers identify included records even when historical IDs are absent or duplicated.
+    expenses = {}
+    for allocation in data.allocations:
+        expenses.setdefault(allocation.number, allocation)
+    for row, expense in enumerate(expenses.values(), 7):
+        _row(sheet, row, [expense.number, expense.occurred_at or expense.date_source or "Not recorded",
+                         expense.category, expense.description, expense.entry_type, expense.payer,
+                         expense.split_method, expense.expense_amount, expense.expense_id,
+                         float(expense.original_amount) if expense.original_amount is not None else None,
+                         expense.original_currency, expense.exchange_rate,
+                         datetime.combine(expense.rate_date, datetime.min.time()) if expense.rate_date else None,
+                         expense.rate_provider, expense.rate_mode, expense.original_exact,
+                         datetime.combine(expense.rate_requested_date, datetime.min.time()) if expense.rate_requested_date else None])
+        sheet.cell(row, 1).number_format = "0"
+        if expense.occurred_at and not expense.time_recorded:
+            sheet.cell(row, 2).number_format = "dd mmm yyyy"
+        sheet.cell(row, 10).number_format = '#,##0.###############'
+        for col in (13, 17):
+            sheet.cell(row, col).number_format = "dd mmm yyyy"
+        sheet.cell(row, 8).font = Font(name="Calibri", size=11, bold=True, color=BRAND)
+    last = 6 + len(expenses)
+    if expenses:
+        elements = []
+        for kind, fill, color, bold in (
+            ("wholeTable", "FFFFFF", "121A18", False),
+            ("headerRow", BRAND, "FFFFFF", True),
+            ("firstRowStripe", "F4F7F6", "121A18", False),
+            ("secondRowStripe", "FFFFFF", "121A18", False),
+        ):
+            style = DifferentialStyle(font=Font(name="Calibri", size=11, color=color, bold=bold),
+                                      fill=PatternFill("solid", fgColor=fill))
+            elements.append(TableStyleElement(type=kind, dxfId=workbook._differential_styles.add(style),
+                                              size=1 if "Stripe" in kind else None))
+        workbook._table_styles.tableStyle.append(TableStyle(name="ReportExpensesForest", pivot=False,
+                                                            table=True, tableStyleElement=elements))
+    _table(sheet, "ReportExpenses", 6, last, len(headers), style="ReportExpensesForest")
+    if expenses:
+        _row(sheet, last + 1, ["Net spending (full export)", None, None, None, None, None, None, data.net])
+        sheet.merge_cells(start_row=last + 1, start_column=1, end_row=last + 1, end_column=7)
+        _total(sheet, last + 1, 8)
+        sheet.conditional_formatting.add(f"H7:H{last}", CellIsRule(operator="lessThan", formula=["0"], font=Font(color=RECEIVE)))
+    else:
+        text_cell(sheet, 7, 1, "No expenses recorded")
+    _widths(sheet, [10, 24, 19, 40, 15, 24, 17, 19, 25, 18, 17, 24, 19, 24, 17, 36, 19])
+    sheet.column_dimensions.group("I", "Q", hidden=True)
+    sheet.freeze_panes = "A7"
+    sheet.print_title_rows = "1:6"
+    sheet.print_area = f"A1:H{max(last + 1, 7)}"
+
+
 def _summary(workbook, data, headers, source_rows):
     sheet = workbook["Summary"]
     meta = data.metadata
@@ -220,23 +375,35 @@ def _summary(workbook, data, headers, source_rows):
     funding_total = 4 + len(data.accounts)
     _row(sheet, funding_total, ["Total", data.gross, data.money_back, data.net], 4)
     _total(sheet, funding_total, 4, 4)
-    # Keep the growing native pivot below every fixed table and its two page-filter rows.
-    pivot_start = max(10, funding_total) + (4 if source_rows else 1)
+    # Reserve the scope caption as well as Excel's two native page-filter rows and gap.
+    pivot_start = max(10, funding_total) + (5 if source_rows else 1)
     bottom = add_allocation_pivot(workbook, sheet, headers, source_rows, data, pivot_start, money_cell, header_row)
-    for row in range(pivot_start + 2, bottom + 1):
-        label = sheet.cell(row, 1).value
-        if isinstance(label, str) and (label.endswith(" Total") or label == "Grand Total"):
-            _total(sheet, row, len(data.categories) + 3)
-        sheet.cell(row, len(data.categories) + 3).font = Font(name="Calibri", size=11, bold=True, color=BRAND)
     if source_rows:
-        region = f"C{pivot_start + 2}:{get_column_letter(len(data.categories) + 3)}{bottom}"
-        _number_rules(sheet, region, f"C{pivot_start + 2}")
-        sheet.conditional_formatting.add(region, CellIsRule(operator="lessThan", formula=["0"], font=Font(color=RECEIVE)))
+        for row, item in enumerate(sheet._pivots[0].rowItems, pivot_start + 2):
+            total_column = sheet.cell(row, len(data.categories) + 3)
+            total_column.font = Font(name="Calibri", size=11, bold=True, color=BRAND)
+            total_column.fill = PatternFill("solid", fgColor="EAF0EE")
+            if item.t in ("default", "grand"):
+                _total(sheet, row, len(data.categories) + 3,
+                       fill="DDE9E5" if item.t == "grand" else "EAF0EE")
+        region = ConditionalFormatting(
+            sqref=f"C{pivot_start + 2}:{get_column_letter(len(data.categories) + 3)}{bottom}", pivot=True)
+        rules = _number_rules(sheet, region, f"C{pivot_start + 2}")
+        negative = CellIsRule(operator="lessThan", formula=["0"], font=Font(color=RECEIVE))
+        sheet.conditional_formatting.add(region, negative)
+        # Matching priorities bind the worksheet rules to the entire native data area,
+        # including totals, so filtering/rearranging does not leave a fixed styled rectangle.
+        sheet._pivots[0].conditionalFormats = ConditionalFormatList(conditionalFormat=[
+            ConditionalFormat(scope="data", type="all", priority=rule.priority,
+                              pivotAreas=[PivotArea(type="data", dataOnly=True, grandRow=True, grandCol=True)])
+            for rule in [*rules, negative]
+        ])
     sheet.print_area = f"A1:{get_column_letter(columns)}{bottom}"
 
 
 def _members(workbook, data):
     sheet = workbook.create_sheet("Members & Families")
+    sheet.freeze_panes = "A3"
     symbol = currency_symbol(data.currency)
     headers = ["Name", f"Expense share ({symbol})", f"Net funded ({symbol})", f"Before settlements ({symbol})",
                f"Settlements paid ({symbol})", f"Settlements received ({symbol})"]
@@ -268,9 +435,12 @@ def _members(workbook, data):
     values = ["Total", sum(a.share for a in data.accounts), sum(a.funded for a in data.accounts),
               sum(a.before_settlements for a in data.accounts), sum(a.sent for a in data.accounts), sum(a.received for a in data.accounts)]
     _row(sheet, row, [*values, 0, ""])
-    _total(sheet, row, len(headers))
-    _balance_rules(sheet, f"{get_column_letter(balance_col)}3:{get_column_letter(balance_col)}{row}")
-    sheet.conditional_formatting.add(f"B3:B{row}", CellIsRule(operator="lessThan", formula=["0"], font=Font(color=RECEIVE)))
+    header_row(sheet, row, len(headers))
+    # Keep semantic balance/refund colours on detail rows so the final total
+    # retains the same high-contrast band as the column headers.
+    if row > 3:
+        _balance_rules(sheet, f"{get_column_letter(balance_col)}3:{get_column_letter(balance_col)}{row - 1}")
+        sheet.conditional_formatting.add(f"B3:B{row - 1}", CellIsRule(operator="lessThan", formula=["0"], font=Font(color=RECEIVE)))
     _number_rules(sheet, f"B3:{get_column_letter(balance_col)}{row}", "B3")
     sheet.sheet_properties.outlinePr.summaryBelow = False
     _widths(sheet, [26, 17, 17, 18, 18, 18, 17, 21])
@@ -280,18 +450,18 @@ def _members(workbook, data):
 
 def _payments(workbook, data):
     sheet = workbook.create_sheet("Payments")
+    sheet.freeze_panes = "A3"
     _title(sheet, "Payments", 6)
-    _row(sheet, 2, ["Routing", routing_label(data)])
     headers = ["Suggested payer", "Suggested receiver", f"Amount ({currency_symbol(data.currency)})", "Status"]
-    _row(sheet, 3, headers)
-    header_row(sheet, 3, 4)
-    row = 4
+    _row(sheet, 2, headers)
+    header_row(sheet, 2, 4)
+    row = 3
     for transfer in data.transfers:
         _row(sheet, row, [transfer.payer, transfer.receiver, transfer.amount, "Suggested"])
         sheet.cell(row, 1).font = Font(name="Calibri", size=11, color=PAY)
         sheet.cell(row, 2).font = Font(name="Calibri", size=11, color=RECEIVE)
         row += 1
-    if row == 4:
+    if row == 3:
         text_cell(sheet, row, 1, "Everyone is settled")
         row += 1
     _row(sheet, row, ["Outstanding plan total", None, data.outstanding])
@@ -321,17 +491,20 @@ def _payments(workbook, data):
 
 
 def build_report_workbook(data: ReportData):
+    data = _excel_display_data(data)
     workbook = Workbook()
     workbook.active.title = "Summary"
-    workbook.properties.title = str(data.snapshot.trip.get("name", "Group")) + " - Report"
-    workbook.properties.subject = "Trip report; report format 3"
+    workbook.properties.title = data.metadata.trip_name + " - Report"
+    workbook.properties.subject = "Trip report; report format 4"
     workbook.properties.creator = "Splitora"
     headers, source_rows = _transactions(workbook, data)
     _summary(workbook, data, headers, source_rows)
     _members(workbook, data)
+    _expense_register(workbook, data)
     _payments(workbook, data)
-    workbook._sheets.sort(key=lambda sheet: ["Summary", "Members & Families", "Transactions", "Payments"].index(sheet.title))
+    workbook._sheets.sort(key=lambda sheet: ["Summary", "Members & Families", "Expense Register", "Transactions", "Payments"].index(sheet.title))
     for sheet in workbook:
+        sheet.sheet_properties.tabColor = BRAND
         finalize_layout(sheet, tuple(range(2, 12)))
     return workbook
 

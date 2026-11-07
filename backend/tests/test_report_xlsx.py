@@ -15,7 +15,7 @@ from openpyxl.utils.cell import range_boundaries
 from scripts.generate_report_samples import sample_snapshot
 from services.report_model import ReportSnapshot, build_report_data
 from services.report_xlsx import build_report_xlsx, finalize_layout, money_cell
-from services.report_formatting import indian_number, indian_format
+from services.report_formatting import BRAND, indian_number, indian_format
 
 
 def exported(source=None):
@@ -26,11 +26,12 @@ def exported(source=None):
 
 def test_native_pivot_cache_and_saved_totals_match_allocation_source():
     data, workbook, payload = exported()
-    assert workbook.sheetnames == ['Summary', 'Members & Families', 'Transactions', 'Payments']
+    assert workbook.sheetnames == ['Summary', 'Members & Families', 'Expense Register', 'Transactions', 'Payments']
     transactions = workbook['Transactions']
     assert transactions.tables['ReportAllocations'].ref == f'A2:T{2 + len(data.allocations)}'
     pivot = workbook['Summary']._pivots[0]
     assert pivot.cache.cacheSource.worksheetSource.name == 'ReportAllocations'
+    assert pivot.cache.cacheSource.worksheetSource.sheet == 'Transactions'
     assert pivot.cache.saveData is True and pivot.cache.refreshOnLoad is False
     assert pivot.cache.recordCount == len(data.allocations)
     assert len(pivot.cache.records.r) == len(data.allocations)
@@ -76,20 +77,47 @@ def test_new_export_includes_new_rows_in_named_source_and_cache():
     assert len(data.allocations) > len(build_report_data(source).allocations)
 
 
+@pytest.mark.parametrize('missing_date', [False, True])
+def test_cache_type_flags_describe_the_saved_items_including_text_and_mixed_dates(missing_date):
+    source = sample_snapshot()
+    first = {**source.expenses[0], 'description': 'Long recorded description ' * 20}
+    if missing_date:
+        first['date'] = 'Date not recorded'
+    _, workbook, _ = exported(replace(source, expenses=(first, *source.expenses[1:])))
+    cache = workbook['Summary']._pivots[0].cache
+    for field in cache.cacheFields:
+        shared = field.sharedItems
+        kinds = {item.tagname for item in shared._fields}
+        assert shared.containsString == ('s' in kinds)
+        assert shared.containsDate == ('d' in kinds)
+        assert shared.containsNumber == ('n' in kinds)
+        assert shared.containsBlank == ('m' in kinds)
+        assert shared.containsSemiMixedTypes == ('s' in kinds)
+        assert shared.containsMixedTypes == (len(kinds - {'m'}) > 1)
+        assert shared.containsInteger == (
+            'n' in kinds and not kinds & {'s', 'd'}
+            and all(float(item.v).is_integer() for item in shared._fields if item.tagname == 'n'))
+        assert shared.longText == any(item.tagname == 's' and len(item.v) > 255 for item in shared._fields)
+    assert cache.cacheFields[3].sharedItems.longText
+    assert cache.cacheFields[1].sharedItems.containsMixedTypes == missing_date
+
+
 def test_prominent_pivot_shows_each_person_net_share_by_category_with_bold_totals():
     data, workbook, _ = exported()
     sheet = workbook['Summary']
     pivot = sheet._pivots[0]
     _, first, last_column, last_row = range_boundaries(pivot.location.ref)
-    assert first == 14
+    assert first == 15
     expected = defaultdict(lambda: defaultdict(int))
     for allocation in data.allocations:
         expected[allocation.account, allocation.person][allocation.category] += allocation.share
     saved = {}
+    account = None
     for row in sheet.iter_rows(min_row=first + 2, max_row=last_row, max_col=last_column):
         assert row[-1].font.bold
         if row[1].value is not None:
-            saved[row[0].value, row[1].value] = [cell.value for cell in row[2:]]
+            account = row[0].value or account
+            saved[account, row[1].value] = [cell.value for cell in row[2:]]
         else:
             assert all(cell.font.bold for cell in row)
     assert saved == {key: [*[by_category[c] for c in data.categories], sum(by_category.values())]
@@ -119,7 +147,7 @@ def test_transactions_have_complete_metadata_on_participating_rows_and_sortable_
     assert workbook['Transactions']['P3'].number_format == 'dd mmm yyyy'
     assert workbook['Transactions']['T3'].number_format == 'dd mmm yyyy'
     assert workbook['Transactions'].column_dimensions['L'].hidden
-    assert workbook['Transactions'].freeze_panes is None
+    assert workbook['Transactions'].freeze_panes == 'A3'
 
 
 def test_literal_user_text_cannot_become_excel_formulas_in_any_sheet():
@@ -179,12 +207,15 @@ def test_numeric_indian_masks_and_long_labels_fit_without_converting_money_to_te
     assert sheet.column_dimensions['B'].width >= len(indian_number(cell.value)) + 3
 
 
-def test_empty_report_has_four_tabs_no_dummy_pivot_source_and_no_chart():
+def test_empty_report_has_five_tabs_no_dummy_pivot_source_and_no_chart():
     source = ReportSnapshot({'id': 'empty', 'name': 'Empty', 'members': [], 'currency': 'INR'})
     _, workbook, _ = exported(source)
-    assert workbook.sheetnames == ['Summary', 'Members & Families', 'Transactions', 'Payments']
+    assert workbook.sheetnames == ['Summary', 'Members & Families', 'Expense Register', 'Transactions', 'Payments']
     assert not workbook['Summary']._pivots and not workbook['Summary']._charts
     assert not workbook['Transactions'].tables
+    assert not workbook['Expense Register'].tables
+    assert workbook['Expense Register']['A7'].value == 'No expenses recorded'
+    assert [workbook['Expense Register'][cell].value for cell in ('A4', 'D4', 'F4')] == [0, 0, 0]
     assert any(row[0] == 'No expenses recorded' for row in workbook['Summary'].values)
 
 
@@ -218,7 +249,7 @@ def test_an_unrecorded_time_is_displayed_as_a_date_without_invented_midnight():
     assert workbook['Transactions']['B3'].number_format == 'dd mmm yyyy'
 
 
-def test_report_is_compact_unfrozen_and_omits_adjustments_and_notes():
+def test_report_is_compact_and_omits_adjustments_and_notes():
     source = replace(sample_snapshot(), financial_review=('Internal correction evidence',))
     data, workbook, _ = exported(source)
     values = [c.value for row in workbook['Summary'] for c in row if isinstance(c.value, str)]
@@ -234,9 +265,13 @@ def test_report_is_compact_unfrozen_and_omits_adjustments_and_notes():
     for account in data.accounts:
         saved = next(row for row in balances.values if row[0] == account.name)
         assert saved[1] == account.share and saved[6] == account.balance
-    assert workbook.sheetnames == ['Summary', 'Members & Families', 'Transactions', 'Payments']
+    assert workbook.sheetnames == ['Summary', 'Members & Families', 'Expense Register', 'Transactions', 'Payments']
+    frozen_headers = {'Summary': None, 'Members & Families': 'A3',
+                      'Expense Register': 'A7', 'Transactions': 'A3', 'Payments': 'A3'}
     for sheet in workbook:
-        assert sheet.freeze_panes is None and sheet.sheet_view.pane is None
+        assert sheet.freeze_panes == frozen_headers[sheet.title]
+        if sheet.title == 'Summary':
+            assert sheet.sheet_view.pane is None
         strings = [c.value for row in sheet for c in row if isinstance(c.value, str)]
         assert not any('reconciliation notes' in s.lower() or s.startswith('Adjustments') or 'Internal correction evidence' in s for s in strings)
         assert 'Note' not in strings
@@ -258,13 +293,207 @@ def test_each_financial_section_uses_the_trip_currency(currency, symbol):
         f'{label} ({symbol})' for label in ['Gross funded', 'Money back', 'Net funded'])
     pivot = summary._pivots[0]
     assert pivot.dataCaption == f'Net expense share ({symbol})'
-    assert pivot.dataFields[0].name == f'Expense share ({symbol})'
+    assert pivot.dataFields[0].name == f'Net expense share ({symbol})'
     assert [c.value for c in workbook['Members & Families'][2][1:-1]] == [
         f'{label} ({symbol})' for label in ['Expense share', 'Net funded', 'Before settlements',
                                          'Settlements paid', 'Settlements received', 'Balance now']]
     assert workbook['Transactions']['J2'].value == f'Expense total ({symbol})'
     assert workbook['Transactions']['K2'].value == f'Expense share ({symbol})'
-    assert workbook['Payments']['C3'].value == f'Amount ({symbol})'
+    assert workbook['Expense Register']['H6'].value == f'Amount ({symbol})'
+    assert workbook['Payments']['C2'].value == f'Amount ({symbol})'
     assert sum(a.share for a in data.allocations) == summary['B9'].value
     assert not any('₹' in str(c.value) or 'INR' in str(c.value)
                    for sheet in workbook for row in sheet for c in row)
+
+
+def test_saved_pivot_axes_resolve_to_the_displayed_labels_and_values_after_reopen():
+    data, workbook, _ = exported()
+    # Exercise another save/reopen, not just the generator's in-memory definition.
+    saved = io.BytesIO()
+    workbook.save(saved)
+    summary = load_workbook(io.BytesIO(saved.getvalue()))['Summary']
+    pivot = summary._pivots[0]
+    _, first, last_column, _ = range_boundaries(pivot.location.ref)
+
+    def label(field, item_position):
+        cache_index = pivot.pivotFields[field].items[item_position].x
+        return pivot.cache.cacheFields[field].sharedItems._fields[cache_index].v
+
+    # Source encounter order differs from the report's alphabetical category order.
+    assert [i.v for i in pivot.cache.cacheFields[2].sharedItems._fields] != list(data.categories)
+    assert [label(2, i) for i in range(len(data.categories))] == list(data.categories)
+    assert [label(2, item.x[0].v) for item in pivot.colItems if item.t == 'data'] == list(data.categories)
+    assert [summary.cell(first + 1, col).value for col in range(3, last_column)] == list(data.categories)
+    assert summary.cell(first + 1, last_column).value == pivot.grandTotalCaption
+    assert summary.cell(first, 1).value == pivot.dataFields[0].name == pivot.dataCaption
+
+    expected = defaultdict(lambda: defaultdict(int))
+    for record in pivot.cache.records.r:
+        values = {col: pivot.cache.cacheFields[col].sharedItems._fields[record._fields[col].v].v
+                  for col in (6, 7, 2, 10)}
+        expected[values[6], values[7]][values[2]] += values[10]
+    previous = []
+    for row, item in enumerate(pivot.rowItems, first + 2):
+        positions = previous[:item.r] + [index.v for index in item.x]
+        if item.t == 'data':
+            assert len(positions) == 2
+            account, person = label(6, positions[0]), label(7, positions[1])
+            assert summary.cell(row, 1).value == (None if item.r else account)
+            assert summary.cell(row, 2).value == person
+            totals = expected[account, person]
+            assert [summary.cell(row, col).value for col in range(3, last_column + 1)] == [
+                *[totals[category] for category in data.categories], sum(totals.values())]
+        elif item.t == 'default':
+            assert summary.cell(row, 1).value == label(6, positions[0]) + ' Total'
+        previous = positions
+
+
+def test_native_page_filters_and_refresh_formats_match_the_saved_cells():
+    _, workbook, payload = exported()
+    summary = workbook['Summary']
+    pivot = summary._pivots[0]
+    _, first, last_column, last = range_boundaries(pivot.location.ref)
+    assert pivot.preserveFormatting and not pivot.useAutoFormatting
+    assert not pivot.cache.invalid and not pivot.cache.backgroundQuery
+    assert pivot.showHeaders and not pivot.compact and not pivot.outline
+    assert (pivot.location.rowPageCount, pivot.location.colPageCount) == (2, 1)
+    scope = summary.cell(first - 4, 1)
+    assert scope.value == 'Filter scope: pivot only. Headline figures and other sheets show the full export.'
+    style = next(style for style in workbook._table_styles.tableStyle if style.name == pivot.pivotTableStyleInfo.name)
+    parts = {part.type: workbook._differential_styles.styles[part.dxfId] for part in style.tableStyleElement}
+    for row, field in ((first - 3, 1), (first - 2, 4)):
+        assert summary.cell(row, 1).value == pivot.cache.cacheFields[field].name
+        assert summary.cell(row, 2).value == '(All)'
+        for col, kind in ((1, 'pageFieldLabels'), (2, 'pageFieldValues')):
+            cell = summary.cell(row, col)
+            assert cell.fill == parts[kind].fill
+            assert cell.font.color == parts[kind].font.color
+            assert cell.font.bold
+    assert summary.cell(last, last_column).fill == parts['totalRow'].fill
+    worksheet_rules = [rule for area, rules in summary.conditional_formatting._cf_rules.items()
+                       if area.pivot for rule in rules]
+    with ZipFile(io.BytesIO(payload)) as archive:
+        ns = {'s': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+        styles = ET.fromstring(archive.read('xl/styles.xml'))
+        number_formats = {int(fmt.attrib['numFmtId']): fmt.attrib['formatCode']
+                          for fmt in styles.findall('s:numFmts/s:numFmt', ns)}
+        for rule in worksheet_rules:
+            if rule.dxf.numFmt:
+                number_format = rule.dxf.numFmt
+                assert number_format.numFmtId >= 164
+                assert number_formats[number_format.numFmtId] == number_format.formatCode
+        xml = ET.fromstring(archive.read('xl/pivotTables/pivotTable1.xml'))
+        # openpyxl 3.1.5 discards conditionalFormats in TableDefinition.__init__
+        # during import. Verify the actual delivered OOXML rather than that lossy reader.
+        native_rules = xml.findall('s:conditionalFormats/s:conditionalFormat', ns)
+        assert {r.priority for r in worksheet_rules} == {int(r.attrib['priority']) for r in native_rules}
+        for rule in native_rules:
+            assert rule.attrib['scope'] == 'data' and rule.attrib['type'] == 'all'
+            areas = rule.findall('s:pivotAreas/s:pivotArea', ns)
+            assert areas and all(area.attrib['type'] == 'data' and area.attrib['dataOnly'] == '1'
+                                 and area.attrib['grandRow'] == '1' and area.attrib['grandCol'] == '1'
+                                 for area in areas)
+    assert all(s.sheet_properties.tabColor.rgb[-6:] == BRAND for s in workbook)
+
+
+def test_filter_scope_and_page_fields_do_not_overlap_a_large_funding_table():
+    source = sample_snapshot()
+    members = [*source.trip['members'], *[
+        {'id': f'extra-{i}', 'name': f'Additional account {i}', 'kind': 'individual'} for i in range(20)]]
+    data, workbook, _ = exported(replace(source, trip={**source.trip, 'members': members}))
+    summary = workbook['Summary']
+    pivot = summary._pivots[0]
+    _, first, _, _ = range_boundaries(pivot.location.ref)
+    assert first - 4 > 4 + len(data.accounts)
+    assert summary.cell(first - 4, 1).value.startswith('Filter scope:')
+    assert summary.cell(4 + len(data.accounts), 4).value == 'Total'
+
+
+def test_expense_register_counts_each_record_once_and_reconciles_all_signed_totals():
+    data, workbook, _ = exported()
+    sheet = workbook['Expense Register']
+    rows = list(sheet.iter_rows(min_row=7, max_row=6 + len(data.snapshot.expenses), values_only=True))
+    assert len(rows) < len(data.allocations)
+    assert len({row[0] for row in rows}) == len(data.snapshot.expenses)
+    assert {row[8] for row in rows} == {expense['id'] for expense in data.snapshot.expenses}
+    assert sum(row[7] for row in rows if row[7] > 0) == data.gross
+    assert -sum(row[7] for row in rows if row[7] < 0) == data.money_back
+    assert sum(row[7] for row in rows) == data.net == workbook['Summary']['B9'].value
+    assert [sheet[cell].value for cell in ('A4', 'D4', 'F4')] == [data.gross, data.money_back, data.net]
+    assert sheet.tables['ReportExpenses'].ref == f'A6:Q{6 + len(rows)}'
+    assert sheet.tables['ReportExpenses'].autoFilter.ref == sheet.tables['ReportExpenses'].ref
+    fx = next(row for row in rows if row[8] == 'e07')
+    assert fx[9:13] == (100, 'USD', '82.000000000000', datetime(2026, 10, 2))
+    assert fx[14] == 'manual'
+    assert sheet.column_dimensions['I'].hidden
+    assert sheet.freeze_panes == 'A7'
+    assert 'totals show the full export' in sheet['A2'].value
+    assert sheet.cell(7 + len(rows), 8).value == data.net
+
+
+def test_expense_register_retains_distinct_records_with_missing_or_duplicate_ids_and_zero_rounding():
+    trip = {'id': 'register-boundaries', 'name': 'Register boundaries', 'currency': 'INR',
+            'members': [{'id': 'a', 'name': 'A', 'kind': 'individual'}]}
+    base = {'paid_by_member_id': 'a', 'split_member_ids': ['a'], 'date': '2026-11-01', 'category': 'Food'}
+    expenses = tuple({**base, **fields} for fields in (
+        {'id': 'duplicate', 'amount': 100},
+        {'id': 'duplicate', 'amount': 100},
+        {'amount': 0},
+        {'id': 'rounded-zero', 'amount': 0.1},
+        {'id': 'money-back', 'amount': -10, 'date': 'unavailable'},
+    ))
+    data, workbook, _ = exported(ReportSnapshot(trip, expenses))
+    sheet = workbook['Expense Register']
+    rows = list(sheet.iter_rows(min_row=7, max_row=11, values_only=True))
+    assert len(rows) == len(expenses)
+    assert [r[8] for r in rows].count('duplicate') == 2
+    assert len({r[0] for r in rows}) == len(expenses)
+    assert any(r[7] == 0 and r[8] == 'rounded-zero' for r in rows)
+    assert sum(r[7] for r in rows) == data.net == 190
+    assert next(r[1] for r in rows if r[8] == 'money-back') == 'unavailable'
+    assert all(sheet.cell(row, 2).number_format == 'dd mmm yyyy'
+               for row in range(7, 12) if isinstance(sheet.cell(row, 2).value, datetime))
+
+
+@pytest.mark.parametrize('labels', [('Food', 'food'), ('A' * 32768 + '1', 'A' * 32768 + '2'),
+                                  ('Food\x00', 'Food\x01')])
+def test_excel_text_limits_do_not_merge_pivot_categories_or_change_source_totals(labels):
+    source = sample_snapshot()
+    expenses = tuple({**source.expenses[0], 'id': str(index), 'amount': amount, 'category': label,
+                      'description': 'Pasted\x00 text ' * 3000}
+                     for index, (label, amount) in enumerate(zip(labels, (100, 200))))
+    snapshot = ReportSnapshot({**source.trip, 'name': 'यात्रा 🚗\x00'}, expenses)
+    data, workbook, _ = exported(snapshot)
+    pivot = workbook['Summary']._pivots[0]
+    categories = [item.v for item in pivot.cache.cacheFields[2].sharedItems._fields]
+    assert len(categories) == len({category.casefold() for category in categories}) == 2
+    assert all(len(category) <= 32767 and '\x00' not in category and '\x01' not in category for category in categories)
+    allocations = list(workbook['Transactions'].iter_rows(min_row=3, max_row=2 + len(data.allocations), values_only=True))
+    assert {row[2] for row in allocations} == set(categories)
+    assert all(len(row[3]) <= 32767 and '\x00' not in row[3] for row in allocations)
+    assert sum(row[10] for row in allocations) == workbook['Summary']['B9'].value == data.net == 300
+    assert workbook['Expense Register']['H7'].value + workbook['Expense Register']['H8'].value == data.net
+    assert snapshot.trip['name'] == 'यात्रा 🚗\x00'
+    assert snapshot.expenses == expenses
+    for sheet in workbook:
+        assert all(dimension.height <= 409.5 for dimension in sheet.row_dimensions.values())
+    assert workbook['Summary']['A1'].value == 'यात्रा 🚗\ufffd'
+
+
+def test_sanitised_account_and_person_labels_remain_distinct_across_all_sheets():
+    trip = {'id': 'text-boundaries', 'name': 'Text', 'currency': 'INR', 'members': [
+        {'id': 'a\x00', 'name': 'Same\x00', 'kind': 'family',
+         'family_member_ids': ['p\x00', 'p\x01'], 'family_members': ['Person\x00', 'Person\x01']},
+        {'id': 'a\x01', 'name': 'Same\x01', 'kind': 'individual'},
+    ]}
+    expenses = ({'id': 'expense', 'amount': 300, 'category': 'Food', 'description': 'Lunch',
+                 'date': '2026-11-01', 'paid_by_member_id': 'a\x00', 'split_member_ids': ['a\x00', 'a\x01']},)
+    data, workbook, _ = exported(ReportSnapshot(trip, expenses))
+    pivot = workbook['Summary']._pivots[0]
+    accounts = [item.v for item in pivot.cache.cacheFields[6].sharedItems._fields]
+    people = [item.v for item in pivot.cache.cacheFields[7].sharedItems._fields]
+    assert len({name.casefold() for name in accounts}) == 2
+    assert len({name.casefold() for name in people}) == 3
+    assert set(accounts).issubset({row[0] for row in workbook['Members & Families'].values})
+    assert all('\x00' not in name and '\x01' not in name for name in [*accounts, *people])
+    assert sum(row[10] for row in list(workbook['Transactions'].values)[2:2 + len(data.allocations)]) == data.net
