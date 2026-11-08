@@ -52,7 +52,7 @@ Its historical differences are not used as compensating values in the ledger or 
 ## Multiple currencies and saved exchange rates
 
 Each group has one fixed ledger/report currency. An expense may originate in another supported
-currency, but its approved converted `amount` is saved in the group currency. Balances, register
+currency, but its approved converted `amount` is saved in the group currency. Balances, report
 totals and pivot shares use that saved amount. Exporting never fetches a new rate, reloads a quote,
 or recalculates an old expense at today's rate. Different expenses in the same original currency
 may retain different approved historical rates.
@@ -65,10 +65,10 @@ For example, `10 * 0.1499999999999999999999999999999999` rounds to `1`, and the 
 rounds to `-1`. Rates that cannot be represented by BSON Decimal128 return a validation/provider
 error instead of an internal storage exception.
 
-When exchange evidence is needed, Transactions and Expense Register display the original amount,
+When exchange evidence is needed, Transactions displays the original amount,
 original currency and stored rate, with provider, mode, requested date and effective date in
 expandable detail columns. Rate headings specify the direction, for
-example `Stored rate (INR per original unit)`. The register states which currency its totals use.
+example `Stored rate (INR per original unit)`. Monetary headings state the group currency.
 Missing original currency with conversion evidence displays `Not recorded`; it is not reconstructed
 from the group currency. Legacy records without any FX evidence retain the group-currency fallback.
 
@@ -106,8 +106,8 @@ quote hook, conversion panel, currency picker, offline conversion and expense pa
 reconciled included allocations, before preparing the Excel-only display copy:
 
 - `single_currency`: every included original currency matches the group currency and its saved
-  conversion is an identity conversion. Exchange columns are omitted from both worksheets, their
-  named tables and the pivot cache. Legacy group-currency expenses and empty groups use this layout.
+  conversion is an identity conversion. Exchange columns are omitted from Transactions, its named
+  table and the pivot cache. Legacy group-currency expenses and empty groups use this layout.
 - `multi_currency`: any original currency differs from the group currency, or historical evidence
   is unknown/inconsistent. This includes a group containing expenses in just one foreign source
   currency. Original amount, original currency and saved rate are visible by default. Additional
@@ -115,13 +115,13 @@ reconciled included allocations, before preparing the Excel-only display copy:
 
 Both layouts use the same reconciled financial model and worksheet builders. Shared helpers define
 exchange headings, values, widths and number formats. Selection performs no database/provider
-access and does not revalue expenses. All five sheets, public download URLs, signed whole-unit
-amounts and existing scope labels are retained. Workbook subject metadata records format 5 and
+access and does not revalue expenses. All four sheets, public download URLs, signed whole-unit
+amounts and existing scope labels are retained. Workbook subject metadata records format 6 and
 the selected layout.
 
-Transactions has 12 source columns for the compact layout or 20 for the detailed layout. Expense
-Register has 9 or 17 respectively. Expense ID remains available in expandable column L or I in both
-layouts. The native pivot/cache derives its width from the selected Transactions headers and rows;
+Transactions has 12 source columns for the compact layout or 20 for the detailed layout.
+Expense ID remains available in expandable column L in both layouts. The native pivot/cache
+derives its width from the selected Transactions headers and rows;
 its account/person/category/amount/filter field positions remain stable. Print areas include the
 visible original amount/currency/rate columns in the detailed layout. A later export switches back
 to compact automatically when the last included foreign expense is removed.
@@ -153,8 +153,8 @@ warning. Python compilation and `git diff --check` also passed.
 
 ## Excel implementation
 
-`services/report_xlsx.py` writes five tabs: Summary, Members & Families, Expense Register,
-Transactions and Payments. The presentation omits adjustment columns, reconciliation commentary, payment notes and
+`services/report_xlsx.py` writes four tabs: Summary, Members & Families, Transactions and Payments.
+The presentation omits adjustment columns, reconciliation commentary, payment notes and
 the optional Financial Review appendix. Supporting adjustments and correction evidence remain in the
 shared model and source ledger, with unchanged final balances and reconciliation checks. There is no
 Adjustments tab or dangling worksheet hyperlink. `services/report_formatting.py` holds shared
@@ -206,17 +206,33 @@ balance and refund colour rules apply only to the detail rows above it.
 Pivot filters affect only the pivot; headline figures continue to represent the complete export.
 Empty reports show a meaningful message and contain no dummy allocation rows or pivot.
 
-Expense Register contains one row per included expense, with report number, sortable date, category,
-description, entry type, payer, split method and signed amount. The named table `ReportExpenses` supports
-column filters and sorting. Full-export gross, money-back and net totals reconcile to Summary, with
-filter scope stated beside them. Money back is negative in the register; it is shown as a positive
-deduction in the top spending totals. Expense IDs are expandable in column I. In the detailed layout,
-original amount/currency/rate are visible in J:L, with supporting evidence grouped in M:Q. The compact
-layout ends at I and contains no exchange fields. Included zero amounts and distinct records with matching or missing historical IDs are
-retained by report number. Transactions remains the participant-allocation source for the pivot; use
-Expense Register when summing full expense amounts to avoid counting the same expense per participant.
-The register has a forest-green table style, repeated print headers and frozen rows above its data.
-All five worksheet tabs have an explicit brand colour.
+Transactions is the detailed expense table and the participant-allocation source for the pivot.
+Expense share is additive across its rows. Expense total repeats for participating people; group
+by Expense No when checking whole-expense totals. Included zero amounts and distinct records with
+matching or missing historical IDs are retained by report number. Summary retains the full-export
+gross, money-back and net spending measures. There is no Expense Register tab or `ReportExpenses`
+table. All four worksheet tabs have an explicit brand colour.
+
+Every worksheet uses individual, unmerged cells, including titles, metadata values, total labels
+and the pivot scope caption. Titles and wide captions flow across empty cells without merging;
+ordinary table values wrap within their columns. The native pivot explicitly sets `mergeItem=false`
+so Excel does not merge its item labels when rebuilding it. Row heights, numeric totals, repeated
+print headers, freeze panes and native pivot field/cache references remain intact.
+
+### Four-tab, unmerged report verification (8 November 2026)
+
+The updated report/financial regression suite passed **538 tests** with no failures or skips.
+The checks cover both currency layouts, all 26 supported group currencies, saved FX evidence,
+refunds, family splits, duplicate/missing expense IDs, zero rows, balances, payments and effective
+corrections. Expense-level assertions now group Transactions rows by Expense No while separately
+checking the additive Expense share column, preserving the former register's financial coverage.
+
+Reopened workbooks and their worksheet XML contain no merged ranges. The four-tab download
+contract omits Expense Register and its named table. Pivot item merging is disabled, and its cached
+records, field references and totals still match Transactions. Authenticated local INR/AED HTTP
+tests exercise these checks before and after adding/removing foreign expenses. Both sample
+workbooks were rendered and the four remaining tabs were visually reviewed. Compilation and
+`git diff --check` passed. Native desktop Excel interaction remains unverified as noted above.
 
 ## PDF implementation
 

@@ -46,35 +46,30 @@ def assert_export(source, *, exchange, expected_net):
     workbook = load_workbook(io.BytesIO(payload))
     assert source == before
     assert data.net == expected_net == workbook['Summary']['B9'].value
-    assert workbook.sheetnames == ['Summary', 'Members & Families', 'Expense Register', 'Transactions', 'Payments']
+    assert workbook.sheetnames == ['Summary', 'Members & Families', 'Transactions', 'Payments']
     assert workbook.properties.subject.endswith('multi_currency' if exchange else 'single_currency')
-    transactions, register = workbook['Transactions'], workbook['Expense Register']
-    transaction_width, register_width = (20, 17) if exchange else (12, 9)
-    assert (transactions.max_column, register.max_column) == (transaction_width, register_width)
-    assert transactions.freeze_panes == 'A3' and register.freeze_panes == 'A7'
+    assert all(not sheet.merged_cells.ranges for sheet in workbook)
+    assert all('ReportExpenses' not in sheet.tables for sheet in workbook)
+    transactions = workbook['Transactions']
+    transaction_width = 20 if exchange else 12
+    assert transactions.max_column == transaction_width
+    assert transactions.freeze_panes == 'A3'
     assert workbook['Summary'].freeze_panes is None
-    assert transactions.column_dimensions['L'].hidden and register.column_dimensions['I'].hidden
+    assert transactions.column_dimensions['L'].hidden
     assert not any(cell.data_type == 'f' for sheet in workbook for row in sheet for cell in row)
     header = [cell.value for cell in transactions[2]]
-    register_header = [cell.value for cell in register[6]]
     assert ('Original currency' in header) is exchange
-    assert ('Original currency' in register_header) is exchange
     if exchange:
-        assert register['L6'].value == transactions['O2'].value == f'Stored rate ({data.currency} per original unit)'
-        for sheet, columns in ((register, ('J', 'K', 'L')), (transactions, ('M', 'N', 'O'))):
-            assert all(not sheet.column_dimensions[column].hidden for column in columns)
-        assert register.column_dimensions['M'].hidden and transactions.column_dimensions['P'].hidden
-        assert 'M:Q' in register['A5'].value
+        assert transactions['O2'].value == f'Stored rate ({data.currency} per original unit)'
+        assert all(not transactions.column_dimensions[column].hidden for column in ('M', 'N', 'O'))
+        assert transactions.column_dimensions['P'].hidden
     else:
-        assert 'rate' not in register['A5'].value.lower()
         assert not any('Original ' in name or 'rate' in name.lower() for name in header)
         assert max(dimension.max for dimension in transactions.column_dimensions.values()) <= 12
-        assert max(dimension.max for dimension in register.column_dimensions.values()) <= 9
     assert f'${"O" if exchange else "K"}$' in str(transactions.print_area)
-    assert f'${"L" if exchange else "H"}$' in str(register.print_area)
     if not data.allocations:
-        assert not transactions.tables and not register.tables and not workbook['Summary']._pivots
-        assert register['A7'].value == 'No expenses recorded'
+        assert not transactions.tables and not workbook['Summary']._pivots
+        assert transactions['A3'].value == 'No expenses recorded'
         return data, workbook
     row_count = len(data.allocations)
     table = transactions.tables['ReportAllocations']
@@ -82,21 +77,19 @@ def assert_export(source, *, exchange, expected_net):
     assert len(table.tableColumns) == transaction_width
     assert table.autoFilter.ref == table.ref
     rows = list(transactions.iter_rows(min_row=3, max_row=row_count + 2, values_only=True))
-    expected_rows = len({row.number for row in data.allocations})
-    register_table = register.tables['ReportExpenses']
-    assert range_boundaries(register_table.ref) == (1, 6, register_width, expected_rows + 6)
-    assert len(register_table.tableColumns) == register_width
-    assert register_table.autoFilter.ref == register_table.ref
-    register_rows = list(register.iter_rows(min_row=7, max_row=expected_rows + 6, values_only=True))
-    assert sum(row[7] for row in register_rows) == sum(row[10] for row in rows) == expected_net
-    assert sum(row[7] for row in register_rows if row[7] > 0) == data.gross
-    assert -sum(row[7] for row in register_rows if row[7] < 0) == data.money_back
+    expenses = {}
+    for row in rows:
+        expenses.setdefault(row[0], row)
+    assert sum(row[9] for row in expenses.values()) == sum(row[10] for row in rows) == expected_net
+    assert sum(row[9] for row in expenses.values() if row[9] > 0) == data.gross
+    assert -sum(row[9] for row in expenses.values() if row[9] < 0) == data.money_back
     pivot = workbook['Summary']._pivots[0]
     assert [field.name for field in pivot.cache.cacheFields] == header
     assert len(pivot.pivotFields) == transaction_width
     assert pivot.cache.recordCount == len(rows)
     assert pivot.cache.cacheSource.worksheetSource.name == 'ReportAllocations'
     assert pivot.cache.enableRefresh and not pivot.cache.refreshOnLoad
+    assert not pivot.mergeItem
     totals = defaultdict(int)
     for record, row in zip(pivot.cache.records.r, rows, strict=True):
         assert len(record._fields) == transaction_width
@@ -115,7 +108,9 @@ def assert_export(source, *, exchange, expected_net):
         assert int(cache.find('s:cacheFields', NS).get('count')) == transaction_width
         for name in archive.namelist():
             if name.endswith(('.xml', '.rels')):
-                ET.fromstring(archive.read(name))
+                root = ET.fromstring(archive.read(name))
+                if name.startswith('xl/worksheets/'):
+                    assert root.find('s:mergeCells', NS) is None
     return data, workbook
 
 
@@ -174,9 +169,9 @@ def test_both_layouts_preserve_family_splits_refunds_and_literal_text(exchange, 
     data, workbook = assert_export(snapshot(expenses=[expense(amount=100 * sign, **fields)]),
                                    exchange=exchange, expected_net=100 * sign)
     assert sum(row.share for row in data.allocations) == 100 * sign
-    assert workbook['Expense Register']['D7'].data_type == 's'
-    assert '\x00' not in workbook['Expense Register']['D7'].value
-    assert workbook['Expense Register'].row_dimensions[7].height <= 409.5
+    assert workbook['Transactions']['D3'].data_type == 's'
+    assert '\x00' not in workbook['Transactions']['D3'].value
+    assert workbook['Transactions'].row_dimensions[3].height <= 409.5
 
 
 @pytest.mark.parametrize('members', [[], MEMBERS])
@@ -189,7 +184,9 @@ def test_included_zero_rows_and_duplicate_ids_do_not_disappear(exchange):
     fields = {'original_currency': 'USD', 'original_amount': 0, 'exchange_rate': '2'} if exchange else {}
     source = snapshot(expenses=[expense('same', 0, **fields), expense('same', 0, **fields)])
     _, workbook = assert_export(source, exchange=exchange, expected_net=0)
-    assert workbook['Expense Register']['I7'].value == workbook['Expense Register']['I8'].value == 'same'
+    rows = list(workbook['Transactions'].iter_rows(min_row=3, max_row=8, values_only=True))
+    assert {row[11] for row in rows} == {'same'}
+    assert {row[0] for row in rows} == {1, 2}
 
 
 def test_repeated_exports_switch_layouts_without_leaking_previous_columns_or_cache():
@@ -220,9 +217,9 @@ def test_visible_original_amounts_preserve_historical_decimals_and_format_whole_
     source = snapshot(expenses=[expense('old', original_currency='USD', original_amount=100.25, exchange_rate='1'),
                                 expense('whole', original_currency='USD', original_amount=100, exchange_rate='1')])
     _, workbook = assert_export(source, exchange=True, expected_net=200)
-    register = workbook['Expense Register']
-    assert register['J7'].value == 100.25 and register['J7'].number_format == '#,##0.###############'
-    assert register['J8'].value == 100 and register['J8'].number_format == '#,##0'
+    transactions = workbook['Transactions']
+    assert transactions['M3'].value == 100.25 and transactions['M3'].number_format == '#,##0.###############'
+    assert transactions['M6'].value == 100 and transactions['M6'].number_format == '#,##0'
 
 
 @pytest.mark.parametrize('exchange', [False, True])

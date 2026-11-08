@@ -96,7 +96,7 @@ def test_download_loads_each_source_once_and_preserves_public_contract(monkeypat
     assert 'status' in fake.settlements.find.call_args.args[0]
     if kind == 'xlsx':
         wb = load_workbook(io.BytesIO(content))
-        assert wb.sheetnames == ['Summary', 'Members & Families', 'Expense Register', 'Transactions', 'Payments']
+        assert wb.sheetnames == ['Summary', 'Members & Families', 'Transactions', 'Payments']
         assert wb['Summary']['B9'].value == build_report_data(source).net
     else:
         assert content.startswith(b'%PDF')
@@ -222,7 +222,7 @@ def test_versioned_exports_reuse_effective_ledger_without_review_notes(monkeypat
         collection.find.assert_not_called()
     if kind == "xlsx":
         workbook = load_workbook(io.BytesIO(content))
-        assert workbook.sheetnames == ['Summary', 'Members & Families', 'Expense Register', 'Transactions', 'Payments']
+        assert workbook.sheetnames == ['Summary', 'Members & Families', 'Transactions', 'Payments']
         assert workbook['Summary']['B9'].value == build_report_data(source).net
         assert explanation not in [cell.value for sheet in workbook for row in sheet for cell in row]
     else:

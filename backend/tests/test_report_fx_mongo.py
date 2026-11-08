@@ -118,7 +118,8 @@ def test_saved_mixed_currency_expenses_and_reports_keep_locked_rates(currency, r
                     compact = http.get(url + '/report.xlsx', params={'token': token}, timeout=15)
                     assert compact.status_code == 200, compact.text
                     compact_workbook = load_workbook(io.BytesIO(compact.content))
-                    assert compact_workbook['Expense Register'].max_column == 9
+                    assert 'Expense Register' not in compact_workbook.sheetnames
+                    assert all(not sheet.merged_cells.ranges for sheet in compact_workbook)
                     assert compact_workbook['Transactions'].max_column == 12
                     assert compact_workbook['Summary']['B9'].value == 50
                     assert len(compact_workbook['Summary']._pivots[0].cache.cacheFields) == 12
@@ -140,13 +141,15 @@ def test_saved_mixed_currency_expenses_and_reports_keep_locked_rates(currency, r
                 assert report.status_code == 200, report.text
                 workbook = load_workbook(io.BytesIO(report.content))
                 assert workbook['Summary']['B9'].value == expected_net
-                register = {row[8]: row for row in workbook['Expense Register'].iter_rows(
-                    min_row=7, max_row=10, values_only=True)}
-                assert register[created[1]['id']][11] == rate
-                assert sum(row[7] for row in register.values()) == expected_net
-                assert workbook['Expense Register'].max_column == 17
+                transaction_sheet = workbook['Transactions']
+                allocations = list(transaction_sheet.iter_rows(
+                    min_row=3, max_row=transaction_sheet.max_row - 1, values_only=True))
+                expenses = {row[11]: row for row in allocations}
+                assert expenses[created[1]['id']][14] == rate
+                assert sum(row[9] for row in expenses.values()) == sum(row[10] for row in allocations) == expected_net
+                assert 'Expense Register' not in workbook.sheetnames
+                assert all(not sheet.merged_cells.ranges for sheet in workbook)
                 assert workbook['Transactions'].max_column == 20
-                assert not workbook['Expense Register'].column_dimensions['J'].hidden
                 assert not workbook['Transactions'].column_dimensions['M'].hidden
             pdf = http.get(url + '/report.pdf', params={'token': token}, timeout=15)
             assert pdf.status_code == 200 and pdf.content.startswith(b'%PDF')
@@ -160,7 +163,8 @@ def test_saved_mixed_currency_expenses_and_reports_keep_locked_rates(currency, r
             compact = http.get(url + '/report.xlsx', params={'token': token}, timeout=15)
             assert compact.status_code == 200, compact.text
             compact_workbook = load_workbook(io.BytesIO(compact.content))
-            assert compact_workbook['Expense Register'].max_column == 9
+            assert 'Expense Register' not in compact_workbook.sheetnames
+            assert all(not sheet.merged_cells.ranges for sheet in compact_workbook)
             assert compact_workbook['Transactions'].max_column == 12
             assert compact_workbook['Summary']['B9'].value == 50
             assert len(compact_workbook['Summary']._pivots[0].cache.cacheFields) == 12

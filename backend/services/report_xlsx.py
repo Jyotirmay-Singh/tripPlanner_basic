@@ -14,7 +14,6 @@ from openpyxl.pivot.table import ConditionalFormat, ConditionalFormatList, Pivot
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.styles.differential import DifferentialStyle
 from openpyxl.styles.numbers import NumberFormat
-from openpyxl.styles.table import TableStyle, TableStyleElement
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import get_column_letter, column_index_from_string
 
@@ -118,11 +117,11 @@ def _total(sheet, row, columns, start_column=1, fill="EAF0EE"):
         cell.border = Border(top=Side(style="thin", color=BRAND))
 
 
-def _title(sheet, title, columns):
-    sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=columns)
+def _title(sheet, title):
     cell = text_cell(sheet, 1, 1, title)
     cell.font = Font(name="Calibri", size=16, bold=True, color=BRAND)
-    cell.alignment = Alignment(wrap_text=True, vertical="center")
+    cell.alignment = Alignment(wrap_text=False, vertical="center")
+    sheet.row_dimensions[1].height = 26
 
 
 def _widths(sheet, widths):
@@ -176,8 +175,6 @@ def finalize_layout(sheet, money_columns=()):
     for row in sheet:
         height = max(16, sheet.row_dimensions[row[0].row].height or 0)
         for cell in row:
-            if cell.__class__.__name__ == "MergedCell":
-                continue
             if cell.font.name is None:
                 cell.font = Font(name="Calibri", size=11, color="121A18")
             if cell.column in money_columns and isinstance(cell.value, (int, float)):
@@ -185,9 +182,7 @@ def finalize_layout(sheet, money_columns=()):
                 dim = sheet.column_dimensions[cell.column_letter]
                 dim.width = max(dim.width or 13, width)
             if isinstance(cell.value, str) and cell.alignment.wrap_text and cell.column not in hidden_columns:
-                span = next((span for span in sheet.merged_cells.ranges if cell.coordinate in span), None)
-                columns = range(span.min_col, span.max_col + 1) if span else (cell.column,)
-                width = max(8, int(sum(sheet.column_dimensions[get_column_letter(col)].width or 13 for col in columns)) - 2)
+                width = max(8, int(sheet.column_dimensions[cell.column_letter].width or 13) - 2)
                 lines = sum(max(1, len(wrap(line, width=width))) for line in cell.value.splitlines() or [""])
                 height = max(height, (cell.font.sz or 11) * 1.35 * lines + 2)
         sheet.row_dimensions[row[0].row].height = min(height, 409.5)
@@ -235,7 +230,7 @@ def _transactions(workbook, data, report_type: ExcelReportType):
                "Expense ID"]
     if include_exchange:
         headers.extend(_exchange_headers(data.currency))
-    _title(sheet, "Transactions", visible_last_column)
+    _title(sheet, "Transactions")
     _row(sheet, 2, headers)
     header_row(sheet, 2, len(headers))
     source_rows = []
@@ -259,7 +254,7 @@ def _transactions(workbook, data, report_type: ExcelReportType):
     _table(sheet, "ReportAllocations", 2, last, len(headers))
     if source_rows:
         _row(sheet, last + 1, ["Net expense shares", None, None, None, None, None, None, None, None, None, data.net])
-        sheet.merge_cells(start_row=last + 1, start_column=1, end_row=last + 1, end_column=10)
+        sheet.cell(last + 1, 1).alignment = Alignment(wrap_text=False, vertical="center")
         _total(sheet, last + 1, 11)
         sheet.conditional_formatting.add(f"K3:K{last}", CellIsRule(operator="lessThan", formula=["0"], font=Font(color=RECEIVE)))
         _number_rules(sheet, f"J3:K{last + 1}", "J3")
@@ -277,96 +272,6 @@ def _transactions(workbook, data, report_type: ExcelReportType):
     return headers, source_rows
 
 
-def _expense_register(workbook, data, report_type: ExcelReportType):
-    """One reconciled expense per row, independent of the number of participants."""
-    sheet = workbook.create_sheet("Expense Register")
-    include_exchange = report_type.includes_exchange_details
-    visible_last_column = 12 if include_exchange else 8
-    symbol = currency_symbol(data.currency)
-    _title(sheet, "Expense Register", visible_last_column)
-    detail_hint = ("Expand columns M:Q for rate dates, provider and allocation details."
-                   if include_exchange else "Expand column I for expense IDs.")
-    for row, caption in (
-        (2, "One row per expense. Filter scope: register rows only; totals show the full export."),
-        (5, f"Totals use {data.currency}; money back is negative. {detail_hint}"),
-    ):
-        sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=visible_last_column)
-        cell = text_cell(sheet, row, 1, caption)
-        cell.font = Font(name="Calibri", size=11, color=NEUTRAL)
-        cell.alignment = Alignment(wrap_text=True, vertical="center")
-    for start, end, label, amount in (
-        (1, 3, "Gross spending", data.gross),
-        (4, 5, "Money back", data.money_back),
-        (6, 8, "Net spending", data.net),
-    ):
-        for row, value in ((3, f"{label} ({symbol})"), (4, amount)):
-            sheet.merge_cells(start_row=row, start_column=start, end_row=row, end_column=end)
-            cell = text_cell(sheet, row, start, value)
-            cell.fill = PatternFill("solid", fgColor="EAF0EE")
-            cell.font = Font(name="Calibri", size=14 if row == 4 else 11, bold=True,
-                             color=RECEIVE if label == "Money back" else BRAND)
-            cell.alignment = Alignment(vertical="center", horizontal="right" if row == 4 else "left")
-            if row == 4:
-                money_cell(cell)
-    sheet.row_dimensions[4].height = 24
-    headers = ["Expense No", "Date (IST)", "Category", "Description", "Entry type", "Paid by",
-               "Split method", f"Amount ({symbol})", "Expense ID"]
-    if include_exchange:
-        headers.extend(_exchange_headers(data.currency))
-    _row(sheet, 6, headers)
-    header_row(sheet, 6, len(headers))
-    # Report numbers identify included records even when historical IDs are absent or duplicated.
-    expenses = {}
-    for allocation in data.allocations:
-        expenses.setdefault(allocation.number, allocation)
-    for row, expense in enumerate(expenses.values(), 7):
-        values = [expense.number, expense.occurred_at or expense.date_source or "Not recorded",
-                  expense.category, expense.description, expense.entry_type, expense.payer,
-                  expense.split_method, expense.expense_amount, expense.expense_id]
-        if include_exchange:
-            values.extend(_exchange_values(expense))
-        _row(sheet, row, values)
-        sheet.cell(row, 1).number_format = "0"
-        if expense.occurred_at and not expense.time_recorded:
-            sheet.cell(row, 2).number_format = "dd mmm yyyy"
-        if include_exchange:
-            _format_exchange_cells(sheet, row, 10)
-        sheet.cell(row, 8).font = Font(name="Calibri", size=11, bold=True, color=BRAND)
-    last = 6 + len(expenses)
-    if expenses:
-        elements = []
-        for kind, fill, color, bold in (
-            ("wholeTable", "FFFFFF", "121A18", False),
-            ("headerRow", BRAND, "FFFFFF", True),
-            ("firstRowStripe", "F4F7F6", "121A18", False),
-            ("secondRowStripe", "FFFFFF", "121A18", False),
-        ):
-            style = DifferentialStyle(font=Font(name="Calibri", size=11, color=color, bold=bold),
-                                      fill=PatternFill("solid", fgColor=fill))
-            elements.append(TableStyleElement(type=kind, dxfId=workbook._differential_styles.add(style),
-                                              size=1 if "Stripe" in kind else None))
-        workbook._table_styles.tableStyle.append(TableStyle(name="ReportExpensesForest", pivot=False,
-                                                            table=True, tableStyleElement=elements))
-    _table(sheet, "ReportExpenses", 6, last, len(headers), style="ReportExpensesForest")
-    if expenses:
-        _row(sheet, last + 1, ["Net spending (full export)", None, None, None, None, None, None, data.net])
-        sheet.merge_cells(start_row=last + 1, start_column=1, end_row=last + 1, end_column=7)
-        _total(sheet, last + 1, 8)
-        sheet.conditional_formatting.add(f"H7:H{last}", CellIsRule(operator="lessThan", formula=["0"], font=Font(color=RECEIVE)))
-    else:
-        text_cell(sheet, 7, 1, "No expenses recorded")
-    widths = [10, 24, 19, 40, 15, 24, 17, 19, 25]
-    if include_exchange:
-        widths.extend(_EXCHANGE_WIDTHS)
-    _widths(sheet, widths)
-    sheet.column_dimensions.group("I", "I", hidden=True)
-    if include_exchange:
-        sheet.column_dimensions.group("M", "Q", hidden=True)
-    sheet.freeze_panes = "A7"
-    sheet.print_title_rows = "1:6"
-    sheet.print_area = f"A1:{get_column_letter(visible_last_column)}{max(last + 1, 7)}"
-
-
 def _summary(workbook, data, headers, source_rows):
     sheet = workbook["Summary"]
     meta = data.metadata
@@ -376,7 +281,7 @@ def _summary(workbook, data, headers, source_rows):
     for col, category in enumerate(data.categories, 3):
         sheet.column_dimensions[get_column_letter(col)].width = min(24, max(13, max(map(len, category.split())) + 2))
     sheet.column_dimensions['D'].width = max(24, sheet.column_dimensions['D'].width)
-    _title(sheet, meta.trip_name, columns)
+    _title(sheet, meta.trip_name)
     metadata = [("Trip dates", meta.trip_dates), ("Included expense dates", meta.expense_dates),
                 ("Included settlement dates", meta.settlement_dates),
                 (f"Budget ({symbol})", meta.budget if meta.budget is not None else "Not set")]
@@ -384,8 +289,6 @@ def _summary(workbook, data, headers, source_rows):
         cell = text_cell(sheet, row, 1, label)
         cell.font = Font(name="Calibri", size=11, bold=True, color=BRAND)
         cell.alignment = Alignment(vertical="center", wrap_text=True)
-        if not isinstance(value, (int, float)):
-            sheet.merge_cells(start_row=row, start_column=2, end_row=row, end_column=3)
         cell = text_cell(sheet, row, 2, value)
         cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
         if isinstance(value, datetime):
@@ -443,7 +346,7 @@ def _members(workbook, data):
     headers = ["Name", f"Expense share ({symbol})", f"Net funded ({symbol})", f"Before settlements ({symbol})",
                f"Settlements paid ({symbol})", f"Settlements received ({symbol})"]
     headers += [f"Balance now ({symbol})", "Action"]
-    _title(sheet, "Members & Families", len(headers))
+    _title(sheet, "Members & Families")
     _row(sheet, 2, headers)
     header_row(sheet, 2, len(headers))
     positions = defaultdict(list)
@@ -486,7 +389,7 @@ def _members(workbook, data):
 def _payments(workbook, data):
     sheet = workbook.create_sheet("Payments")
     sheet.freeze_panes = "A3"
-    _title(sheet, "Payments", 6)
+    _title(sheet, "Payments")
     headers = ["Suggested payer", "Suggested receiver", f"Amount ({currency_symbol(data.currency)})", "Status"]
     _row(sheet, 2, headers)
     header_row(sheet, 2, 4)
@@ -531,14 +434,13 @@ def build_report_workbook(data: ReportData):
     workbook = Workbook()
     workbook.active.title = "Summary"
     workbook.properties.title = data.metadata.trip_name + " - Report"
-    workbook.properties.subject = f"Trip report; report format 5; {report_type.value}"
+    workbook.properties.subject = f"Trip report; report format 6; {report_type.value}"
     workbook.properties.creator = "Splitora"
     headers, source_rows = _transactions(workbook, data, report_type)
     _summary(workbook, data, headers, source_rows)
     _members(workbook, data)
-    _expense_register(workbook, data, report_type)
     _payments(workbook, data)
-    workbook._sheets.sort(key=lambda sheet: ["Summary", "Members & Families", "Expense Register", "Transactions", "Payments"].index(sheet.title))
+    workbook._sheets.sort(key=lambda sheet: ["Summary", "Members & Families", "Transactions", "Payments"].index(sheet.title))
     for sheet in workbook:
         sheet.sheet_properties.tabColor = BRAND
         finalize_layout(sheet, tuple(range(2, 12)))

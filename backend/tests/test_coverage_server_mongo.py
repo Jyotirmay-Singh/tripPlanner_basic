@@ -121,7 +121,7 @@ def test_actual_server_startup_snapshot_reads_and_existing_reports(legacy_quote_
                 assert report.status_code == 200 and len(report.content) > 100
                 if suffix == "xlsx":
                     workbook = load_workbook(io.BytesIO(report.content))
-                    assert workbook.sheetnames == ["Summary", "Members & Families", "Expense Register", "Transactions", "Payments"]
+                    assert workbook.sheetnames == ["Summary", "Members & Families", "Transactions", "Payments"]
                     assert workbook["Summary"]._pivots[0].cache.cacheSource.worksheetSource.name == "ReportAllocations"
                     headers = {cell.value for cell in workbook["Transactions"][2]}
                     assert "Expense share (₹)" in headers

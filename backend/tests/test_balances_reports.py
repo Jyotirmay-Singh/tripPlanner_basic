@@ -241,7 +241,7 @@ class TestReports:
         assert response.content[:2] == b'PK'
 
         wb = load_workbook(io.BytesIO(response.content))
-        assert wb.sheetnames == ["Summary", "Members & Families", "Expense Register", "Transactions", "Payments"]
+        assert wb.sheetnames == ["Summary", "Members & Families", "Transactions", "Payments"]
         summary = wb["Summary"]
         assert (summary["B7"].value, summary["B8"].value, summary["B9"].value) == (270, 20, 250)
         assert len(summary._pivots) == 1 and not summary._charts

@@ -142,10 +142,10 @@ def add_allocation_pivot(workbook, sheet, source_headers, source_rows, data, sta
         people.sort(key=lambda key: item_positions[person_col][shared[person_col].index(labels[key][1])])
     last_col = 3 + len(categories)
     scope_row = start_row - 4
-    sheet.merge_cells(start_row=scope_row, start_column=1, end_row=scope_row, end_column=max(7, last_col))
     scope = _text(sheet, scope_row, 1,
                   "Filter scope: pivot only. Headline figures and other sheets show the full export.")
     scope.font = Font(name="Calibri", size=11, color=NEUTRAL)
+    scope.alignment = Alignment(wrap_text=False, vertical="center")
     # These are the native page-filter cells, not separate worksheet dropdowns.
     # Match both the initial cells and the pivot style used when Excel rebuilds them.
     for row, field in ((start_row - 3, date_col), (start_row - 2, type_col)):
@@ -209,7 +209,7 @@ def add_allocation_pivot(workbook, sheet, source_headers, source_rows, data, sta
         rowItems=row_items, colFields=[RowColField(x=category_col)], colItems=column_items,
         pageFields=[PageField(fld=date_col, hier=-1), PageField(fld=type_col, hier=-1)],
         dataFields=[DataField(name=measure_caption, fld=amount_col, numFmtId=numeric_format_id)],
-        rowGrandTotals=True, colGrandTotals=True, compact=False, compactData=False, outline=False,
+        rowGrandTotals=True, colGrandTotals=True, mergeItem=False, compact=False, compactData=False, outline=False,
         outlineData=False, gridDropZones=False, showHeaders=True, showDrill=True, enableDrill=True,
         preserveFormatting=True, useAutoFormatting=False, applyNumberFormats=True,
         pageOverThenDown=False, pageWrap=0,

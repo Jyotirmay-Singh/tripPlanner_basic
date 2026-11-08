@@ -104,16 +104,15 @@ def test_mixed_currency_quotes_flow_into_reconciled_reports_without_reconversion
     expected_gross, expected_net = 50 + usd_total + jpy_total, 50 + usd_total + refund_total + jpy_total
     assert (data.gross, data.money_back, data.net) == (expected_gross, -refund_total, expected_net)
     assert workbook['Summary']['B9'].value == expected_net
-    register = workbook['Expense Register']
-    rows = list(register.iter_rows(min_row=7, max_row=10, values_only=True))
-    assert [row[7] for row in rows] == [50, usd_total, refund_total, jpy_total]
-    assert sum(row[7] for row in rows) == expected_net
-    usd = next(row for row in rows if row[8] == 'expense-2')
-    assert usd[9:12] == (100, 'USD', usd_rate)
-    assert usd[12].date() == date(2026, 8, 28)
-    assert usd[16].date() == date(2026, 8, 30)
-    assert currency in register['L6'].value and 'per' in register['L6'].value
     allocations = list(workbook['Transactions'].iter_rows(min_row=3, max_row=2 + len(data.allocations), values_only=True))
+    rows = {row[11]: row for row in allocations}
+    assert [rows[f'expense-{number}'][9] for number in range(1, 5)] == [50, usd_total, refund_total, jpy_total]
+    assert sum(row[9] for row in rows.values()) == expected_net
+    usd = rows['expense-2']
+    assert usd[12:15] == (100, 'USD', usd_rate)
+    assert usd[15].date() == date(2026, 8, 28)
+    assert usd[19].date() == date(2026, 8, 30)
+    assert currency in workbook['Transactions']['O2'].value and 'per' in workbook['Transactions']['O2'].value
     assert sum(row[10] for row in allocations) == expected_net
     pivot = workbook['Summary']._pivots[0]
     assert sum(pivot.cache.cacheFields[10].sharedItems._fields[row._fields[10].v].v
@@ -196,10 +195,11 @@ def test_each_expense_keeps_its_own_historical_rate_within_the_same_currency(mon
         {'id': 'historical', 'name': 'Historical rates', 'currency': 'INR', 'members': MEMBERS,
          'simplify_debts': simplify}, expenses))
     workbook = load_workbook(io.BytesIO(build_report_xlsx(data)))
-    rows = {row[8]: row for row in workbook['Expense Register'].iter_rows(min_row=7, max_row=10, values_only=True)}
+    rows = {row[11]: row for row in workbook['Transactions'].iter_rows(
+        min_row=3, max_row=2 + len(data.allocations), values_only=True)}
     for key, canonical, original, currency, rate, _ in specifications:
-        assert rows[key][7] == canonical
-        assert rows[key][9:12] == (original, currency, rate)
+        assert rows[key][9] == canonical
+        assert rows[key][12:15] == (original, currency, rate)
     assert (data.gross, data.money_back, data.net) == (25470, 820, 24650)
     assert workbook['Summary']['B9'].value == 24650
     provider.assert_not_awaited()

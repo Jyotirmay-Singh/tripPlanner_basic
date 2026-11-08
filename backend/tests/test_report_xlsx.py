@@ -26,7 +26,9 @@ def exported(source=None):
 
 def test_native_pivot_cache_and_saved_totals_match_allocation_source():
     data, workbook, payload = exported()
-    assert workbook.sheetnames == ['Summary', 'Members & Families', 'Expense Register', 'Transactions', 'Payments']
+    assert workbook.sheetnames == ['Summary', 'Members & Families', 'Transactions', 'Payments']
+    assert all(not sheet.merged_cells.ranges for sheet in workbook)
+    assert all('ReportExpenses' not in sheet.tables for sheet in workbook)
     transactions = workbook['Transactions']
     assert transactions.tables['ReportAllocations'].ref == f'A2:T{2 + len(data.allocations)}'
     pivot = workbook['Summary']._pivots[0]
@@ -65,7 +67,9 @@ def test_native_pivot_cache_and_saved_totals_match_allocation_source():
         # Every produced XML part remains well formed.
         for name in names:
             if name.endswith('.xml') or name.endswith('.rels'):
-                ET.fromstring(archive.read(name))
+                root = ET.fromstring(archive.read(name))
+                if name.startswith('xl/worksheets/'):
+                    assert root.find('{http://schemas.openxmlformats.org/spreadsheetml/2006/main}mergeCells') is None
 
 
 def test_new_export_includes_new_rows_in_named_source_and_cache():
@@ -207,15 +211,15 @@ def test_numeric_indian_masks_and_long_labels_fit_without_converting_money_to_te
     assert sheet.column_dimensions['B'].width >= len(indian_number(cell.value)) + 3
 
 
-def test_empty_report_has_five_tabs_no_dummy_pivot_source_and_no_chart():
+def test_empty_report_has_four_unmerged_tabs_no_dummy_pivot_source_and_no_chart():
     source = ReportSnapshot({'id': 'empty', 'name': 'Empty', 'members': [], 'currency': 'INR'})
     _, workbook, _ = exported(source)
-    assert workbook.sheetnames == ['Summary', 'Members & Families', 'Expense Register', 'Transactions', 'Payments']
+    assert workbook.sheetnames == ['Summary', 'Members & Families', 'Transactions', 'Payments']
     assert not workbook['Summary']._pivots and not workbook['Summary']._charts
     assert not workbook['Transactions'].tables
-    assert not workbook['Expense Register'].tables
-    assert workbook['Expense Register']['A7'].value == 'No expenses recorded'
-    assert [workbook['Expense Register'][cell].value for cell in ('A4', 'D4', 'F4')] == [0, 0, 0]
+    assert workbook['Transactions']['A3'].value == 'No expenses recorded'
+    assert all(not sheet.merged_cells.ranges for sheet in workbook)
+    assert [workbook['Summary'][cell].value for cell in ('B7', 'B8', 'B9')] == [0, 0, 0]
     assert any(row[0] == 'No expenses recorded' for row in workbook['Summary'].values)
 
 
@@ -265,9 +269,8 @@ def test_report_is_compact_and_omits_adjustments_and_notes():
     for account in data.accounts:
         saved = next(row for row in balances.values if row[0] == account.name)
         assert saved[1] == account.share and saved[6] == account.balance
-    assert workbook.sheetnames == ['Summary', 'Members & Families', 'Expense Register', 'Transactions', 'Payments']
-    frozen_headers = {'Summary': None, 'Members & Families': 'A3',
-                      'Expense Register': 'A7', 'Transactions': 'A3', 'Payments': 'A3'}
+    assert workbook.sheetnames == ['Summary', 'Members & Families', 'Transactions', 'Payments']
+    frozen_headers = {'Summary': None, 'Members & Families': 'A3', 'Transactions': 'A3', 'Payments': 'A3'}
     for sheet in workbook:
         assert sheet.freeze_panes == frozen_headers[sheet.title]
         if sheet.title == 'Summary':
@@ -299,7 +302,6 @@ def test_each_financial_section_uses_the_trip_currency(currency, symbol):
                                          'Settlements paid', 'Settlements received', 'Balance now']]
     assert workbook['Transactions']['J2'].value == f'Expense total ({symbol})'
     assert workbook['Transactions']['K2'].value == f'Expense share ({symbol})'
-    assert workbook['Expense Register']['H6'].value == f'Amount ({symbol})'
     assert workbook['Payments']['C2'].value == f'Amount ({symbol})'
     assert sum(a.share for a in data.allocations) == summary['B9'].value
     assert not any('₹' in str(c.value) or 'INR' in str(c.value)
@@ -356,6 +358,7 @@ def test_native_page_filters_and_refresh_formats_match_the_saved_cells():
     assert pivot.preserveFormatting and not pivot.useAutoFormatting
     assert not pivot.cache.invalid and not pivot.cache.backgroundQuery
     assert pivot.showHeaders and not pivot.compact and not pivot.outline
+    assert not pivot.mergeItem
     assert (pivot.location.rowPageCount, pivot.location.colPageCount) == (2, 1)
     scope = summary.cell(first - 4, 1)
     assert scope.value == 'Filter scope: pivot only. Headline figures and other sheets show the full export.'
@@ -409,29 +412,31 @@ def test_filter_scope_and_page_fields_do_not_overlap_a_large_funding_table():
     assert summary.cell(4 + len(data.accounts), 4).value == 'Total'
 
 
-def test_expense_register_counts_each_record_once_and_reconciles_all_signed_totals():
+def test_transactions_retain_each_expense_and_reconcile_all_signed_totals():
     data, workbook, _ = exported()
-    sheet = workbook['Expense Register']
-    rows = list(sheet.iter_rows(min_row=7, max_row=6 + len(data.snapshot.expenses), values_only=True))
-    assert len(rows) < len(data.allocations)
+    sheet = workbook['Transactions']
+    allocations = list(sheet.iter_rows(min_row=3, max_row=2 + len(data.allocations), values_only=True))
+    expenses = {}
+    for row in allocations:
+        expenses.setdefault(row[0], row)
+    rows = list(expenses.values())
+    assert len(rows) < len(allocations)
     assert len({row[0] for row in rows}) == len(data.snapshot.expenses)
-    assert {row[8] for row in rows} == {expense['id'] for expense in data.snapshot.expenses}
-    assert sum(row[7] for row in rows if row[7] > 0) == data.gross
-    assert -sum(row[7] for row in rows if row[7] < 0) == data.money_back
-    assert sum(row[7] for row in rows) == data.net == workbook['Summary']['B9'].value
-    assert [sheet[cell].value for cell in ('A4', 'D4', 'F4')] == [data.gross, data.money_back, data.net]
-    assert sheet.tables['ReportExpenses'].ref == f'A6:Q{6 + len(rows)}'
-    assert sheet.tables['ReportExpenses'].autoFilter.ref == sheet.tables['ReportExpenses'].ref
-    fx = next(row for row in rows if row[8] == 'e07')
-    assert fx[9:13] == (100, 'USD', '82.000000000000', datetime(2026, 10, 2))
-    assert fx[14] == 'manual'
-    assert sheet.column_dimensions['I'].hidden
-    assert sheet.freeze_panes == 'A7'
-    assert 'totals show the full export' in sheet['A2'].value
-    assert sheet.cell(7 + len(rows), 8).value == data.net
+    assert {row[11] for row in rows} == {expense['id'] for expense in data.snapshot.expenses}
+    assert sum(row[9] for row in rows if row[9] > 0) == data.gross
+    assert -sum(row[9] for row in rows if row[9] < 0) == data.money_back
+    assert sum(row[9] for row in rows) == sum(row[10] for row in allocations) == data.net == workbook['Summary']['B9'].value
+    assert sheet.tables['ReportAllocations'].ref == f'A2:T{2 + len(allocations)}'
+    assert sheet.tables['ReportAllocations'].autoFilter.ref == sheet.tables['ReportAllocations'].ref
+    fx = next(row for row in rows if row[11] == 'e07')
+    assert fx[12:16] == (100, 'USD', '82.000000000000', datetime(2026, 10, 2))
+    assert fx[17] == 'manual'
+    assert sheet.column_dimensions['L'].hidden
+    assert sheet.freeze_panes == 'A3'
+    assert sheet.cell(3 + len(allocations), 11).value == data.net
 
 
-def test_expense_register_retains_distinct_records_with_missing_or_duplicate_ids_and_zero_rounding():
+def test_transactions_retain_distinct_records_with_missing_or_duplicate_ids_and_zero_rounding():
     trip = {'id': 'register-boundaries', 'name': 'Register boundaries', 'currency': 'INR',
             'members': [{'id': 'a', 'name': 'A', 'kind': 'individual'}]}
     base = {'paid_by_member_id': 'a', 'split_member_ids': ['a'], 'date': '2026-11-01', 'category': 'Food'}
@@ -443,16 +448,16 @@ def test_expense_register_retains_distinct_records_with_missing_or_duplicate_ids
         {'id': 'money-back', 'amount': -10, 'date': 'unavailable'},
     ))
     data, workbook, _ = exported(ReportSnapshot(trip, expenses))
-    sheet = workbook['Expense Register']
-    rows = list(sheet.iter_rows(min_row=7, max_row=11, values_only=True))
+    sheet = workbook['Transactions']
+    rows = list(sheet.iter_rows(min_row=3, max_row=7, values_only=True))
     assert len(rows) == len(expenses)
-    assert [r[8] for r in rows].count('duplicate') == 2
+    assert [r[11] for r in rows].count('duplicate') == 2
     assert len({r[0] for r in rows}) == len(expenses)
-    assert any(r[7] == 0 and r[8] == 'rounded-zero' for r in rows)
-    assert sum(r[7] for r in rows) == data.net == 190
-    assert next(r[1] for r in rows if r[8] == 'money-back') == 'unavailable'
+    assert any(r[9] == 0 and r[11] == 'rounded-zero' for r in rows)
+    assert sum(r[10] for r in rows) == data.net == 190
+    assert next(r[1] for r in rows if r[11] == 'money-back') == 'unavailable'
     assert all(sheet.cell(row, 2).number_format == 'dd mmm yyyy'
-               for row in range(7, 12) if isinstance(sheet.cell(row, 2).value, datetime))
+               for row in range(3, 8) if isinstance(sheet.cell(row, 2).value, datetime))
 
 
 @pytest.mark.parametrize('labels', [('Food', 'food'), ('A' * 32768 + '1', 'A' * 32768 + '2'),
@@ -472,7 +477,6 @@ def test_excel_text_limits_do_not_merge_pivot_categories_or_change_source_totals
     assert {row[2] for row in allocations} == set(categories)
     assert all(len(row[3]) <= 32767 and '\x00' not in row[3] for row in allocations)
     assert sum(row[10] for row in allocations) == workbook['Summary']['B9'].value == data.net == 300
-    assert workbook['Expense Register']['H7'].value + workbook['Expense Register']['H8'].value == data.net
     assert snapshot.trip['name'] == 'यात्रा 🚗\x00'
     assert snapshot.expenses == expenses
     for sheet in workbook:

@@ -208,7 +208,7 @@ def test_effective_report_xlsx_and_pdf_use_compensated_money_and_current_revisio
                 return b"".join([part if isinstance(part, bytes) else part.encode() async for part in response.body_iterator])
             book = load_workbook(io.BytesIO(await content(xlsx)), data_only=True)
             pdf_text = " ".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(await content(pdf))).pages)
-            assert book.sheetnames == ["Summary", "Members & Families", "Expense Register", "Transactions", "Payments"]
+            assert book.sheetnames == ["Summary", "Members & Families", "Transactions", "Payments"]
             assert book["Summary"]["B9"].value == 120
             assert "Financial Review" not in pdf_text and "replace_cash" not in pdf_text and "replace_expense" not in pdf_text
             payment_values = [cell.value for row in book["Payments"] for cell in row]
