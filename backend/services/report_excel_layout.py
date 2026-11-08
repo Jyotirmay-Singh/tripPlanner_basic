@@ -21,7 +21,7 @@ def select_excel_report_type(data: ReportData) -> ExcelReportType:
     Compare each original currency with the group currency, rather than counting source
     currencies: an INR group containing only USD expenses still needs exchange evidence.
     Unknown or inconsistent historical evidence retains the detailed layout. This decision
-    uses the same included allocations as Transactions and the pivot; it performs no I/O and
+    uses the same included allocations as Transactions and Summary; it performs no I/O and
     does not change money, source records, or saved exchange rates.
     """
     group_currency = data.currency.strip().upper()

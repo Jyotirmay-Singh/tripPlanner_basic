@@ -244,17 +244,17 @@ class TestReports:
         assert wb.sheetnames == ["Summary", "Members & Families", "Transactions", "Payments"]
         summary = wb["Summary"]
         assert (summary["B7"].value, summary["B8"].value, summary["B9"].value) == (270, 20, 250)
-        assert len(summary._pivots) == 1 and not summary._charts
-        assert summary._pivots[0].cache.cacheSource.worksheetSource.name == "ReportAllocations"
+        assert not summary._pivots and not summary._charts
+        assert "ReportCategoryShares" in summary.tables
         mf = wb["Members & Families"]
         headers = [c.value for c in mf[2]]
-        assert headers[0] == "Name" and headers[1].startswith("Expense share")
-        assert headers[4].startswith("Settlements paid") and headers[5].startswith("Settlements received")
+        assert headers[:2] == ["Family / account", "Name"] and headers[2].startswith("Expense share")
+        assert headers[5].startswith("Settlements paid") and headers[6].startswith("Settlements received")
         account_rows = [r for r in mf.iter_rows(min_row=3, values_only=True)
-                        if isinstance(r[2], (int, float))]
+                        if isinstance(r[3], (int, float))]
         assert len(account_rows) >= 3
         for row in account_rows:
-            assert row[6] == row[2] - row[1] + row[4] - row[5]
+            assert row[7] == row[3] - row[2] + row[5] - row[6]
         transactions = wb["Transactions"]
         allocations = [r for r in transactions.iter_rows(min_row=3, values_only=True) if isinstance(r[0], int)]
         assert sum(row[10] for row in allocations) == 250
@@ -297,15 +297,15 @@ class TestReports:
         assert resp.status_code == 200
         wb = load_workbook(io.BytesIO(resp.content))
         rows = [r for r in wb["Members & Families"].iter_rows(min_row=3, values_only=True)
-                if isinstance(r[2], (int, float)) and r[0] != "Total"]
-        payer = next(r for r in rows if r[2] == 200)
-        debtor = next(r for r in rows if r[2] == 0)
-        assert debtor[4:6] == (45, 0)
-        assert payer[4:6] == (0, 45)
-        assert payer[1] == debtor[1] == 100
-        assert payer[6] == 55 and debtor[6] == -55
+                if isinstance(r[3], (int, float)) and r[0] != "Group total"]
+        payer = next(r for r in rows if r[3] == 200)
+        debtor = next(r for r in rows if r[3] == 0)
+        assert debtor[5:7] == (45, 0)
+        assert payer[5:7] == (0, 45)
+        assert payer[2] == debtor[2] == 100
+        assert payer[7] == 55 and debtor[7] == -55
         for row in rows:
-            assert row[6] == row[2] - row[1] + row[4] - row[5]
+            assert row[7] == row[3] - row[2] + row[5] - row[6]
         payment_rows = list(wb["Payments"].values)
         history = [row for row in payment_rows if row[4] in ("Recorded payment", "Legacy settlement")]
         assert sum(row[2] for row in history) == 45

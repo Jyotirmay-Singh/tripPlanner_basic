@@ -18,6 +18,7 @@ from services import exchange_rates, expense_conversion
 from services.report_model import ReportReconciliationError, ReportSnapshot, build_report_data
 from services.report_pdf import build_report_pdf
 from services.report_xlsx import build_report_xlsx
+from report_excel_assertions import assert_static_category_table
 
 
 MEMBERS = [
@@ -114,9 +115,7 @@ def test_mixed_currency_quotes_flow_into_reconciled_reports_without_reconversion
     assert usd[19].date() == date(2026, 8, 30)
     assert currency in workbook['Transactions']['O2'].value and 'per' in workbook['Transactions']['O2'].value
     assert sum(row[10] for row in allocations) == expected_net
-    pivot = workbook['Summary']._pivots[0]
-    assert sum(pivot.cache.cacheFields[10].sharedItems._fields[row._fields[10].v].v
-               for row in pivot.cache.records.r) == expected_net
+    assert_static_category_table(workbook, expected_net)
     pdf = ' '.join(page.extract_text() for page in PdfReader(io.BytesIO(build_report_pdf(data))).pages)
     assert 'USD' in pdf and 'JPY' in pdf
     assert sum(account.balance for account in data.accounts) == 0

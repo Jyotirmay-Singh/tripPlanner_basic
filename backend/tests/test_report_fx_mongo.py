@@ -19,6 +19,7 @@ from openpyxl import load_workbook
 from pymongo import MongoClient
 import pytest
 import requests
+from report_excel_assertions import assert_static_category_table, assert_no_pivot_parts
 
 
 @pytest.mark.parametrize('currency,rate,positive,refund,jpy', [
@@ -122,7 +123,8 @@ def test_saved_mixed_currency_expenses_and_reports_keep_locked_rates(currency, r
                     assert all(not sheet.merged_cells.ranges for sheet in compact_workbook)
                     assert compact_workbook['Transactions'].max_column == 12
                     assert compact_workbook['Summary']['B9'].value == 50
-                    assert len(compact_workbook['Summary']._pivots[0].cache.cacheFields) == 12
+                    assert_static_category_table(compact_workbook, 50)
+                    assert_no_pivot_parts(compact.content)
             assert [expense['amount'] for expense in created] == [50, positive, refund, jpy]
             expected_net = 50 + positive + refund + jpy
             original = database.expenses.find_one({'id': created[1]['id']})
@@ -151,6 +153,8 @@ def test_saved_mixed_currency_expenses_and_reports_keep_locked_rates(currency, r
                 assert all(not sheet.merged_cells.ranges for sheet in workbook)
                 assert workbook['Transactions'].max_column == 20
                 assert not workbook['Transactions'].column_dimensions['M'].hidden
+                assert_static_category_table(workbook, expected_net)
+                assert_no_pivot_parts(report.content)
             pdf = http.get(url + '/report.pdf', params={'token': token}, timeout=15)
             assert pdf.status_code == 200 and pdf.content.startswith(b'%PDF')
             assert pdf.headers['content-type'] == 'application/pdf'
@@ -167,7 +171,8 @@ def test_saved_mixed_currency_expenses_and_reports_keep_locked_rates(currency, r
             assert all(not sheet.merged_cells.ranges for sheet in compact_workbook)
             assert compact_workbook['Transactions'].max_column == 12
             assert compact_workbook['Summary']['B9'].value == 50
-            assert len(compact_workbook['Summary']._pivots[0].cache.cacheFields) == 12
+            assert_static_category_table(compact_workbook, 50)
+            assert_no_pivot_parts(compact.content)
             bad = {**saved, 'id': str(uuid4()), 'currency': 'USD'}
             bad.pop('_id')
             database.expenses.insert_one(bad)

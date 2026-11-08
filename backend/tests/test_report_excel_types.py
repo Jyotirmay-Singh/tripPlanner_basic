@@ -1,12 +1,9 @@
 """Round-trip both automatic Excel layouts and independently reconcile their saved sources."""
 
-from collections import defaultdict
 from copy import deepcopy
 from dataclasses import replace
 import io
 import random
-from xml.etree import ElementTree as ET
-from zipfile import ZipFile
 
 from bson.decimal128 import Decimal128
 from openpyxl import load_workbook
@@ -17,6 +14,7 @@ from services.report_excel_layout import ExcelReportType, select_excel_report_ty
 from services.report_model import ReportSnapshot, build_report_data
 from services.report_xlsx import build_report_xlsx
 from utils.currency_rules import SUPPORTED_CURRENCIES
+from report_excel_assertions import assert_static_category_table, assert_no_pivot_parts, members_detail_rows
 
 
 MEMBERS = [
@@ -24,7 +22,6 @@ MEMBERS = [
      'family_member_ids': ['p1', 'p2'], 'family_members': ['Ana', 'Ben']},
     {'id': 'solo', 'name': 'Sam', 'kind': 'individual'},
 ]
-NS = {'s': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
 
 
 def expense(identity='e1', amount=100, **fields):
@@ -83,34 +80,8 @@ def assert_export(source, *, exchange, expected_net):
     assert sum(row[9] for row in expenses.values()) == sum(row[10] for row in rows) == expected_net
     assert sum(row[9] for row in expenses.values() if row[9] > 0) == data.gross
     assert -sum(row[9] for row in expenses.values() if row[9] < 0) == data.money_back
-    pivot = workbook['Summary']._pivots[0]
-    assert [field.name for field in pivot.cache.cacheFields] == header
-    assert len(pivot.pivotFields) == transaction_width
-    assert pivot.cache.recordCount == len(rows)
-    assert pivot.cache.cacheSource.worksheetSource.name == 'ReportAllocations'
-    assert pivot.cache.enableRefresh and not pivot.cache.refreshOnLoad
-    assert not pivot.mergeItem
-    totals = defaultdict(int)
-    for record, row in zip(pivot.cache.records.r, rows, strict=True):
-        assert len(record._fields) == transaction_width
-        decoded = tuple(pivot.cache.cacheFields[col].sharedItems._fields[index.v].v
-                        if pivot.cache.cacheFields[col].sharedItems._fields[index.v].tagname != 'm' else None
-                        for col, index in enumerate(record._fields))
-        # Excel stores empty text cells without a value; openpyxl reloads them as None.
-        assert tuple(None if value == '' else value for value in decoded) == row
-        totals[row[2]] += row[10]
-    assert dict(totals) == data.category_totals
-    for index in [*(field.x for field in pivot.rowFields), *(field.x for field in pivot.colFields),
-                  *(field.fld for field in pivot.pageFields), *(field.fld for field in pivot.dataFields)]:
-        assert 0 <= index < transaction_width
-    with ZipFile(io.BytesIO(payload)) as archive:
-        cache = ET.fromstring(archive.read('xl/pivotCache/pivotCacheDefinition1.xml'))
-        assert int(cache.find('s:cacheFields', NS).get('count')) == transaction_width
-        for name in archive.namelist():
-            if name.endswith(('.xml', '.rels')):
-                root = ET.fromstring(archive.read(name))
-                if name.startswith('xl/worksheets/'):
-                    assert root.find('s:mergeCells', NS) is None
+    assert_static_category_table(workbook, expected_net)
+    assert_no_pivot_parts(payload)
     return data, workbook
 
 
@@ -224,7 +195,7 @@ def test_visible_original_amounts_preserve_historical_decimals_and_format_whole_
 
 @pytest.mark.parametrize('exchange', [False, True])
 @pytest.mark.parametrize('simplify', [False, True])
-def test_seeded_large_reports_keep_register_and_pivot_totals_with_payments(exchange, simplify):
+def test_seeded_large_reports_keep_static_summary_totals_with_payments(exchange, simplify):
     rng = random.Random(20261107)
     expenses = []
     for number in range(120):
@@ -239,6 +210,13 @@ def test_seeded_large_reports_keep_register_and_pivot_totals_with_payments(excha
         {'id': 'payment', 'from_member_id': 'solo', 'to_member_id': 'family', 'amount': 100, 'currency': 'INR'},))
     data, workbook = assert_export(source, exchange=exchange, expected_net=sum(row['amount'] for row in expenses))
     assert sum(row.balance for row in data.accounts) == 0
+    rows, footer = members_detail_rows(workbook)
+    assert footer[2] == data.net
     for account in data.accounts:
-        row = next(row for row in workbook['Members & Families'].values if row[0] == account.name)
-        assert row[1] == account.share and row[6] == account.balance
+        if account.kind == 'Family':
+            children = [row for row in rows if row[0] == account.name]
+            assert sum(row[2] for row in children) == account.share
+            assert all(row[3:7] == (None, None, None, None) for row in children)
+        else:
+            row = next(row for row in rows if row[:2] == (account.name, account.name))
+            assert row[2] == account.share and row[7] == account.balance

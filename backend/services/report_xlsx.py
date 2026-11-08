@@ -9,8 +9,6 @@ from textwrap import wrap
 
 from openpyxl import Workbook
 from openpyxl.formatting.rule import CellIsRule, Rule
-from openpyxl.formatting.formatting import ConditionalFormatting
-from openpyxl.pivot.table import ConditionalFormat, ConditionalFormatList, PivotArea
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.styles.differential import DifferentialStyle
 from openpyxl.styles.numbers import NumberFormat
@@ -20,7 +18,7 @@ from openpyxl.utils import get_column_letter, column_index_from_string
 from services.report_formatting import BRAND, RECEIVE, PAY, NEUTRAL, currency_symbol, indian_format, indian_number
 from services.report_model import ReportData
 from services.report_excel_layout import ExcelReportType, select_excel_report_type
-from services.report_pivot import add_allocation_pivot
+from services.report_summary_table import add_category_summary_table
 
 
 _INVALID_XML_TEXT = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]")
@@ -57,8 +55,7 @@ def _excel_strings(record, **overrides):
 
 
 def _excel_display_data(data):
-    # Prepare an export-only copy. Sanitising/truncating cells after building the
-    # pivot cache would leave its keys and values different from the source table.
+    # Prepare one export-only copy so every table uses the same safe, distinct labels.
     accounts = _excel_labels(account.name for account in data.accounts)
     people = _excel_labels([*(person.name for person in data.member_positions),
                             *(allocation.person for allocation in data.allocations)])
@@ -138,7 +135,7 @@ def _table(sheet, name, header, last, columns, style="TableStyleMedium4"):
 
 
 def _number_rules(sheet, area, anchor):
-    # Filters can change pivot sums. Select a numeric Indian mask again for the new magnitude.
+    # Keep numeric Indian masks correct if a workbook user edits a monetary cell.
     rules = []
     def number_style(value):
         code = indian_format(value)
@@ -233,14 +230,12 @@ def _transactions(workbook, data, report_type: ExcelReportType):
     _title(sheet, "Transactions")
     _row(sheet, 2, headers)
     header_row(sheet, 2, len(headers))
-    source_rows = []
     for number, allocation in enumerate(data.allocations, 3):
         row = [allocation.number, allocation.occurred_at or allocation.date_source or "Not recorded", allocation.category, allocation.description,
                allocation.entry_type, allocation.payer, allocation.account, allocation.person,
                allocation.split_method, allocation.expense_amount, allocation.share, allocation.expense_id]
         if include_exchange:
             row.extend(_exchange_values(allocation))
-        source_rows.append(row)
         _row(sheet, number, row)
         if allocation.occurred_at and not allocation.time_recorded:
             sheet.cell(number, 2).number_format = 'dd mmm yyyy'
@@ -250,9 +245,9 @@ def _transactions(workbook, data, report_type: ExcelReportType):
         for col in (10, 11):
             money_cell(sheet.cell(number, col))
         sheet.cell(number, 10).font = Font(name="Calibri", size=11, bold=True, color=BRAND)
-    last = 2 + len(source_rows)
+    last = 2 + len(data.allocations)
     _table(sheet, "ReportAllocations", 2, last, len(headers))
-    if source_rows:
+    if data.allocations:
         _row(sheet, last + 1, ["Net expense shares", None, None, None, None, None, None, None, None, None, data.net])
         sheet.cell(last + 1, 1).alignment = Alignment(wrap_text=False, vertical="center")
         _total(sheet, last + 1, 11)
@@ -269,10 +264,9 @@ def _transactions(workbook, data, report_type: ExcelReportType):
         sheet.column_dimensions.group("P", "T", hidden=True)
     sheet.print_title_rows = "1:2"
     sheet.print_area = f"A1:{get_column_letter(visible_last_column)}{max(last + 1, 3)}"
-    return headers, source_rows
 
 
-def _summary(workbook, data, headers, source_rows):
+def _summary(workbook, data):
     sheet = workbook["Summary"]
     meta = data.metadata
     symbol = currency_symbol(data.currency)
@@ -313,29 +307,8 @@ def _summary(workbook, data, headers, source_rows):
     funding_total = 4 + len(data.accounts)
     _row(sheet, funding_total, ["Total", data.gross, data.money_back, data.net], 4)
     _total(sheet, funding_total, 4, 4)
-    # Reserve the scope caption as well as Excel's two native page-filter rows and gap.
-    pivot_start = max(10, funding_total) + (5 if source_rows else 1)
-    bottom = add_allocation_pivot(workbook, sheet, headers, source_rows, data, pivot_start, money_cell, header_row)
-    if source_rows:
-        for row, item in enumerate(sheet._pivots[0].rowItems, pivot_start + 2):
-            total_column = sheet.cell(row, len(data.categories) + 3)
-            total_column.font = Font(name="Calibri", size=11, bold=True, color=BRAND)
-            total_column.fill = PatternFill("solid", fgColor="EAF0EE")
-            if item.t in ("default", "grand"):
-                _total(sheet, row, len(data.categories) + 3,
-                       fill="DDE9E5" if item.t == "grand" else "EAF0EE")
-        region = ConditionalFormatting(
-            sqref=f"C{pivot_start + 2}:{get_column_letter(len(data.categories) + 3)}{bottom}", pivot=True)
-        rules = _number_rules(sheet, region, f"C{pivot_start + 2}")
-        negative = CellIsRule(operator="lessThan", formula=["0"], font=Font(color=RECEIVE))
-        sheet.conditional_formatting.add(region, negative)
-        # Matching priorities bind the worksheet rules to the entire native data area,
-        # including totals, so filtering/rearranging does not leave a fixed styled rectangle.
-        sheet._pivots[0].conditionalFormats = ConditionalFormatList(conditionalFormat=[
-            ConditionalFormat(scope="data", type="all", priority=rule.priority,
-                              pivotAreas=[PivotArea(type="data", dataOnly=True, grandRow=True, grandCol=True)])
-            for rule in [*rules, negative]
-        ])
+    caption_row = max(10, funding_total) + 2
+    bottom = add_category_summary_table(workbook, sheet, data, caption_row, money_cell, header_row)
     sheet.print_area = f"A1:{get_column_letter(columns)}{bottom}"
 
 
@@ -343,9 +316,9 @@ def _members(workbook, data):
     sheet = workbook.create_sheet("Members & Families")
     sheet.freeze_panes = "A3"
     symbol = currency_symbol(data.currency)
-    headers = ["Name", f"Expense share ({symbol})", f"Net funded ({symbol})", f"Before settlements ({symbol})",
-               f"Settlements paid ({symbol})", f"Settlements received ({symbol})"]
-    headers += [f"Balance now ({symbol})", "Action"]
+    headers = ["Family / account", "Name", f"Expense share ({symbol})", f"Net funded ({symbol})",
+               f"Before settlements ({symbol})", f"Settlements paid ({symbol})",
+               f"Settlements received ({symbol})", f"Balance now ({symbol})", "Action"]
     _title(sheet, "Members & Families")
     _row(sheet, 2, headers)
     header_row(sheet, 2, len(headers))
@@ -353,37 +326,41 @@ def _members(workbook, data):
     for person in data.member_positions:
         positions[person.account_id].append(person)
     row = 3
-    balance_col = len(headers) - 1
+
+    def detail(values, number):
+        _row(sheet, number, values)
+        for cell in sheet[number][:len(headers)]:
+            cell.fill = PatternFill("solid", fgColor="F4F7F6" if (number - 3) % 2 == 0 else "FFFFFF")
+
     for account in data.accounts:
-        values = [account.name, account.share, account.funded, account.before_settlements, account.sent, account.received]
-        _row(sheet, row, [*values, account.balance, account.action])
-        _total(sheet, row, len(headers))
-        sheet.cell(row, 5).font = Font(name="Calibri", size=11, bold=True, color=PAY)
-        sheet.cell(row, 6).font = Font(name="Calibri", size=11, bold=True, color=RECEIVE)
-        start = row + 1
-        row += 1
-        for person in positions[account.account_id]:
-            action = "Within family total" if person.balance is not None else "Historical share only"
-            values = [person.name, person.share] + [None] * (balance_col - 3) + [person.balance, action]
-            _row(sheet, row, values)
-            sheet.cell(row, 1).alignment = Alignment(indent=2, vertical="center", wrap_text=True)
+        if account.kind != "Family":
+            detail([account.name, account.name, account.share, account.funded, account.before_settlements,
+                    account.sent, account.received, account.balance, account.action], row)
+            sheet.cell(row, 6).font = Font(name="Calibri", size=11, color=PAY)
+            sheet.cell(row, 7).font = Font(name="Calibri", size=11, color=RECEIVE)
             row += 1
-        if row > start:
-            sheet.row_dimensions.group(start, row - 1, outline_level=1, hidden=False)
-    values = ["Total", sum(a.share for a in data.accounts), sum(a.funded for a in data.accounts),
-              sum(a.before_settlements for a in data.accounts), sum(a.sent for a in data.accounts), sum(a.received for a in data.accounts)]
-    _row(sheet, row, [*values, 0, ""])
+        for person in positions[account.account_id]:
+            action = "Within family account" if person.balance is not None else "Historical share only"
+            detail([account.name, person.name, person.share, None, None, None, None, person.balance, action], row)
+            row += 1
+    _row(sheet, row, ["Group total", None, sum(a.share for a in data.accounts), sum(a.funded for a in data.accounts),
+                     sum(a.before_settlements for a in data.accounts), sum(a.sent for a in data.accounts),
+                     sum(a.received for a in data.accounts), sum(a.balance for a in data.accounts), None])
     header_row(sheet, row, len(headers))
-    # Keep semantic balance/refund colours on detail rows so the final total
-    # retains the same high-contrast band as the column headers.
     if row > 3:
-        _balance_rules(sheet, f"{get_column_letter(balance_col)}3:{get_column_letter(balance_col)}{row - 1}")
-        sheet.conditional_formatting.add(f"B3:B{row - 1}", CellIsRule(operator="lessThan", formula=["0"], font=Font(color=RECEIVE)))
-    _number_rules(sheet, f"B3:{get_column_letter(balance_col)}{row}", "B3")
-    sheet.sheet_properties.outlinePr.summaryBelow = False
-    _widths(sheet, [26, 17, 17, 18, 18, 18, 17, 21])
+        _balance_rules(sheet, f"H3:H{row - 1}")
+        sheet.conditional_formatting.add(f"C3:C{row - 1}", CellIsRule(operator="lessThan", formula=["0"], font=Font(color=RECEIVE)))
+    _number_rules(sheet, f"C3:H{row}", "C3")
+    for offset, caption in enumerate((
+        "Group total includes family account funding and settlements.",
+        "Person rows leave these account-level amounts blank; see Summary and Payments.",
+    ), 1):
+        cell = text_cell(sheet, row + offset, 1, caption)
+        cell.font = Font(name="Calibri", size=10, color=NEUTRAL)
+        cell.alignment = Alignment(wrap_text=False, vertical="center")
+    _widths(sheet, [26, 26, 17, 17, 18, 18, 18, 17, 24])
     sheet.print_title_rows = "1:2"
-    sheet.print_area = f"A1:{get_column_letter(len(headers))}{row}"
+    sheet.print_area = f"A1:I{row + 2}"
 
 
 def _payments(workbook, data):
@@ -434,10 +411,10 @@ def build_report_workbook(data: ReportData):
     workbook = Workbook()
     workbook.active.title = "Summary"
     workbook.properties.title = data.metadata.trip_name + " - Report"
-    workbook.properties.subject = f"Trip report; report format 6; {report_type.value}"
+    workbook.properties.subject = f"Trip report; report format 7; {report_type.value}"
     workbook.properties.creator = "Splitora"
-    headers, source_rows = _transactions(workbook, data, report_type)
-    _summary(workbook, data, headers, source_rows)
+    _transactions(workbook, data, report_type)
+    _summary(workbook, data)
     _members(workbook, data)
     _payments(workbook, data)
     workbook._sheets.sort(key=lambda sheet: ["Summary", "Members & Families", "Transactions", "Payments"].index(sheet.title))
