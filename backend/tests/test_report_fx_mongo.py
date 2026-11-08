@@ -121,7 +121,7 @@ def test_saved_mixed_currency_expenses_and_reports_keep_locked_rates(currency, r
                     compact_workbook = load_workbook(io.BytesIO(compact.content))
                     assert 'Expense Register' not in compact_workbook.sheetnames
                     assert all(not sheet.merged_cells.ranges for sheet in compact_workbook)
-                    assert compact_workbook['Transactions'].max_column == 12
+                    assert compact_workbook['Transactions'].max_column == 11
                     assert compact_workbook['Summary']['B9'].value == 50
                     assert_static_category_table(compact_workbook, 50)
                     assert_no_pivot_parts(compact.content)
@@ -146,13 +146,15 @@ def test_saved_mixed_currency_expenses_and_reports_keep_locked_rates(currency, r
                 transaction_sheet = workbook['Transactions']
                 allocations = list(transaction_sheet.iter_rows(
                     min_row=3, max_row=transaction_sheet.max_row - 1, values_only=True))
-                expenses = {row[11]: row for row in allocations}
-                assert expenses[created[1]['id']][14] == rate
-                assert sum(row[9] for row in expenses.values()) == sum(row[10] for row in allocations) == expected_net
+                expenses = {row[0]: row for row in allocations}
+                usd = next(row for row in expenses.values() if row[9:11] == ('USD', 100))
+                assert usd[11] == rate and usd[12] == positive
+                assert database.expenses.find_one({'id': created[1]['id']})['exchange_rate'].to_decimal() == Decimal(rate)
+                assert sum(row[12] for row in expenses.values()) == sum(row[13] for row in allocations) == expected_net
                 assert 'Expense Register' not in workbook.sheetnames
                 assert all(not sheet.merged_cells.ranges for sheet in workbook)
-                assert workbook['Transactions'].max_column == 20
-                assert not workbook['Transactions'].column_dimensions['M'].hidden
+                assert workbook['Transactions'].max_column == 15
+                assert not any(dimension.hidden for dimension in transaction_sheet.column_dimensions.values())
                 assert_static_category_table(workbook, expected_net)
                 assert_no_pivot_parts(report.content)
             pdf = http.get(url + '/report.pdf', params={'token': token}, timeout=15)
@@ -169,7 +171,7 @@ def test_saved_mixed_currency_expenses_and_reports_keep_locked_rates(currency, r
             compact_workbook = load_workbook(io.BytesIO(compact.content))
             assert 'Expense Register' not in compact_workbook.sheetnames
             assert all(not sheet.merged_cells.ranges for sheet in compact_workbook)
-            assert compact_workbook['Transactions'].max_column == 12
+            assert compact_workbook['Transactions'].max_column == 11
             assert compact_workbook['Summary']['B9'].value == 50
             assert_static_category_table(compact_workbook, 50)
             assert_no_pivot_parts(compact.content)

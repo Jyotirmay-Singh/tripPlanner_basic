@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import io
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -35,13 +35,16 @@ def test_ten_currency_conversion_scenario_reconciles_into_transactions(converted
         {'id': 'ten', 'name': 'Ten currencies', 'currency': 'INR', 'members': converted_scenario['members']}, expenses))
     workbook = load_workbook(io.BytesIO(build_report_xlsx(data)))
     rows = list(workbook['Transactions'].iter_rows(min_row=3, max_row=2 + len(data.allocations), values_only=True))
-    saved = {row[11]: row for row in rows}
+    saved = {row[0]: row for row in rows}
+    numbers = {allocation.expense_id: allocation.number for allocation in data.allocations}
     for case in EXPENSE_CASES:
-        assert saved[case['id']][9] == Decimal(case['expected_canonical'])
-        assert saved[case['id']][13] == case['original_currency']
-        assert Decimal(saved[case['id']][14]) == Decimal(case['rate'])
-    assert sum(row[10] for row in rows) == data.net
-    assert {row[13] for row in rows} == {'INR', 'USD', 'EUR', 'GBP', 'AED', 'JPY', 'KRW', 'KWD', 'BHD', 'OMR'}
+        assert saved[numbers[case['id']]][12] == Decimal(case['expected_canonical'])
+        assert saved[numbers[case['id']]][9] == case['original_currency']
+        assert saved[numbers[case['id']]][10] == Decimal(case['original_amount']).quantize(
+            Decimal('1'), rounding=ROUND_HALF_UP)
+        assert Decimal(saved[numbers[case['id']]][11]) == Decimal(case['rate'])
+    assert sum(row[13] for row in rows) == data.net
+    assert {row[9] for row in rows} == {'INR', 'USD', 'EUR', 'GBP', 'AED', 'JPY', 'KRW', 'KWD', 'BHD', 'OMR'}
 
 MEMBERS = [
     {"id": "a", "name": "A", "kind": "individual"},

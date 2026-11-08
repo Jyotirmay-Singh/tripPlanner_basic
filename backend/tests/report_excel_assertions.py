@@ -36,8 +36,10 @@ def assert_static_category_table(workbook, expected_net):
     assert len({cell.value.casefold() for cell in headings}) == len(headings)
     assert all(len(cell.value.encode('utf-16-le')) <= 510 for cell in headings)
     expected = defaultdict(lambda: defaultdict(int))
+    share_column = next(index for index, cell in enumerate(workbook['Transactions'][2])
+                        if cell.value.startswith('Expense share ('))
     for allocation in allocations:
-        expected[allocation[6], allocation[7]][allocation[2]] += allocation[10]
+        expected[allocation[6], allocation[7]][allocation[2]] += allocation[share_column]
     assert len(rows) == len(expected)
     assert len({row[:2] for row in rows}) == len(rows)
     for row in rows:
@@ -47,7 +49,7 @@ def assert_static_category_table(workbook, expected_net):
     assert set(categories) == {row[2] for row in allocations}
     assert list(footer) == ['Grand Total', None,
                             *[sum(values[category] for values in expected.values()) for category in categories], expected_net]
-    assert sum(row[-1] for row in rows) == sum(row[10] for row in allocations) == expected_net
+    assert sum(row[-1] for row in rows) == sum(row[share_column] for row in allocations) == expected_net
     assert len(table.tableColumns) == len(headings)
     assert table.autoFilter.ref == table.ref
     assert not table.totalsRowShown
@@ -74,5 +76,17 @@ def assert_no_pivot_parts(payload):
 
 def members_detail_rows(workbook):
     rows = list(workbook['Members & Families'].values)
-    footer = next(index for index, row in enumerate(rows) if row[0] == 'Group total' and row[1] is None)
-    return rows[2:footer], rows[footer]
+    assert rows[-1][0] == 'Total'
+    return rows[2:-1], rows[-1]
+
+
+def members_account_groups(workbook):
+    rows, _ = members_detail_rows(workbook)
+    groups = []
+    for row in rows:
+        if isinstance(row[2], (int, float)):
+            groups.append((row, []))
+        else:
+            assert groups, 'Person details must follow their account total'
+            groups[-1][1].append(row)
+    return groups

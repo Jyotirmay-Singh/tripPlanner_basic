@@ -11,10 +11,11 @@ from openpyxl.utils.cell import range_boundaries
 import pytest
 
 from services.report_excel_layout import ExcelReportType, select_excel_report_type
+from services.report_formatting import currency_symbol
 from services.report_model import ReportSnapshot, build_report_data
 from services.report_xlsx import build_report_xlsx
 from utils.currency_rules import SUPPORTED_CURRENCIES
-from report_excel_assertions import assert_static_category_table, assert_no_pivot_parts, members_detail_rows
+from report_excel_assertions import assert_static_category_table, assert_no_pivot_parts, members_detail_rows, members_account_groups
 
 
 MEMBERS = [
@@ -48,21 +49,31 @@ def assert_export(source, *, exchange, expected_net):
     assert all(not sheet.merged_cells.ranges for sheet in workbook)
     assert all('ReportExpenses' not in sheet.tables for sheet in workbook)
     transactions = workbook['Transactions']
-    transaction_width = 20 if exchange else 12
+    transaction_width = 15 if exchange else 11
     assert transactions.max_column == transaction_width
     assert transactions.freeze_panes == 'A3'
     assert workbook['Summary'].freeze_panes is None
-    assert transactions.column_dimensions['L'].hidden
+    assert not any(dimension.hidden for dimension in transactions.column_dimensions.values())
     assert not any(cell.data_type == 'f' for sheet in workbook for row in sheet for cell in row)
     header = [cell.value for cell in transactions[2]]
     assert ('Original currency' in header) is exchange
+    assert header[:9] == ['Expense No', 'Date (IST)', 'Category', 'Description', 'Entry type', 'Paid by',
+                          'Family / account', 'Person', 'Split method']
+    assert all(name not in header for name in ('Expense ID', 'Rate provider', 'Rate mode',
+                                               'Original exact allocations', 'Requested rate date'))
     if exchange:
-        assert transactions['O2'].value == f'Stored rate ({data.currency} per original unit)'
-        assert all(not transactions.column_dimensions[column].hidden for column in ('M', 'N', 'O'))
-        assert transactions.column_dimensions['P'].hidden
+        symbol = currency_symbol(data.currency)
+        assert header[9:] == ['Original currency', 'Original amount',
+                              f'Stored rate ({data.currency} per original unit)',
+                              f'Expense total ({symbol})', f'Expense share ({symbol})',
+                              'Effective rate date']
+        for column in ('J', 'K', 'L'):
+            assert transactions.column_dimensions[column].outlineLevel == 1
+            assert transactions.column_dimensions[column].width >= 20
     else:
         assert not any('Original ' in name or 'rate' in name.lower() for name in header)
-        assert max(dimension.max for dimension in transactions.column_dimensions.values()) <= 12
+        assert max(dimension.max for dimension in transactions.column_dimensions.values()) <= 11
+        assert not any(dimension.outlineLevel for dimension in transactions.column_dimensions.values())
     assert f'${"O" if exchange else "K"}$' in str(transactions.print_area)
     if not data.allocations:
         assert not transactions.tables and not workbook['Summary']._pivots
@@ -77,9 +88,10 @@ def assert_export(source, *, exchange, expected_net):
     expenses = {}
     for row in rows:
         expenses.setdefault(row[0], row)
-    assert sum(row[9] for row in expenses.values()) == sum(row[10] for row in rows) == expected_net
-    assert sum(row[9] for row in expenses.values() if row[9] > 0) == data.gross
-    assert -sum(row[9] for row in expenses.values() if row[9] < 0) == data.money_back
+    total_column, share_column = (12, 13) if exchange else (9, 10)
+    assert sum(row[total_column] for row in expenses.values()) == sum(row[share_column] for row in rows) == expected_net
+    assert sum(row[total_column] for row in expenses.values() if row[total_column] > 0) == data.gross
+    assert -sum(row[total_column] for row in expenses.values() if row[total_column] < 0) == data.money_back
     assert_static_category_table(workbook, expected_net)
     assert_no_pivot_parts(payload)
     return data, workbook
@@ -116,13 +128,13 @@ def test_foreign_source_is_compared_with_group_currency_for_every_supported_curr
     ({'exchange_rate': Decimal128('1')}, True),
     ({'exchange_rate_provider': 'manual'}, True),
     ({'conversion_version': 1}, True),
-    ({'original_currency': 'INR', 'exchange_rate': '0.5'}, True),
-    ({'original_currency': 'INR', 'exchange_rate': 'unavailable'}, True),
-    ({'original_currency': 'INR', 'exchange_rate': 'NaN'}, True),
-    ({'original_currency': 'INR', 'exchange_rate': '1', 'exchange_rate_provider': 'manual'}, True),
-    ({'original_currency': 'INR', 'exchange_rate': '1', 'exchange_rate_mode': 'manual'}, True),
+    ({'original_currency': 'INR', 'exchange_rate': '0.5'}, False),
+    ({'original_currency': 'INR', 'exchange_rate': 'unavailable'}, False),
+    ({'original_currency': 'INR', 'exchange_rate': 'NaN'}, False),
+    ({'original_currency': 'INR', 'exchange_rate': '1', 'exchange_rate_provider': 'manual'}, False),
+    ({'original_currency': 'INR', 'exchange_rate': '1', 'exchange_rate_mode': 'manual'}, False),
 ])
-def test_uncertain_historical_evidence_remains_available(fields, exchange):
+def test_source_currency_controls_columns_without_redundant_rate_metadata(fields, exchange):
     assert_export(snapshot(expenses=[expense(**fields)]), exchange=exchange, expected_net=100)
 
 
@@ -156,8 +168,9 @@ def test_included_zero_rows_and_duplicate_ids_do_not_disappear(exchange):
     source = snapshot(expenses=[expense('same', 0, **fields), expense('same', 0, **fields)])
     _, workbook = assert_export(source, exchange=exchange, expected_net=0)
     rows = list(workbook['Transactions'].iter_rows(min_row=3, max_row=8, values_only=True))
-    assert {row[11] for row in rows} == {'same'}
     assert {row[0] for row in rows} == {1, 2}
+    share_column = 13 if exchange else 10
+    assert len(rows) == 6 and all(row[share_column] == 0 for row in rows)
 
 
 def test_repeated_exports_switch_layouts_without_leaking_previous_columns_or_cache():
@@ -189,8 +202,8 @@ def test_visible_original_amounts_preserve_historical_decimals_and_format_whole_
                                 expense('whole', original_currency='USD', original_amount=100, exchange_rate='1')])
     _, workbook = assert_export(source, exchange=True, expected_net=200)
     transactions = workbook['Transactions']
-    assert transactions['M3'].value == 100.25 and transactions['M3'].number_format == '#,##0.###############'
-    assert transactions['M6'].value == 100 and transactions['M6'].number_format == '#,##0'
+    assert transactions['K3'].value == 100.25 and transactions['K3'].number_format == '#,##0.###############'
+    assert transactions['K6'].value == 100 and transactions['K6'].number_format == '#,##0'
 
 
 @pytest.mark.parametrize('exchange', [False, True])
@@ -211,12 +224,14 @@ def test_seeded_large_reports_keep_static_summary_totals_with_payments(exchange,
     data, workbook = assert_export(source, exchange=exchange, expected_net=sum(row['amount'] for row in expenses))
     assert sum(row.balance for row in data.accounts) == 0
     rows, footer = members_detail_rows(workbook)
-    assert footer[2] == data.net
+    assert footer[1] == data.net
+    groups = {parent[0]: (parent, children) for parent, children in members_account_groups(workbook)}
     for account in data.accounts:
+        row, children = groups[account.name]
+        assert row[1:7] == (account.share, account.funded, account.before_settlements,
+                            account.sent, account.received, account.balance)
         if account.kind == 'Family':
-            children = [row for row in rows if row[0] == account.name]
-            assert sum(row[2] for row in children) == account.share
-            assert all(row[3:7] == (None, None, None, None) for row in children)
+            assert sum(row[1] for row in children) == account.share
+            assert all(row[2:6] == (None, None, None, None) for row in children)
         else:
-            row = next(row for row in rows if row[:2] == (account.name, account.name))
-            assert row[2] == account.share and row[7] == account.balance
+            assert children == []

@@ -14,7 +14,7 @@ from services.report_model import ReportSnapshot, build_report_data
 from services.report_xlsx import build_report_xlsx, finalize_layout, money_cell
 from services.report_formatting import BRAND, indian_number, indian_format
 from services.report_summary_table import FILTER_SCOPE
-from report_excel_assertions import assert_static_category_table, assert_no_pivot_parts, category_table_rows, members_detail_rows
+from report_excel_assertions import assert_static_category_table, assert_no_pivot_parts, category_table_rows, members_detail_rows, members_account_groups
 
 
 def exported(source=None):
@@ -28,7 +28,7 @@ def test_static_table_and_saved_totals_match_allocation_source():
     assert workbook.sheetnames == ['Summary', 'Members & Families', 'Transactions', 'Payments']
     assert all(not sheet.merged_cells.ranges for sheet in workbook)
     assert all('ReportExpenses' not in sheet.tables for sheet in workbook)
-    assert workbook['Transactions'].tables['ReportAllocations'].ref == f'A2:T{2 + len(data.allocations)}'
+    assert workbook['Transactions'].tables['ReportAllocations'].ref == f'A2:O{2 + len(data.allocations)}'
     assert_static_category_table(workbook, data.net)
     assert_no_pivot_parts(payload)
     assert not any(sheet._charts for sheet in workbook)
@@ -37,7 +37,8 @@ def test_new_export_includes_new_rows_in_source_and_static_summary():
     source = sample_snapshot()
     extra = {**source.expenses[0], 'id': 'new-record', 'amount': 24}
     data, workbook, _ = exported(replace(source, expenses=(*source.expenses, extra)))
-    assert any(row[11] == 'new-record' for row in workbook['Transactions'].values)
+    expense_number = next(a.number for a in data.allocations if a.expense_id == 'new-record')
+    assert any(row[0] == expense_number for row in workbook['Transactions'].values)
     assert len(data.allocations) > len(build_report_data(source).allocations)
     assert_static_category_table(workbook, data.net)
 
@@ -50,7 +51,8 @@ def test_static_summary_handles_text_and_mixed_dates(missing_date):
     data, workbook, payload = exported(replace(source, expenses=(first, *source.expenses[1:])))
     assert_static_category_table(workbook, data.net)
     assert_no_pivot_parts(payload)
-    row = next(row for row in workbook['Transactions'].values if row[11] == first['id'])
+    expense_number = next(a.number for a in data.allocations if a.expense_id == first['id'])
+    row = next(row for row in workbook['Transactions'].values if row[0] == expense_number)
     assert row[3] == first['description']
     assert isinstance(row[1], str if missing_date else datetime)
 
@@ -73,22 +75,26 @@ def test_transactions_have_complete_metadata_on_participating_rows_and_sortable_
     data, workbook, _ = exported()
     rows = list(workbook['Transactions'].values)[2:2 + len(data.allocations)]
     for row, allocation in zip(rows, data.allocations):
-        assert row[0:11] == (allocation.number, allocation.occurred_at, allocation.category, allocation.description,
+        assert row[0:9] == (allocation.number, allocation.occurred_at, allocation.category, allocation.description,
                              allocation.entry_type, allocation.payer, allocation.account, allocation.person,
-                             allocation.split_method, allocation.expense_amount, allocation.share)
-        assert row[11] == allocation.expense_id
+                             allocation.split_method)
+        assert row[9:12] == (allocation.original_currency,
+                             float(allocation.original_amount) if allocation.original_amount is not None else None,
+                             allocation.exchange_rate)
+        assert row[12:14] == (allocation.expense_amount, allocation.share)
+        assert row[14] == (datetime.combine(allocation.rate_date, datetime.min.time()) if allocation.rate_date else None)
         assert isinstance(row[1], datetime)
-    assert sum(row[10] for row in rows) == data.net
-    exact = [r for r in rows if r[11] == 'e04']
-    assert sorted(r[10] for r in exact) == [0, 1000, 1000, 1200]
-    fx = next(r for r in rows if r[11] == 'e07')
-    assert fx[12:15] == (100, 'USD', '82.000000000000')
-    assert fx[15] == datetime(2026, 10, 2)
-    assert fx[17] == 'manual'
-    assert workbook['Transactions']['M3'].number_format == '#,##0'
-    assert workbook['Transactions']['P3'].number_format == 'dd mmm yyyy'
-    assert workbook['Transactions']['T3'].number_format == 'dd mmm yyyy'
-    assert workbook['Transactions'].column_dimensions['L'].hidden
+    assert sum(row[13] for row in rows) == data.net
+    exact_number = next(a.number for a in data.allocations if a.expense_id == 'e04')
+    exact = [r for r in rows if r[0] == exact_number]
+    assert sorted(r[13] for r in exact) == [0, 1000, 1000, 1200]
+    fx_number = next(a.number for a in data.allocations if a.expense_id == 'e07')
+    fx = next(r for r in rows if r[0] == fx_number)
+    assert fx[9:12] == ('USD', 100, '82.000000000000')
+    assert fx[14] == datetime(2026, 10, 2)
+    assert workbook['Transactions']['K3'].number_format == '#,##0'
+    assert workbook['Transactions']['O3'].number_format == 'dd mmm yyyy'
+    assert not any(dimension.hidden for dimension in workbook['Transactions'].column_dimensions.values())
     assert workbook['Transactions'].freeze_panes == 'A3'
 
 
@@ -124,11 +130,14 @@ def test_account_totals_exclude_children_and_payments_keep_gross_source_totals()
     data, workbook, _ = exported()
     sheet = workbook['Members & Families']
     rows, total = members_detail_rows(workbook)
-    assert total[1:] == (None, data.net, data.net, 0, 12000, 12000, 0, None)
-    family = [row for row in rows if row[0] == 'Patel family']
-    assert sum(row[2] for row in family) == 82905
-    assert all(row[3:7] == (None, None, None, None) for row in family)
-    assert all(row[1] != 'Patel family' for row in family)
+    assert total[1:] == (data.net, data.net, 0, 12000, 12000, 0, None)
+    groups = {parent[0]: (parent, children) for parent, children in members_account_groups(workbook)}
+    parent, family = groups['Patel family']
+    assert sum(row[1] for row in family) == parent[1] == 82905
+    assert all(row[2:6] == (None, None, None, None) for row in family)
+    assert all(row[0] != 'Patel family' for row in family)
+    assert sum(parent[1] for parent, _ in groups.values()) == total[1]
+    assert sum(parent[2] for parent, _ in groups.values()) == total[2]
     history = list(workbook['Payments'].values)
     assert next(r[2] for r in history if r[0] == 'History total') == 12000
     assert next(r[2] for r in history if r[0] == 'Recorded payments total') == 7000
@@ -206,17 +215,17 @@ def test_report_is_compact_and_omits_adjustments_and_notes():
     assert workbook['Summary']['B9'].value == data.net
     assert 'Adjustments' not in workbook.sheetnames
     balances = workbook['Members & Families']
-    assert balances['H2'].value == 'Balance now (₹)'
+    assert balances['G2'].value == 'Balance now (₹)'
     # Hiding adjustment presentation must not change the authoritative final balances or shares.
     detail, total = members_detail_rows(workbook)
+    groups = {parent[0]: (parent, children) for parent, children in members_account_groups(workbook)}
     for account in data.accounts:
+        saved, children = groups[account.name]
+        assert saved[1:7] == (account.share, account.funded, account.before_settlements,
+                              account.sent, account.received, account.balance)
         if account.kind == 'Family':
-            saved = [row for row in detail if row[0] == account.name]
-            assert sum(row[2] for row in saved) == account.share
-            assert all(row[3:7] == (None, None, None, None) for row in saved)
-        else:
-            saved = next(row for row in detail if row[:2] == (account.name, account.name))
-            assert saved[2] == account.share and saved[7] == account.balance
+            assert sum(row[1] for row in children) == account.share
+            assert all(row[2:6] == (None, None, None, None) for row in children)
     assert workbook.sheetnames == ['Summary', 'Members & Families', 'Transactions', 'Payments']
     frozen_headers = {'Summary': None, 'Members & Families': 'A3', 'Transactions': 'A3', 'Payments': 'A3'}
     for sheet in workbook:
@@ -245,11 +254,11 @@ def test_each_financial_section_uses_the_trip_currency(currency, symbol):
     table, _, _, _ = category_table_rows(workbook)
     _, header, _, _ = range_boundaries(table.ref)
     assert summary.cell(header - 2, 1).value == f'Net expense share ({symbol})'
-    assert [c.value for c in workbook['Members & Families'][2][2:-1]] == [
+    assert [c.value for c in workbook['Members & Families'][2][1:-1]] == [
         f'{label} ({symbol})' for label in ['Expense share', 'Net funded', 'Before settlements',
                                          'Settlements paid', 'Settlements received', 'Balance now']]
-    assert workbook['Transactions']['J2'].value == f'Expense total ({symbol})'
-    assert workbook['Transactions']['K2'].value == f'Expense share ({symbol})'
+    assert workbook['Transactions']['M2'].value == f'Expense total ({symbol})'
+    assert workbook['Transactions']['N2'].value == f'Expense share ({symbol})'
     assert workbook['Payments']['C2'].value == f'Amount ({symbol})'
     assert sum(a.share for a in data.allocations) == summary['B9'].value
     assert not any('₹' in str(c.value) or 'INR' in str(c.value)
@@ -296,18 +305,19 @@ def test_transactions_retain_each_expense_and_reconcile_all_signed_totals():
     rows = list(expenses.values())
     assert len(rows) < len(allocations)
     assert len({row[0] for row in rows}) == len(data.snapshot.expenses)
-    assert {row[11] for row in rows} == {expense['id'] for expense in data.snapshot.expenses}
-    assert sum(row[9] for row in rows if row[9] > 0) == data.gross
-    assert -sum(row[9] for row in rows if row[9] < 0) == data.money_back
-    assert sum(row[9] for row in rows) == sum(row[10] for row in allocations) == data.net == workbook['Summary']['B9'].value
-    assert sheet.tables['ReportAllocations'].ref == f'A2:T{2 + len(allocations)}'
+    assert {row[0] for row in rows} == {allocation.number for allocation in data.allocations}
+    assert sum(row[12] for row in rows if row[12] > 0) == data.gross
+    assert -sum(row[12] for row in rows if row[12] < 0) == data.money_back
+    assert sum(row[12] for row in rows) == sum(row[13] for row in allocations) == data.net == workbook['Summary']['B9'].value
+    assert sheet.tables['ReportAllocations'].ref == f'A2:O{2 + len(allocations)}'
     assert sheet.tables['ReportAllocations'].autoFilter.ref == sheet.tables['ReportAllocations'].ref
-    fx = next(row for row in rows if row[11] == 'e07')
-    assert fx[12:16] == (100, 'USD', '82.000000000000', datetime(2026, 10, 2))
-    assert fx[17] == 'manual'
-    assert sheet.column_dimensions['L'].hidden
+    fx_number = next(a.number for a in data.allocations if a.expense_id == 'e07')
+    fx = next(row for row in rows if row[0] == fx_number)
+    assert fx[9:12] == ('USD', 100, '82.000000000000')
+    assert fx[14] == datetime(2026, 10, 2)
+    assert not any(dimension.hidden for dimension in sheet.column_dimensions.values())
     assert sheet.freeze_panes == 'A3'
-    assert sheet.cell(3 + len(allocations), 11).value == data.net
+    assert sheet.cell(3 + len(allocations), 14).value == data.net
 
 
 def test_transactions_retain_distinct_records_with_missing_or_duplicate_ids_and_zero_rounding():
@@ -325,11 +335,13 @@ def test_transactions_retain_distinct_records_with_missing_or_duplicate_ids_and_
     sheet = workbook['Transactions']
     rows = list(sheet.iter_rows(min_row=3, max_row=7, values_only=True))
     assert len(rows) == len(expenses)
-    assert [r[11] for r in rows].count('duplicate') == 2
+    assert [r[-2] for r in rows].count(100) == 2
     assert len({r[0] for r in rows}) == len(expenses)
-    assert any(r[9] == 0 and r[11] == 'rounded-zero' for r in rows)
+    zero_number = next(a.number for a in data.allocations if a.expense_id == 'rounded-zero')
+    assert any(r[-2] == 0 and r[0] == zero_number for r in rows)
     assert sum(r[10] for r in rows) == data.net == 190
-    assert next(r[1] for r in rows if r[11] == 'money-back') == 'unavailable'
+    refund_number = next(a.number for a in data.allocations if a.expense_id == 'money-back')
+    assert next(r[1] for r in rows if r[0] == refund_number) == 'unavailable'
     assert all(sheet.cell(row, 2).number_format == 'dd mmm yyyy'
                for row in range(3, 8) if isinstance(sheet.cell(row, 2).value, datetime))
 
@@ -351,7 +363,7 @@ def test_excel_text_limits_do_not_merge_category_headers_or_change_source_totals
     allocations = list(workbook['Transactions'].iter_rows(min_row=3, max_row=2 + len(data.allocations), values_only=True))
     assert {row[2] for row in allocations} == set(categories)
     assert all(len(row[3]) <= 32767 and '\x00' not in row[3] for row in allocations)
-    assert sum(row[10] for row in allocations) == workbook['Summary']['B9'].value == data.net == 300
+    assert sum(row[-1] for row in allocations) == workbook['Summary']['B9'].value == data.net == 300
     assert snapshot.trip['name'] == 'यात्रा 🚗\x00'
     assert snapshot.expenses == expenses
     for sheet in workbook:

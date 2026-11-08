@@ -11,7 +11,7 @@ import pytest
 from services.report_model import ReportSnapshot, build_report_data
 from services.report_xlsx import build_report_xlsx
 from report_excel_assertions import (
-    assert_no_pivot_parts, assert_static_category_table, category_table_rows, members_detail_rows,
+    assert_no_pivot_parts, assert_static_category_table, category_table_rows, members_detail_rows, members_account_groups,
 )
 
 
@@ -131,30 +131,45 @@ def test_missing_categories_use_the_existing_uncategorized_label(exchange, categ
 
 
 @pytest.mark.parametrize('exchange', [False, True])
-def test_family_rows_are_person_details_and_footer_uses_authoritative_accounts(exchange):
+def test_family_account_totals_precede_indented_details_and_footer_reconciles(exchange):
     source = replace(source_snapshot(exchange), payments=(
         {'id': 'cash', 'from_member_id': 's', 'to_member_id': 'f', 'amount': 10},))
     data, workbook = exported(source)
     sheet = workbook['Members & Families']
-    assert [cell.value for cell in sheet[2]][:2] == ['Family / account', 'Name']
-    assert sheet.max_column == 9 and sheet.freeze_panes == 'A3'
+    assert [cell.value for cell in sheet[2]] == [
+        'Name', 'Expense share (₹)', 'Net funded (₹)', 'Before settlements (₹)',
+        'Settlements paid (₹)', 'Settlements received (₹)', 'Balance now (₹)', 'Action']
+    assert sheet.max_column == 8 and sheet.freeze_panes == 'A3'
     rows, footer = members_detail_rows(workbook)
-    assert len(rows) == 5
+    assert len(rows) == 7
+    groups = {parent[0]: (parent, children) for parent, children in members_account_groups(workbook)}
     for account in data.accounts:
+        saved, children = groups[account.name]
+        assert saved == (account.name, account.share, account.funded, account.before_settlements,
+                         account.sent, account.received, account.balance, account.action)
         if account.kind == 'Family':
-            children = [row for row in rows if row[0] == account.name]
-            assert all(row[1] != account.name and row[3:7] == (None, None, None, None) for row in children)
-            assert all(row[8] == 'Within family account' for row in children)
-            assert sum(row[2] for row in children) == account.share
+            assert [row[0] for row in children] == [person.name for person in data.member_positions
+                                                   if person.account_id == account.account_id]
+            assert all(row[2:6] == (None, None, None, None) for row in children)
+            assert all(row[7] == 'Within family total' for row in children)
+            assert sum(row[1] for row in children) == account.share
+            assert sum(row[6] for row in children) == account.balance
         else:
-            saved = next(row for row in rows if row[:2] == (account.name, account.name))
-            assert saved[2:8] == (account.share, account.funded, account.before_settlements,
-                                  account.sent, account.received, account.balance)
-    assert footer == ('Group total', None, 230, 230, 0, 10, 10, 0, None)
-    number = next(cell.row for row in sheet for cell in row[:1] if cell.value == 'Group total')
+            assert children == []
+    for row in sheet.iter_rows(min_row=3, max_row=sheet.max_row - 1):
+        if row[2].value is not None:
+            assert all(cell.fill.fgColor.rgb[-6:] == 'EAF0EE' and cell.font.bold for cell in row)
+            assert row[4].font.color.rgb[-6:] == '991B1B'
+            assert row[5].font.color.rgb[-6:] == '166534'
+        else:
+            assert row[0].alignment.indent == 2 and not row[0].font.bold
+    assert footer == ('Total', 230, 230, 0, 10, 10, 0, None)
+    number = sheet.max_row
     assert all(cell.fill.fgColor.rgb[-6:] == '1C3F39' and cell.font.bold for cell in sheet[number])
     assert all(cell.font.color.rgb[-6:] == 'FFFFFF' for cell in sheet[number])
-    assert 'family account funding and settlements' in sheet.cell(number + 1, 1).value
+    assert str(sheet.print_area).endswith(f'$H${number}')
+    assert all(any(value is not None for value in row) for row in sheet.values)
+    assert not sheet.merged_cells.ranges
     assert not any(dimension.outlineLevel for dimension in sheet.row_dimensions.values())
 
 
@@ -168,10 +183,10 @@ def test_historical_people_and_accounts_are_retained_without_fabricated_funding(
     data, workbook = exported(source)
     rows, footer = members_detail_rows(workbook)
     account = next(account for account in data.accounts if account.kind == 'Historical')
-    assert any(row[:2] == (account.name, account.name) and row[7] == account.balance for row in rows)
-    person = next(row for row in rows if row[8] == 'Historical share only')
-    assert person[2] == 40 and person[3:8] == (None, None, None, None, None)
-    assert footer[2] == data.net == 100
+    assert any(row[0] == account.name and row[6] == account.balance for row in rows)
+    person = next(row for row in rows if row[7] == 'Historical share only')
+    assert person[1] == 40 and person[2:7] == (None, None, None, None, None)
+    assert footer[1] == data.net == 100
 
 
 def test_filters_and_local_source_edits_do_not_recalculate_fixed_summary_values():

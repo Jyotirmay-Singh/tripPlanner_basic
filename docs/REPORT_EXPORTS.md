@@ -65,10 +65,11 @@ For example, `10 * 0.1499999999999999999999999999999999` rounds to `1`, and the 
 rounds to `-1`. Rates that cannot be represented by BSON Decimal128 return a validation/provider
 error instead of an internal storage exception.
 
-When exchange evidence is needed, Transactions displays the original amount,
-original currency and stored rate, with provider, mode, requested date and effective date in
-expandable detail columns. Rate headings specify the direction, for
-example `Stored rate (INR per original unit)`. Monetary headings state the group currency.
+When exchange evidence is needed, Transactions displays Original currency, Original amount and
+Stored rate in expanded columns J:L. Expense totals and shares follow in M:N, with Effective rate
+date in O. Rate provider, rate mode, requested rate date, original exact allocations and internal
+expense IDs are omitted from this tab. Monetary headings state the group currency, and the stored
+rate heading states the group-currency amount per original unit.
 Missing original currency with conversion evidence displays `Not recorded`; it is not reconstructed
 from the group currency. Legacy records without any FX evidence retain the group-currency fallback.
 
@@ -105,24 +106,24 @@ quote hook, conversion panel, currency picker, offline conversion and expense pa
 `select_excel_report_type(ReportData)` selector. The export selects its layout once from the
 reconciled included allocations, before preparing the Excel-only display copy:
 
-- `single_currency`: every included original currency matches the group currency and its saved
-  conversion is an identity conversion. Exchange columns are omitted from Transactions, its named
+- `single_currency`: every included original currency matches the group currency.
+  Exchange columns are omitted from Transactions and its named
   table. Legacy group-currency expenses and empty groups use this layout.
-- `multi_currency`: any original currency differs from the group currency, or historical evidence
-  is unknown/inconsistent. This includes a group containing expenses in just one foreign source
-  currency. Original amount, original currency and saved rate are visible by default. Additional
-  conversion evidence remains expandable.
+- `multi_currency`: any original currency differs from the group currency, or the historical source
+  currency is unknown. This includes a group containing expenses in just one foreign source
+  currency. Original currency, original amount and stored rate are visible in the expanded J:L
+  group, with Effective rate date in O. No columns in Transactions are hidden by default.
 
-Both layouts use the same reconciled financial model and worksheet builders. Shared helpers define
-exchange headings, values, widths and number formats. Selection performs no database/provider
+Both layouts use the same reconciled financial model and worksheet builders. Transactions retains
+its existing styling and numeric formats. Selection performs no database/provider
 access and does not revalue expenses. All four sheets, public download URLs, signed whole-unit
 amounts and existing scope labels are retained. Workbook subject metadata records format 7 and
 the selected layout.
 
-Transactions has 12 source columns for the compact layout or 20 for the detailed layout.
-Expense ID remains available in expandable column L in both layouts. The static Summary category
+Transactions has 11 source columns for the compact layout or 15 for the detailed layout.
+The static Summary category
 matrix is built independently from reconciled allocations and is identical for equivalent financial
-inputs in either currency layout. Print areas include the visible original amount/currency/rate
+inputs in either currency layout. Print areas include the original currency, amount, rate and effective date
 columns in the detailed Transactions layout. A later export switches back to compact automatically
 when the last included foreign expense is removed.
 
@@ -189,19 +190,18 @@ The obsolete `report_pivot.py` adapter and its pivot-specific formatting are rem
 
 ### Members & Families
 
-The flat detail columns are Family / account, Name, Expense share, Net funded, Before settlements,
-Settlements paid, Settlements received, Balance now and Action. Current family account summary
-rows are omitted, while their person detail rows remain. Individual and historical account records
-are retained. Family/person names repeat in separate columns instead of requiring a subtotal row
-or an outline group. Person actions say Within family account or Historical share only.
+The eight columns are Name, Expense share, Net funded, Before settlements, Settlements paid,
+Settlements received, Balance now and Action. Each family, individual and historical account has
+a highlighted, bold summary row. Family members follow their account in plain rows, with names
+indented in the same Name column. Person actions say Within family total or Historical share only.
 
 Person expense shares and available within-family balances retain their existing values. Funding,
 before-settlement and payment amounts belonging to a family account remain blank on person rows;
-they are never invented or redistributed. Account-level funding is visible in Summary and recorded
-payments in Payments. The dark-green Group total footer is calculated from authoritative accounts,
-not by summing duplicated historical detail or blank family-level cells. Two notes explain this
-scope and where to find family funding/settlements. Balance/refund colours apply to detail rows;
-the final footer keeps bold white text matching the headers.
+they are never invented or redistributed. Account-level funding and settlements are shown on the
+highlighted account rows. The dark-green Total footer is calculated from authoritative accounts,
+so family totals and member details are not counted twice. Balance/refund colours apply above
+the final footer, which keeps bold white text matching the headers. The compact table ends at
+the footer, without extra captions, blank spacer rows or merged cells.
 
 ### Shared layout and detail sheets
 
@@ -216,9 +216,10 @@ and omits the Routing / payment-plan caption.
 Transactions remains the detailed expense table `ReportAllocations`. Expense share is additive;
 Expense total repeats for participating people, so group by Expense No when checking whole-expense
 totals. Included zeros and distinct records with duplicate/missing historical IDs retain their report
-numbers. Expense ID is expandable in L. Foreign-currency layouts show original amount/currency/rate
-in M:O and group additional evidence in P:T; compact layouts end at L. Monetary headings use the
-group currency and FX evidence retains its recorded original currency and saved rate direction.
+numbers. Foreign-currency layouts show original currency, original amount and stored rate
+in expanded columns J:L, monetary totals in M:N and Effective rate date in O; compact layouts end at K.
+Monetary headings use the group currency. Expense IDs and other conversion metadata are omitted
+from Transactions.
 
 XLSX uses an export-only copy of the reconciled model. Unsupported XML text is replaced, line endings
 are normalized, and cell text is limited to 32,767 characters with visible truncation. Distinct names

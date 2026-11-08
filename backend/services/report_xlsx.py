@@ -192,78 +192,67 @@ def finalize_layout(sheet, money_columns=()):
     sheet.oddFooter.center.text = "Page &P of &N"
 
 
-_EXCHANGE_WIDTHS = (18, 17, 24, 19, 24, 17, 36, 19)
-
-
-def _exchange_headers(currency):
-    return ["Original amount", "Original currency", f"Stored rate ({currency} per original unit)",
-            "Effective rate date", "Rate provider", "Rate mode", "Original exact allocations", "Requested rate date"]
-
-
-def _exchange_values(allocation):
-    return [float(allocation.original_amount) if allocation.original_amount is not None else None,
-            allocation.original_currency, allocation.exchange_rate,
-            datetime.combine(allocation.rate_date, datetime.min.time()) if allocation.rate_date else None,
-            allocation.rate_provider, allocation.rate_mode, allocation.original_exact,
-            datetime.combine(allocation.rate_requested_date, datetime.min.time()) if allocation.rate_requested_date else None]
-
-
-def _format_exchange_cells(sheet, row, first_column):
-    original = sheet.cell(row, first_column)
-    original.number_format = ('#,##0' if original.value is None or original.value == int(original.value)
-                              else '#,##0.###############')
-    for offset in (3, 7):
-        sheet.cell(row, first_column + offset).number_format = "dd mmm yyyy"
-
-
 def _transactions(workbook, data, report_type: ExcelReportType):
     sheet = workbook.create_sheet("Transactions")
     sheet.freeze_panes = "A3"
     include_exchange = report_type.includes_exchange_details
-    visible_last_column = 15 if include_exchange else 11
     symbol = currency_symbol(data.currency)
     headers = ["Expense No", "Date (IST)", "Category", "Description", "Entry type", "Paid by",
-               "Family / account", "Person", "Split method", f"Expense total ({symbol})", f"Expense share ({symbol})",
-               "Expense ID"]
+               "Family / account", "Person", "Split method"]
+    widths = [9, 23, 18, 32, 14, 20, 23, 21, 14]
     if include_exchange:
-        headers.extend(_exchange_headers(data.currency))
+        headers.extend(["Original currency", "Original amount", f"Stored rate ({data.currency} per original unit)"])
+        widths.extend([20, 20, 26])
+    headers.extend([f"Expense total ({symbol})", f"Expense share ({symbol})"])
+    widths.extend([17, 17])
+    total_column, share_column = len(headers) - 1, len(headers)
+    total_letter, share_letter = map(get_column_letter, (total_column, share_column))
+    if include_exchange:
+        headers.append("Effective rate date")
+        widths.append(20)
     _title(sheet, "Transactions")
     _row(sheet, 2, headers)
     header_row(sheet, 2, len(headers))
     for number, allocation in enumerate(data.allocations, 3):
         row = [allocation.number, allocation.occurred_at or allocation.date_source or "Not recorded", allocation.category, allocation.description,
                allocation.entry_type, allocation.payer, allocation.account, allocation.person,
-               allocation.split_method, allocation.expense_amount, allocation.share, allocation.expense_id]
+               allocation.split_method]
         if include_exchange:
-            row.extend(_exchange_values(allocation))
+            row.extend([allocation.original_currency,
+                        float(allocation.original_amount) if allocation.original_amount is not None else None,
+                        allocation.exchange_rate])
+        row.extend([allocation.expense_amount, allocation.share])
+        if include_exchange:
+            row.append(datetime.combine(allocation.rate_date, datetime.min.time()) if allocation.rate_date else None)
         _row(sheet, number, row)
         if allocation.occurred_at and not allocation.time_recorded:
             sheet.cell(number, 2).number_format = 'dd mmm yyyy'
         sheet.cell(number, 1).number_format = "0"
         if include_exchange:
-            _format_exchange_cells(sheet, number, 13)
-        for col in (10, 11):
+            original = sheet.cell(number, 11)
+            original.number_format = ('#,##0' if original.value is None or original.value == int(original.value)
+                                      else '#,##0.###############')
+            sheet.cell(number, 15).number_format = 'dd mmm yyyy'
+        for col in (total_column, share_column):
             money_cell(sheet.cell(number, col))
-        sheet.cell(number, 10).font = Font(name="Calibri", size=11, bold=True, color=BRAND)
+        sheet.cell(number, total_column).font = Font(name="Calibri", size=11, bold=True, color=BRAND)
     last = 2 + len(data.allocations)
     _table(sheet, "ReportAllocations", 2, last, len(headers))
     if data.allocations:
-        _row(sheet, last + 1, ["Net expense shares", None, None, None, None, None, None, None, None, None, data.net])
+        _row(sheet, last + 1, ["Net expense shares", *([None] * (share_column - 2)), data.net])
         sheet.cell(last + 1, 1).alignment = Alignment(wrap_text=False, vertical="center")
-        _total(sheet, last + 1, 11)
-        sheet.conditional_formatting.add(f"K3:K{last}", CellIsRule(operator="lessThan", formula=["0"], font=Font(color=RECEIVE)))
-        _number_rules(sheet, f"J3:K{last + 1}", "J3")
+        _total(sheet, last + 1, len(headers))
+        sheet.conditional_formatting.add(f"{share_letter}3:{share_letter}{last}",
+            CellIsRule(operator="lessThan", formula=["0"], font=Font(color=RECEIVE)))
+        _number_rules(sheet, f"{total_letter}3:{share_letter}{last + 1}", f"{total_letter}3")
     else:
         text_cell(sheet, 3, 1, "No expenses recorded")
-    widths = [9, 23, 18, 32, 14, 20, 23, 21, 14, 17, 17, 23]
-    if include_exchange:
-        widths.extend(_EXCHANGE_WIDTHS)
     _widths(sheet, widths)
-    sheet.column_dimensions.group("L", "L", hidden=True)
     if include_exchange:
-        sheet.column_dimensions.group("P", "T", hidden=True)
+        for column in ("J", "K", "L"):
+            sheet.column_dimensions[column].outlineLevel = 1
     sheet.print_title_rows = "1:2"
-    sheet.print_area = f"A1:{get_column_letter(visible_last_column)}{max(last + 1, 3)}"
+    sheet.print_area = f"A1:{get_column_letter(len(headers))}{max(last + 1, 3)}"
 
 
 def _summary(workbook, data):
@@ -316,10 +305,11 @@ def _members(workbook, data):
     sheet = workbook.create_sheet("Members & Families")
     sheet.freeze_panes = "A3"
     symbol = currency_symbol(data.currency)
-    headers = ["Family / account", "Name", f"Expense share ({symbol})", f"Net funded ({symbol})",
+    headers = ["Name", f"Expense share ({symbol})", f"Net funded ({symbol})",
                f"Before settlements ({symbol})", f"Settlements paid ({symbol})",
                f"Settlements received ({symbol})", f"Balance now ({symbol})", "Action"]
     _title(sheet, "Members & Families")
+    sheet.row_dimensions[1].height = 23.6
     _row(sheet, 2, headers)
     header_row(sheet, 2, len(headers))
     positions = defaultdict(list)
@@ -327,40 +317,29 @@ def _members(workbook, data):
         positions[person.account_id].append(person)
     row = 3
 
-    def detail(values, number):
-        _row(sheet, number, values)
-        for cell in sheet[number][:len(headers)]:
-            cell.fill = PatternFill("solid", fgColor="F4F7F6" if (number - 3) % 2 == 0 else "FFFFFF")
-
     for account in data.accounts:
-        if account.kind != "Family":
-            detail([account.name, account.name, account.share, account.funded, account.before_settlements,
-                    account.sent, account.received, account.balance, account.action], row)
-            sheet.cell(row, 6).font = Font(name="Calibri", size=11, color=PAY)
-            sheet.cell(row, 7).font = Font(name="Calibri", size=11, color=RECEIVE)
-            row += 1
+        _row(sheet, row, [account.name, account.share, account.funded, account.before_settlements,
+                          account.sent, account.received, account.balance, account.action])
+        _total(sheet, row, len(headers))
+        sheet.cell(row, 5).font = Font(name="Calibri", size=11, bold=True, color=PAY)
+        sheet.cell(row, 6).font = Font(name="Calibri", size=11, bold=True, color=RECEIVE)
+        row += 1
         for person in positions[account.account_id]:
-            action = "Within family account" if person.balance is not None else "Historical share only"
-            detail([account.name, person.name, person.share, None, None, None, None, person.balance, action], row)
+            action = "Within family total" if person.balance is not None else "Historical share only"
+            _row(sheet, row, [person.name, person.share, None, None, None, None, person.balance, action])
+            sheet.cell(row, 1).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True, indent=2)
             row += 1
-    _row(sheet, row, ["Group total", None, sum(a.share for a in data.accounts), sum(a.funded for a in data.accounts),
+    _row(sheet, row, ["Total", sum(a.share for a in data.accounts), sum(a.funded for a in data.accounts),
                      sum(a.before_settlements for a in data.accounts), sum(a.sent for a in data.accounts),
                      sum(a.received for a in data.accounts), sum(a.balance for a in data.accounts), None])
     header_row(sheet, row, len(headers))
     if row > 3:
-        _balance_rules(sheet, f"H3:H{row - 1}")
-        sheet.conditional_formatting.add(f"C3:C{row - 1}", CellIsRule(operator="lessThan", formula=["0"], font=Font(color=RECEIVE)))
-    _number_rules(sheet, f"C3:H{row}", "C3")
-    for offset, caption in enumerate((
-        "Group total includes family account funding and settlements.",
-        "Person rows leave these account-level amounts blank; see Summary and Payments.",
-    ), 1):
-        cell = text_cell(sheet, row + offset, 1, caption)
-        cell.font = Font(name="Calibri", size=10, color=NEUTRAL)
-        cell.alignment = Alignment(wrap_text=False, vertical="center")
-    _widths(sheet, [26, 26, 17, 17, 18, 18, 18, 17, 24])
+        _balance_rules(sheet, f"G3:G{row - 1}")
+        sheet.conditional_formatting.add(f"B3:B{row - 1}", CellIsRule(operator="lessThan", formula=["0"], font=Font(color=RECEIVE)))
+    _number_rules(sheet, f"B3:G{row}", "B3")
+    _widths(sheet, [26, 17, 17, 18, 18, 18, 17, 21])
     sheet.print_title_rows = "1:2"
-    sheet.print_area = f"A1:I{row + 2}"
+    sheet.print_area = f"A1:H{row}"
 
 
 def _payments(workbook, data):
@@ -420,7 +399,8 @@ def build_report_workbook(data: ReportData):
     workbook._sheets.sort(key=lambda sheet: ["Summary", "Members & Families", "Transactions", "Payments"].index(sheet.title))
     for sheet in workbook:
         sheet.sheet_properties.tabColor = BRAND
-        finalize_layout(sheet, tuple(range(2, 12)))
+        money_columns = range(2, sheet.max_column + 1) if sheet.title == "Transactions" else range(2, 12)
+        finalize_layout(sheet, tuple(money_columns))
     return workbook
 
 

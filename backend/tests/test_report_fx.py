@@ -106,15 +106,18 @@ def test_mixed_currency_quotes_flow_into_reconciled_reports_without_reconversion
     assert (data.gross, data.money_back, data.net) == (expected_gross, -refund_total, expected_net)
     assert workbook['Summary']['B9'].value == expected_net
     allocations = list(workbook['Transactions'].iter_rows(min_row=3, max_row=2 + len(data.allocations), values_only=True))
-    rows = {row[11]: row for row in allocations}
-    assert [rows[f'expense-{number}'][9] for number in range(1, 5)] == [50, usd_total, refund_total, jpy_total]
-    assert sum(row[9] for row in rows.values()) == expected_net
-    usd = rows['expense-2']
-    assert usd[12:15] == (100, 'USD', usd_rate)
-    assert usd[15].date() == date(2026, 8, 28)
-    assert usd[19].date() == date(2026, 8, 30)
-    assert currency in workbook['Transactions']['O2'].value and 'per' in workbook['Transactions']['O2'].value
-    assert sum(row[10] for row in allocations) == expected_net
+    rows = {row[0]: row for row in allocations}
+    numbers = {allocation.expense_id: allocation.number for allocation in data.allocations}
+    assert [rows[numbers[f'expense-{number}']][12] for number in range(1, 5)] == [50, usd_total, refund_total, jpy_total]
+    assert sum(row[12] for row in rows.values()) == expected_net
+    usd = rows[numbers['expense-2']]
+    assert usd[9:12] == ('USD', 100, usd_rate)
+    assert usd[14].date() == date(2026, 8, 28)
+    saved_usd = next(allocation for allocation in data.allocations if allocation.expense_id == 'expense-2')
+    assert saved_usd.exchange_rate == usd_rate
+    assert saved_usd.rate_date == date(2026, 8, 28)
+    assert saved_usd.rate_requested_date == date(2026, 8, 30)
+    assert sum(row[13] for row in allocations) == expected_net
     assert_static_category_table(workbook, expected_net)
     pdf = ' '.join(page.extract_text() for page in PdfReader(io.BytesIO(build_report_pdf(data))).pages)
     assert 'USD' in pdf and 'JPY' in pdf
@@ -194,11 +197,13 @@ def test_each_expense_keeps_its_own_historical_rate_within_the_same_currency(mon
         {'id': 'historical', 'name': 'Historical rates', 'currency': 'INR', 'members': MEMBERS,
          'simplify_debts': simplify}, expenses))
     workbook = load_workbook(io.BytesIO(build_report_xlsx(data)))
-    rows = {row[11]: row for row in workbook['Transactions'].iter_rows(
+    rows = {row[0]: row for row in workbook['Transactions'].iter_rows(
         min_row=3, max_row=2 + len(data.allocations), values_only=True)}
+    numbers = {allocation.expense_id: allocation.number for allocation in data.allocations}
     for key, canonical, original, currency, rate, _ in specifications:
-        assert rows[key][9] == canonical
-        assert rows[key][12:15] == (original, currency, rate)
+        assert rows[numbers[key]][12] == canonical
+        assert rows[numbers[key]][9:12] == (currency, original, rate)
+        assert all(allocation.exchange_rate == rate for allocation in data.allocations if allocation.expense_id == key)
     assert (data.gross, data.money_back, data.net) == (25470, 820, 24650)
     assert workbook['Summary']['B9'].value == 24650
     provider.assert_not_awaited()
