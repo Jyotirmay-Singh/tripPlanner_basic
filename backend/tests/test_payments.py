@@ -251,6 +251,5 @@ class TestPaymentExcelReconciles:
         data_rows = [r for r in rows if r[4] == "Recorded payment"]
         assert len(data_rows) == len(amounts)
         assert sum(r[2] for r in data_rows) == sum(amounts)
-        assert next(r[2] for r in rows if r[0] == "Recorded payments total") == sum(amounts)
-        assert next(r[2] for r in rows if r[0] == "History total") == sum(amounts)
+        assert [r[2] for r in rows if r[0] == "Total"] == [sum(amounts)]
         assert next(r[2] for r in rows if r[0] == "Outstanding plan total") == 45

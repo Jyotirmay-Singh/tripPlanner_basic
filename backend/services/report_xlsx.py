@@ -372,12 +372,9 @@ def _payments(workbook, data):
         sheet.cell(row, 1).font = Font(name="Calibri", size=11, color=PAY)
         sheet.cell(row, 2).font = Font(name="Calibri", size=11, color=RECEIVE)
     _table(sheet, "ReportSettlements", header, row, 7)
-    for label, value in (("History total", sum(e.amount for e in data.events)),
-                         ("Recorded payments total", sum(e.amount for e in data.events if e.source == "Recorded payment")),
-                         ("Legacy settlements total", sum(e.amount for e in data.events if e.source == "Legacy settlement"))):
-        row += 1
-        _row(sheet, row, [label, None, value])
-        _total(sheet, row, 6)
+    row += 1
+    _row(sheet, row, ["Total", None, sum(e.amount for e in data.events)])
+    _total(sheet, row, 6)
     _widths(sheet, [27, 24, 17, 23, 20, 21, 26])
     sheet.column_dimensions["G"].hidden = True
     sheet.print_area = f"A1:F{row}"

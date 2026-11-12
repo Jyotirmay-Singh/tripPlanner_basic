@@ -126,7 +126,7 @@ def test_static_summary_and_balances_keep_semantic_colours():
                 assert cell.font.color.rgb[-6:] == '166534'
             assert cell.number_format == indian_format(cell.value)
 
-def test_account_totals_exclude_children_and_payments_keep_gross_source_totals():
+def test_account_totals_exclude_children_and_payments_keep_single_total():
     data, workbook, _ = exported()
     sheet = workbook['Members & Families']
     rows, total = members_detail_rows(workbook)
@@ -139,9 +139,8 @@ def test_account_totals_exclude_children_and_payments_keep_gross_source_totals()
     assert sum(parent[1] for parent, _ in groups.values()) == total[1]
     assert sum(parent[2] for parent, _ in groups.values()) == total[2]
     history = list(workbook['Payments'].values)
-    assert next(r[2] for r in history if r[0] == 'History total') == 12000
-    assert next(r[2] for r in history if r[0] == 'Recorded payments total') == 7000
-    assert next(r[2] for r in history if r[0] == 'Legacy settlements total') == 5000
+    assert [r[2] for r in history if r[0] == 'Total'] == [12000]
+    assert not any(r[0] in ('History total', 'Recorded payments total', 'Legacy settlements total') for r in history)
     assert sum(r[2] for r in history if r[3] == 'Suggested') == data.outstanding
     assert sum(r[6] == 'payment-4' or r[6] == 'payment-5' for r in history) == 2
     assert not any(r[6] == 'legacy-pending' for r in history)
@@ -174,6 +173,7 @@ def test_empty_report_has_four_unmerged_tabs_no_dummy_summary_table_and_no_chart
     assert all(not sheet.merged_cells.ranges for sheet in workbook)
     assert [workbook['Summary'][cell].value for cell in ('B7', 'B8', 'B9')] == [0, 0, 0]
     assert any(row[0] == 'No expenses recorded' for row in workbook['Summary'].values)
+    assert [row[2] for row in workbook['Payments'].values if row[0] == 'Total'] == [0]
 
 
 def test_missing_dates_remain_in_the_saved_source_and_static_totals():

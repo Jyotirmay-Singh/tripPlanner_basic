@@ -309,8 +309,7 @@ class TestReports:
         payment_rows = list(wb["Payments"].values)
         history = [row for row in payment_rows if row[4] in ("Recorded payment", "Legacy settlement")]
         assert sum(row[2] for row in history) == 45
-        assert next(r[2] for r in payment_rows if r[0] == "Recorded payments total") == 15
-        assert next(r[2] for r in payment_rows if r[0] == "Legacy settlements total") == 30
+        assert [r[2] for r in payment_rows if r[0] == "Total"] == [45]
         recorded = next(row for row in history if row[4] == "Recorded payment")
         from services.report_model import ist_datetime
         assert recorded[3] == ist_datetime(r_pay.json()["created_at"])
