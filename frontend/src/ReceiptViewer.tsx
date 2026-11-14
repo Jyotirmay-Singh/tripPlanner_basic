@@ -17,7 +17,7 @@ import { useSystemBarsOverride } from './AppSystemBars';
 type Props = { uri: string | null; visible: boolean; onClose: () => void; onReport?: () => void };
 
 /**
- * Full-screen receipt viewer with a "Save to gallery" download trigger.
+ * Full-screen receipt viewer with gallery or user-selected-folder saving.
  * Reusable across the add/edit expense screens. The Save action is read-only
  * (available to any viewer); destructive receipt edits remain gated upstream.
  */
@@ -25,13 +25,14 @@ export default function ReceiptViewer({ uri, visible, onClose, onReport }: Props
   const { colors } = useTheme();
   useSystemBarsOverride(visible, { status: 'light', navigation: 'light' });
   const [saving, setSaving] = useState(false);
+  const usesFolderPicker = Platform.OS === 'android' && Number(Platform.Version) < 33;
 
   const saveToGallery = async () => {
     if (!uri || saving) return;
     setSaving(true);
     let tempUri: string | null = null;
     try {
-      if (Platform.OS === 'ios' || (Platform.OS === 'android' && Number(Platform.Version) <= 28)) {
+      if (Platform.OS === 'ios') {
         const perm = await MediaLibrary.requestPermissionsAsync(true);
         if (!perm.granted) {
           Alert.alert('Permission needed', 'Allow gallery saving to save this receipt.');
@@ -39,12 +40,14 @@ export default function ReceiptViewer({ uri, visible, onClose, onReport }: Props
         }
       }
       let fileUri = uri;
+      let mimeType = /\.png(?:\?|$)/i.test(uri) ? 'image/png' : 'image/jpeg';
       if (uri.startsWith('data:')) {
         const parsed = parseDataUri(uri);
         if (!parsed) {
           Alert.alert('Error', "Couldn't read this receipt image.");
           return;
         }
+        mimeType = parsed.mime;
         tempUri = `${FileSystem.cacheDirectory}receipt-${Date.now()}.${parsed.ext}`;
         await FileSystem.writeAsStringAsync(tempUri, parsed.base64, {
           encoding: FileSystem.EncodingType.Base64,
@@ -60,10 +63,28 @@ export default function ReceiptViewer({ uri, visible, onClose, onReport }: Props
           return;
         }
         fileUri = dl.uri;
+        mimeType = (dl.headers?.['content-type'] || dl.headers?.['Content-Type'])?.split(';')[0] || mimeType;
       }
-      // A local file:// URI (freshly picked or just downloaded) saves directly.
-      await MediaLibrary.saveToLibraryAsync(fileUri);
-      Alert.alert('Saved', 'Saved to your gallery.');
+      if (usesFolderPicker) {
+        const folder = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync(
+          FileSystem.StorageAccessFramework.getUriForDirectoryInRoot('Pictures'),
+        );
+        if (!folder.granted) return;
+        const contents = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+        const destination = await FileSystem.StorageAccessFramework.createFileAsync(
+          folder.directoryUri, `Splitora-receipt-${Date.now()}`, mimeType,
+        );
+        try {
+          await FileSystem.writeAsStringAsync(destination, contents, { encoding: FileSystem.EncodingType.Base64 });
+        } catch (error) {
+          try { await FileSystem.deleteAsync(destination, { idempotent: true }); } catch { /* best-effort */ }
+          throw error;
+        }
+        Alert.alert('Saved', 'Saved to your selected folder.');
+      } else {
+        await MediaLibrary.saveToLibraryAsync(fileUri);
+        Alert.alert('Saved', 'Saved to your gallery.');
+      }
     } catch (e: any) {
       Alert.alert('Error', e?.message || "Couldn't save the receipt.");
     } finally {
@@ -114,7 +135,7 @@ export default function ReceiptViewer({ uri, visible, onClose, onReport }: Props
               ) : (
                 <>
                   <Ionicons name="download-outline" size={18} color={colors.primaryText} />
-                  <T color={colors.primaryText} variant="h3">Save to gallery</T>
+                  <T color={colors.primaryText} variant="h3">{usesFolderPicker ? 'Save to folder' : 'Save to gallery'}</T>
                 </>
               )}
             </TouchableOpacity>

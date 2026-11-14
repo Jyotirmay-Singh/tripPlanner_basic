@@ -27,7 +27,8 @@ are deferred. See [PLAY_STORE_LAUNCH.md](PLAY_STORE_LAUNCH.md) for exact verific
   new UPI handoffs. Previously recorded payment evidence retains its reconciliation purpose.
 - Android receipt selection opens the system gallery picker directly from Add/Edit Transaction.
   Camera, microphone and broad media-read permissions are blocked. The iOS camera description
-  is removed. Legacy gallery-write permission is restricted to API 28 and below. Gallery selection,
+  is removed. External-storage write permission is also blocked. Receipt saving uses a user-selected
+  folder on Android 7–12 and MediaStore on Android 13+. Gallery selection,
   cancellation, permission denial and form preservation have focused regression coverage.
 - Listing copy, current-brand icon/feature graphic and six synthetic mobile-web screenshot drafts
   are prepared in [play-store-assets](play-store-assets/README.md), with dimensions and source/checksum

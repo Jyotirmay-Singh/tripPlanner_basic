@@ -384,6 +384,7 @@ across standalone individuals, family entries, and joined app users.
       total**. The server converts the allocations with the locked rate and distributes any remainder
       whole units deterministically, so their group-currency sum exactly matches the converted total.
 11. **Receipt (optional)** — Tap **Attach image** to choose an existing bill picture from your gallery. The system picker opens when you tap the button. The selected image uploads after the transaction is saved and is stored in GridFS. You can also attach or replace it through **Edit Transaction**.
+    In the receipt viewer, Android 7–12 offers **Save to folder**, where you choose a destination such as Pictures. Android 13+ offers **Save to gallery**. Storage access stays limited to your selection.
 11. Tap **Save transaction**.
 12. If the running total now exceeds the group budget, a warning dialog asks you to **Cancel** or **Save anyway**.
 

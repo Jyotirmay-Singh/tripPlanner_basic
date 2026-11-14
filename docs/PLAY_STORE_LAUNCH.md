@@ -40,7 +40,8 @@ returns 1 on this branch. The deleted saved UI branch remains absent.
 The testing build uses `frontend/eas.json` profile `qaLocal`, internal APK distribution,
 remote auto-increment and the canonical dynamic Expo configuration. Its dedicated package
 is `com.tripsplitter.app.qa`, displayed as **Splitora QA**, version `1.0.0`. The QA remote
-counter was initialized at 25 so the next build receives code 26. ARM64 and x86_64 support,
+counter was initialized at 25. Candidate 26 exposed implied legacy read access during the
+final APK audit. The corrected build uses the next auto-incremented code, 27. ARM64 and x86_64 support,
 embedded JavaScript, signing and final permissions require inspection of the finished APK.
 
 The selected backend is the updated local QA API at `http://127.0.0.1:8000`, backed by
@@ -87,15 +88,15 @@ recorded here after the build completes. Google Play Console milestones remain d
 
 | Check | Actual result on 14 November 2026 |
 | --- | --- |
-| Frontend Jest | 146 suites and 1,312 tests passed; one suite and 18 tests skipped |
-| Isolated backend | 1,684 passed, two skipped and 320 live-API cases deselected |
+| Frontend Jest | 147 suites and 1,323 tests passed after the storage-permission correction; one suite and 18 tests skipped |
+| Isolated backend | 1,684 passed in the full run, with two skipped and 320 live-API cases deselected. Both skipped cases passed in a separate two-test run using their required disposable replica-set/standalone environments |
 | TypeScript and ESLint | Both passed; lint produced no warnings |
 | Expo dependency check | Passed within SDK 54; existing keyboard-controller exclusion retained |
 | Expo Doctor | 17/17 passed; existing native-directory synchronization check remains disabled |
 | Backend dependencies | `pip check` passed |
 | Production web export | 49 routes exported successfully |
 | Public service observations | Production API health, public web homepage and isolated QA API each returned HTTP 200 |
-| Source and archive review | 91 release files reviewed, including eight listing images and new safety/policy code; secret-pattern scan and final archive exclusion checks passed |
+| Source and archive review | Complete release diff, eight listing images and new safety/policy code reviewed; secret-pattern scan and archive exclusion checks passed. Corrected permission configuration introspection removes all eight prohibited camera/audio/storage declarations |
 
 The refreshed main-based group-deletion callback needed its matching financial-writer
 inventory entry. That entry was added before the passing full backend run. One intermediate
@@ -116,7 +117,7 @@ project, environment files, signing material, dependencies, APKs or temporary ev
 | Group-deletion confirmation | Approved pre-existing local fix in `frontend/app/trip/[id]/index.tsx` and `trip-detail-header-budget.test.tsx`; case-insensitive spelling with whitespace trimming remains covered |
 | Public policies/deletion links | New readiness work: `frontend/app/privacy.tsx`, `terms.tsx`, `account-deletion.tsx`, `src/LegalPage.tsx`, `LegalLinks.tsx` and public auth routing |
 | Community/guardian safeguards | New readiness work: `backend/models/community.py`, `routes/community.py`, `services/community_safety.py`; matching `frontend/app/community-settings.tsx`, `moderation.tsx`, `src/CommunityProvider.tsx` and reporting controls |
-| Receipt permissions and inspection | New readiness work: canonical `frontend/app.base.json`, `plugins/withReceiptPermissions.js`, receipt forms/viewer and report-specific backend receipt retrieval |
+| Receipt permissions and inspection | New readiness work: canonical `frontend/app.base.json`, receipt forms/viewer and report-specific backend receipt retrieval; the final artifact audit supersedes the initial legacy-write plugin with scoped folder saving |
 | Regression and operations | New readiness fixtures/tests, isolated test runner, feature/user guides, operating procedure, corrected Play guide and synthetic listing assets; no financial arithmetic redesign |
 
 All entries are changes from the pinned main baseline. No saved GPay branch merge or
@@ -182,9 +183,20 @@ The owner confirmed on 14 November that receipt attachment is gallery-only. **At
 opens the system image picker directly in Add/Edit Transaction. Camera acquisition and the
 source-selection sheet have been removed. Android camera, microphone and broad media-read
 permissions are blocked. The image-picker camera/microphone options are disabled and the
-iOS camera usage description is removed. Legacy gallery-write access is limited to API 28
-and below. Android 10+ saves to the gallery through MediaStore. iOS gallery permission is
+iOS camera usage description is removed. Android external-storage write permission is also
+blocked. Android 7–12 uses **Save to folder** and a user-selected system folder. Android 13+
+saves to the gallery through MediaStore. iOS gallery permission is
 requested when the user chooses to attach an image.
+
+The final APK audit found that candidate 26's API-28-capped write permission implied legacy
+read access, even though read access was absent from the binary manifest declarations.
+The correction removes that write permission and the initial legacy-write config plugin.
+The installed Expo media-library implementation still checks write permission below API 33,
+so those Android versions use the scoped system folder picker. Focused tests cover API 24,
+28, 29 and 32 saving/cancellation, MIME handling, incomplete-file cleanup, current Android
+gallery saving and iOS add-only denial. The rebuilt APK must have no camera, microphone,
+broad media-read or external-storage-write entries in either its manifest or AAPT's inferred
+permission report.
 
 ## Phase 1 owner and acceptance register
 
@@ -327,9 +339,9 @@ running. Both passed in isolation, and the final full run passed after those che
 Startup failures now include their isolated server diagnostics; the earlier attempt is
 retained as `backend-tests-startup-timeout-attempt.xml`.
 
-## Gallery-only correction verification
+## Initial gallery-only correction verification
 
-Current source opens the gallery directly from the existing attachment buttons. The focused
+The initial gallery-only correction opens the gallery directly from the existing attachment buttons. The focused
 Add/Edit tests exercise Android and iOS selection/cancellation, iOS permission denial,
 populated form preservation and receipt upload. TypeScript and frontend lint pass.
 Fresh native permission evidence is under `.release-tmp/gallery-only-20261114/`.
@@ -348,7 +360,9 @@ covering 725 Git-listed files under `backend/`, `frontend/` and `shared/` using 
 path/NUL/bytes/NUL algorithm in `verification.json`. Earlier listing and APK fingerprints
 identify their earlier source snapshots.
 
-The final signed gallery-only APK still needs its own device selection/crop/upload/save checks.
+The final APK audit and human-testing section above supersede this initial permission-only
+evidence, including its API-28-capped write permission. Final artifact device results are
+recorded with the testing release.
 
 ### Earlier source and native artifact provenance
 
