@@ -1,5 +1,13 @@
 # Android APK — Build & Install Guide
 
+The current launch-preview testing artifact is **Splitora QA 1.0.0 build 27**, package
+`com.tripsplitter.app.qa`. It requires the isolated QA workstation and USB/ADB forwarding.
+Its download, exact source/EAS identifiers, checksum, private-account handoff and installed
+device results are in the [human-testing release handoff](PLAY_STORE_LAUNCH.md#human-testing-apk-release).
+[Download the QA APK](https://tripsplitter-web.vercel.app/download/android-qa).
+
+The production-package build-24 record follows.
+
 A standalone, side-loadable Android APK of Splitora, pointed at the production backend
 (`https://tripsplitter-api.onrender.com`).
 
@@ -129,6 +137,7 @@ SHA-1.
       the Web audience); first-time Google user must complete password setup.
 - [ ] Create a trip; add expenses in **Per Person / Per Family / Exact** split modes.
 - [ ] On Trip Summary, tap a donut slice and a legend row; both open the category breakdown with payer bars, refunds, and transactions.
-- [ ] Receipt capture (camera) + upload from gallery; view receipt.
+- [ ] Receipt attachment opens the system gallery directly. Cancel, then select/crop/upload,
+      view and save a receipt. Android 7–12 uses Save to folder, Android 13+ uses Save to gallery.
 - [ ] Settle-up + record a partial payment; badges/progress update.
 - [ ] XLSX and PDF report download open correctly.

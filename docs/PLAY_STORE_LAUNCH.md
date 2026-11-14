@@ -37,52 +37,138 @@ returns 1 on this branch. The deleted saved UI branch remains absent.
 
 ## Human-testing APK release
 
-The testing build uses `frontend/eas.json` profile `qaLocal`, internal APK distribution,
-remote auto-increment and the canonical dynamic Expo configuration. Its dedicated package
-is `com.tripsplitter.app.qa`, displayed as **Splitora QA**, version `1.0.0`. The QA remote
-counter was initialized at 25. Candidate 26 exposed implied legacy read access during the
-final APK audit. The corrected build uses the next auto-incremented code, 27. ARM64 and x86_64 support,
-embedded JavaScript, signing and final permissions require inspection of the finished APK.
+### Build 27 artifact
+
+| Item | Verified value |
+| --- | --- |
+| Stable QA download | [Download Splitora QA](https://tripsplitter-web.vercel.app/download/android-qa) |
+| Durable APK | [GitHub prerelease asset](https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/download/android-qa-v1.0.0-build.27/splitora-qa-android-1.0.0-build-27.apk) |
+| GitHub release | [Android QA 1.0.0 build 27](https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/tag/android-qa-v1.0.0-build.27) |
+| Branch | `codex/splitora-launch-preview` |
+| Immutable APK source | `a350d52555f3064aa5366e7aabc49de88b001a5c` |
+| Earlier readiness commit | `550009da3583d50c00ca0f59b8441947d0c811e7` |
+| EAS build | [`24f5e47a-27b6-486d-b616-eaf9c010e362`](https://expo.dev/accounts/jyotirmay03/projects/frontend/builds/24f5e47a-27b6-486d-b616-eaf9c010e362), `FINISHED` |
+| EAS artifact | [Build-27 APK](https://expo.dev/artifacts/eas/Eyd96y2eMbC7B1pUjwnQDsJW2kGOu-dBItNngP8d9zY.apk) |
+| App / package | **Splitora QA**, `com.tripsplitter.app.qa` |
+| Version / build | `1.0.0` / `27` |
+| Size | 132,316,964 bytes, approximately 126.19 MiB |
+| SHA-256 | `30d14421120480ce49077e2d95961bdc4820ce0e49aa105a881801b245394632` |
+| Android support | Minimum API 24, target API 36, ARM64/ARMv7/x86/x86_64 |
+| QA signing SHA-1 | `BC:25:B3:A6:87:B6:75:11:45:E1:94:1E:63:64:BD:D9:6B:F0:C0:92` |
+| QA signing SHA-256 | `F1:6E:B6:F7:D3:AA:92:CB:ED:75:9D:12:CF:5D:9E:D3:24:25:E6:E9:F2:53:2C:C7:FD:84:77:73:9C:2F:9B:5E` |
+
+The build uses `frontend/eas.json` profile `qaLocal`, internal APK distribution, remote
+auto-increment and the canonical dynamic Expo configuration from `frontend/`. The QA
+counter started at 25. Candidate 26, EAS `4595a6a3-2ab7-4954-bc44-fade8f5d4bb9`, was
+withheld after its API-28-capped storage-write permission implied read access. The
+correction was committed and pushed before the sequential build 27. Both builds finished.
+
+The finished APK's package, version, signer, embedded bundle and loopback backend address
+were inspected. All 54 ARM64/x86_64 native libraries passed ELF and ZIP 16 KB alignment
+checks. Camera, microphone, external-storage read/write and all broad media-read
+permissions are absent from the binary manifest and AAPT's inferred-permission report.
+
+### Backend and installation
 
 The selected backend is the updated local QA API at `http://127.0.0.1:8000`, backed by
 loopback replica set `splitoraLaunchQA` on port 27029 and fresh database
 `splitora_launch_preview_20261114`. Email and push delivery are disabled in this QA process.
 The production EmailJS authorization decision remains recorded below and in the email guide.
+QA health returned HTTP 200 at backend revision `a350d52555f3`, with chat protocol 1,
+expense/payment create protocols 1 and 17 community-safety endpoints in OpenAPI.
 
-Testers need this workstation running and an authorized USB-debugging connection. From
-the repository root, use RTK and the Android platform tools already installed here.
+Testers need this workstation running and an authorized USB-debugging connection.
+Download the APK, open it and allow installation from the browser/Files app when Android
+asks. Open **Splitora QA**. Alternatively install with ADB below. RTK is installed outside
+PATH on this workstation, and Android platform tools are at `D:\Android\sdk\platform-tools`.
+Run these commands from the repository root after replacing `DEVICE_SERIAL` and the APK path.
 
 ```powershell
-rtk proxy adb devices -l
-rtk proxy adb -s DEVICE_SERIAL reverse tcp:8000 tcp:8000
-rtk proxy adb -s DEVICE_SERIAL install -r PATH_TO_QA_APK
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy D:\Android\sdk\platform-tools\adb.exe devices -l
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy D:\Android\sdk\platform-tools\adb.exe -s DEVICE_SERIAL reverse tcp:8000 tcp:8000
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy D:\Android\sdk\platform-tools\adb.exe -s DEVICE_SERIAL install -r PATH_TO_QA_APK
 ```
 
-Replace `DEVICE_SERIAL` and `PATH_TO_QA_APK` with the selected phone and downloaded file.
 Keep USB connected during online testing. Reapply forwarding after a reboot/reconnection.
 Remove the mapping before an offline test, then restore it for recovery.
 
 ```powershell
-rtk proxy adb -s DEVICE_SERIAL reverse --remove tcp:8000
-rtk proxy adb -s DEVICE_SERIAL reverse tcp:8000 tcp:8000
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy D:\Android\sdk\platform-tools\adb.exe -s DEVICE_SERIAL reverse --remove tcp:8000
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy D:\Android\sdk\platform-tools\adb.exe -s DEVICE_SERIAL reverse tcp:8000 tcp:8000
 ```
 
 Local QA service launchers, credentials and evidence are retained privately under
-`.release-tmp/splitora-launch-preview-20261114/`. `start-services.ps1` accepts `mongo` or
-`api`; the API launcher retains the same private signing secret across restarts. The
-synthetic accounts and their passwords are in `QA_ACCOUNTS.md` in that directory.
-Alex Mehta completes the age/terms review in the installed app. Choose **18 or over**,
-review the linked policies, accept the current terms, then continue to groups. Sam Rao
-already has adult terms accepted. Both can access **Splitora QA weekend**, containing
-two sample expenses, a receipt, a family and a message for report/block testing.
+`.release-tmp/splitora-launch-preview-20261114/`. MongoDB and the API are left running for
+this handoff. After a workstation restart, start the retained MongoDB and API processes
+once. The Mongo replica set and private signing secret persist in the retained files.
+
+```powershell
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy powershell -NoProfile -ExecutionPolicy Bypass -File .release-tmp/splitora-launch-preview-20261114/start-services.ps1 mongo
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy powershell -NoProfile -ExecutionPolicy Bypass -File .release-tmp/splitora-launch-preview-20261114/start-services.ps1 api
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy curl.exe --fail http://127.0.0.1:8000/api/health
+```
+
+For an API-only restart while MongoDB is running, use `restart-api.ps1` from the same
+directory. It checks the saved API process identity before stopping that process.
+
+The four synthetic accounts and their passwords are in the private `QA_ACCOUNTS.md`
+in that directory. Alex Mehta and Sam Rao already accepted the adult terms. Both can
+access **Splitora QA weekend**, code `XIUOCA`, containing two sample expenses totaling
+INR 2,520, a receipt, the Rao family and a message for report/block testing. Alex's starting
+net position is INR +1,890. Taylor QA starts at age/terms review and has **Review QA sandbox**.
+Choose **18 or over** for this adult fixture, review the linked policies, accept the terms
+and continue. The isolated operator account opens **Profile → Moderation queue**.
 
 Additional adult testers can register a Gmail/password account against this QA backend,
 complete the same review and create a group or join the sample using its locally recorded
 code. Email delivery is disabled, and these QA accounts use synthetic identities. Keep
 credentials in the private handoff. Use synthetic receipts and expenses during testing.
 
-The artifact, exact source commit, download verification and final device results are
-recorded here after the build completes. Google Play Console milestones remain deferred.
+### Installed build-27 verification
+
+The exact APK above was installed on disposable emulator `emulator-5574`, Android 15/API 35,
+x86_64. `native-verification.json` ties each journey to its source, EAS ID and APK checksum.
+Evidence is under `.release-tmp/splitora-launch-preview-20261114/`.
+
+| Journey | Actual result |
+| --- | --- |
+| Install, QA upgrade and launch | Passed upgrade from candidate 26 with Alex's account retained, followed by standalone cold launch with embedded JavaScript |
+| Password sign-in and review | Fresh Taylor password sign-in, linked policy review and adult terms acceptance passed. Taylor's review fields were reset afterward for human testing |
+| Account isolation and groups | Taylor and Alex saw their own groups. Alex's dashboard displayed INR +1,890 and the expected sample group |
+| Reporting and blocking | Native report created exactly one server report. Blocking hid the sender's message. Profile → Community safety unblocking restored it |
+| Moderation rehearsal | Isolated operator opened the native queue, dismissed the synthetic report with an explanation and cleared the queue. Server recorded the resolved case and dismiss action |
+| Gallery cancellation | Attach receipt opened Android's `PhotoPickerActivity` directly. Cancellation returned to the populated editor |
+| Receipt selection/upload | System gallery selection, crop and Save changes passed. Authorized receipt GET returned HTTP 200 with image bytes from the QA backend |
+| Gallery save | Save to gallery displayed Saved and increased MediaStore's image count by one, without a media permission prompt |
+| Offline restart | With ADB forwarding removed and Wi-Fi/mobile data disabled, force-stop/cold launch restored Alex's cached dashboard and group |
+| Offline recovery | INR 40 same-currency expense stayed local while disconnected, synchronized once after reconnecting and remained a single server row after another restart. Temporary expense removed, starting balance and connectivity restored |
+
+### Human-testing checklist and known issues
+
+- Install **Splitora QA**, connect USB forwarding and sign in with Alex or Sam. Use Taylor
+  to repeat the adult review and policy links.
+- Open groups, inspect balances and add synthetic expenses. Try report/block/unblock through
+  the synthetic group message and Profile → Community safety.
+- Attach an image and cancel once, then select/crop/upload/view/save a synthetic receipt.
+- Remove forwarding for an offline restart and expense, restore forwarding, then confirm
+  one synchronized expense and cleared pending status.
+- Google sign-in requires a Google-enabled device and an Android OAuth registration for
+  `com.tripsplitter.app.qa` with the QA signing SHA-1 above. The backend accepts the matching
+  Web audience. This emulator has no Google Play Services, so Google sign-in remains unverified.
+- QA Firebase configuration is omitted and QA push/email delivery is disabled. Provider
+  delivery and notification permission/re-enable journeys require their own configured test.
+  The emulator has no external UPI handler, so bank-app handoff/return remains unverified.
+- The chat footer's **Community safety and blocked people** shortcut overlaps the system
+  navigation bar on the small three-button emulator. **Profile → Community safety** works.
+- Android 7–12 uses **Save to folder** through the system folder picker. Android 13+ uses
+  **Save to gallery**. API 24–32 behavior has regression coverage. Physical ARM64 and
+  API 24–32/API 36 native device checks remain open.
+
+The QA download uses a project-level Vercel 307 redirect with `Cache-Control: no-store`.
+Its matching redirect is recorded in `frontend/vercel.json`. The stable path and GitHub
+asset are verified through anonymous full downloads and SHA-256 comparison. The public
+homepage returned HTTP 200 after the routing update. Google Play Console milestones
+remain deferred.
 
 ### Testing-release source checks
 
@@ -120,14 +206,15 @@ project, environment files, signing material, dependencies, APKs or temporary ev
 | Receipt permissions and inspection | New readiness work: canonical `frontend/app.base.json`, receipt forms/viewer and report-specific backend receipt retrieval; the final artifact audit supersedes the initial legacy-write plugin with scoped folder saving |
 | Regression and operations | New readiness fixtures/tests, isolated test runner, feature/user guides, operating procedure, corrected Play guide and synthetic listing assets; no financial arithmetic redesign |
 
-All entries are changes from the pinned main baseline. No saved GPay branch merge or
-cherry-pick was used. Review the current diff and new files before assigning a release commit.
+All entries are changes from the pinned main baseline. The reviewed source is committed
+and pushed at `a350d52555f3064aa5366e7aabc49de88b001a5c`. The excluded saved commit is
+outside its ancestry, and the deleted branch remains absent.
 
 ## Release and runtime evidence
 
 | Evidence | Recorded state |
 | --- | --- |
-| Public APK | Build 24, source `4e964ba37a6911bc2f966b068b48c208bb3e9a88`, EAS build `15988520-f034-48ad-b5cb-43089e529c5d` |
+| Earlier production-package APK | Build 24, source `4e964ba37a6911bc2f966b068b48c208bb3e9a88`, EAS build `15988520-f034-48ad-b5cb-43089e529c5d` |
 | APK verification | Historical Android 15 emulator install/update/launch and invitation checks, target API 36 and 16 KB ZIP alignment recorded in the build-24 report |
 | Build 25 | Cancelled, source `f821a4f91c2c56c8dcc280e70575c1892696f73a` |
 | Historical AAB | Build 20, source `dd7590c98e5ccf3c9c625d39b726b882049cb14d`, EAS build `1e2db35f-94a3-486b-9014-92e22d4ae912` |
@@ -202,12 +289,12 @@ permission report.
 
 | ID | Priority | Owner | Dependency | Acceptance | Status |
 | --- | --- | --- | --- | --- | --- |
-| SOURCE | P0 | Engineer | Approved baseline | Saved branch deleted, main-based provenance verified, local fix included | Local branch absence and ancestry verified; approved fix preserved; release commit still to be recorded |
+| SOURCE | P0 | Engineer | Approved baseline | Saved branch deleted, main-based provenance verified, local fix included | Passed, source `a350d52555f3064aa5366e7aabc49de88b001a5c` pushed on the QA branch |
 | POLICIES | P0 | Engineer + product owner | Data/retention inventory | Public routes accessible signed out and signed in, support deletion pathway usable, retained fields documented | Seven browser journeys and authenticated deletion/cleanup scenarios pass locally; public deployment and inbox rehearsal pending |
 | SAFETY | P0 | Engineer + application administrator | Terms and age declaration | New/existing users, guardian review/revocation, reporting, blocking and moderation pass API/UI checks | Ten database/authenticated safety scenarios pass; UI rehearsal and operator acceptance recorded separately below |
 | INDIA | P0 | Product owner + verification operator | Ages 13+ and Indian child-data rules | Approve adult/guardian verification procedure, consent records, retention and support process | Owner operating-process acceptance pending |
-| MEDIA | P1 | Android engineer | Native generated configuration | Merged manifest excludes camera/microphone/broad reads. Gallery selection, cancellation, save and denial pass | Gallery-only source and permission checks recorded below. Rebuilt APK device acceptance remains pending |
-| REGRESSION | P1 | Engineer | Readiness source | Dependencies, Doctor, TypeScript, lint, frontend tests, isolated backend tests and web export pass | Backend 1,647 pass; full frontend 1,298 pass plus focused new tests; Doctor 17/17; final checks below |
+| MEDIA | P1 | Android engineer | Native generated configuration | Merged manifest excludes camera/microphone/broad reads. Gallery selection, cancellation, save and denial pass | Build 27 manifest/inferred permissions and API-35 gallery selection/cancel/crop/upload/save pass. Older/newer native matrix remains open |
+| REGRESSION | P1 | Engineer | Readiness source | Dependencies, Doctor, TypeScript, lint, frontend tests, isolated backend tests and web export pass | Backend 1,684 pass plus two supplemental cases; frontend 1,323 pass; Doctor 17/17; current testing-release table above |
 | DEVICE | P1 | Engineer + testers | Development/QA build | Install/upgrade, auth/recovery, groups, calculations, FX, UPI handoff/confirmation, reports, notifications, deletion and offline isolation/retry pass | QA build/install, password sign-in, receipts, single-write offline sync, account isolation/deletion and standalone offline restart pass; remaining device matrix below |
 | LISTING | P1 | Product owner + engineer | Tested primary UI | Listing copy, current icon/feature graphic and six representative screenshots reviewed | Copy, two brand assets and six reviewed synthetic web drafts prepared; final Android captures and owner approval pending |
 
@@ -412,7 +499,7 @@ disabled. Final signed-artifact acceptance must repeat this journey without QA o
 | Existing APK-24 upgrade and terms-review route | Release engineer; coordinated compatible release | Existing accounts can reach review/update and preserve groups/local work; no backend-only lockout |
 | Google OAuth, email verification/reset and invitation links | Engineer + owner; configured OAuth/email provider and QA build | Delivered links/tokens work once, correct routing/session recovery; no synthetic-delivery substitution |
 | Notifications and external UPI app flow | Engineer + testers; approved QA device/provider configuration | Permission denial/re-enable, exact recipient/amount, return/cancel and confirmation checked without claiming bank verification |
-| Offline/restart/account isolation | Engineer + testers; final native artifact | QA standalone offline start, cached group access, single-write sync and cross-account deletion pass locally; repeat on the final signed artifact and verify remote revocation/recovery |
+| Offline/restart/account isolation | Engineer + testers; final native artifact | Build 27 passes standalone offline start, cached groups, single-write recovery and account isolation on API 35. Cross-account deletion passed in earlier local QA. Remote revocation and physical-device matrix remain open |
 | Native media across supported Android versions | Android engineer with API-28, API-35 and API-36 devices | Direct gallery selection/crop/upload/save, cancellation and denial recorded. Final manifest excludes camera, microphone and broad media-read permissions |
 | Support/deletion/moderation operations | Named primary and backup operators | Inbox request and report/guardian/appeal/deletion rehearsal accepted, retention process and India review signed off |
 
@@ -446,9 +533,10 @@ rtk proxy node node_modules/expo/bin/cli export --platform web
 2. **P0, product owner + qualified India reviewer:** record applicable rule commencement,
    approve the adult/guardian verification method and evidence handling, and rehearse consent,
    withdrawal and age correction. Teen launch remains blocked until accepted.
-3. **P0, release engineer + owner:** review and commit the readiness patch; coordinate backend,
-   web and native delivery, rehearse the APK-24 upgrade/review route, and make the public policy
-   and outside-app deletion URLs available on the launch domain. No deployment occurred here.
+3. **P0, release engineer + owner:** readiness source is reviewed, committed and pushed, with
+   a verified QA APK and download route delivered. Coordinate production backend, web and
+   native delivery, rehearse the APK-24 upgrade/review route, and publish the public policy
+   and outside-app deletion URLs on the launch domain.
 4. **P1, engineer + testers:** complete the remaining device matrix above with the rebuilt
    gallery-only APK and final Android listing captures. Record the new artifact and device
    evidence alongside the earlier QA results and web listing drafts.
