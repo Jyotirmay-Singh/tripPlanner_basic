@@ -43,7 +43,8 @@ def test_saved_mixed_currency_expenses_and_reports_keep_locked_rates(currency, r
              'family_member_ids': ['p1', 'p2']},
             {'id': 'b', 'name': 'Sam', 'kind': 'individual'},
         ]
-        database.users.insert_one({'id': user_id, 'email': 'fx-smoke@gmail.com', 'name': 'FX checks'})
+        database.users.insert_one({'id': user_id, 'email': 'fx-smoke@gmail.com', 'name': 'FX checks',
+                                   'community_age_band': '18_plus', 'community_terms_version': '2026-11-13'})
         database.trips.insert_one({'id': trip_id, 'name': 'Mixed-currency controls', 'currency': currency,
                                    'owner_id': user_id, 'admin_ids': [user_id], 'user_ids': [user_id],
                                    'members': members, 'version': 0, 'simplify_debts': True,

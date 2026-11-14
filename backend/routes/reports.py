@@ -17,6 +17,7 @@ from utils.money_policy import whole_money
 from services.report_model import ReportSnapshot, ReportReconciliationError, build_report_data, validate_report_currency
 from services.report_xlsx import build_report_xlsx
 from services.report_pdf import build_report_pdf
+from services.community_safety import require_community_access
 
 router = APIRouter()
 
@@ -86,6 +87,7 @@ async def _download_report_data(trip_id: str, token: str):
     if not user:
         raise HTTPException(401, "User not found")
     validate_session(payload, user)
+    await require_community_access(db, user, "account")
     trip = ensure_date_range(await _trip_or_404(trip_id, user))
     effective = await _effective_report(trip, user)
     if effective:
@@ -111,6 +113,7 @@ async def _download_report_data(trip_id: str, token: str):
 
 @router.get("/trips/{trip_id}/report")
 async def report(trip_id: str, user=Depends(get_current_user)):
+    await require_community_access(db, user, "account")
     trip = ensure_date_range(await _trip_or_404(trip_id, user))
     effective = await _effective_report(trip, user)
     if effective:

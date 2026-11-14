@@ -2,7 +2,7 @@ import os
 from contextlib import asynccontextmanager
 
 import config  # noqa: F401  (loads .env and initializes logging/resend before anything else)
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, Depends
 from starlette.middleware.cors import CORSMiddleware
 
 from config import logger, SUPER_ADMIN_EMAIL
@@ -25,6 +25,8 @@ from services.payment_idempotency import verify_payment_transactions
 from services.coverage_journal import ensure_coverage_indexes
 from services.settlement_intents import ensure_indexes as ensure_settlement_intent_indexes
 from routes import expense_settlement
+from routes import community
+from utils.deps import require_community_account
 
 
 # ---------- Startup / Shutdown ----------
@@ -165,6 +167,20 @@ async def lifespan(app: FastAPI):
     )
     await db.chat_reads.create_index([("trip_id", 1), ("user_id", 1)], unique=True)
     await db.chat_counters.create_index("trip_id", unique=True)
+    await db.community_blocks.create_index([("user_id", 1), ("blocked_user_id", 1)], unique=True)
+    await db.community_blocks.create_index("blocked_user_id")
+    await db.community_hidden_receipts.create_index(
+        [("trip_id", 1), ("expense_id", 1), ("revision", 1)], unique=True,
+    )
+    await db.community_reports.create_index("id", unique=True)
+    await db.community_reports.create_index(
+        [("reporter_user_id", 1), ("client_report_id", 1)], unique=True,
+        partialFilterExpression={"reporter_user_id": {"$type": "string"}},
+    )
+    await db.community_reports.create_index([("status", 1), ("created_at", 1)])
+    await db.community_reports.create_index("resolved_at", expireAfterSeconds=90 * 24 * 60 * 60)
+    await db.users.create_index("guardian_consent.token_hash", unique=True,
+                                partialFilterExpression={"guardian_consent.token_hash": {"$type": "string"}})
     # Step 22: index GridFS receipt lookup/cleanup by the owning expense.
     await db["receipts.files"].create_index("metadata.expense_id")
     await db["receipts.files"].create_index("metadata.trip_id")
@@ -306,8 +322,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Splitora", lifespan=lifespan)
 api = APIRouter(prefix="/api")
 
-for module in (auth, departure, trips, join_requests, invites, members, expenses, balances, reports, meta, receipts, spend, payments, payment_attempts, chat, push, exchange_rates, admin, expense_settlement):
+for module in (auth, departure, meta, admin, community, invites, reports, receipts, chat):
     api.include_router(module.router)
+for module in (trips, join_requests, members, expenses, balances, spend, payments,
+               payment_attempts, push, exchange_rates, expense_settlement):
+    api.include_router(module.router, dependencies=[Depends(require_community_account)])
 
 
 app.include_router(api)

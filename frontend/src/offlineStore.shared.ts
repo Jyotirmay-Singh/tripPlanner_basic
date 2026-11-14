@@ -1,3 +1,5 @@
+import type { CommunityAgeBand, CommunityPermissions } from './communitySafety';
+
 export type CachedIdentity = {
   id: string;
   email: string;
@@ -6,6 +8,9 @@ export type CachedIdentity = {
   is_super_admin?: boolean;
   email_verified?: boolean;
   credentials_set?: boolean;
+  community_age_band?: CommunityAgeBand;
+  community_terms_version?: string;
+  community_permissions?: CommunityPermissions;
 };
 
 export type CachedIdentityRecord = {
@@ -102,6 +107,11 @@ export function sanitizedIdentity(user: CachedIdentity): CachedIdentity {
     is_super_admin: user.is_super_admin,
     email_verified: user.email_verified,
     credentials_set: user.credentials_set,
+    ...(user.community_terms_version ? {
+      community_terms_version: user.community_terms_version,
+      community_age_band: user.community_age_band,
+      community_permissions: user.community_permissions,
+    } : {}),
   };
 }
 

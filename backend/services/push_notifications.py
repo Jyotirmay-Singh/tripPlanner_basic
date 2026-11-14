@@ -702,6 +702,20 @@ async def _send_due_deliveries(event: dict, timestamp: datetime) -> None:
     if not due:
         return
 
+    if event.get("event_type") == "chat.message.created":
+        from services.community_safety import chat_recipient_allowed
+        permitted = []
+        for delivery in due:
+            if await chat_recipient_allowed(db, delivery["user_id"], event.get("actor_user_id")):
+                permitted.append(delivery)
+            else:
+                delivery.update({"status": "dead", "last_error": "community_access_restricted",
+                                 "next_attempt_at": None})
+        due = permitted
+        if not due:
+            await _persist_delivery_state(event, timestamp)
+            return
+
     for delivery in due:
         delivery["attempts"] = delivery.get("attempts", 0) + 1
     messages = [build_expo_message(event, delivery) for delivery in due]

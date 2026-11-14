@@ -45,7 +45,8 @@ def share(snapshot, expense_id="dinner", person="b"):
 
 
 def actors(group):
-    return {user: {"id": user} for user in group["user_ids"]}
+    return {user: {"id": user, "community_age_band": "18_plus", "community_terms_version": "2026-11-13"}
+            for user in group["user_ids"]}
 
 
 def approvals_for(snapshot, plan, *, consent=True):

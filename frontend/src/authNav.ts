@@ -24,6 +24,7 @@ export function isPublicAuthRoute(
   secondSegment?: string,
 ): boolean {
   return isPublicTokenRoute(firstSegment)
+    || ['privacy', 'terms', 'account-deletion'].includes(firstSegment || '')
     || (firstSegment === '(auth)' && secondSegment === 'forgot-password');
 }
 

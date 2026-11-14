@@ -230,5 +230,5 @@ const styles = StyleSheet.create({
   tick: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, flex: 1 },
   amountWrap: { minWidth: 110, maxWidth: 190, gap: 3 },
   amountField: { minWidth: 96, paddingHorizontal: 10, borderRadius: RADIUS.sm },
-  amount: { textAlign: 'right', fontFamily: FONTS.number, fontSize: 16, paddingVertical: 8 },
+  amount: { minWidth: 0, textAlign: 'right', fontFamily: FONTS.number, fontSize: 16, paddingVertical: 8 },
 });

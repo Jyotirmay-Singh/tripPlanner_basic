@@ -17,6 +17,7 @@ from utils.upi_rules import normalize_upi_id  # noqa: E402
 
 
 CURRENT_USER = {
+    "community_age_band": "18_plus", "community_terms_version": "2026-11-13",
     "id": "u-1",
     "email": "owner@gmail.com",
     "name": "Owner",

@@ -12,13 +12,16 @@ A simple, multi-user mobile app to track shared expenses, split costs fairly bet
    - **Your name** (e.g. *Riddhi*)
    - **Gmail address** (used for login, verification, and password recovery)
    - **Password** (at least 9 characters), entered twice for confirmation
-3. Tap **Create account**. You are signed in immediately.
+3. Tap **Create account**. You are signed in and complete the Community safety review before entering groups.
 4. Alternatively, choose **Continue with Google**. A new Google user creates a local password once before entering the app.
-5. New accounts are then offered an optional **mobile number**. Choose a country and enter or paste
+5. Review the Privacy policy and Terms, choose your age group and accept the current terms.
+   People aged 13–17 need a parent or guardian's consent and adult-verification review before group access.
+   Under-13 accounts can contact support or request deletion. Existing accounts complete the same review.
+6. New accounts are then offered an optional **mobile number**. Choose a country and enter or paste
    an international number, then tap **Save and continue** or **Not now**.
-6. New accounts are then offered optional **UPI ID** setup. Enter an ID such as `name@bank`, or tap
+7. New accounts are then offered optional **UPI ID** setup. Enter an ID such as `name@bank`, or tap
    **Skip for now**. If you opened an invite, every setup step preserves that invitation. New Google
-   users complete the required local password first, then Mobile, then UPI.
+   users complete the required local password first, then Community safety, Mobile and UPI.
 
 ### 1.2 Sign in (next time)
 - Sign in with **Google**, or use your remembered Gmail address and **password**.
@@ -108,6 +111,20 @@ A simple, multi-user mobile app to track shared expenses, split costs fairly bet
 - Registering the same Gmail later creates a completely new account. It does not restore access to
   retained groups or reconnect an old member row; use the normal invitation and approval flow to
   reclaim an identity.
+- After uninstalling, open **Account deletion** on the Splitora website and use its email request
+  link to contact **teamsplitora@gmail.com**. Support verifies ownership and reviews retained shared
+  records. Never send a password, UPI PIN or identity-document image by email.
+
+### 1.7 Community safety and guardian controls
+- Open **Profile → Community safety** to review the current terms, blocked people and guardian settings.
+- Ages 13–17 require consent from a parent or legal guardian using a verified adult Gmail account.
+  Create a guardian code and share it privately. The guardian enters it in their own Community safety
+  screen, reviews the account and chooses chat, receipt-photo and mobile/UPI-sharing permissions.
+  Contact support to complete the separate adult identity and relationship review. Codes last seven days.
+- Approved guardians can change each permission or **Withdraw account consent**. Withdrawal stops
+  group access until consent is renewed and reviewed. Incorrect age groups must be corrected through support.
+- Reports go to the application administrator. Contact **teamsplitora@gmail.com** for safety help or
+  an appeal. Do not include passwords or payment credentials in a report.
 
 ---
 
@@ -366,7 +383,7 @@ across standalone individuals, family entries, and joined app users.
       the ticked-but-blank rows for you. **Save stays disabled until the amounts exactly equal the
       total**. The server converts the allocations with the locked rate and distributes any remainder
       whole units deterministically, so their group-currency sum exactly matches the converted total.
-11. **Receipt (optional)** — *Attach image* picks a photo; it's stored as base64 with the transaction.
+11. **Receipt (optional)** — Tap **Attach image** to choose an existing bill picture from your gallery. The system picker opens when you tap the button. The selected image uploads after the transaction is saved and is stored in GridFS. You can also attach or replace it through **Edit Transaction**.
 11. Tap **Save transaction**.
 12. If the running total now exceeds the group budget, a warning dialog asks you to **Cancel** or **Save anyway**.
 
@@ -691,6 +708,12 @@ claims the profile.
   not receive this owner-only power.
 - Removing a linked person from the group immediately removes their chat access. Their historical
   sender label remains understandable to the people who still have access.
+- Tap another person's message to **Report message**, **Report person** or **Block person in chat**. Blocking
+  hides messages between the two accounts in both directions and suppresses their chat notifications;
+  shared financial records remain available. Manage blocks in **Community safety**.
+- The receipt viewer also offers **Report receipt**. The application administrator can remove message
+  text, hide the reported receipt revision or suspend posting after review. Replaced receipts are
+  identified separately so a new image is not mistaken for the reported one.
 
 On Android, a new message can also produce a push notification for other signed-in group members.
 The notification identifies the sender and group but never includes the message text; tapping it

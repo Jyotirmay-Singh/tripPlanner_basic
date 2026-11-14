@@ -1,5 +1,51 @@
 # App Feature Inventory
 
+## Google Play launch readiness — 14 November 2026
+
+Implemented in source on the approved main baseline; production deployment and Play Console work
+are deferred. See [PLAY_STORE_LAUNCH.md](PLAY_STORE_LAUNCH.md) for exact verification and owner gates.
+
+- Public Privacy, Terms and Account deletion routes remain reachable while signed out and signed in.
+  Authentication screens and Profile link to policies and support at teamsplitora@gmail.com.
+  A support-email deletion request works outside the installed app; fulfilment is a manual owner process.
+- New and existing accounts review versioned terms and a neutral age-group choice. Under-13 accounts
+  retain support/deletion access. Teen group access requires guardian consent plus administrator
+  verification review. Guardians control chat, receipts and optional mobile/UPI sharing and can withdraw
+  account consent. Support age corrections require an administrator's verification reference and
+  invalidate previous terms/guardian approval.
+- Chat and receipt/user reporting, bidirectional chat blocking, a super-admin moderation queue,
+  content removal, posting suspension and restoration are implemented. Report retries are idempotent;
+  interrupted moderation actions can resume. Chat history, unread counts, realtime fan-out and pending
+  chat pushes enforce blocks. Receipt moderation hides a specific revision without changing the ledger.
+  Moderator receipt inspection returns the reported revision or an explicit unavailable result after
+  replacement/deletion; legacy inline images are fingerprint-checked. Moderator requests reset on
+  account changes. Restored sessions await their own safety result before terms routing.
+  Transient safety transport failures preserve a same-account verified policy while authentication
+  enforces its offline deadline; explicit server denials clear eligibility. Sign-in and profile
+  replacements include the current age/terms/permission summary needed by the Android cached identity.
+- Revoked contact sharing hides stored mobile/UPI profile fields from fresh group/payment reads and
+  new UPI handoffs. Previously recorded payment evidence retains its reconciliation purpose.
+- Android receipt selection opens the system gallery picker directly from Add/Edit Transaction.
+  Camera, microphone and broad media-read permissions are blocked. The iOS camera description
+  is removed. Legacy gallery-write permission is restricted to API 28 and below. Gallery selection,
+  cancellation, permission denial and form preservation have focused regression coverage.
+- Listing copy, current-brand icon/feature graphic and six synthetic mobile-web screenshot drafts
+  are prepared in [play-store-assets](play-store-assets/README.md), with dimensions and source/checksum
+  provenance. Final Android captures and publisher approval remain release gates.
+
+The earlier dedicated API-35 Android QA build verifies system picker/gallery operations,
+one offline expense synchronized exactly once, account isolation and local deletion cleanup.
+An embedded-assets standalone QA APK also restores the same-account dashboard/balance after a
+Wi-Fi/mobile-data-off cold start and reopens its saved group. These local results supplement the
+dated evidence below; they do not establish final signed-release, ARM 16 KB or Play-installed
+acceptance. Those APKs precede the owner's gallery-only correction. Camera acquisition has
+been removed from current source. The handoff records the fresh permission checks and the
+remaining device/provider checks for a rebuilt gallery-only APK.
+
+These controls are implementation evidence. Indian child-data/guardian verification procedures,
+retention decisions, support/moderation staffing and final publisher identity require owner acceptance
+before launch. They are not a claim of statutory compliance or production operational readiness.
+
 ## Complete expense payment integration — 7 October 2026
 
 **Implemented in the primary frontend and locally verified through real client/API/database journeys;
@@ -266,7 +312,7 @@ was contacted during this audit.
 | Legacy settlement lifecycle | Deprecated or disabled | APIs can still create completed settlements or pending records and mark pending records paid. New and old-client decimal submissions are stored as whole units under `whole_unit_v1`; unchanged historical evidence remains readable | `POST /settle`; settlement list/create/patch APIs | [backend/models/settlement.py](../backend/models/settlement.py#L6), [backend/routes/balances.py](../backend/routes/balances.py#L24) | Focused settlement policy/route tests passed; live APIs not run | Current settle-up UI uses `payments`, not these endpoints; retained for compatibility |
 | Partial payments | Implemented and verified | Receiver, any linked person in a receiving family wallet, or trip admin records/edits/deletes a whole-unit payment up to the current recommendation. Old-client decimals are normalized and audited; note-only edits preserve immutable historical evidence. Live recommendations are separated from chronological history and may reroute after recomputation. Manual balance-changing payment/paid-settlement writes share the trip revision when Mongo transactions are available. Android activity push uses duplicate-safe payer/receiver labels, grouped symbols for all 26 currencies, and `partly paid` versus `settled` based only on that pair's pre-payment payable | `/trip/[id]/settle-up`; payment CRUD APIs | [backend/routes/payments.py](../backend/routes/payments.py), [backend/routes/balances.py](../backend/routes/balances.py), [frontend/app/trip/[id]/settle-up.tsx](../frontend/app/trip/[id]/settle-up.tsx) | Backend write-policy/routes/concurrency, rich-notification currency/boundary/privacy coverage, and frontend payment/modal/permission tests passed | Lock-screen copy may expose payer, receiver, amount, and trip name; payment notes remain excluded. Standalone MongoDB retains the historical non-transaction fallback for manual writes |
 | Recipient-confirmed UPI settlement tracking | Implemented and locally verified | The linked payer reviews a selected recipient, current UPI revision, trip amount, and exact INR amount; the server saves an attempt before copy/launch. Legacy unactivated-group confirmation posts one capped payment. Settlement-bound attempts delegate reporting and review to the exact-cash/coverage transaction. Only unreported starts expire after 24 hours; sent/disputed reports remain blockers until reasoned resolution. Legacy expired sent reports recover into review without taking another attempt’s pair key. Privacy-scoped notifications identify the actual attempt | UPI sheet and Settle Up activity; attempt create/list and sender/recipient APIs | [backend/routes/payment_attempts.py](../backend/routes/payment_attempts.py), [backend/services/payment_attempts.py](../backend/services/payment_attempts.py), [backend/services/settlement_intents.py](../backend/services/settlement_intents.py), [frontend/src/UpiPaymentSheet.tsx](../frontend/src/UpiPaymentSheet.tsx) | Focused lifecycle, permission, expiry, privacy, delegation, concurrency, and rollback tests passed against isolated MongoDB; existing frontend behavior was unchanged | Reviewed expense workflows now share primary-client review controls; runtime and group activation guards remain in place. Older clients cannot close a review without an explanation. No bank verification, payment callback, screenshot processing, or direct money movement is performed |
-| Receipt acquisition, GridFS upload/view/remove, save to gallery | Implemented but unverified | Users pick/capture a receipt, upload it after saving an expense, view it on demand, replace/remove it, and save it to the device gallery | Add/Edit Transaction, Gallery-like receipt views; receipt APIs | [frontend/src/api.ts](../frontend/src/api.ts#L101), [frontend/src/ReceiptViewer.tsx](../frontend/src/ReceiptViewer.tsx#L19), [backend/routes/receipts.py](../backend/routes/receipts.py#L44) | Receipt parsing helpers passed ([receipt.test.ts](../frontend/src/__tests__/receipt.test.ts#L3)); live multipart/GridFS tests exist at [test_receipts.py](../backend/tests/test_receipts.py#L20) but were not run | Device permissions and native/web file behavior were not exercised; legacy inline receipts are read-only fallback |
+| Receipt acquisition, GridFS upload/view/remove, save to gallery | Gallery-only source with focused UI regression coverage | Users select an existing gallery image from Add/Edit Transaction, upload it after saving an expense, view it, replace/remove it and save it to the device gallery | Add/Edit Transaction and receipt viewer | [frontend/src/api.ts](../frontend/src/api.ts), [frontend/src/ReceiptViewer.tsx](../frontend/src/ReceiptViewer.tsx), [backend/routes/receipts.py](../backend/routes/receipts.py) | Selection/cancellation/permission-denial and form-preservation tests cover the current gallery-only source. Earlier API-35 picker/crop/upload/save checks are recorded in the launch handoff | Rebuild and verify the final gallery-only APK on supported devices |
 | Dashboard, trip list, personal balances, spend ranking, and drill-downs | Implemented and verified | Home shows one INR-only net position from INR trips, the total trip count, and up to the first two activity-ordered trips; its action buttons stack for narrow screens or larger text. Trips preserves the complete server order; trip Summary shows category/entity charts; category drill-down reconciles net/gross/refunds and ranks positive amounts by payer above amount-ordered transactions | Home/Trips, Trip Summary, and Category detail; `GET /trips`, `/balances`, `/expenses`, `/spend-summary` | [frontend/app/(tabs)/dashboard.tsx](<../frontend/app/(tabs)/dashboard.tsx#L1>), [frontend/app/(tabs)/trips.tsx](<../frontend/app/(tabs)/trips.tsx#L1>), [frontend/app/trip/[id]/category/[name].tsx](<../frontend/app/trip/[id]/category/[name].tsx#L1>), [frontend/src/categorySpend.ts](../frontend/src/categorySpend.ts#L1) | INR-only live/cache/empty-state and responsive Home tests, activity-order render tests, category aggregation, Android touch callback, concrete-route navigation, category render, authenticated balance, and spend-ranking tests | Foreign-currency balances are excluded from the Home total without conversion and remain available in their own trip views. Signed-APK physical-device verification remains post-publication; trip cards intentionally show no activity label; payer rankings count positive fronted amounts and show refunds separately |
 | JSON report summary | Implemented but unverified | Returns trip, signed total, budget, category/date totals, and balances | `GET /trips/{id}/report` | [backend/routes/reports.py](../backend/routes/reports.py#L61) | Static review only | Date rows are sorted by stored `DD-MM-YY` strings, which is not chronologically reliable across years |
 | XLSX report | Implemented locally; native Excel acceptance pending | Four compact unfrozen tabs, vertical spending measures, prominent native cached person/category net-share pivot with bold totals, participants-only allocation table without Account ID/Person ID columns, separate payment history and suggestions, trip-currency headings, Indian grouping and semantic colours; no charts, adjustment columns or report notes | Reports tab; unchanged XLSX download URL | [Report export design](REPORT_EXPORTS.md), [backend/services/report_xlsx.py](../backend/services/report_xlsx.py) | Shared-model, cached OOXML, person/category arithmetic, authenticated HTTP and isolated local MongoDB correction checks; all tabs rendered for review | Native Excel opening, filters, refresh and drill-through remain unverified on this machine; this layout has not been deployed |
@@ -381,7 +427,7 @@ Every spec's own Definition of Done checkboxes is still unchecked. Those checkbo
 | [17-rbac-driven-component.md](../.claude/specs/17-rbac-driven-component.md#L1) and [companion plan](../.claude/specs/17-rbac-driven-component.plan.md#L1) | Hide unauthorized expense controls and add Jest | Implemented and verified |
 | [18-layout-ui-standardization.md](../.claude/specs/18-layout-ui-standardization.md#L1) | Shared design tokens and trip-composition labels | Implemented and verified by helper/tests/type-check |
 | [19-logout-clean-ui-logic.md](../.claude/specs/19-logout-clean-ui-logic.md#L1) | Shared global logout with modal exclusions | Implemented, then header logout icon was replaced by profile avatar while logout remained on Profile |
-| [20-gallery-pipeline.md](../.claude/specs/20-gallery-pipeline.md#L1) | Camera/library acquisition and save to gallery | Implemented; its inline-base64 backend assumption was superseded by GridFS |
+| [20-gallery-pipeline.md](../.claude/specs/20-gallery-pipeline.md#L1) | Historical receipt acquisition and gallery saving | Current acquisition is gallery-only. GridFS supersedes the specification's inline-base64 storage assumption |
 | [21-working-logout-button.md](../.claude/specs/21-working-logout-button.md#L1) | Cross-platform themed logout and navigation reset | Implemented and verified |
 | [22-attaching-bills-image.md](../.claude/specs/22-attaching-bills-image.md#L1) | Dedicated multipart/GridFS receipt pipeline | Implemented; live multipart/GridFS not verified in this audit |
 | [23-owner-admin-member-control-differences.md](../.claude/specs/23-owner-admin-member-control-differences.md#L1) | Canonical role matrix and ownership transfer | Implemented; frontend predicates verified, live API tests not run |

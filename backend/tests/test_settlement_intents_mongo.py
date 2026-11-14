@@ -196,7 +196,7 @@ def test_authenticated_http_report_review_and_evidence_visibility(monkeypatch):
             import jwt
             from datetime import datetime, timedelta, timezone
             def headers(uid):
-                token = jwt.encode({"sub": uid, "exp": datetime.now(timezone.utc) + timedelta(minutes=5)},
+                token = jwt.encode({"sub": uid, "type": "access", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)},
                     "disposable-settlement-http-key-2026", algorithm="HS256")
                 return {"Authorization": f"Bearer {token}"}
             app = FastAPI()

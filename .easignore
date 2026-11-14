@@ -27,6 +27,7 @@ web-build/
 /out/
 /tmp/
 /.release-tmp/
+**/.release-tmp/
 /.playwright-mcp/
 /.tokensave/
 /test_reports/

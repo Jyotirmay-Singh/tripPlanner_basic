@@ -879,7 +879,7 @@ describe('Trip identity header', () => {
     expect(safeArea.props.edges).toEqual(['bottom', 'left', 'right']);
   });
 
-  it('labels admin maintenance and requires the trimmed lowercase trip name', async () => {
+  it('labels admin maintenance and requires the correctly spelled trip name regardless of case', async () => {
     mockUser = {
       id: 'application-admin',
       email: 'jyotirmaysingh03@gmail.com',
@@ -913,13 +913,15 @@ describe('Trip identity header', () => {
     }));
     expect(modal.props.actions[1].disabled).toBe(true);
 
-    act(() => modal.props.textInput.onChangeText('Lakshadweep'));
+    act(() => modal.props.textInput.onChangeText('Lakshadwep'));
     modal = renderer.root.findByType('ConfirmModal' as any);
     expect(modal.props.actions[1].disabled).toBe(true);
 
-    act(() => modal.props.textInput.onChangeText('  lakshadweep  '));
-    modal = renderer.root.findByType('ConfirmModal' as any);
-    expect(modal.props.actions[1].disabled).toBe(false);
+    for (const name of ['lakshadweep', 'Lakshadweep', 'LAKSHADWEEP', 'lAkShAdWeEp', '  lakshadweep  ']) {
+      act(() => modal.props.textInput.onChangeText(name));
+      modal = renderer.root.findByType('ConfirmModal' as any);
+      expect(modal.props.actions[1].disabled).toBe(false);
+    }
   });
 });
 

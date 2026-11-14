@@ -53,8 +53,6 @@ jest.mock('../../offlineExpenses', () => ({
 jest.mock('expo-image-picker', () => ({
   requestMediaLibraryPermissionsAsync: jest.fn(),
   launchImageLibraryAsync: jest.fn(),
-  requestCameraPermissionsAsync: jest.fn(),
-  launchCameraAsync: jest.fn(),
 }));
 jest.mock('../../T', () => {
   const R = require('react');
@@ -139,6 +137,51 @@ async function mountScreen() {
   await act(async () => { await Promise.resolve(); });
   return renderer;
 }
+
+it.each([
+  ['android', false], ['android', true], ['ios', false], ['ios', true],
+] as const)('opens the gallery directly on %s and preserves the form when canceled=%s', async (platform, canceled) => {
+  const originalOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: platform });
+  const picker = require('expo-image-picker');
+  picker.requestMediaLibraryPermissionsAsync.mockResolvedValue({ granted: true });
+  picker.launchImageLibraryAsync.mockResolvedValue(canceled ? { canceled: true, assets: null } : {
+    canceled: false, assets: [{ uri: 'file:///bill.jpg', mimeType: 'image/jpeg', fileName: 'bill.jpg' }],
+  });
+  let renderer: any;
+  try {
+    renderer = await mountScreen();
+    await act(async () => renderer.root.findByProps({ testID: 'ae-amount' }).props.onChangeText('120'));
+    await act(async () => renderer.root.findByProps({ testID: 'ae-receipt' }).props.onPress());
+    expect(picker.launchImageLibraryAsync).toHaveBeenCalledTimes(1);
+    expect(picker.launchImageLibraryAsync).toHaveBeenCalledWith({ mediaTypes: ['images'], quality: 0.4, allowsEditing: true });
+    expect(picker.requestMediaLibraryPermissionsAsync).toHaveBeenCalledTimes(platform === 'ios' ? 1 : 0);
+    expect(renderer.root.findAllByProps({ testID: 'receipt-view' }).length > 0).toBe(!canceled);
+    expect(renderer.root.findByProps({ testID: 'ae-amount' }).props.value).toBe('120');
+  } finally {
+    if (renderer) await act(async () => renderer.unmount());
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: originalOS });
+  }
+});
+
+it('handles denied iOS gallery access while retaining the populated Add form', async () => {
+  const originalOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'ios' });
+  const picker = require('expo-image-picker');
+  picker.requestMediaLibraryPermissionsAsync.mockResolvedValue({ granted: false });
+  let renderer: any;
+  try {
+    renderer = await mountScreen();
+    await act(async () => renderer.root.findByProps({ testID: 'ae-amount' }).props.onChangeText('120'));
+    await act(async () => renderer.root.findByProps({ testID: 'ae-receipt' }).props.onPress());
+    expect(picker.launchImageLibraryAsync).not.toHaveBeenCalled();
+    expect(mockToastShow).toHaveBeenCalledWith('Allow photo access to attach a receipt.', 'error');
+    expect(renderer.root.findByProps({ testID: 'ae-amount' }).props.value).toBe('120');
+  } finally {
+    if (renderer) await act(async () => renderer.unmount());
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: originalOS });
+  }
+});
 
 it('keeps a family-trip form stable for blank or incomplete amounts and previews valid amounts', async () => {
   const renderer = await mountScreen();
@@ -384,7 +427,6 @@ it.each(['ordinary', 'EXACT', 'family', 'foreign'])('preserves a populated %s Ad
   if (kind === 'EXACT') await act(async () => r.root.findByType('ExactSplitEditor' as any).props.onChange([
     { memberId: 'person-1', entityId: 'family-1', included: true, amount: 80 }, { memberId: 'person-2', entityId: 'family-1', included: true, amount: 40 } ]));
   await act(async () => formControl(r, 'ae-receipt').props.onPress());
-  await act(async () => r.root.findAllByType('ActionSheet' as any).find((n: any) => n.props.title === 'Add receipt').props.actions.find((a: any) => a.label === 'Choose from library').onPress());
   if (kind === 'foreign') { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 450)); }); await act(async () => formControl(r, 'ae-exchange-rate-approve').props.onPress()); }
   const before = ['ae-amount', 'ae-desc', 'ae-date', 'ae-time', 'ae-currency'].map((id) => r.root.findByProps({ testID: id }).props.value);
   const fxBefore = r.root.findByType(require('../../ui/ExchangeRatePanel').default).props;

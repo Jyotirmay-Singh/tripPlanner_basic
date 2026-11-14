@@ -27,7 +27,8 @@ async def switch(trip_id, expense_id, receipt_id, user):
         await workflow.db.receipt_versions.insert_one({"id": version_id, "trip_id": trip_id, "expense_id": expense_id,
             "receipt_id": receipt_id, "previous_version_id": previous, "actor_user_id": actor["id"], "created_at": at}, session=session)
         await workflow.db.expenses.update_one({"id": expense_id, "trip_id": trip_id},
-            {"$set": {"receipt_version_id": version_id, "receipt_id": receipt_id}, "$unset": {"receipt_base64": ""}}, session=session)
+            {"$set": {"receipt_version_id": version_id, "receipt_id": receipt_id},
+             "$unset": {"receipt_base64": "", "receipt_hidden_at": ""}}, session=session)
         await workflow.db.users.update_one({"id": actor["id"]}, {"$inc": {"settlement_action_version": 1}}, session=session)
         await workflow.db.trips.update_one({"id": trip_id}, {"$inc": {"version": 1}}, session=session)
         from services.admin_audit import record_admin_action

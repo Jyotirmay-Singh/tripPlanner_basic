@@ -118,6 +118,7 @@ export function useTripChat({
     reason: capability === 'unsupported' ? 'configuration' : undefined,
   });
   const messagesRef = useRef<LocalChatMessage[]>([]);
+  const blockedUsersRef = useRef(new Set<string>());
   const activeRef = useRef(active);
   const onlineRef = useRef(true);
   const connectionRef = useRef(connection);
@@ -135,7 +136,7 @@ export function useTripChat({
 
   const commitMessages = useCallback((updater: (current: LocalChatMessage[]) => LocalChatMessage[]) => {
     setMessages((current) => {
-      const next = updater(current);
+      const next = updater(current).filter((message) => !blockedUsersRef.current.has(message.sender_user_id));
       messagesRef.current = next;
       return next;
     });
@@ -147,6 +148,7 @@ export function useTripChat({
   useEffect(() => {
     let cancelled = false;
     outboxHydratedRef.current = false;
+    blockedUsersRef.current = new Set();
     commitMessages(() => []);
     if (!tripId || !userId) return () => { cancelled = true; };
     loadChatOutbox(userId, tripId)
@@ -188,7 +190,11 @@ export function useTripChat({
     if (failure.code === 'authentication_required') {
       void authenticationHandlerRef.current?.();
     }
-  }, [updateConnection]);
+    if (failure.code === 'permission_denied') {
+      commitMessages(() => []);
+      setUnreadCount(0);
+    }
+  }, [commitMessages, updateConnection]);
 
   const refreshUnread = useCallback(async () => {
     if (!tripId || !userId || capability === 'loading' || capability === 'unsupported') return;
@@ -218,9 +224,12 @@ export function useTripChat({
     setLoading(true);
     try {
       const page = await listChatMessages(tripId, { limit: 50 });
+      const blocked = new Set(page.blocked_user_ids ?? []);
+      blockedUsersRef.current = blocked;
       commitMessages((current) => {
         const stillVisible = current.filter((message) => (
-          !!message.delivery || message.sequence > (page.cleared_through_sequence ?? 0)
+          !blocked.has(message.sender_user_id)
+          && (!!message.delivery || message.sequence > (page.cleared_through_sequence ?? 0))
         ));
         return mergeChatMessages(stillVisible, page.items ?? []);
       });
@@ -485,6 +494,10 @@ export function useTripChat({
       reconnectTimer = null;
       closeSocket();
       updateConnection({ status, attempt, reason });
+      if (reason === 'permission_denied') {
+        commitMessages(() => []);
+        setUnreadCount(0);
+      }
       if (status === 'authentication_required') {
         void authenticationHandlerRef.current?.();
       }
@@ -534,6 +547,11 @@ export function useTripChat({
         catchUp().catch((error) => {
           applyConnectionFailure(classifyChatError(error));
         });
+        return;
+      }
+      if (event.type === 'safety.changed') {
+        commitMessages(() => []);
+        void loadLatest().catch(() => {});
         return;
       }
       if (event.type === 'pong') {
@@ -678,7 +696,7 @@ export function useTripChat({
     };
   }, [
     applyConnectionFailure, capability, catchUp, commitMessages, markThrough,
-    refreshUnread, tripId, updateConnection, userId,
+    refreshUnread, loadLatest, tripId, updateConnection, userId,
   ]);
 
   return {

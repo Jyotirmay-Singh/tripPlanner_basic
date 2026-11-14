@@ -20,6 +20,7 @@ import PushNotificationCoordinator from '../src/PushNotificationCoordinator';
 import AppSystemBars from '../src/AppSystemBars';
 import { AppKeyboardProvider } from '../src/KeyboardController';
 import { captureEmailActionToken } from '../src/emailActionToken';
+import { CommunityProvider, useCommunity } from '../src/CommunityProvider';
 
 captureEmailActionToken();
 
@@ -30,6 +31,7 @@ SplashScreen.setOptions({ duration: 240, fade: true });
 function Inner() {
   const { colors } = useTheme();
   const { user, pendingInvitePath, mobileOnboardingPending, upiOnboardingPending } = useAuth();
+  const community = useCommunity();
   const router = useRouter();
   const segments = useSegments();
   const searchParams = useGlobalSearchParams<{ mode?: string | string[] }>();
@@ -41,6 +43,15 @@ function Inner() {
   // reset the stack so back-navigation can't reach a signed-out screen. No-op while loading
   // (user === undefined) so the index splash shows.
   useEffect(() => {
+    const publicRoute = isPublicAuthRoute(firstSegment, secondSegment);
+    if (user && user.credentials_set !== false && !publicRoute) {
+      if (['community-settings', 'delete-account', 'moderation'].includes(firstSegment || '')) return;
+      if (community.loading) return;
+      if (!community.state?.permissions.account) {
+        navResetTo(router, '/community-settings');
+        return;
+      }
+    }
     const target = authRedirectTarget(
       user,
       firstSegment === '(auth)',
@@ -57,6 +68,7 @@ function Inner() {
   }, [
     user, firstSegment, secondSegment, router, pendingInvitePath,
     mode, mobileOnboardingPending, upiOnboardingPending,
+    community.loading, community.state,
   ]);
 
   const headerRight = user ? () => <ProfileAvatarButton /> : undefined;
@@ -97,6 +109,11 @@ function Inner() {
         <Stack.Screen name="invite/[token]" options={{ headerShown: false }} />
         <Stack.Screen name="change-password" options={{ title: 'Change Password', headerRight: undefined }} />
         <Stack.Screen name="delete-account" options={{ title: 'Delete account', headerRight: undefined }} />
+        <Stack.Screen name="privacy" options={{ title: 'Privacy policy', headerRight: undefined }} />
+        <Stack.Screen name="terms" options={{ title: 'Terms', headerRight: undefined }} />
+        <Stack.Screen name="account-deletion" options={{ title: 'Account deletion', headerRight: undefined }} />
+        <Stack.Screen name="community-settings" options={{ title: 'Community safety', headerRight: undefined }} />
+        <Stack.Screen name="moderation" options={{ title: 'Moderation', headerRight: undefined }} />
         {/* Phase 9: email-link landing pages (work signed-out) + the one-time OAuth setup step. */}
         <Stack.Screen name="verify-email" options={{ headerShown: false }} />
         <Stack.Screen name="reset-password" options={{ headerShown: false }} />
@@ -133,7 +150,7 @@ export default function RootLayout() {
             <AppSystemBars>
               <ToastProvider>
                 <AuthProvider>
-                  <Inner />
+                  <CommunityProvider><Inner /></CommunityProvider>
                 </AuthProvider>
               </ToastProvider>
             </AppSystemBars>

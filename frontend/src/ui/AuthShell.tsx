@@ -6,6 +6,7 @@ import { SPACING, RADIUS, CONTENT_MAX_WIDTH } from '../theme';
 import T from '../T';
 import Icon, { IconName } from './Icon';
 import { KeyboardAwareScrollView } from '../KeyboardController';
+import LegalLinks from '../LegalLinks';
 
 type Props = {
   title: string;
@@ -59,6 +60,7 @@ export default function AuthShell({
             <T variant="h1" style={{ marginTop: SPACING.lg }}>{title}</T>
             {subtitle ? <T muted style={{ marginTop: SPACING.xs }}>{subtitle}</T> : null}
             <View style={{ marginTop: SPACING.xl, gap: SPACING.md }}>{children}</View>
+            <LegalLinks />
         </View>
       </KeyboardAwareScrollView>
     </SafeAreaView>

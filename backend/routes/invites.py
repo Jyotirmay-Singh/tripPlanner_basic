@@ -9,6 +9,7 @@ from services.invites import (
 )
 from utils.deps import _trip_admin_or_403, _trip_or_404, get_current_user
 from services.admin_audit import record_admin_action
+from utils.deps import require_community_account
 
 
 router = APIRouter()
@@ -19,14 +20,14 @@ def _require_invite_links() -> None:
         raise _invite_error("disabled")
 
 
-@router.get("/trips/{trip_id}/invite-link")
+@router.get("/trips/{trip_id}/invite-link", dependencies=[Depends(require_community_account)])
 async def get_trip_invite_link(trip_id: str, user=Depends(get_current_user)):
     trip = await _trip_or_404(trip_id, user)
     _require_invite_links()
     return current_invite_link(trip)
 
 
-@router.post("/trips/{trip_id}/invite-link/reset")
+@router.post("/trips/{trip_id}/invite-link/reset", dependencies=[Depends(require_community_account)])
 async def reset_trip_invite_link(trip_id: str, user=Depends(get_current_user)):
     trip = await _trip_admin_or_403(trip_id, user)
     _require_invite_links()
@@ -38,7 +39,7 @@ async def reset_trip_invite_link(trip_id: str, user=Depends(get_current_user)):
     return link
 
 
-@router.post("/trips/{trip_id}/invites")
+@router.post("/trips/{trip_id}/invites", dependencies=[Depends(require_community_account)])
 async def issue_trip_invite(trip_id: str, user=Depends(get_current_user)):
     """Compatibility alias for installed clients that still call the plural create route."""
     trip = await _trip_or_404(trip_id, user)
@@ -46,7 +47,7 @@ async def issue_trip_invite(trip_id: str, user=Depends(get_current_user)):
     return current_invite_link(trip)
 
 
-@router.get("/trips/{trip_id}/invites")
+@router.get("/trips/{trip_id}/invites", dependencies=[Depends(require_community_account)])
 async def get_trip_invites(trip_id: str, user=Depends(get_current_user)):
     """Retired history contract: old clients receive no revoked/expired rows."""
     await _trip_or_404(trip_id, user)

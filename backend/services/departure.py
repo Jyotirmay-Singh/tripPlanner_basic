@@ -1282,6 +1282,8 @@ async def delete_account(user: dict, *, confirmation: str, acknowledge_unsettled
         await db.auth_tokens.delete_many({"user_id": user["id"]}, session=session)
         await db.password_reset_tokens.delete_many({"user_id": user["id"]}, session=session)
         await db.push_devices.delete_many({"user_id": user["id"]}, session=session)
+        from services.community_safety import cleanup_community_account
+        await cleanup_community_account(db, user["id"], session=session)
         await db.expense_mutation_receipts.delete_many(
             {**await _unprotected_financial_scope(None, session), "actor_user_id": user["id"]}, session=session,
         )

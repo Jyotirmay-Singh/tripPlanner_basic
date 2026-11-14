@@ -23,6 +23,7 @@ jest.mock('@react-navigation/bottom-tabs', () => ({ useBottomTabBarHeight: () =>
 import Screen from '../ui/Screen';
 import TabScreen from '../ui/TabScreen';
 import AuthShell from '../ui/AuthShell';
+jest.mock('../LegalLinks', () => ({ __esModule: true, default: () => null }));
 import FormScreen from '../ui/FormScreen';
 
 function safeAreaFor(element: React.ReactElement) {

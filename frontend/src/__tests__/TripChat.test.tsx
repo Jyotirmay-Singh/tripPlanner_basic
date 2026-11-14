@@ -39,6 +39,8 @@ jest.mock('../ui', () => {
 });
 
 import TripChat from '../TripChat';
+jest.mock('../api', () => ({ api: jest.fn().mockResolvedValue({}) }));
+jest.mock('../ReportContentSheet', () => ({ __esModule: true, default: () => null }));
 import type { TripChatController } from '../useTripChat';
 
 beforeEach(() => {
@@ -389,7 +391,7 @@ it('lets an application admin moderate any persisted message and clear history',
   act(() => otherMessage.props.onPress());
   const actions = renderer.root.findByProps({ testID: 'chat-message-actions' });
   expect(actions.props.visible).toBe(true);
-  expect(actions.props.title).toBe('Moderate message');
+  expect(actions.props.title).toBe('Message options');
   act(() => actions.props.actions[0].onPress());
   expect(renderer.root.findByType(TextInput).props.value).toBe('Landing at eight');
   expect(renderer.root.findByProps({ testID: 'chat-owner-options' })).toBeTruthy();

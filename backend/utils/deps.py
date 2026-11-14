@@ -28,6 +28,11 @@ async def require_super_admin(user=Depends(get_current_user)) -> dict:
     return user
 
 
+async def require_community_account(user=Depends(get_current_user)) -> None:
+    from services.community_safety import require_community_access
+    await require_community_access(db, user, "account")
+
+
 async def _trip_or_404(trip_id: str, viewer) -> dict:
     trip = await db.trips.find_one({"id": trip_id}, {"_id": 0})
     if not trip:

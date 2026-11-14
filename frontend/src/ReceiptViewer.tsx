@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Modal, View, Image, TouchableOpacity, StyleSheet, ActivityIndicator, Alert,
+  Modal, View, Image, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,14 +14,14 @@ import T from './T';
 import { parseDataUri } from './receipt';
 import { useSystemBarsOverride } from './AppSystemBars';
 
-type Props = { uri: string | null; visible: boolean; onClose: () => void };
+type Props = { uri: string | null; visible: boolean; onClose: () => void; onReport?: () => void };
 
 /**
  * Full-screen receipt viewer with a "Save to gallery" download trigger.
  * Reusable across the add/edit expense screens. The Save action is read-only
  * (available to any viewer); destructive receipt edits remain gated upstream.
  */
-export default function ReceiptViewer({ uri, visible, onClose }: Props) {
+export default function ReceiptViewer({ uri, visible, onClose, onReport }: Props) {
   const { colors } = useTheme();
   useSystemBarsOverride(visible, { status: 'light', navigation: 'light' });
   const [saving, setSaving] = useState(false);
@@ -31,10 +31,12 @@ export default function ReceiptViewer({ uri, visible, onClose }: Props) {
     setSaving(true);
     let tempUri: string | null = null;
     try {
-      const perm = await MediaLibrary.requestPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert('Permission needed', 'Allow photo access to save this receipt to your gallery.');
-        return;
+      if (Platform.OS === 'ios' || (Platform.OS === 'android' && Number(Platform.Version) <= 28)) {
+        const perm = await MediaLibrary.requestPermissionsAsync(true);
+        if (!perm.granted) {
+          Alert.alert('Permission needed', 'Allow gallery saving to save this receipt.');
+          return;
+        }
       }
       let fileUri = uri;
       if (uri.startsWith('data:')) {
@@ -101,6 +103,10 @@ export default function ReceiptViewer({ uri, visible, onClose }: Props) {
           </View>
 
           <View style={styles.bottomBar}>
+            {onReport ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="Report receipt"
+              testID="receipt-report" onPress={onReport} style={{ minHeight: 44, justifyContent: 'center' }}>
+              <T color="white">Report receipt</T>
+            </TouchableOpacity> : null}
             <TouchableOpacity testID="receipt-save" onPress={saveToGallery} disabled={!uri || saving}
               style={[styles.saveBtn, { backgroundColor: colors.primary, opacity: !uri || saving ? 0.6 : 1 }]}>
               {saving ? (

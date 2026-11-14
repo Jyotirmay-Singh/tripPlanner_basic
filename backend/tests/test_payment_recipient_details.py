@@ -52,6 +52,8 @@ class _Cursor:
 
 
 def _fake_db(profiles):
+    profiles = [{"community_age_band": "18_plus", "community_terms_version": "2026-11-13", **row}
+                for row in profiles]
     users = SimpleNamespace(
         find=MagicMock(return_value=_Cursor(profiles)),
         insert_one=AsyncMock(),
@@ -97,7 +99,9 @@ def client():
 @pytest.fixture
 def as_user():
     def _set(user):
-        app.dependency_overrides[get_current_user] = lambda: dict(user)
+        app.dependency_overrides[get_current_user] = lambda: {
+            "community_age_band": "18_plus", "community_terms_version": "2026-11-13", **user,
+        }
 
     yield _set
     app.dependency_overrides.pop(get_current_user, None)
@@ -147,7 +151,8 @@ def test_individual_recipient_returns_only_roster_identity_and_fresh_upi_fields(
     }
     fake_db.users.find.assert_called_once_with(
         {"id": {"$in": ["recipient-user"]}},
-        {"_id": 0, "id": 1, "upi_id": 1, "upi_updated_at": 1},
+        {"_id": 0, "id": 1, "upi_id": 1, "upi_updated_at": 1,
+         "community_age_band": 1, "community_terms_version": 1, "guardian_consent": 1, "ugc_suspended_at": 1},
     )
     assert "private@gmail.com" not in response.text
     assert "recipient-user" not in response.text

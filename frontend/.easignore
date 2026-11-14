@@ -3,6 +3,7 @@
 /android/
 /modules/upi-app-launcher/android/build/
 /.release-tmp/
+**/.release-tmp/
 /expo-env.d.ts
 
 # Dependencies and generated output

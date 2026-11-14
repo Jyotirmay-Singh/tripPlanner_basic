@@ -269,12 +269,14 @@ def install_attempt_route(
             {
                 "id": "recipient-user",
                 "name": "Recipient account",
+                "community_age_band": "18_plus", "community_terms_version": "2026-11-13",
                 "upi_id": "recipient@upi",
                 "upi_updated_at": "2026-09-11T10:00:00+00:00",
             },
             {
                 "id": "recipient-user-2",
                 "name": "Second recipient account",
+                "community_age_band": "18_plus", "community_terms_version": "2026-11-13",
                 "upi_id": "second@upi",
                 "upi_updated_at": "2026-09-11T11:00:00+00:00",
             },

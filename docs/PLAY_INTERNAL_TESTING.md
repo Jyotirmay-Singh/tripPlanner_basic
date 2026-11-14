@@ -1,129 +1,156 @@
-# Google Play — Internal Testing Setup
+# Splitora: Google Play internal testing
 
-Distribute Splitora to testers through the Play Store (up to 100 testers, **no
-"unknown source" / Play Protect warnings**, and **no review delay**). This reuses the same
-Expo project and the existing `production` EAS profile (which builds a Play-ready `.aab`
-with the prod backend URL + public Google Web/iOS client IDs baked in). Nothing about the backend, split
-engine, auth, or the Vercel/Render deploys changes.
+Updated 14 November 2026. The shared release and owner register is
+[PLAY_STORE_LAUNCH.md](PLAY_STORE_LAUNCH.md). **Play Console work is deferred** until
+the account holder supplies access. No account has been supplied or verified in this task.
+Use this guide when that milestone resumes; do not upload the historical bundle below.
 
-App: **Splitora** · package `com.tripsplitter.app` · Play App Signing (Google-managed).
-Rename the existing store entry when present; reuse its package registration and signing.
-The bundle recorded below predates the rename and retains its original release name.
+## Release and account decisions
 
----
+- Launch scope: India, free, ad-free, ages 13+ with group chat and teen safeguards.
+- Support: teamsplitora@gmail.com.
+- Android package: `com.tripsplitter.app`. Build from `frontend/` using the canonical
+  `production` profile, dynamic `app.config.js` and `app.base.json`.
+- Approved source: `main` at `ed26aee5dbb69f94f004d13242e2102ca546e5df`, the reviewed
+  local group-deletion confirmation fix, then reviewed launch-readiness changes.
+- The saved GPay-style branch `codex/gpay-ui-saved-20261014` was deleted locally.
+  Exclude its code from the release.
+- Start with manual Console upload. EAS Submit and its service account are optional later.
 
-## Step 0 — Create a Google Play Developer account  *(you)*
+## 1. Confirm the publisher before creating or reusing an app
 
-1. Go to <https://play.google.com/console> → **Get started / Create account** → **Personal**
-   (unless you have a registered business). Pay the **one-time $25**.
-2. Complete **identity verification** (legal name, address, phone; sometimes a photo ID).
-   **This can take a few hours to a few days** — you cannot publish anything until it clears.
-3. Note: the "20 testers for 14 days" requirement Google added for new personal accounts
-   applies to **Production** access only. **Internal testing is exempt** — you can test as
-   soon as the account is verified.
+Owner: account holder. Record account type, exact creation date, identity/contact/device
+verification and the app-specific production-access state. Record an existing app's
+name, URL and package if one exists. Reuse its registration only after checking ownership
+and signing continuity. An EAS project or a historical AAB does not prove that a Play app exists.
 
-## Step 1 — Create the app  *(you, after verification)*
+Choose personal versus organization using the actual publisher and Google rules.
+Expense management and external UPI handoff require financial-feature assessment; do not
+automatically choose a personal account. Some financial-service categories require an
+organization account. Resolve applicability with the account holder and Play support where needed.
+Enrollment has a one-time US$25 fee; follow the current Console verification steps.
 
-Play Console → **Create app**:
-- App name: **Splitora** · Default language: your choice · Type: **App** · **Free**.
-- Accept the developer-program / US-export declarations.
-- (The package `com.tripsplitter.app` is registered automatically on your first bundle upload.)
+For a **personal account created after 13 November 2023**, production access requires a
+closed test with **at least 12 testers continuously opted in for the preceding 14 days**,
+followed by an application for production access. Internal testing is a separate track
+supporting up to 100 testers and does not satisfy that closed-test requirement.
+Confirm eligibility in the actual app dashboard. Account verification and production access
+are different gates.
 
-## Step 2 — Use the signed `.aab`
+[Account types](https://support.google.com/googleplay/android-developer/answer/13634885?hl=en)
+· [Testing requirements](https://support.google.com/googleplay/android-developer/answer/14151465?hl=en)
 
-Current bundle: **Trip Splitter 1.0.0, build 20** (`versionCode 20`),
-package `com.tripsplitter.app`, built from commit `dd7590c98e5ccf3c9c625d39b726b882049cb14d`.
-The `production` EAS profile embeds the production backend and public Google client IDs.
+## 2. Prepare a fresh, signed release bundle
 
-- File: `trip-splitter-android-1.0.0-build-20.aab`
-- EAS build ID: `1e2db35f-94a3-486b-9014-92e22d4ae912`
-- Local file in the release workspace: `.release-tmp/android-release-20261005/trip-splitter-android-1.0.0-build-20.aab`
-- SHA-256: `d37a2369ff95551465a0ddc3ad7a60f106550de3393c2c162d7be1a21147d5ec`
-- Size: 94,135,799 bytes
+Owner: release engineer, after independent readiness and signing gates pass.
 
-The bundle passed bundletool validation, signature checks, production-configuration checks,
-and 16 KB native-library alignment checks. Device installation and real sign-in remain untested.
-Upload this local file to Play Console; the bundle has not been submitted to Google Play or
-published as a public GitHub download. The APK remains the public artifact used in group sharing.
+1. Confirm the approved source, local-change disposition and current-brand UI. Record the
+   exact commit and clean release build input.
+2. Check all Play/EAS used or reserved version codes. The next code must exceed all of them;
+   a cancelled build may have reserved a code. EAS remote auto-increment alone is not evidence
+   that the code exceeds every Console upload.
+3. Build from `frontend/` with `eas build --platform android --profile production` when authorized.
+   Verify the production API and public OAuth identifiers without copying secret values into logs.
+4. Record the EAS build ID, source revision, artifact checksum/size, package, version code,
+   target API, permissions, signing certificates and 16 KB compatibility evidence.
+5. Validate API 36 targeting and native 16 KB support in the actual AAB and its generated APKs.
+   Include a 16 KB runtime check in device acceptance. An old APK's checks do not validate new code.
+   Receipt attachment is gallery-only. Verify that camera, microphone and broad media-read
+   permissions are absent, and that attaching an image opens the system picker directly.
 
-For a future release, run `eas build --platform android --profile production --non-interactive --wait`
-from `frontend/`; EAS auto-increments the remote Android version code.
+Historical evidence, retained for traceability:
 
-## Step 3 — Create the Internal testing release + upload  *(you)*
+| Artifact | Historical record | Use |
+| --- | --- | --- |
+| Public APK 24 | Source `4e964ba37a6911bc2f966b068b48c208bb3e9a88`; EAS `15988520-f034-48ad-b5cb-43089e529c5d` | Previous direct-download release |
+| Build 25 | Cancelled; source `f821a4f91c2c56c8dcc280e70575c1892696f73a` | Check whether its code was reserved |
+| AAB 20 | Source `dd7590c98e5ccf3c9c625d39b726b882049cb14d`; EAS `1e2db35f-94a3-486b-9014-92e22d4ae912` | Historical bundle, **not the launch candidate** |
 
-Play Console → **Testing → Internal testing → Create new release**:
-- When prompted about **Play App Signing**, **accept** (Google generates & manages the app
-  signing key — recommended, and required for new apps).
-- **Upload** the `.aab` from Step 2.
-- Add a short release note (e.g. "Initial internal test build").
-- **Save → Review release**. It will flag incomplete "App content" — finish Step 5, then
-  **Start rollout to Internal testing**.
+Historical AAB file: `.release-tmp/android-release-20261005/trip-splitter-android-1.0.0-build-20.aab`;
+94,135,799 bytes; SHA-256
+`d37a2369ff95551465a0ddc3ad7a60f106550de3393c2c162d7be1a21147d5ec`.
+Its recorded bundletool, signature, production configuration and native-alignment checks
+remain historical evidence. Current source/device acceptance is recorded in the shared handoff.
 
-## Step 4 — Add testers + share the link  *(you)*
+## 3. Establish signing and installed-app continuity
 
-Internal testing → **Testers** tab:
-- Create an **email list** and add tester **Gmail addresses** (Google accounts), up to 100.
-- Save, then copy the **"Copy link" / opt-in URL** and send it to testers.
-- Each tester opens the link → **Accept invitation** → installs from the Play Store link.
-  (Can take a few minutes to appear. They must use the **same Google account** on their phone.)
+Owner: account holder + release engineer. Complete before choosing Play's app-signing key.
 
-## Step 5 — Required "App content" declarations  *(you — needed before rollout)*
+- Compare the existing direct APK certificate, EAS upload certificate and any existing Play
+  app-signing certificate. An unrelated Google-generated key can prevent an existing APK
+  installation from upgrading to the Play version. Choose the signing approach deliberately;
+  document any reinstall/export/recovery consequence before rollout.
+- Play App Signing is required for new apps. The upload key signs the submitted bundle;
+  the app-signing key signs the APKs users install. They can be different.
+- Register an Android Google OAuth client for the exact package and **Play app-signing SHA-1**
+  in the intended Google Cloud project. Retain the direct APK's certificate registration as needed.
+  Android uses Credential Manager and the configured Web client as ID-token audience.
+- Keep that Web client in the backend's accepted `GOOGLE_CLIENT_ID` audiences. Do not embed
+  an OAuth client secret or use an Android client ID as `webClientId`.
+- Register the **Play app-signing SHA-256** in the site's Android App Links association file.
+  Test HTTPS invitations on a real Play-installed build.
 
-Play Console → **Policy → App content**. Complete each required item:
-- **Privacy policy** — **required** (the app collects emails/names/accounts). See below.
-- **App access** — the app needs sign-in, so provide **test credentials** (a demo
-  `@gmail.com` + password) so reviewers/testers aren't blocked.
-- **Ads** — declare **No ads** (assuming none).
-- **Content rating** — fill the questionnaire (utility app → typically *Everyone*).
-- **Target audience & content** — select age groups (not directed at children).
-- **Data safety** — declare what's collected (email, name, app activity), that it's
-  **encrypted in transit**, and whether accounts can be deleted. Be accurate.
-- **Financial features / Government apps** — **No**.
+Previously recorded EAS upload-key SHA-1, to be reverified:
+`B2:31:10:17:07:88:61:8B:0E:E7:15:32:81:D6:33:4E:62:53:7C:8B`.
 
-## Step 6 — Google Sign-In on the Play build (SHA-1)  *(you + me)*
+[Play App Signing](https://support.google.com/googleplay/android-developer/answer/9842756?hl=en)
+· [Expo Android submission](https://docs.expo.dev/submit/android/)
 
-Android sign-in uses Credential Manager. The Web OAuth client ID is passed at runtime and becomes
-the ID token's audience, while an Android OAuth client authorizes the installed binary by exact
-package/SHA-1. There is no Android redirect URI.
+## 4. Complete applicable app-content declarations
 
-Because Play re-signs the app, the certificate on a Play-installed build is **Google's app-signing
-key**, whose SHA-1 differs from the EAS upload key. To keep "Continue with Google" working:
+Owner: account holder + product owner. Follow the requirements shown for the chosen track;
+closed/production release needs the full applicable declarations.
 
-1. After the first upload: Play Console → **Test and release → Setup → App signing**. Copy:
-   - **App signing key certificate → SHA-1** (Google's key — what end users get)
-   - **Upload key certificate → SHA-1** (should equal the EAS keystore below)
-2. In the intended **Google Cloud Console → APIs & Services → Credentials** project, create or
-   verify an **Android** OAuth client for:
-   - Package `com.tripsplitter.app`
-   - The **App signing key certificate SHA-1** copied above
-3. Keep the EAS-preview registration as a separate Android OAuth client entry for the same package
-   plus the EAS SHA-1. Google Cloud models each package/certificate pair separately.
-4. Verify the same Cloud project contains the Web OAuth client referenced by
-   `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`, and verify Render's `GOOGLE_CLIENT_ID` accepted-audience list
-   includes that Web ID. Do not use an Android client ID as `webClientId` and do not add a client
-   secret to the app or backend.
+| Item | Required assessment |
+| --- | --- |
+| Public privacy policy | Public HTTPS `/privacy`, accessible without login; identify the operator and contact and describe actual collection, processing, sharing, security, retention and deletion |
+| Account deletion | In-app deletion plus public `/account-deletion` request pathway usable after uninstall; explain retained shared financial records, names, receipts and chat |
+| App access | Reusable reviewer credentials and instructions that satisfy terms/age gates, email verification and any guardian checks; synthetic groups/data; no inaccessible OTP or expired links |
+| Ads and pricing | No ads, free; verify final SDKs and configuration |
+| Audience | Intended age groups 13–15, 16–17 and 18+; apply local child definitions, consent, social-feature safeguards and applicable Families requirements |
+| Content rating | Complete IARC honestly, including chat/user interaction; do not assume an Everyone rating |
+| Data safety | Inventory accounts/contact data, financial records, photos, messages, device/push IDs, safety/guardian records and diagnostics; verify provider processing and collected/shared definitions |
+| Financial features | Assess expense management under **Other** and UPI handoff under **Payments/transfers**, against Google's current definitions; resolve any organization-account implication |
+| Government apps | Answer independently using the actual operator and service; do not combine this with financial answers |
+| Countries | India for the approved launch; confirm testing-track country behavior and final production distribution separately |
 
-**EAS upload-key SHA-1** (already have this from the preview APK; the Play upload-key SHA-1
-should match it):
-```
-B2:31:10:17:07:88:61:8B:0E:E7:15:32:81:D6:33:4E:62:53:7C:8B
-```
+All developers must answer the financial-features declaration for applicable published tracks;
+“the app does not hold money” is insufficient grounds to answer no financial features.
+**Internal-only apps have a Data safety form exemption**; that does not remove privacy, security
+or later closed/production obligations. Keep the draft inventory ready and complete the form
+before a track requiring it. The public policy routes exist in source; verify their live HTTPS
+URLs after a separately authorized deployment.
 
-The upload key signs the bundle submitted to Play; it is **not** the certificate on the app users
-install from Play. The EAS SHA registration is useful for directly installed preview APKs, while
-the Play App Signing SHA registration is mandatory for internal/closed/production Play installs.
+[Financial features](https://support.google.com/googleplay/android-developer/answer/13849271?hl=en)
+· [Data safety](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en)
+· [Account deletion](https://support.google.com/googleplay/android-developer/answer/13327111?hl=en)
+· [UGC safeguards](https://support.google.com/googleplay/android-developer/answer/9876937?hl=en)
+· [Audience](https://support.google.com/googleplay/android-developer/answer/9867159?hl=en)
 
----
+## 5. Upload and exercise internal testing
 
-## Privacy policy (required)
+Owner: account holder + tester coordinator, after access is supplied.
 
-The app handles personal data (accounts, emails), so Play requires a **public privacy-policy
-URL**. Easiest option: add a static `/privacy` page to the existing Vercel web app and use
-that URL. (Ask and I'll draft the page + route — it's additive and doesn't touch app logic.)
+1. Open Testing → Internal testing → Create release. Upload the newly verified AAB and
+   provide accurate release notes. Resolve the Console's applicable requirements.
+2. Configure an email list or Google Group, up to 100 testers. Splitora itself requires Gmail
+   identities even though Play tester eligibility uses Google accounts.
+3. Save the tester configuration and obtain the opt-in URL. Share it only through an
+   authorized communication step. Testers opt in and install using the same Google account.
+4. Allow for processing, availability propagation and any applicable review. **Do not promise
+   instant availability or no review delay**, particularly for an app's first release.
+5. Verify the actual Play-installed package: Google/password sign-in, account recovery,
+   invitations, push, upgrade recovery, core financial flows, receipts/permissions, exports,
+   community terms, teen controls, report/block/moderation, deletion and offline account isolation.
+6. Record build/version, device/Android version, steps, results and feedback. Resolve all
+   release-blocking issues before qualifying closed testing or production submission.
 
-## Quick gotchas
-- Internal testing has **no review wait** (unlike closed/production tracks).
-- Every new upload must have a **higher `versionCode`** — EAS handles this automatically
-  (`appVersionSource: "remote"`).
-- Manual upload is used here — no Google Cloud **service account** is needed. (If you later
-  want one-command `eas submit` releases, that's a separate, optional setup.)
+[Testing tracks](https://support.google.com/googleplay/android-developer/answer/9845334?hl=en)
+
+## 6. Resume production milestones
+
+Run the qualifying closed test where required, collect engagement and feedback evidence,
+apply for and obtain production access, secure release review, publish to India and complete
+72 hours of support/moderation/vitals observation. Use milestone scheduling; neither a 14-day
+test nor internal-track availability guarantees a publication date. Recovery releases need
+higher version codes. Record all owners and evidence in the shared handoff.

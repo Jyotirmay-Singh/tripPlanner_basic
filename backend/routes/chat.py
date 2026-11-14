@@ -16,6 +16,7 @@ from utils.common import gen_id, now_utc
 from utils.deps import get_current_user, _trip_or_404, _trip_owner_or_403
 from utils.permissions import is_super_admin
 from utils.security import decode_token, validate_session
+from services.community_safety import require_community_access, blocked_chat_users, chat_recipient_allowed
 
 router = APIRouter()
 
@@ -31,8 +32,11 @@ async def _chat_state(trip_id: str) -> dict:
 async def _broadcast(trip: dict, event: dict) -> None:
     # Re-read access before fan-out so a removal racing a message mutation cannot receive the event.
     current = await db.trips.find_one({"id": trip["id"]}, {"_id": 0, "user_ids": 1})
+    author = (event.get("data") or {}).get("sender_user_id")
+    async def can_receive(user_id):
+        return await chat_recipient_allowed(db, user_id, author)
     await chat_connections.broadcast(
-        trip["id"], event, (current or {}).get("user_ids", [])
+        trip["id"], event, (current or {}).get("user_ids", []), can_receive=can_receive,
     )
 
 
@@ -59,12 +63,16 @@ async def list_chat_messages(
     user=Depends(get_current_user),
 ):
     await _trip_or_404(trip_id, user)
+    await require_community_access(db, user, "chat")
     if before_sequence is not None and after_sequence is not None:
         raise HTTPException(400, "Use either before_sequence or after_sequence, not both")
 
     state = await _chat_state(trip_id)
     cleared = state.get("cleared_through_sequence", 0)
     query: dict = {"trip_id": trip_id, "sequence": {"$gt": cleared}}
+    blocked = await blocked_chat_users(db, user["id"])
+    if blocked:
+        query["sender_user_id"] = {"$nin": list(blocked)}
     direction = -1
     if before_sequence is not None:
         query["sequence"]["$lt"] = before_sequence
@@ -84,6 +92,7 @@ async def list_chat_messages(
         "has_more_before": has_more if direction == -1 else False,
         "has_more_after": has_more if direction == 1 else False,
         "cleared_through_sequence": cleared,
+        "blocked_user_ids": sorted(blocked),
     }
 
 
@@ -95,6 +104,7 @@ async def create_chat_message(
     user=Depends(get_current_user),
 ):
     trip = await _trip_or_404(trip_id, user)
+    await require_community_access(db, user, "chat")
     sender = resolve_chat_sender(trip, user["id"])
     if not sender and is_super_admin(user):
         sender = {
@@ -203,6 +213,7 @@ async def update_chat_message(
     user=Depends(get_current_user),
 ):
     trip = await _trip_or_404(trip_id, user)
+    await require_community_access(db, user, "chat")
     message = await _message_or_404(trip_id, message_id)
     can_moderate = is_super_admin(user)
     if message.get("sender_user_id") != user["id"] and not can_moderate:
@@ -266,6 +277,8 @@ async def delete_chat_message(
 @router.get("/trips/{trip_id}/chat/unread")
 async def chat_unread(trip_id: str, user=Depends(get_current_user)):
     await _trip_or_404(trip_id, user)
+    await require_community_access(db, user, "chat")
+    blocked = await blocked_chat_users(db, user["id"])
     state = await _chat_state(trip_id)
     read = await db.chat_reads.find_one(
         {"trip_id": trip_id, "user_id": user["id"]}, {"_id": 0}
@@ -278,7 +291,7 @@ async def chat_unread(trip_id: str, user=Depends(get_current_user)):
         {
             "trip_id": trip_id,
             "sequence": {"$gt": floor},
-            "sender_user_id": {"$ne": user["id"]},
+            "sender_user_id": {"$nin": [user["id"], *blocked]},
             "deleted_at": None,
         }
     )
@@ -286,6 +299,7 @@ async def chat_unread(trip_id: str, user=Depends(get_current_user)):
         {
             "trip_id": trip_id,
             "sequence": {"$gt": state.get("cleared_through_sequence", 0)},
+            "sender_user_id": {"$nin": list(blocked)},
         },
         {"_id": 0, "sequence": 1},
         sort=[("sequence", -1)],
@@ -296,6 +310,7 @@ async def chat_unread(trip_id: str, user=Depends(get_current_user)):
 @router.put("/trips/{trip_id}/chat/read")
 async def mark_chat_read(trip_id: str, body: ChatReadIn, user=Depends(get_current_user)):
     await _trip_or_404(trip_id, user)
+    await require_community_access(db, user, "chat")
     state = await _chat_state(trip_id)
     if body.through_sequence > state.get("cleared_through_sequence", 0):
         exists = await db.chat_messages.find_one(
@@ -375,7 +390,7 @@ async def chat_websocket(websocket: WebSocket, trip_id: str):
             await websocket.close(code=4401)
             return
         user = await db.users.find_one(
-            {"id": payload.get("sub")}, {"_id": 0, "id": 1, "email": 1, "role": 1, "session_version": 1}
+            {"id": payload.get("sub")}, {"_id": 0, "password_hash": 0, "pin_hash": 0},
         )
         if not user:
             logger.warning(
@@ -386,8 +401,9 @@ async def chat_websocket(websocket: WebSocket, trip_id: str):
             return
         try:
             validate_session(payload, user)
-        except HTTPException:
-            await websocket.close(code=4401)
+            await require_community_access(db, user, "chat")
+        except HTTPException as failure:
+            await websocket.close(code=4401 if failure.status_code == 401 else 4403)
             return
         trip = await db.trips.find_one({"id": trip_id}, {"_id": 0, "user_ids": 1})
         if not trip or (
@@ -406,19 +422,29 @@ async def chat_websocket(websocket: WebSocket, trip_id: str):
         connected = True
         # The connection is registered before this recheck, so a reset racing the initial
         # authentication either closes it through revoke_user or fails this version check.
-        current_user = await db.users.find_one({"id": user["id"]}, {"session_version": 1})
+        current_user = await db.users.find_one({"id": user["id"]})
         try:
             if not current_user:
                 raise HTTPException(401, "User not found")
             validate_session(payload, current_user)
-        except HTTPException:
-            await websocket.close(code=4401)
+            await require_community_access(db, current_user, "chat")
+        except HTTPException as failure:
+            await websocket.close(code=4401 if failure.status_code == 401 else 4403)
             return
         await websocket.send_json({"type": "ready"})
         logger.info("chat.websocket_ready trip_id=%s", trip_id)
         while True:
             incoming = await websocket.receive_json()
             if isinstance(incoming, dict) and incoming.get("type") == "ping":
+                current_user = await db.users.find_one({"id": user["id"]})
+                try:
+                    if not current_user:
+                        raise HTTPException(401, "User not found")
+                    validate_session(payload, current_user)
+                    await require_community_access(db, current_user, "chat")
+                except HTTPException as failure:
+                    await websocket.close(code=4401 if failure.status_code == 401 else 4403)
+                    return
                 await websocket.send_json({"type": "pong"})
     except WebSocketDisconnect as error:
         logger.info(

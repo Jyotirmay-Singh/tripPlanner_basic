@@ -31,6 +31,8 @@ SUPER_ADMIN = {
     "id": "application-admin-id",
     "email": SUPER_ADMIN_EMAIL,
     "role": "super_admin",
+    "community_age_band": "18_plus",
+    "community_terms_version": "2026-11-13",
 }
 TRIP = {
     "id": "trip-1",

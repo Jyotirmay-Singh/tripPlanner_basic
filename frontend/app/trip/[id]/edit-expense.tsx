@@ -37,7 +37,7 @@ import FinancialReviewSheet from '../../../src/FinancialReviewSheet';
 import { guardedTrip, type ReviewRequest } from '../../../src/financialReview';
 import { ddmmyyToDDMMYYYY, ddmmyyyyToDDMMYY, toISO } from '../../../src/date';
 import {
-  FormScreen, Screen, Card, Button, Input, CategoryPicker, Icon, ActionSheet, SkeletonCard, useToast,
+  FormScreen, Screen, Card, Button, Input, CategoryPicker, Icon, SkeletonCard, useToast,
   CurrencyPicker, DateField, TimeField, ExchangeRatePanel,
 } from '../../../src/ui';
 import type { ApprovedConversion, LockedConversion } from '../../../src/ui';
@@ -132,7 +132,6 @@ export default function EditExpense() {
   const [hadReceipt, setHadReceipt] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [sourceSheet, setSourceSheet] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [budgetWarn, setBudgetWarn] = useState<string | null>(null);
   const [approvedConversion, setApprovedConversion] = useState<ApprovedConversion | null>(null);
@@ -216,22 +215,11 @@ export default function EditExpense() {
   };
 
   const pickFromLibrary = async () => {
-    setSourceSheet(false);
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) return showToast('Allow photo access to attach a receipt.', 'error');
+    if (Platform.OS === 'ios') {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) return showToast('Allow photo access to attach a receipt.', 'error');
+    }
     applyAsset(await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.4, allowsEditing: true }));
-  };
-
-  const takePhoto = async () => {
-    setSourceSheet(false);
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) return showToast('Allow camera access to capture a receipt.', 'error');
-    applyAsset(await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.4, allowsEditing: true }));
-  };
-
-  const chooseReceiptSource = () => {
-    if (Platform.OS === 'web') { pickFromLibrary(); return; }
-    setSourceSheet(true);
   };
 
   const save = async (force = false) => {
@@ -719,7 +707,7 @@ export default function EditExpense() {
                   )}
                 </View>
               ) : canModify ? (
-                <TouchableOpacity onPress={chooseReceiptSource}
+                <TouchableOpacity onPress={pickFromLibrary}
                   style={[styles.receiptBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} accessibilityRole="button" accessibilityLabel="Attach receipt image">
                   <Icon name="image-plus" size={18} color={colors.primary} />
                   <T color={colors.primary} style={{ fontWeight: '700' }}>Attach image</T>
@@ -739,16 +727,6 @@ export default function EditExpense() {
             )}
           </View>
       </FormScreen>
-
-      <ActionSheet
-        visible={sourceSheet}
-        onClose={() => setSourceSheet(false)}
-        title="Add receipt"
-        actions={[
-          { label: 'Take photo', icon: 'camera', onPress: takePhoto },
-          { label: 'Choose from library', icon: 'image', onPress: pickFromLibrary },
-        ]}
-      />
 
       <ConfirmModal
         visible={confirmDelete}
