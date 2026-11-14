@@ -32,6 +32,9 @@ from services.join_requests import (
 from services.invites import record_invite_use, resolve_join_credential, revoke_trip_invites
 from services.admin_audit import record_admin_action
 from services.receipts import delete_receipts_for_trip
+from services.ledger_snapshot import load_ledger
+from services.ledger_transactions import run_optional_transaction
+from services.trip_deletion import require_trip_deletion_allowed
 from services.money_audit import record_money_normalizations
 from services.trip_activity import (
     activity_timestamp,
@@ -263,21 +266,31 @@ async def delete_trip(trip_id: str, user=Depends(get_current_user), body: Correc
     if body:
         return await financial_corrections.create(trip_id, body, user,
             binding={"target_id": trip_id, "operations": {"archive_trip"}})
-    # Step 23: deleting a trip is owner-or-application-admin only.
-    trip = await _trip_owner_or_403(trip_id, user)
-    reject_legacy_write(trip, code="settlement_correction_required")
+    await _trip_owner_or_403(trip_id, user)
+
+    async def delete_ledger(session):
+        options = {"session": session} if session is not None else {}
+        ledger = await load_ledger(trip_id, db, session=session, coverage=True)
+        trip = ledger.trip
+        reject_legacy_write(trip, code="settlement_correction_required")
+        require_trip_deletion_allowed(ledger, user)
+        result = await db.trips.delete_one({
+            "id": trip_id,
+            "owner_id": trip["owner_id"],
+            "version": trip["version"] if "version" in trip else {"$exists": False},
+        }, **options)
+        if result.deleted_count != 1:
+            raise HTTPException(409, "Group settings or balances changed. Refresh and try again.")
+        for collection in (
+            "expenses", "settlements", "payments", "payment_attempts", "join_requests",
+            "notification_outbox", "chat_messages", "chat_reads", "chat_counters",
+        ):
+            await getattr(db, collection).delete_many({"trip_id": trip_id}, **options)
+        return trip
+
+    trip = await run_optional_transaction(delete_ledger, lambda: delete_ledger(None))
     await revoke_trip_invites(trip_id, user["id"])
     await delete_receipts_for_trip(trip_id)
-    await db.trips.delete_one({"id": trip_id})
-    await db.expenses.delete_many({"trip_id": trip_id})
-    await db.settlements.delete_many({"trip_id": trip_id})
-    await db.payments.delete_many({"trip_id": trip_id})
-    await db.payment_attempts.delete_many({"trip_id": trip_id})
-    await db.join_requests.delete_many({"trip_id": trip_id})
-    await db.notification_outbox.delete_many({"trip_id": trip_id})
-    await db.chat_messages.delete_many({"trip_id": trip_id})
-    await db.chat_reads.delete_many({"trip_id": trip_id})
-    await db.chat_counters.delete_many({"trip_id": trip_id})
     await release_trip_claims(trip_id)
     await chat_connections.disconnect_trip(trip_id)
     await record_admin_action(

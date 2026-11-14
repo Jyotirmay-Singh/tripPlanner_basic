@@ -20,6 +20,7 @@ from services.financial_ledger import financial_record, versioned_revision
 from services.ledger_snapshot import load_ledger
 from services.settlement_engine import SCALE, to_scaled
 from services.trip_activity import with_trip_activity
+from services.trip_deletion import require_trip_deletion_allowed
 from utils.common import now_utc
 from utils.permissions import role_of, can_record_payment, can_modify_expense
 
@@ -372,8 +373,7 @@ async def plan(trip, actor, ledger, body, operation_id, at, *, session=None):
     elif body.operation == "archive_trip":
         if role_of(trip, actor) not in {"owner", "super_admin"} or body.target_id != trip["id"] or body.changes:
             raise workflow.error("insufficient_authority", 403)
-        from services.roster_corrections import removal_blockers, people
-        removal_blockers(ledger, set(people(trip["members"])), {row["id"] for row in (ledger.accounting_members or trip["members"])})
+        require_trip_deletion_allowed(ledger, actor)
         trip_change = {"before": {"archived_at": trip.get("archived_at")}, "after": {"archived_at": at}}
     elif body.operation in {"grant_admin", "revoke_admin", "transfer_owner"}:
         if role_of(trip, actor) not in {"owner", "super_admin"} or body.changes:
@@ -466,6 +466,8 @@ async def apply(trip, actor, correction, session):
         raise CoverageError("correction_dependencies_changed")
     if timestamp(correction["expires_at"]) <= now_utc():
         raise CoverageError("correction_preview_expired_or_changed")
+    if correction["operation"] == "archive_trip":
+        require_trip_deletion_allowed(ledger, actor)
     if role_of(trip, actor) not in ADMIN and not correction["required_person_ids"]:
         if correction["operation"] in {"replace_expense", "void_expense"}:
             target = next((row for row in ledger.expenses if row["id"] == correction["target_id"]), {})

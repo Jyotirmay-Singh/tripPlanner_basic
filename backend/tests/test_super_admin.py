@@ -325,6 +325,10 @@ def test_money_audit_exposes_private_adjustment_vector_only_in_admin_feed(monkey
 
 
 def test_trip_deletion_cleans_all_related_live_collections(monkeypatch):
+    from services.ledger_snapshot import LedgerSnapshot
+
+    owner = {"id": TRIP["owner_id"]}
+    trip = {**TRIP, "members": [{**TRIP["members"][0], "name": "Member"}]}
     collection_names = (
         "trips",
         "expenses",
@@ -341,8 +345,10 @@ def test_trip_deletion_cleans_all_related_live_collections(monkeypatch):
         name: SimpleNamespace(delete_one=AsyncMock(), delete_many=AsyncMock())
         for name in collection_names
     }
+    collections["trips"].delete_one.return_value = SimpleNamespace(deleted_count=1)
     monkeypatch.setattr(trips, "db", SimpleNamespace(**collections))
-    monkeypatch.setattr(trips, "_trip_owner_or_403", AsyncMock(return_value=TRIP))
+    monkeypatch.setattr(trips, "_trip_owner_or_403", AsyncMock(return_value=trip))
+    monkeypatch.setattr(trips, "load_ledger", AsyncMock(return_value=LedgerSnapshot(trip)))
     monkeypatch.setattr(trips, "revoke_trip_invites", AsyncMock())
     monkeypatch.setattr(trips, "delete_receipts_for_trip", AsyncMock())
     release_claims = AsyncMock()
@@ -352,12 +358,14 @@ def test_trip_deletion_cleans_all_related_live_collections(monkeypatch):
     audit = AsyncMock()
     monkeypatch.setattr(trips, "record_admin_action", audit)
 
-    assert run(trips.delete_trip("trip-1", user=SUPER_ADMIN)) == {"ok": True}
+    assert run(trips.delete_trip("trip-1", user=owner)) == {"ok": True}
 
-    collections["trips"].delete_one.assert_awaited_once_with({"id": "trip-1"})
+    collections["trips"].delete_one.assert_awaited_once_with({
+        "id": "trip-1", "owner_id": trip["owner_id"], "version": {"$exists": False},
+    })
     for name in collection_names[1:]:
         collections[name].delete_many.assert_awaited_once_with({"trip_id": "trip-1"})
-    trips.revoke_trip_invites.assert_awaited_once_with("trip-1", SUPER_ADMIN["id"])
+    trips.revoke_trip_invites.assert_awaited_once_with("trip-1", owner["id"])
     trips.delete_receipts_for_trip.assert_awaited_once_with("trip-1")
     release_claims.assert_awaited_once_with("trip-1")
     disconnect.assert_awaited_once_with("trip-1")
