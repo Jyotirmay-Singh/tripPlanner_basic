@@ -1,5 +1,26 @@
 # Splitora production hosting and provider handoff
 
+## Latest coordinated deployment — 20 November 2026
+
+Both release branches are merged into main. Backend and website now use `e746f5a`, following
+reviewed APK source `e8d8e8f`. Render deployment `dep-dc02r87f3r2c738hgv8g` is live and Vercel
+`dpl_BsG3k5BJBR6XnLx387rPpcq4TtjD` is READY/PROMOTED. The API has 97 paths, all 17 safety
+operations and compatible create/chat protocols. Public privacy, terms, deletion and
+Community safety pages return their distinct content. Existing users can review current
+age/terms on the website. GridFS remains the persistent receipt store.
+
+APK 29 remains a verified candidate: hosted WSS auth upgrades/rejects server-side but clients
+receive no close frame/code 4401. Publication is held; stable downloads remain APK 28 and
+local QA APK 27. [The integration report](releases/android-1.0.0-build-29.md) records diagnostic
+evidence, exact artifact identity, recovery and completion steps. A same-source redeploy did
+not fix the transport check. No provider credentials, production fixtures or paid resources
+were changed. Preserve the EmailJS interim decision below.
+
+Actual Render auto-deploy remains enabled; source `autoDeploy: false` has not changed that
+existing service setting. Main documentation pushes carry `[skip render]`. Vercel main Git
+deployment is disabled in source and the reviewed website was promoted explicitly. Future
+pushes must recheck actual deployment controls. Earlier observations below are historical.
+
 Later direct-APK update: [build 28](releases/android-2026-11-20.md) is published with the
 existing HTTPS backend and current main-based flow. Its binary/public-download checks do
 not complete the future safety/provider, device or Play gates described below. The earlier

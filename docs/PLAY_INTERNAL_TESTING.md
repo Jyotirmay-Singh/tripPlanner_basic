@@ -1,5 +1,11 @@
 # Splitora: Google Play internal testing
 
+Latest integration: both branches are merged into main, and the compatible safety backend/
+website are live at `e746f5a`. APK 29 is built but publication is held by a hosted WebSocket
+close-response check; the stable download remains build 28. See
+[the integration report](releases/android-1.0.0-build-29.md). This does not complete device,
+provider, operating or Console acceptance. The earlier milestone scope below is historical.
+
 Later direct-APK update: [build 28](releases/android-2026-11-20.md) is published with the
 existing HTTPS backend and current main-based flow. Its binary/public-download checks do
 not complete the future safety/provider, device or Play gates described below. The earlier

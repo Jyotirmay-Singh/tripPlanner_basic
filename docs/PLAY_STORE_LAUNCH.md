@@ -2,7 +2,29 @@
 
 Updated 20 November 2026. This is the shared source, readiness and owner-action register.
 
-## Current direct-APK release — build 28
+## Latest coordinated integration — 20 November 2026
+
+The owner authorized merging both release branches and coordinating backend, website and
+native delivery. Both branches are now included in main. Reviewed APK source is `e8d8e8f`;
+backend/website source `e746f5a` adds only direct policy/review web routing. The deletion and
+gallery fixes are preserved, and excluded commit `7bbee46` remains outside ancestry.
+
+The backend and website are live with Community safety and mandatory age/terms review.
+The public policy/review pages return their distinct content. Older APK users can sign in
+at <https://tripsplitter-web.vercel.app/community-settings> to complete review.
+**Build 29 is a verified candidate, with publication held by a failing hosted WebSocket
+close-response gate. The public download remains build 28.** See
+[the integration/build-29 report](releases/android-1.0.0-build-29.md) for exact evidence,
+deployment IDs, remaining work and recovery. The following build-28 and planning sections
+retain their original milestone scope and observations.
+
+Current checks: 1,325 frontend tests passed (18 skipped), 1,684 isolated backend tests passed
+(2 skipped, 320 live-API cases deselected), dependency/type/lint checks, Doctor 17/17 and
+49-route web export passed. The footer fix has regression coverage; final native/device,
+Google, push, external UPI and Play acceptance remain open. No production fixture/account
+was created and the EmailJS interim authorization remains unchanged.
+
+## Published direct-APK milestone — build 28
 
 The owner subsequently authorized a standalone APK rebuild and selected the current
 main-based application flow. **Splitora 1.0.0 build 28**, package `com.tripsplitter.app`,

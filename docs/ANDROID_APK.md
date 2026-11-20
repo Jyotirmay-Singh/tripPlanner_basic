@@ -1,8 +1,12 @@
 # Android APK — Build & Install Guide
 
 Updated 20 November 2026. The current public standalone APK is **Splitora 1.0.0, build 28**,
-package `com.tripsplitter.app`. It preserves the main-based application flow, approved
-gallery-only receipt fixes and existing hosted HTTPS backend. No USB connection is needed.
+package `com.tripsplitter.app`. No USB connection is needed. Both release branches are now
+merged into main, and the compatible Community safety backend/website are live. **APK 29
+is built and binary-verified but held from publication by the hosted WebSocket close-response
+check.** See [the build-29 integration report](releases/android-1.0.0-build-29.md).
+Existing APK users can complete age/terms review at
+<https://tripsplitter-web.vercel.app/community-settings> while APK publication is held.
 See the [build-28 release report](releases/android-2026-11-20.md) and [shareable message](releases/ANDROID_APK_SHARE_MESSAGE.md).
 Play Console work remains deferred; this APK is separate from the future Play AAB.
 
@@ -29,7 +33,10 @@ The QA download was revalidated on 20 November: 307/no-store, 132,316,964 bytes,
 `30d14421120480ce49077e2d95961bdc4820ce0e49aa105a881801b245394632`.
 This APK and historical AAB 20 must not be uploaded as the fresh Play launch bundle.
 
-## Current public APK — build 28
+## Published APK evidence — build 28
+
+This section records the build-28 milestone. The later backend/web rollout and candidate
+29 are recorded above; the earlier statements about tests and deployments apply to build 28.
 
 - App: **Splitora 1.0.0, build 28**, `com.tripsplitter.app`.
 - Source: `e049db14bf07d2584ed91b3c5df074412b4ba3a2`, branch `codex/android-apk-20261120`; reviewed main baseline `ab97b5a5430650674700d55e5c95f205b93849d8`.

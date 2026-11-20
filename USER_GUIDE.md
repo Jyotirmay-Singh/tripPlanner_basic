@@ -8,6 +8,13 @@ versions, dated results and remaining requirements. As of 20 November 2026, Goog
 publication is pending; this documentation update does not change the installed application.
 Native Google sign-in and Android notifications require a configured standalone build.
 
+The combined backend and website now require current age/terms review. If your installed
+APK asks for review but has no review screen, sign in at
+<https://tripsplitter-web.vercel.app/community-settings> and complete it using your real age
+group. Build 29 includes the native safety flow but remains a candidate pending the hosted
+chat transport check; the public download still serves build 28. Preserve existing app data
+and pending entries. See [the integration report](docs/releases/android-1.0.0-build-29.md).
+
 ---
 
 ## 1. Getting Started

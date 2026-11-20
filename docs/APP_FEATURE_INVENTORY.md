@@ -1,5 +1,16 @@
 # App Feature Inventory
 
+## Combined main integration — 20 November 2026
+
+Both release branches are merged into main. Community safety, policies and mandatory terms
+review are now deployed on backend/web at `e746f5a`; native candidate 29 uses reviewed source
+`e8d8e8f`. It preserves the deletion/gallery fixes and moves the chat safety shortcut inside
+the existing bottom-clearance container. Regression checks pass (1,325 frontend and 1,684
+isolated backend tests); final native/provider acceptance remains open. The hosted WebSocket
+close-response gate still fails, so APK 29 is not publicly released and the stable link
+remains build 28. [The integration report](releases/android-1.0.0-build-29.md) is the current
+evidence and recovery record. Earlier deployment/test observations below retain their dates.
+
 ## Current public Android APK — 20 November 2026
 
 **Splitora 1.0.0 build 28**, `com.tripsplitter.app`, is now the public direct-install APK.

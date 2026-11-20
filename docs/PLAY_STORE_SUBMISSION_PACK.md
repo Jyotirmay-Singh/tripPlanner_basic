@@ -1,5 +1,11 @@
 # Splitora Play Store submission pack
 
+Latest integration: both release branches are merged into main and the safety backend/web
+are live at `e746f5a`. APK candidate 29 remains held by the hosted WebSocket close-response
+check; stable download 28 is unchanged. [Current evidence and remaining release work](releases/android-1.0.0-build-29.md)
+supersede earlier scope statements below. Listing/operator approval, providers/devices,
+fresh production AAB and all Console gates remain pending.
+
 Prepared 20 November 2026. **Draft for owner approval; Play enrollment and Console app creation are pending.**
 This documentation milestone does not run app tests, create QA services/accounts, change the
 application, build binaries or deploy services. The owner retained India, free, ad-free,
