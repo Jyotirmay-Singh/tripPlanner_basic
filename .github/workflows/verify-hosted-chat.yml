@@ -1,0 +1,60 @@
+name: Verify hosted chat
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned RTK
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const crypto = require('crypto');
+            const zlib = require('zlib');
+            const url = 'https://github.com/rtk-ai/rtk/releases/download/v0.51.0/rtk-x86_64-unknown-linux-musl.tar.gz';
+            const expected = '5028d3b19a8f0990d30fec9fbb07e32782bc5698e618fb1861aad8a9ccba4eb5';
+            const response = await fetch(url, { signal: AbortSignal.timeout(60000) });
+            if (!response.ok) throw new Error(`RTK download returned ${response.status}`);
+            const archive = Buffer.from(await response.arrayBuffer());
+            if (crypto.createHash('sha256').update(archive).digest('hex') !== expected) {
+              throw new Error('RTK archive checksum mismatch');
+            }
+            const tar = zlib.gunzipSync(archive);
+            let binary;
+            for (let offset = 0; offset + 512 <= tar.length;) {
+              const header = tar.subarray(offset, offset + 512);
+              const name = header.subarray(0, 100).toString('utf8').split('\0')[0];
+              if (!name) break;
+              const size = parseInt(header.subarray(124, 136).toString('ascii').replace(/\0/g, '').trim(), 8);
+              if (!Number.isSafeInteger(size) || size < 0 || offset + 512 + size > tar.length) {
+                throw new Error('Invalid RTK archive entry');
+              }
+              if (path.posix.basename(name) === 'rtk' && [0, 48].includes(header[156])) {
+                if (binary) throw new Error('Duplicate RTK executable');
+                binary = tar.subarray(offset + 512, offset + 512 + size);
+              }
+              offset += 512 + Math.ceil(size / 512) * 512;
+            }
+            if (!binary?.length) throw new Error('RTK executable missing');
+            const directory = path.join(process.env.RUNNER_TEMP, 'splitora-rtk');
+            fs.mkdirSync(directory, { recursive: true });
+            fs.writeFileSync(path.join(directory, 'rtk'), binary, { mode: 0o755 });
+            core.addPath(directory);
+      - name: Install verifier dependency
+        run: rtk proxy python -m pip install --disable-pip-version-check websockets==16.0
+      - name: Verify public HTTPS and WSS protocol
+        run: rtk proxy python backend/scripts/verify_chat_deployment.py https://tripsplitter-api.onrender.com --timeout 60
