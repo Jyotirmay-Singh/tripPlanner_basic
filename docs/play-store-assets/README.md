@@ -4,6 +4,11 @@ Prepared 14 November 2026 for the approved India, free, ad-free launch. These us
 current Splitora S/T identity from `frontend/assets/images/icon.png` and the approved
 `main` UI. The deleted GPay-style branch is excluded.
 
+Documentation status, 20 November: the image files and manifest are unchanged. Final Android
+captures and owner approval remain pending; no new capture or app testing is scheduled by
+the documentation milestone. Listing text and declaration drafts are in the
+[submission pack](../PLAY_STORE_SUBMISSION_PACK.md).
+
 | File | Size | Purpose |
 | --- | --- | --- |
 | [store-icon-512.png](store-icon-512.png) | 512 × 512 | Current app icon resized for the store |
@@ -43,6 +48,6 @@ Ignored local evidence is in `.release-tmp/play-store-readiness-20261113/`:
   verification were simulated test fixtures, not delivery or legal-verification evidence.
 - `qa-browser.cjs`: isolated request routing. Credentials and fixture tokens stay ignored.
 
-The [shared launch handoff](../PLAY_STORE_LAUNCH.md) owns listing copy, remaining owner
-approvals, final Android captures and deferred Console steps. Do not upload drafts as
-evidence of Play-installed acceptance.
+The [shared launch handoff](../PLAY_STORE_LAUNCH.md) owns evidence/status and remaining owner
+approvals; the submission pack owns editable listing/declaration drafts. Final Android captures
+and Console steps remain pending. Do not upload drafts as evidence of Play-installed acceptance.

@@ -1,6 +1,12 @@
 # 🧳 Splitora — User Guide
 
-A simple, multi-user mobile app to track shared expenses, split costs fairly between individuals and families, and settle balances when ready. Built for Android & iOS via Expo Go.
+A simple, multi-user mobile app to track shared expenses, split costs fairly between individuals and families, and settle balances when ready.
+
+This guide describes the reviewed application source. Available features depend on the installed
+build and deployed service. See the [launch handoff](docs/PLAY_STORE_LAUNCH.md) for published
+versions, dated results and remaining requirements. As of 20 November 2026, Google Play
+publication is pending; this documentation update does not change the installed application.
+Native Google sign-in and Android notifications require a configured standalone build.
 
 ---
 
@@ -43,7 +49,7 @@ A simple, multi-user mobile app to track shared expenses, split costs fairly bet
   empty history. Reconnect and open that view to refresh it. Saved confirmed copies can be removed
   after 30 days. A group copy needed for an unresolved local action is retained. Reopen the group
   online to refresh its copy.
-- **Android offline saves (enabled in source after build 18; an updated APK is required):** open the
+- **Android offline saves (in compatible standalone builds):** open the
   group and Settle Up online before leaving coverage so their details and sync support are saved.
   In the saved Add Expense form, enter an expense or refund in the group's currency, choose the
   payer and split, and tap **Save on device**. It appears as **Pending sync** and survives reopening
@@ -55,8 +61,8 @@ A simple, multi-user mobile app to track shared expenses, split costs fairly bet
   stays in its original currency with **Conversion review needed** until you approve a server quote
   after reconnecting. Receipt upload is available through **Edit Transaction** after sync.
   New groups, membership changes, and UPI payments require a connection. Web and iOS require a
-  connection for group data. Build 18 keeps offline capture disabled; this source update does not
-  change an already installed APK. Device verification of the updated build is still pending.
+connection for group data. See the launch handoff for dated build acceptance; an installed
+APK retains its own capabilities until updated. Final Play acceptance remains pending.
 - Android automatic backup is disabled for this app's local financial cache. If any build has
   pending actions, avoid uninstalling the app or clearing its storage before they sync. Uninstall,
   storage clearing, or an unrecoverable encryption-key loss can remove those unsynced actions. If
@@ -819,7 +825,7 @@ workbook affects the local file only and never writes to the app.
 ## 11. Tips & Troubleshooting
 
 - **Icons missing or "font is empty"?** Close Expo Go fully and reopen → re-scan the QR. Asset caches can corrupt; this re-downloads them.
-- **Reset emails unavailable?** Authentication email delivery remains disabled until the required EmailJS authorization protection passes verification. Recovery links are never printed in logs. Once delivery is enabled, check spam and request a fresh link; links expire after 15 minutes and require an explicit confirmation or password submission.
+- **Reset emails unavailable?** Delivery depends on the connected service's email setting and provider availability. The owner authorized interim production EmailJS delivery on 4 November; its email flag was enabled at the 20 November observation. Check spam and request a fresh link if needed; links expire after 15 minutes and require explicit confirmation or password submission. Recovery links are never printed in logs. Operators retain the unresolved provider limitation and delivery history in [the email handoff](docs/EMAIL_SETUP.md).
 - **Forgot password?** Sign-in screen → *Forgot password?* → email link → choose a new password. If the link is hidden, outbound email is currently disabled; use Google sign-in or contact the administrator.
 - **Want to edit a past family split?** Edit the family → choose **Re-split with new members** when prompted. To preserve the old splits, choose **Keep original**.
 - **Currency conversion unavailable?** The backend rollout flag may still be off, the historical rate

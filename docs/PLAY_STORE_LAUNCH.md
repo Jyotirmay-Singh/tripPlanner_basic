@@ -1,6 +1,94 @@
 # Splitora Google Play launch handoff
 
-Updated 14 November 2026. This is the shared source, readiness and owner-action register.
+Updated 20 November 2026. This is the shared source, readiness and owner-action register.
+
+## Current milestone — documentation only
+
+The owner requested launch documents and the minimum path to Play publication, with no new
+QA setup or app tests. This milestone updates documentation only: no application/UI changes,
+new QA infrastructure or accounts, builds, provider configuration, deployments or Console
+actions. Earlier hosted-QA options are not scheduled work. The owner reconfirmed that no Play
+developer account exists and retained the India, free, ad-free, ages-13+ launch brief.
+
+The [submission pack](PLAY_STORE_SUBMISSION_PACK.md) contains listing/release-note drafts,
+the app-content/Data safety worksheet, private reviewer-access instructions and an ordered
+owner-action register. The [Console guide](PLAY_INTERNAL_TESTING.md) gives the publication
+sequence. Documentation readiness does not mark the pending operating, provider, artifact
+or Console gates complete.
+
+### Revalidated evidence — 20 November 2026
+
+These read-only observations were made during planning, before documentation edits. Existing
+test results below retain their original dates and artifacts; no app journeys were rerun.
+
+| Evidence | Observed result / limit |
+| --- | --- |
+| Checkout / remote | Clean `codex/splitora-launch-preview` at `4ec0a021bff511ed154618125ff04e42dc356d1e`, matching the live remote branch; local/remote main at `ab97b5a5430650674700d55e5c95f205b93849d8` |
+| Approved source | APK source `a350d52555f3064aa5366e7aabc49de88b001a5c` descends from that main baseline. The reviewed group-deletion restriction, case-insensitive confirmation and gallery-only correction remain included |
+| Excluded work | `7bbee46c6a37f800507b68ce4d10a8798c058270` is not an ancestor; the ancestry check returned 1. The saved UI branch was absent locally and from the queried remote heads |
+| EAS access / history | Owner `jyotirmay03` available using pinned EAS CLI 21.4.0; build 27 `FINISHED` from `a350d52`; recent history showed no active build. QA package remote counter was 27; the production-package counter and future Console codes still need a fresh release-time check |
+| QA download | `/download/android-qa` returned 307 to the build-27 GitHub asset with `Cache-Control: no-store`. An anonymous complete download in 32 validated byte ranges returned 132,316,964 bytes and SHA-256 `30d14421120480ce49077e2d95961bdc4820ce0e49aa105a881801b245394632`, matching the retained APK |
+| Production API | HTTP 200, revision `ef2b25047745`, chat protocol 1; OpenAPI had 80 paths and no Community safety paths. Render live deployment `dep-dboankijnfac73ebq7a0`, source `ef2b250477453b4503c6c04649ea996cbe1fb98d` |
+| Production capabilities | Email, invitations and multi-currency enabled; expense/payment create protocols 1/1; expense-settlement activation disabled. Push delivery and Google provider acceptance were not established by these public responses |
+| Production web | Homepage HTTP 200; Vercel deployment `dpl_EAboF8JRN9a1oTgY9Y4sscXycRxa` READY from main `ab97b5a5430650674700d55e5c95f205b93849d8`. The CLI could inspect the linked project; the connector returned a scope-access error |
+| Policy URLs | `/privacy`, `/terms` and `/account-deletion` returned the same main-site SPA document. These responses do not verify deployment of the reviewed policy pages |
+| Hosting | Existing Render API is free, one instance in Singapore, main-linked; Atlas credentials/permissions were not inspected or changed. No new hosted QA service/database was created |
+| Connected phone | moto g54 5G, Android 15/API 35, ARM64. Production APK 24 is installed; an older debug-signed QA build 1 exists in secondary Android user 10. Metadata/certificate inspection only; no new installation or runtime acceptance |
+| Owner decisions | No Play account; ages 13+ retained; no new QA work; only one physical phone available; no real UPI transfer authorized |
+
+Keep `a350d52` as the immutable APK-source reference and `4ec0a02` as its existing
+documentation/download reference. Subsequent documentation commits are not new APK builds.
+
+### Minimum remaining publication order
+
+1. Account holder selects the applicable publisher/account type, enrolls (one-time US$25),
+   completes verification and records the actual app-specific production eligibility.
+2. Product owner approves support/moderation coverage, teen/guardian operations and retained
+   shared-record/deletion handling before publishing the ages-13+ service.
+3. Account holder and engineer resolve signing continuity and the production Google/Firebase
+   prerequisites. Keep provider secrets and reviewer credentials in the private handoff.
+4. Prepare the reviewed main integration and coordinated backend/web/native delivery. Have a
+   working policy, terms-review and update path for APK-24 users before mandatory review is
+   enforced. Main is linked to production; merging/pushing readiness code is a release action.
+5. When release execution is authorized, commit/push the reviewed source, complete its required
+   checks and build a fresh production AAB with a version code above all used/reserved codes.
+   Record the actual source, checks, signing, manifest, checksum and 16 KB evidence.
+6. Approve final listing/Android images, complete applicable declarations, provide usable
+   private reviewer access and upload manually through Console.
+7. Complete the account's required track/production-access gates, obtain review approval,
+   publish to India and record 72 hours of operating coverage. A qualifying new personal
+   account currently needs 12 continuously opted-in closed testers for 14 days.
+
+The [ordered owner register](PLAY_STORE_SUBMISSION_PACK.md#4-ordered-owner-action-register)
+defines completion evidence. Mandatory Console testing and unverified release items remain
+future publication prerequisites; this milestone schedules no new app tests.
+
+### Documentation acceptance — 20 November 2026
+
+- Ten public Markdown documents were reviewed/updated, with a separate private reviewer
+  template containing placeholders only. All 33 introduced local links/section anchors resolve.
+- Listing lengths pass the current limits: app name 8/30 characters, short description 77/80,
+  full description 1,077/4,000 and release notes 350/500.
+- Added-text credential-pattern review found no matches. The private template is Git-ignored;
+  both EAS ignore files already exclude nested `.release-tmp` paths. No new EAS archive was built.
+- Application/configuration files, listing image assets and the authoritative EmailJS decision/
+  inbox record are unchanged. The documentation diff passes whitespace review.
+- No app tests, runtime journeys, builds, installations, provider changes, deployments or
+  Console actions were performed by this implementation milestone.
+
+### Local handoff and GitHub contents
+
+The consolidated local folder is
+`D:\projects\tripPlanner\.release-tmp\play-store-handoff-20261120`.
+Open `START_HERE.md` for the required documents, listing assets and private reviewer template.
+`HANDOFF_MANIFEST.json` records the committed documentation revision and copied-file checksums.
+The local collection is ignored by Git and EAS; useful source documentation remains on GitHub.
+
+`.gitignore` also excludes private account notes, Firebase/signing files, generated Android
+binaries, runtime/browser logs and generated report/cache files. Previously tracked generated
+logs are removed from the index while their local copies are preserved. Existing native
+debug-keystore templates and application source remain unchanged. This cleanup does not
+rewrite repository history.
 
 ## Approved release brief
 
@@ -22,7 +110,7 @@ Updated 14 November 2026. This is the shared source, readiness and owner-action 
 
 The saved GPay-style branch `codex/gpay-ui-saved-20261014` at `7bbee46c6a37f800507b68ce4d10a8798c058270` was deleted locally on 13 November 2026. The approved release excludes its code. Review the release diff against the pinned baseline and record the origin of each readiness change. Check that the saved commit is absent from the release ancestry.
 
-The owner confirms that no Google Play developer account exists yet. Account enrollment,
+The owner reconfirmed on 20 November that no Google Play developer account exists yet. Account enrollment,
 Console app creation and every account-dependent action are deferred until the owner
 provides the intended account later. No existing Play app URL or Console app has been
 identified; `com.tripsplitter.app` is the configured package, not evidence of a Play listing.
@@ -70,7 +158,8 @@ permissions are absent from the binary manifest and AAPT's inferred-permission r
 
 ### Backend and installation
 
-The selected backend is the updated local QA API at `http://127.0.0.1:8000`, backed by
+This is the retained 14 November local-QA handoff, not a request to resume QA now.
+Build 27 uses the local QA API at `http://127.0.0.1:8000`, backed by
 loopback replica set `splitoraLaunchQA` on port 27029 and fresh database
 `splitora_launch_preview_20261114`. Email and push delivery are disabled in this QA process.
 The production EmailJS authorization decision remains recorded below and in the email guide.
@@ -98,8 +187,9 @@ Remove the mapping before an offline test, then restore it for recovery.
 ```
 
 Local QA service launchers, credentials and evidence are retained privately under
-`.release-tmp/splitora-launch-preview-20261114/`. MongoDB and the API are left running for
-this handoff. After a workstation restart, start the retained MongoDB and API processes
+`.release-tmp/splitora-launch-preview-20261114/`. MongoDB and the API were recorded as left
+running on 14 November; their current process state was not revalidated on 20 November.
+If local QA is separately resumed after a restart, start the retained MongoDB and API processes
 once. The Mongo replica set and private signing secret persist in the retained files.
 
 ```powershell
@@ -143,7 +233,12 @@ Evidence is under `.release-tmp/splitora-launch-preview-20261114/`.
 | Offline restart | With ADB forwarding removed and Wi-Fi/mobile data disabled, force-stop/cold launch restored Alex's cached dashboard and group |
 | Offline recovery | INR 40 same-currency expense stayed local while disconnected, synchronized once after reconnecting and remained a single server row after another restart. Temporary expense removed, starting balance and connectivity restored |
 
-### Human-testing checklist and known issues
+### Retained human-testing checklist and known issues
+
+The checklist is historical/future reference; it is not scheduled by the documentation milestone.
+The connected phone's older QA package uses a different debug certificate from build 27.
+Do not uninstall it, clear storage or replace its signing identity to force an update;
+preserve any unresolved offline work and private recovery notes.
 
 - Install **Splitora QA**, connect USB forwarding and sign in with Alex or Sam. Use Taylor
   to repeat the adult review and policy links.
@@ -218,7 +313,7 @@ outside its ancestry, and the deleted branch remains absent.
 | APK verification | Historical Android 15 emulator install/update/launch and invitation checks, target API 36 and 16 KB ZIP alignment recorded in the build-24 report |
 | Build 25 | Cancelled, source `f821a4f91c2c56c8dcc280e70575c1892696f73a` |
 | Historical AAB | Build 20, source `dd7590c98e5ccf3c9c625d39b726b882049cb14d`, EAS build `1e2db35f-94a3-486b-9014-92e22d4ae912` |
-| Checkout at inspection | `main` and locally recorded `origin/main` at `ed26aee`, 15 commits after build-24 source |
+| Historical checkout, earlier inspection | `main` and locally recorded `origin/main` at `ed26aee`, 15 commits after build-24 source; superseded by the dated 20 November checkout table above |
 | Public backend observation, 12 November | Health HTTP 200, revision `ef2b25047745`, chat protocol 1 |
 | Public feature observation, 12 November | Email, invitations and multi-currency enabled, expense/payment create protocols 1, expense-settlement activation disabled |
 
@@ -302,40 +397,11 @@ Each acceptance result must cite its command or user journey, source revision/pa
 
 ## Draft store listing and declarations
 
-### Listing copy
-
-**App name** Splitora
-
-**Short description** Split group expenses, track balances and settle up with friends and families.
-
-**Full description**
-
-Splitora helps friends and families organize shared expenses in private groups.
-
-Create a group, invite people and track who paid. Split each expense per person, per family or by exact amounts. Record refunds, review balances and keep a clear payment history.
-
-Choose your group's currency and record foreign-currency expenses with reviewed conversion details. Attach receipt photos and export PDF and Excel reports for the group.
-
-Use group chat to coordinate. In-app reporting, blocking and guardian controls support community safety. Teen accounts require parent or guardian consent and verification review.
-
-On Android, previously saved groups and same-currency expense/manual-payment entries support offline use and server-confirmed synchronization. UPI handoff opens your selected payment application, with payment reporting and recipient confirmation inside Splitora.
-
-Splitora uses Gmail accounts. The initial launch is free and ad-free for people aged 13 and over in India. Support and privacy requests can be sent to teamsplitora@gmail.com.
-
-### Data safety working inventory
-
-| Data | Purpose and sharing context |
-| --- | --- |
-| Name, Gmail, user ID, password hash, verification/session information | Authentication, account security, provider-assisted sign-in/email |
-| Optional mobile number and UPI address | Authorized group contact and payment handoff, guardian-controlled sharing |
-| Group/member/family names and membership | Shared group operation and access control |
-| Expenses, currencies, allocations, balances, payment attempts and confirmations | Expense management, financial reconciliation and group reporting |
-| Receipt photos and text chat | User-shared group content, moderation and support |
-| Push identifiers and notification settings | Optional notification delivery through Expo/Firebase |
-| Age group, terms version, guardian consent, blocks and safety cases | Eligibility, child/social safeguards, complaint handling and abuse prevention |
-| Operational activity/audits and necessary diagnostics | Security, troubleshooting and reconciliation |
-
-Review provider processing and user-initiated sharing against Google's exact collected/shared definitions. Verify the final native SDK inventory and manifest before submitting answers. The financial declaration must assess expense management and external UPI handoff against Other and Payments/transfers. The account holder resolves financial-service/account-type applicability using the actual flow and any necessary Play support guidance.
+The [submission pack](PLAY_STORE_SUBMISSION_PACK.md) is the single editable draft for listing
+copy, initial release notes, app-content answers, the Data safety inventory, financial-feature
+assessment and reviewer navigation. Owner-dependent answers remain marked pending. Reviewer
+credentials belong only in the ignored private template and the authorized Console App access
+fields. No Console form has been submitted.
 
 ### Asset acceptance
 
@@ -370,7 +436,9 @@ Future releases use higher version codes. Percentage-based staged rollout is ava
 ## Official requirements checked
 
 The requirements below were revalidated against official Google Play and Expo documentation
-during 12–14 November 2026. Recheck account notices and policy changes at submission.
+during 12–14 November 2026. Enrollment, personal-account testing, financial features, target API
+and signing references were re-read during planning on 20 November; see the submission pack.
+Recheck account notices and policy changes at submission.
 
 - New personal accounts created after 13 November 2023 require 12 continuously opted-in closed testers for 14 days before applying for production access. Internal testing supports up to 100 testers. [Testing eligibility](https://support.google.com/googleplay/android-developer/answer/14151465?hl=en)
 - Internal-only distribution has a Data safety exemption. Availability can take time and the guide must avoid a review-delay guarantee. [Testing tracks](https://support.google.com/googleplay/android-developer/answer/9845334?hl=en) · [Data safety](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en)
@@ -507,7 +575,7 @@ For a reproducible isolated run, start a **disposable loopback replica set**, se
 `SPLITORA_TEST_MONGO_URL` in the test process, then run from the repository root:
 
 ```powershell
-rtk proxy backend/.venv/Scripts/python.exe backend/scripts/run_isolated_tests.py tests -q --tb=line
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy backend/.venv/Scripts/python.exe backend/scripts/run_isolated_tests.py tests -q --tb=line
 ```
 
 The runner rejects a non-loopback Mongo URL, replaces inherited application/API connections
@@ -518,31 +586,32 @@ Mongo opt-in, those integration cases skip; that is not a complete launch-readin
 From `frontend/`, repeat only checks affected by subsequent changes:
 
 ```powershell
-rtk proxy node node_modules/typescript/bin/tsc --noEmit
-rtk proxy node node_modules/eslint/bin/eslint.js .
-rtk proxy node node_modules/jest/bin/jest.js --runInBand
-rtk proxy npx expo install --check
-rtk proxy npx expo-doctor
-rtk proxy node node_modules/expo/bin/cli export --platform web
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy node node_modules/typescript/bin/tsc --noEmit
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy node node_modules/eslint/bin/eslint.js .
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy node node_modules/jest/bin/jest.js --runInBand
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy npx expo install --check
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy npx expo-doctor
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy node node_modules/expo/bin/cli export --platform web
 ```
 
 ## Remaining owner decisions and release gates
 
-1. **P0, product owner:** name primary/backup support and moderation operators; approve the
-   operating procedure, shared-record retention/redaction purposes and recovery/deletion handling.
-2. **P0, product owner + qualified India reviewer:** record applicable rule commencement,
-   approve the adult/guardian verification method and evidence handling, and rehearse consent,
-   withdrawal and age correction. Teen launch remains blocked until accepted.
-3. **P0, release engineer + owner:** readiness source is reviewed, committed and pushed, with
-   a verified QA APK and download route delivered. Coordinate production backend, web and
-   native delivery, rehearse the APK-24 upgrade/review route, and publish the public policy
-   and outside-app deletion URLs on the launch domain.
-4. **P1, engineer + testers:** complete the remaining device matrix above with the rebuilt
-   gallery-only APK and final Android listing captures. Record the new artifact and device
-   evidence alongside the earlier QA results and web listing drafts.
-5. **Deferred, account holder:** provide the intended Play account later. Then follow ACCOUNT
-   through OBSERVE above, including final publisher/financial declarations, signing, final AAB,
-   Play-installed testing, production access and India publication.
+1. **Account holder:** provide the intended Play account after choosing the applicable publisher
+   type and completing enrollment/verification. No account, app URL or production-access state
+   has been supplied. Console actions remain deferred.
+2. **Product owner:** name primary/backup support and moderation coverage and approve the
+   operating procedure, retained shared-record purposes and recovery/deletion handling.
+3. **Product owner + qualified India reviewer:** approve applicable rule commencement,
+   adult/guardian verification, consent/withdrawal/age correction and restricted evidence handling.
+   Ages 13+ remain the approved audience; teen operating approval remains pending.
+4. **Release engineer + owner:** coordinate the reviewed main integration, public policy/review
+   routes and existing APK-24 update path; resolve signing and providers; prepare a fresh
+   traceable production AAB when authorized. Do not equate the delivered QA APK with this bundle.
+5. **Product owner + account holder:** approve final Android listing images/declarations and
+   hosted reviewer access, then complete the actual Console eligibility, review and publication
+   steps. The remaining device/provider evidence stays open; no new QA work is scheduled here.
 
-Phase 1 is complete only after its independent acceptance and operating gates pass. Launch
-is complete only after the deferred Console gates, publication and 72-hour observation pass.
+The documentation milestone is complete when the guides and submission pack agree, private
+access stays private and every remaining action has an owner role and completion criterion.
+Application readiness and launch remain separate, pending milestones. Launch requires the
+applicable Console gates, approved India publication and 72-hour operating observation.

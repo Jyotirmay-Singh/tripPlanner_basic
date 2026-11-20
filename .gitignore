@@ -94,4 +94,38 @@ memory/test_credentials.md
 # Mobile development
 android-sdk/archive.zip
 archive.zip
+# Local release evidence and the consolidated Play Store handoff (documents,
+# listing-asset copies, private reviewer access and recovery notes).
 .release-tmp/
+
+# Private account handoffs must stay local even if copied outside .release-tmp.
+QA_ACCOUNTS.md
+REVIEWER_ACCESS_PRIVATE.md
+
+# Local Firebase configuration and signing material. Existing checked-in Android
+# debug-keystore templates are retained for native-project compatibility; this
+# rule prevents adding new signing files and does not rotate/remove existing keys.
+google-services.json
+GoogleService-Info.plist
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Generated Android binaries belong in release assets, not source control.
+*.apk
+*.aab
+*.apks
+*.idsig
+
+# Generated runtime/browser/build logs and local test caches/reports.
+*.log
+.pytest_cache/
+/test_reports/**/*.json
+/test_reports/**/*.xml
+/test_reports/**/*.html
+/test_reports/**/*.png
+/test_reports/**/*.webm
+/test_reports/**/*.mp4
