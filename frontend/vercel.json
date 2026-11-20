@@ -42,5 +42,11 @@
       "permanent": false
     }
   ],
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/privacy", "destination": "/privacy.html" },
+    { "source": "/terms", "destination": "/terms.html" },
+    { "source": "/account-deletion", "destination": "/account-deletion.html" },
+    { "source": "/community-settings", "destination": "/community-settings.html" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }
