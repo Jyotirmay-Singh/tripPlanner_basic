@@ -60,6 +60,7 @@ export type ChatConnectionState = {
 export type ChatCapability = 'loading' | 'supported' | 'unsupported' | 'unknown';
 
 export type ChatPage = {
+  blocked_user_ids?: string[];
   items: ChatMessage[];
   has_more_before: boolean;
   has_more_after: boolean;
@@ -69,7 +70,7 @@ export type ChatPage = {
 export type ChatUnread = { count: number; latest_sequence: number };
 
 export type ChatEvent =
-  | { type: 'ready' | 'pong' }
+  | { type: 'ready' | 'pong' | 'safety.changed' }
   | { type: 'message.created' | 'message.updated'; data: ChatMessage }
   | { type: 'chat.cleared'; data: { through_sequence: number } };
 

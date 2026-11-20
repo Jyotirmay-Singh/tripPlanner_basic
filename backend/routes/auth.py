@@ -61,12 +61,25 @@ def _self_profile_payload(user: dict) -> dict:
     payload.pop("auth_token_versions", None)
     payload.pop("session_version", None)
     payload.pop("email_security_migration", None)
+    payload.pop("guardian_consent", None)
+    payload.pop("age_correction", None)
     payload["is_super_admin"] = is_super_admin(user)
     payload["upi_id"] = user.get("upi_id")
     payload["upi_updated_at"] = user.get("upi_updated_at")
     payload["mobile_number"] = user.get("mobile_number")
     payload["mobile_country_code"] = user.get("mobile_country_code")
     payload["mobile_verified_at"] = user.get("mobile_verified_at")
+    return payload
+
+
+async def _community_profile_payload(user: dict, *, expanded: bool = False) -> dict:
+    """Every identity replacement must carry its server-confirmed offline eligibility."""
+    from services.community_safety import community_permissions
+    state = await community_permissions(db, user)
+    payload = _self_profile_payload(user) if expanded else _user_payload(user)
+    payload["community_age_band"] = state["age_band"]
+    payload["community_terms_version"] = user.get("community_terms_version")
+    payload["community_permissions"] = state["permissions"]
     return payload
 
 
@@ -115,7 +128,7 @@ async def register(body: RegisterIn):
             logger.warning("email.registration_delivery_unavailable")
             delivery = "unavailable"
     token = create_token(uid, email)
-    return {"access_token": token, "user": _user_payload(doc), "verification_delivery": delivery}
+    return {"access_token": token, "user": await _community_profile_payload(doc), "verification_delivery": delivery}
 
 
 @router.post("/auth/login")
@@ -127,20 +140,23 @@ async def login(body: LoginIn):
     if not password_hash or not verify_secret(body.password, password_hash):
         raise HTTPException(401, "Invalid email or password")
     token = create_token(user["id"], email, user.get("session_version", 0))
-    return {"access_token": token, "user": _user_payload(user)}
+    return {"access_token": token, "user": await _community_profile_payload(user)}
 
 
 @router.get("/auth/me")
 async def me(user=Depends(get_current_user)):
-    return _self_profile_payload(user)
+    return await _community_profile_payload(user, expanded=True)
 
 
 @router.patch("/auth/me")
 async def update_me(body: UpiProfileUpdate, user=Depends(get_current_user)):
     """Replace or remove only the authenticated account's UPI payment address."""
     current_upi_id = user.get("upi_id")
+    if body.upi_id is not None:
+        from services.community_safety import require_community_access
+        await require_community_access(db, user, "contacts")
     if body.upi_id == current_upi_id:
-        return _self_profile_payload(user)
+        return await _community_profile_payload(user, expanded=True)
 
     if body.upi_id is None:
         update = {"$unset": {"upi_id": "", "upi_updated_at": ""}, "$inc": {"recipient_account_revision": 1}}
@@ -175,16 +191,19 @@ async def update_me(body: UpiProfileUpdate, user=Depends(get_current_user)):
         # The dependency authenticated a real user, but the row may have been
         # removed concurrently before the write/re-fetch completed.
         raise HTTPException(401, "User not found")
-    return _self_profile_payload(updated)
+    return await _community_profile_payload(updated, expanded=True)
 
 
 @router.patch("/auth/me/mobile")
 async def update_mobile(body: MobileProfileUpdate, user=Depends(get_current_user)):
     """Replace or remove the authenticated account's international mobile number."""
+    if body.mobile_number is not None:
+        from services.community_safety import require_community_access
+        await require_community_access(db, user, "contacts")
     updated = await update_account_mobile(
         user, body.mobile_number, body.mobile_country_code,
     )
-    return _self_profile_payload(updated)
+    return await _community_profile_payload(updated, expanded=True)
 
 
 @router.post("/auth/google")
@@ -245,7 +264,7 @@ async def google_auth(body: GoogleAuthIn):
         user.update(proof)
 
     token = create_token(user["id"], email, user.get("session_version", 0))
-    return {"access_token": token, "user": _user_payload(user)}
+    return {"access_token": token, "user": await _community_profile_payload(user)}
 
 
 # ---------- Email verification (Phase 9) ----------
@@ -354,7 +373,7 @@ async def set_credentials(body: SetCredentialsIn, user=Depends(get_current_user)
     updated = await db.users.find_one(
         {"id": user["id"]}, {"_id": 0, "password_hash": 0, "pin_hash": 0}
     )
-    return {"ok": True, "user": _user_payload(updated)}
+    return {"ok": True, "user": await _community_profile_payload(updated)}
 
 
 # ---------- Self-service password change (signed-in) ----------

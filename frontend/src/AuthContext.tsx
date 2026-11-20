@@ -13,6 +13,7 @@ import { purgeAccountChatOutbox } from './chatOutboxCleanup';
 import { sanitizedIdentity, type CachedIdentityRecord } from './offlineStore.shared';
 import { offlineAccessAllowed, sessionClaims } from './sessionClaims';
 import type { CountryCode } from 'libphonenumber-js';
+import type { CommunityAgeBand, CommunityPermissions } from './communitySafety';
 
 export type MultiCurrencyCapability = 'loading' | 'enabled' | 'disabled' | 'unknown';
 
@@ -32,6 +33,9 @@ export type User = {
   mobile_number?: string | null;
   mobile_country_code?: CountryCode | null;
   mobile_verified_at?: string | null;
+  community_age_band?: CommunityAgeBand;
+  community_terms_version?: string;
+  community_permissions?: CommunityPermissions;
 };
 
 const SAVED_EMAIL_KEY = 'last_login_email';

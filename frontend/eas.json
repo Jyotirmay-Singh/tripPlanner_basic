@@ -33,6 +33,7 @@
       "environment": "preview",
       "android": { "buildType": "apk" },
       "env": {
+        "EXPO_PUBLIC_ANDROID_OFFLINE_WRITES": "true",
         "EXPO_PUBLIC_BACKEND_URL": "http://127.0.0.1:8000",
         "EXPO_PUBLIC_OFFLINE_QA": "true",
         "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "307368957277-58jdf9opq70e195gm5n1pcf4ucfd7rlt.apps.googleusercontent.com",

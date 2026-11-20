@@ -1,0 +1,639 @@
+# Splitora Google Play launch handoff
+
+Updated 20 November 2026. This is the shared source, readiness and owner-action register.
+
+## Current direct-APK release — build 28
+
+The owner subsequently authorized a standalone APK rebuild and selected the current
+main-based application flow. **Splitora 1.0.0 build 28**, package `com.tripsplitter.app`,
+is published at [the stable Android link](https://tripsplitter-web.vercel.app/download/android).
+See the [build-28 release report](releases/android-2026-11-20.md) and [updated shareable message](releases/ANDROID_APK_SHARE_MESSAGE.md)
+for exact source, build, signing, checksums, public verification and recovery steps.
+
+Source `e049db14bf07d2584ed91b3c5df074412b4ba3a2` uses reviewed main `ab97b5a`
+with the approved gallery-only fixes and case-insensitive deletion confirmation. The existing
+HTTPS backend remains at `ef2b25047745`; main's reviewed backend group-deletion restriction
+is preserved in source and was not deployed by this APK task. The newer Community safety
+provider and mandatory age/terms review are not included in build 28. The launch-preview
+source, local QA build 27 and all future Play/teen operating gates remain preserved.
+
+The APK and anonymous public download passed binary/configuration/checksum checks.
+Application/device journeys were not rerun and the connected phone was not modified.
+Google sign-in, notifications, external UPI and remaining device/version acceptance stay open.
+No production website rebuild, backend rollout or Play action occurred; the EmailJS interim
+authorization remains unchanged. These later release actions supersede the earlier
+documentation-only scope below, whose dated evidence remains historical.
+
+## Completed documentation milestone — 20 November 2026
+
+The owner requested launch documents and the minimum path to Play publication, with no new
+QA setup or app tests. This milestone updates documentation only: no application/UI changes,
+new QA infrastructure or accounts, builds, provider configuration, deployments or Console
+actions. Earlier hosted-QA options are not scheduled work. The owner reconfirmed that no Play
+developer account exists and retained the India, free, ad-free, ages-13+ launch brief.
+
+The [submission pack](PLAY_STORE_SUBMISSION_PACK.md) contains listing/release-note drafts,
+the app-content/Data safety worksheet, private reviewer-access instructions and an ordered
+owner-action register. The [Console guide](PLAY_INTERNAL_TESTING.md) gives the publication
+sequence. Documentation readiness does not mark the pending operating, provider, artifact
+or Console gates complete.
+
+### Revalidated evidence — 20 November 2026
+
+These read-only observations were made during planning, before documentation edits. Existing
+test results below retain their original dates and artifacts; no app journeys were rerun.
+
+| Evidence | Observed result / limit |
+| --- | --- |
+| Checkout / remote | Clean `codex/splitora-launch-preview` at `4ec0a021bff511ed154618125ff04e42dc356d1e`, matching the live remote branch; local/remote main at `ab97b5a5430650674700d55e5c95f205b93849d8` |
+| Approved source | APK source `a350d52555f3064aa5366e7aabc49de88b001a5c` descends from that main baseline. The reviewed group-deletion restriction, case-insensitive confirmation and gallery-only correction remain included |
+| Excluded work | `7bbee46c6a37f800507b68ce4d10a8798c058270` is not an ancestor; the ancestry check returned 1. The saved UI branch was absent locally and from the queried remote heads |
+| EAS access / history | Owner `jyotirmay03` available using pinned EAS CLI 21.4.0; build 27 `FINISHED` from `a350d52`; recent history showed no active build. QA package remote counter was 27; the production-package counter and future Console codes still need a fresh release-time check |
+| QA download | `/download/android-qa` returned 307 to the build-27 GitHub asset with `Cache-Control: no-store`. An anonymous complete download in 32 validated byte ranges returned 132,316,964 bytes and SHA-256 `30d14421120480ce49077e2d95961bdc4820ce0e49aa105a881801b245394632`, matching the retained APK |
+| Production API | HTTP 200, revision `ef2b25047745`, chat protocol 1; OpenAPI had 80 paths and no Community safety paths. Render live deployment `dep-dboankijnfac73ebq7a0`, source `ef2b250477453b4503c6c04649ea996cbe1fb98d` |
+| Production capabilities | Email, invitations and multi-currency enabled; expense/payment create protocols 1/1; expense-settlement activation disabled. Push delivery and Google provider acceptance were not established by these public responses |
+| Production web | Homepage HTTP 200; Vercel deployment `dpl_EAboF8JRN9a1oTgY9Y4sscXycRxa` READY from main `ab97b5a5430650674700d55e5c95f205b93849d8`. The CLI could inspect the linked project; the connector returned a scope-access error |
+| Policy URLs | `/privacy`, `/terms` and `/account-deletion` returned the same main-site SPA document. These responses do not verify deployment of the reviewed policy pages |
+| Hosting | Existing Render API is free, one instance in Singapore, main-linked; Atlas credentials/permissions were not inspected or changed. No new hosted QA service/database was created |
+| Connected phone | moto g54 5G, Android 15/API 35, ARM64. Production APK 24 is installed; an older debug-signed QA build 1 exists in secondary Android user 10. Metadata/certificate inspection only; no new installation or runtime acceptance |
+| Owner decisions | No Play account; ages 13+ retained; no new QA work; only one physical phone available; no real UPI transfer authorized |
+
+Keep `a350d52` as the immutable APK-source reference and `4ec0a02` as its existing
+documentation/download reference. Subsequent documentation commits are not new APK builds.
+
+### Minimum remaining publication order
+
+1. Account holder selects the applicable publisher/account type, enrolls (one-time US$25),
+   completes verification and records the actual app-specific production eligibility.
+2. Product owner approves support/moderation coverage, teen/guardian operations and retained
+   shared-record/deletion handling before publishing the ages-13+ service.
+3. Account holder and engineer resolve signing continuity and the production Google/Firebase
+   prerequisites. Keep provider secrets and reviewer credentials in the private handoff.
+4. Prepare the reviewed main integration and coordinated backend/web/native delivery. Have a
+   working policy, terms-review and update path for APK-24 users before mandatory review is
+   enforced. Main is linked to production; merging/pushing readiness code is a release action.
+5. When release execution is authorized, commit/push the reviewed source, complete its required
+   checks and build a fresh production AAB with a version code above all used/reserved codes.
+   Record the actual source, checks, signing, manifest, checksum and 16 KB evidence.
+6. Approve final listing/Android images, complete applicable declarations, provide usable
+   private reviewer access and upload manually through Console.
+7. Complete the account's required track/production-access gates, obtain review approval,
+   publish to India and record 72 hours of operating coverage. A qualifying new personal
+   account currently needs 12 continuously opted-in closed testers for 14 days.
+
+The [ordered owner register](PLAY_STORE_SUBMISSION_PACK.md#4-ordered-owner-action-register)
+defines completion evidence. Mandatory Console testing and unverified release items remain
+future publication prerequisites; this milestone schedules no new app tests.
+
+### Documentation acceptance — 20 November 2026
+
+- Ten public Markdown documents were reviewed/updated, with a separate private reviewer
+  template containing placeholders only. All 33 introduced local links/section anchors resolve.
+- Listing lengths pass the current limits: app name 8/30 characters, short description 77/80,
+  full description 1,077/4,000 and release notes 350/500.
+- Added-text credential-pattern review found no matches. The private template is Git-ignored;
+  both EAS ignore files already exclude nested `.release-tmp` paths. No new EAS archive was built.
+- Application/configuration files, listing image assets and the authoritative EmailJS decision/
+  inbox record are unchanged. The documentation diff passes whitespace review.
+- No app tests, runtime journeys, builds, installations, provider changes, deployments or
+  Console actions were performed by this implementation milestone.
+
+### Local handoff and GitHub contents
+
+The consolidated local folder is
+`D:\projects\tripPlanner\.release-tmp\play-store-handoff-20261120`.
+Open `START_HERE.md` for the required documents, listing assets and private reviewer template.
+`HANDOFF_MANIFEST.json` records the committed documentation revision and copied-file checksums.
+The local collection is ignored by Git and EAS; useful source documentation remains on GitHub.
+
+`.gitignore` also excludes private account notes, Firebase/signing files, generated Android
+binaries, runtime/browser logs and generated report/cache files. Previously tracked generated
+logs are removed from the index while their local copies are preserved. Existing native
+debug-keystore templates and application source remain unchanged. This cleanup does not
+rewrite repository history.
+
+## Approved release brief
+
+| Item | Approved value |
+| --- | --- |
+| Product | Splitora |
+| Initial distribution | India |
+| Pricing and advertising | Free, ad-free |
+| Intended audience | Ages 13–15, 16–17 and 18+ |
+| Community | Group chat retained, with terms, reporting, blocking and moderation |
+| Public support/privacy contact | teamsplitora@gmail.com |
+| Source baseline | `main` at `ab97b5a5430650674700d55e5c95f205b93849d8`, including the reviewed group-deletion restriction |
+| Approved existing local work | Case-insensitive group-deletion confirmation and its regression test |
+| Android identity | `com.tripsplitter.app`, version `1.0.0`, Expo SDK 54 |
+| EAS project | Owner `jyotirmay03`, project `0a3b5a1c-5cbd-4eac-bff7-5b53ee4b6948` |
+| Build entry point | `frontend/`, dynamic `app.config.js` over `app.base.json`, production EAS profile |
+| Submission default | Manual Play Console AAB upload |
+| Schedule | Readiness milestones, followed by account-dependent eligibility and review |
+
+The saved GPay-style branch `codex/gpay-ui-saved-20261014` at `7bbee46c6a37f800507b68ce4d10a8798c058270` was deleted locally on 13 November 2026. The approved release excludes its code. Review the release diff against the pinned baseline and record the origin of each readiness change. Check that the saved commit is absent from the release ancestry.
+
+The owner reconfirmed on 20 November that no Google Play developer account exists yet. Account enrollment,
+Console app creation and every account-dependent action are deferred until the owner
+provides the intended account later. No existing Play app URL or Console app has been
+identified; `com.tripsplitter.app` is the configured package, not evidence of a Play listing.
+Account type, creation date, identity/contact/device verification and production eligibility
+are not yet established. No deadline is assumed.
+
+The testing release uses `codex/splitora-launch-preview`, created from the refreshed
+`main` baseline above, with the approved case-insensitive confirmation, launch-readiness
+patch and gallery-only correction. The earlier readiness review started at `ed26aee`.
+`git merge-base --is-ancestor 7bbee46c6a37f800507b68ce4d10a8798c058270 HEAD`
+returns 1 on this branch. The deleted saved UI branch remains absent.
+
+## Human-testing APK release
+
+### Build 27 artifact
+
+| Item | Verified value |
+| --- | --- |
+| Stable QA download | [Download Splitora QA](https://tripsplitter-web.vercel.app/download/android-qa) |
+| Durable APK | [GitHub prerelease asset](https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/download/android-qa-v1.0.0-build.27/splitora-qa-android-1.0.0-build-27.apk) |
+| GitHub release | [Android QA 1.0.0 build 27](https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/tag/android-qa-v1.0.0-build.27) |
+| Branch | `codex/splitora-launch-preview` |
+| Immutable APK source | `a350d52555f3064aa5366e7aabc49de88b001a5c` |
+| Earlier readiness commit | `550009da3583d50c00ca0f59b8441947d0c811e7` |
+| EAS build | [`24f5e47a-27b6-486d-b616-eaf9c010e362`](https://expo.dev/accounts/jyotirmay03/projects/frontend/builds/24f5e47a-27b6-486d-b616-eaf9c010e362), `FINISHED` |
+| EAS artifact | [Build-27 APK](https://expo.dev/artifacts/eas/Eyd96y2eMbC7B1pUjwnQDsJW2kGOu-dBItNngP8d9zY.apk) |
+| App / package | **Splitora QA**, `com.tripsplitter.app.qa` |
+| Version / build | `1.0.0` / `27` |
+| Size | 132,316,964 bytes, approximately 126.19 MiB |
+| SHA-256 | `30d14421120480ce49077e2d95961bdc4820ce0e49aa105a881801b245394632` |
+| Android support | Minimum API 24, target API 36, ARM64/ARMv7/x86/x86_64 |
+| QA signing SHA-1 | `BC:25:B3:A6:87:B6:75:11:45:E1:94:1E:63:64:BD:D9:6B:F0:C0:92` |
+| QA signing SHA-256 | `F1:6E:B6:F7:D3:AA:92:CB:ED:75:9D:12:CF:5D:9E:D3:24:25:E6:E9:F2:53:2C:C7:FD:84:77:73:9C:2F:9B:5E` |
+
+The build uses `frontend/eas.json` profile `qaLocal`, internal APK distribution, remote
+auto-increment and the canonical dynamic Expo configuration from `frontend/`. The QA
+counter started at 25. Candidate 26, EAS `4595a6a3-2ab7-4954-bc44-fade8f5d4bb9`, was
+withheld after its API-28-capped storage-write permission implied read access. The
+correction was committed and pushed before the sequential build 27. Both builds finished.
+
+The finished APK's package, version, signer, embedded bundle and loopback backend address
+were inspected. All 54 ARM64/x86_64 native libraries passed ELF and ZIP 16 KB alignment
+checks. Camera, microphone, external-storage read/write and all broad media-read
+permissions are absent from the binary manifest and AAPT's inferred-permission report.
+
+### Backend and installation
+
+This is the retained 14 November local-QA handoff, not a request to resume QA now.
+Build 27 uses the local QA API at `http://127.0.0.1:8000`, backed by
+loopback replica set `splitoraLaunchQA` on port 27029 and fresh database
+`splitora_launch_preview_20261114`. Email and push delivery are disabled in this QA process.
+The production EmailJS authorization decision remains recorded below and in the email guide.
+QA health returned HTTP 200 at backend revision `a350d52555f3`, with chat protocol 1,
+expense/payment create protocols 1 and 17 community-safety endpoints in OpenAPI.
+
+Testers need this workstation running and an authorized USB-debugging connection.
+Download the APK, open it and allow installation from the browser/Files app when Android
+asks. Open **Splitora QA**. Alternatively install with ADB below. RTK is installed outside
+PATH on this workstation, and Android platform tools are at `D:\Android\sdk\platform-tools`.
+Run these commands from the repository root after replacing `DEVICE_SERIAL` and the APK path.
+
+```powershell
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy D:\Android\sdk\platform-tools\adb.exe devices -l
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy D:\Android\sdk\platform-tools\adb.exe -s DEVICE_SERIAL reverse tcp:8000 tcp:8000
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy D:\Android\sdk\platform-tools\adb.exe -s DEVICE_SERIAL install -r PATH_TO_QA_APK
+```
+
+Keep USB connected during online testing. Reapply forwarding after a reboot/reconnection.
+Remove the mapping before an offline test, then restore it for recovery.
+
+```powershell
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy D:\Android\sdk\platform-tools\adb.exe -s DEVICE_SERIAL reverse --remove tcp:8000
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy D:\Android\sdk\platform-tools\adb.exe -s DEVICE_SERIAL reverse tcp:8000 tcp:8000
+```
+
+Local QA service launchers, credentials and evidence are retained privately under
+`.release-tmp/splitora-launch-preview-20261114/`. MongoDB and the API were recorded as left
+running on 14 November; their current process state was not revalidated on 20 November.
+If local QA is separately resumed after a restart, start the retained MongoDB and API processes
+once. The Mongo replica set and private signing secret persist in the retained files.
+
+```powershell
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy powershell -NoProfile -ExecutionPolicy Bypass -File .release-tmp/splitora-launch-preview-20261114/start-services.ps1 mongo
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy powershell -NoProfile -ExecutionPolicy Bypass -File .release-tmp/splitora-launch-preview-20261114/start-services.ps1 api
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy curl.exe --fail http://127.0.0.1:8000/api/health
+```
+
+For an API-only restart while MongoDB is running, use `restart-api.ps1` from the same
+directory. It checks the saved API process identity before stopping that process.
+
+The four synthetic accounts and their passwords are in the private `QA_ACCOUNTS.md`
+in that directory. Alex Mehta and Sam Rao already accepted the adult terms. Both can
+access **Splitora QA weekend**, code `XIUOCA`, containing two sample expenses totaling
+INR 2,520, a receipt, the Rao family and a message for report/block testing. Alex's starting
+net position is INR +1,890. Taylor QA starts at age/terms review and has **Review QA sandbox**.
+Choose **18 or over** for this adult fixture, review the linked policies, accept the terms
+and continue. The isolated operator account opens **Profile → Moderation queue**.
+
+Additional adult testers can register a Gmail/password account against this QA backend,
+complete the same review and create a group or join the sample using its locally recorded
+code. Email delivery is disabled, and these QA accounts use synthetic identities. Keep
+credentials in the private handoff. Use synthetic receipts and expenses during testing.
+
+### Installed build-27 verification
+
+The exact APK above was installed on disposable emulator `emulator-5574`, Android 15/API 35,
+x86_64. `native-verification.json` ties each journey to its source, EAS ID and APK checksum.
+Evidence is under `.release-tmp/splitora-launch-preview-20261114/`.
+
+| Journey | Actual result |
+| --- | --- |
+| Install, QA upgrade and launch | Passed upgrade from candidate 26 with Alex's account retained, followed by standalone cold launch with embedded JavaScript |
+| Password sign-in and review | Fresh Taylor password sign-in, linked policy review and adult terms acceptance passed. Taylor's review fields were reset afterward for human testing |
+| Account isolation and groups | Taylor and Alex saw their own groups. Alex's dashboard displayed INR +1,890 and the expected sample group |
+| Reporting and blocking | Native report created exactly one server report. Blocking hid the sender's message. Profile → Community safety unblocking restored it |
+| Moderation rehearsal | Isolated operator opened the native queue, dismissed the synthetic report with an explanation and cleared the queue. Server recorded the resolved case and dismiss action |
+| Gallery cancellation | Attach receipt opened Android's `PhotoPickerActivity` directly. Cancellation returned to the populated editor |
+| Receipt selection/upload | System gallery selection, crop and Save changes passed. Authorized receipt GET returned HTTP 200 with image bytes from the QA backend |
+| Gallery save | Save to gallery displayed Saved and increased MediaStore's image count by one, without a media permission prompt |
+| Offline restart | With ADB forwarding removed and Wi-Fi/mobile data disabled, force-stop/cold launch restored Alex's cached dashboard and group |
+| Offline recovery | INR 40 same-currency expense stayed local while disconnected, synchronized once after reconnecting and remained a single server row after another restart. Temporary expense removed, starting balance and connectivity restored |
+
+### Retained human-testing checklist and known issues
+
+The checklist is historical/future reference; it is not scheduled by the documentation milestone.
+The connected phone's older QA package uses a different debug certificate from build 27.
+Do not uninstall it, clear storage or replace its signing identity to force an update;
+preserve any unresolved offline work and private recovery notes.
+
+- Install **Splitora QA**, connect USB forwarding and sign in with Alex or Sam. Use Taylor
+  to repeat the adult review and policy links.
+- Open groups, inspect balances and add synthetic expenses. Try report/block/unblock through
+  the synthetic group message and Profile → Community safety.
+- Attach an image and cancel once, then select/crop/upload/view/save a synthetic receipt.
+- Remove forwarding for an offline restart and expense, restore forwarding, then confirm
+  one synchronized expense and cleared pending status.
+- Google sign-in requires a Google-enabled device and an Android OAuth registration for
+  `com.tripsplitter.app.qa` with the QA signing SHA-1 above. The backend accepts the matching
+  Web audience. This emulator has no Google Play Services, so Google sign-in remains unverified.
+- QA Firebase configuration is omitted and QA push/email delivery is disabled. Provider
+  delivery and notification permission/re-enable journeys require their own configured test.
+  The emulator has no external UPI handler, so bank-app handoff/return remains unverified.
+- The chat footer's **Community safety and blocked people** shortcut overlaps the system
+  navigation bar on the small three-button emulator. **Profile → Community safety** works.
+- Android 7–12 uses **Save to folder** through the system folder picker. Android 13+ uses
+  **Save to gallery**. API 24–32 behavior has regression coverage. Physical ARM64 and
+  API 24–32/API 36 native device checks remain open.
+
+The QA download uses a project-level Vercel 307 redirect with `Cache-Control: no-store`.
+Its matching redirect is recorded in `frontend/vercel.json`. The stable path and GitHub
+asset are verified through anonymous full downloads and SHA-256 comparison. The public
+homepage returned HTTP 200 after the routing update. Google Play Console milestones
+remain deferred.
+
+### Testing-release source checks
+
+| Check | Actual result on 14 November 2026 |
+| --- | --- |
+| Frontend Jest | 147 suites and 1,323 tests passed after the storage-permission correction; one suite and 18 tests skipped |
+| Isolated backend | 1,684 passed in the full run, with two skipped and 320 live-API cases deselected. Both skipped cases passed in a separate two-test run using their required disposable replica-set/standalone environments |
+| TypeScript and ESLint | Both passed; lint produced no warnings |
+| Expo dependency check | Passed within SDK 54; existing keyboard-controller exclusion retained |
+| Expo Doctor | 17/17 passed; existing native-directory synchronization check remains disabled |
+| Backend dependencies | `pip check` passed |
+| Production web export | 49 routes exported successfully |
+| Public service observations | Production API health, public web homepage and isolated QA API each returned HTTP 200 |
+| Source and archive review | Complete release diff, eight listing images and new safety/policy code reviewed; secret-pattern scan and archive exclusion checks passed. Corrected permission configuration introspection removes all eight prohibited camera/audio/storage declarations |
+
+The refreshed main-based group-deletion callback needed its matching financial-writer
+inventory entry. That entry was added before the passing full backend run. One intermediate
+run hit the existing slow-UPI client test's timing race; the subsequent complete run passed.
+The first web export encountered Windows access denial while creating a generated route
+directory. Its retry completed successfully. Private logs retain these attempts.
+
+The reviewed QA profile explicitly enables the existing Android offline-write feature.
+Both EAS ignore files now exclude nested `.release-tmp` directories, following discovery
+of a temporary backend test report in the first archive inspection. The final archive
+contains the canonical configuration and safety/receipt code, with no local native Android
+project, environment files, signing material, dependencies, APKs or temporary evidence.
+
+### Patch provenance for review
+
+| Area | Origin and review evidence |
+| --- | --- |
+| Group-deletion confirmation | Approved pre-existing local fix in `frontend/app/trip/[id]/index.tsx` and `trip-detail-header-budget.test.tsx`; case-insensitive spelling with whitespace trimming remains covered |
+| Public policies/deletion links | New readiness work: `frontend/app/privacy.tsx`, `terms.tsx`, `account-deletion.tsx`, `src/LegalPage.tsx`, `LegalLinks.tsx` and public auth routing |
+| Community/guardian safeguards | New readiness work: `backend/models/community.py`, `routes/community.py`, `services/community_safety.py`; matching `frontend/app/community-settings.tsx`, `moderation.tsx`, `src/CommunityProvider.tsx` and reporting controls |
+| Receipt permissions and inspection | New readiness work: canonical `frontend/app.base.json`, receipt forms/viewer and report-specific backend receipt retrieval; the final artifact audit supersedes the initial legacy-write plugin with scoped folder saving |
+| Regression and operations | New readiness fixtures/tests, isolated test runner, feature/user guides, operating procedure, corrected Play guide and synthetic listing assets; no financial arithmetic redesign |
+
+All entries are changes from the pinned main baseline. The reviewed source is committed
+and pushed at `a350d52555f3064aa5366e7aabc49de88b001a5c`. The excluded saved commit is
+outside its ancestry, and the deleted branch remains absent.
+
+## Release and runtime evidence
+
+| Evidence | Recorded state |
+| --- | --- |
+| Earlier production-package APK | Build 24, source `4e964ba37a6911bc2f966b068b48c208bb3e9a88`, EAS build `15988520-f034-48ad-b5cb-43089e529c5d` |
+| APK verification | Historical Android 15 emulator install/update/launch and invitation checks, target API 36 and 16 KB ZIP alignment recorded in the build-24 report |
+| Build 25 | Cancelled, source `f821a4f91c2c56c8dcc280e70575c1892696f73a` |
+| Historical AAB | Build 20, source `dd7590c98e5ccf3c9c625d39b726b882049cb14d`, EAS build `1e2db35f-94a3-486b-9014-92e22d4ae912` |
+| Historical checkout, earlier inspection | `main` and locally recorded `origin/main` at `ed26aee`, 15 commits after build-24 source; superseded by the dated 20 November checkout table above |
+| Public backend observation, 12 November | Health HTTP 200, revision `ef2b25047745`, chat protocol 1 |
+| Public feature observation, 12 November | Email, invitations and multi-currency enabled, expense/payment create protocols 1, expense-settlement activation disabled |
+
+Build 24 and AAB 20 precede this readiness work. Fresh source, build and device evidence must identify their exact revision and artifact. The local QA environment uses disposable data and isolated ports. Its fixture data and credentials belong under ignored `.release-tmp` paths.
+
+The EmailJS authorization limitation remains governed by the owner's interim rollout decision of 4 November. Preserve that decision and the recorded inbox evidence when reviewing launch operations. The provider's 200-message monthly free allowance, plain-text MIME verification and current delivery capacity remain operational checks. [Email record](EMAIL_SETUP.md)
+
+## Implemented interfaces and behaviour
+
+### Public information and deletion
+
+The `/privacy`, `/terms` and `/account-deletion` routes work through the public authentication-route allowlist. Authentication screens and Profile link to the policies and support. The deletion page provides a support-email request pathway usable after uninstalling the app, alongside the existing signed-in impact review.
+
+Account deletion removes credentials, direct account contacts, devices and tokens and invokes local account cleanup. Shared names, financial records, receipts and de-identified chat follow the existing shared-record retention behaviour. The public policy describes these retained categories and a support pathway for personal-data review/redaction. The owner must approve the stated reconciliation, fraud-prevention and dispute-resolution purposes and operating retention process before publication.
+
+### Community and teen controls
+
+The initial community terms version is `2026-11-13`. Existing accounts and new accounts complete an age-group and terms review. Protected account APIs enforce eligibility. Ages 13–17 require guardian consent and adult-verification review before group access. Chat, receipt and contact-sharing grants are independent guardian controls. Under-13 declarations lead to support/deletion access.
+
+`GET /auth/me/safety` returns current permissions, guardian status, the account's blocks and its guardian controls. `POST /auth/me/safety/terms` accepts the displayed version and age band. Age corrections go through support. Android's sanitized cached identity retains the last server-confirmed permission summary for an already verified offline session. Server checks govern synchronization and current online access.
+
+The guardian request uses a private, random code with a seven-day validity period. Only its hash is stored. The intended guardian signs into a verified adult account and explicitly consents. The application administrator completes adult identity/relationship verification through the approved process and records a case reference before enabling access. The guardian can change permissions later. Passwords, identity-document images and verification credentials stay outside the moderation record.
+
+The initial moderation owner is the existing application administrator. `/moderation` exposes content reports and pending guardian reviews through super-admin-protected APIs. Reporting supports messages, receipt images and group users. Client UUIDs make a report retry idempotent. Blocking filters message history, unread counts, WebSocket delivery and chat push delivery. Moderation removes message text, hides a reported receipt revision or suspends community posting. Report resolution records the reason and operator. Resolved cases expire after 90 days. Support receives appeals.
+
+Receipt inspection uses a report-specific endpoint. It returns the reported revision or
+an explicit unavailable result after replacement/deletion, including a fingerprint check
+for legacy inline images. It never substitutes the current receipt. Moderation state and
+pending requests reset on account changes. Restored sessions wait for their own safety
+result before deciding whether to redirect to terms review. A transient transport failure
+retains a same-account verified policy while authentication applies its cached-session
+deadline; explicit server denials clear eligibility.
+
+Password/Google sign-in, registration, profile updates and password setup return the same
+current age, accepted terms and permission summary as `/auth/me`. These identity
+replacements preserve the server-confirmed safety metadata needed for an eligible
+Android session to restart offline. A fresh password sign-in and standalone offline
+cold start verify this path; changing only the live safety response would leave the
+cached identity incomplete.
+
+The [operating procedure](COMMUNITY_OPERATIONS.md) defines guardian review, report handling,
+appeals, deletion requests, retention and deployment rehearsal. It is a concrete draft for
+owner acceptance. The Indian rule commencement and lawful identity/relationship verification
+method still need qualified review; manual case-reference entry does not prove legal compliance.
+
+### Receipt permissions
+
+The owner confirmed on 14 November that receipt attachment is gallery-only. **Attach image**
+opens the system image picker directly in Add/Edit Transaction. Camera acquisition and the
+source-selection sheet have been removed. Android camera, microphone and broad media-read
+permissions are blocked. The image-picker camera/microphone options are disabled and the
+iOS camera usage description is removed. Android external-storage write permission is also
+blocked. Android 7–12 uses **Save to folder** and a user-selected system folder. Android 13+
+saves to the gallery through MediaStore. iOS gallery permission is
+requested when the user chooses to attach an image.
+
+The final APK audit found that candidate 26's API-28-capped write permission implied legacy
+read access, even though read access was absent from the binary manifest declarations.
+The correction removes that write permission and the initial legacy-write config plugin.
+The installed Expo media-library implementation still checks write permission below API 33,
+so those Android versions use the scoped system folder picker. Focused tests cover API 24,
+28, 29 and 32 saving/cancellation, MIME handling, incomplete-file cleanup, current Android
+gallery saving and iOS add-only denial. The rebuilt APK must have no camera, microphone,
+broad media-read or external-storage-write entries in either its manifest or AAPT's inferred
+permission report.
+
+## Phase 1 owner and acceptance register
+
+| ID | Priority | Owner | Dependency | Acceptance | Status |
+| --- | --- | --- | --- | --- | --- |
+| SOURCE | P0 | Engineer | Approved baseline | Saved branch deleted, main-based provenance verified, local fix included | Passed, source `a350d52555f3064aa5366e7aabc49de88b001a5c` pushed on the QA branch |
+| POLICIES | P0 | Engineer + product owner | Data/retention inventory | Public routes accessible signed out and signed in, support deletion pathway usable, retained fields documented | Seven browser journeys and authenticated deletion/cleanup scenarios pass locally; public deployment and inbox rehearsal pending |
+| SAFETY | P0 | Engineer + application administrator | Terms and age declaration | New/existing users, guardian review/revocation, reporting, blocking and moderation pass API/UI checks | Ten database/authenticated safety scenarios pass; UI rehearsal and operator acceptance recorded separately below |
+| INDIA | P0 | Product owner + verification operator | Ages 13+ and Indian child-data rules | Approve adult/guardian verification procedure, consent records, retention and support process | Owner operating-process acceptance pending |
+| MEDIA | P1 | Android engineer | Native generated configuration | Merged manifest excludes camera/microphone/broad reads. Gallery selection, cancellation, save and denial pass | Build 27 manifest/inferred permissions and API-35 gallery selection/cancel/crop/upload/save pass. Older/newer native matrix remains open |
+| REGRESSION | P1 | Engineer | Readiness source | Dependencies, Doctor, TypeScript, lint, frontend tests, isolated backend tests and web export pass | Backend 1,684 pass plus two supplemental cases; frontend 1,323 pass; Doctor 17/17; current testing-release table above |
+| DEVICE | P1 | Engineer + testers | Development/QA build | Install/upgrade, auth/recovery, groups, calculations, FX, UPI handoff/confirmation, reports, notifications, deletion and offline isolation/retry pass | QA build/install, password sign-in, receipts, single-write offline sync, account isolation/deletion and standalone offline restart pass; remaining device matrix below |
+| LISTING | P1 | Product owner + engineer | Tested primary UI | Listing copy, current icon/feature graphic and six representative screenshots reviewed | Copy, two brand assets and six reviewed synthetic web drafts prepared; final Android captures and owner approval pending |
+
+Each acceptance result must cite its command or user journey, source revision/patch, environment, result and evidence path. Keep skipped cases visible. Record production deployment as a separate action with backend-first compatibility checks.
+
+## Draft store listing and declarations
+
+The [submission pack](PLAY_STORE_SUBMISSION_PACK.md) is the single editable draft for listing
+copy, initial release notes, app-content answers, the Data safety inventory, financial-feature
+assessment and reviewer navigation. Owner-dependent answers remain marked pending. Reviewer
+credentials belong only in the ignored private template and the authorized Console App access
+fields. No Console form has been submitted.
+
+### Asset acceptance
+
+The [listing asset pack](play-store-assets/README.md) contains the current S/T Splitora
+512×512 store icon, 1024×500 feature graphic and six 1080×2400 synthetic screenshot drafts
+showing group overview, Exact splitting, settlement review, receipts, chat safety and reports.
+All eight images were visually reviewed. The drafts come from the final production web
+export in a 432×960 Chromium viewport at device scale factor 2.5. API/WebSocket traffic
+was redirected to the disposable local API; other external requests were blocked.
+
+[The asset manifest](play-store-assets/manifest.json) records dimensions, byte sizes,
+checksums and application-source provenance. Recapture/review actual Android rendering
+on the approved final artifact and obtain the owner's listing approval before submission.
+These captures do not establish Play-installed acceptance.
+
+## Phase 2 deferred Play Console work
+
+| ID | Owner | Prerequisite | Completion criterion |
+| --- | --- | --- | --- |
+| ACCOUNT | Account holder | Owner provides account later | Enroll/identify the intended publisher; create or identify its app; record URL/name/package, account type, exact creation date and identity/contact/device verification status |
+| ELIGIBILITY | Account holder | ACCOUNT | App-specific production-access state and applicable closed-test requirement recorded |
+| DECLARATIONS | Account holder + product owner | Phase 1 evidence | Financial classification, audience/IARC, Data safety, support, free pricing, India distribution and reviewer access completed |
+| SIGNING | Account holder + release engineer | Existing app/key evidence | Upload/app-signing certificates reconciled, existing APK upgrade path verified, Play SHA-1 OAuth and SHA-256 App Links registered |
+| BUNDLE | Release engineer | Readiness acceptance + SIGNING | Fresh production AAB, version code above every used/reserved code, source/build/checksum/manifest/signing evidence recorded |
+| PLAY-QA | Test coordinator | Play internal release | Real Play-installed sign-in, invite routing, push, upgrade recovery and core journeys pass |
+| CLOSED | Account holder + tester coordinator | Applicable eligibility rule | At least 12 testers continuously opted in for the preceding 14 days, feedback/engagement evidence and production-access approval |
+| PUBLISH | Account holder | All release gates | Google review approved and India listing/install journey verified |
+| OBSERVE | Support/moderation owner | Publication | 72 hours of vitals, policy, support and moderation triage recorded, recovery owner assigned |
+
+Future releases use higher version codes. Percentage-based staged rollout is available for app updates. The first publication uses the approved country distribution. The qualifying 14-day period starts with the actual closed-test opt-ins, followed by access and release reviews.
+
+## Official requirements checked
+
+The requirements below were revalidated against official Google Play and Expo documentation
+during 12–14 November 2026. Enrollment, personal-account testing, financial features, target API
+and signing references were re-read during planning on 20 November; see the submission pack.
+Recheck account notices and policy changes at submission.
+
+- New personal accounts created after 13 November 2023 require 12 continuously opted-in closed testers for 14 days before applying for production access. Internal testing supports up to 100 testers. [Testing eligibility](https://support.google.com/googleplay/android-developer/answer/14151465?hl=en)
+- Internal-only distribution has a Data safety exemption. Availability can take time and the guide must avoid a review-delay guarantee. [Testing tracks](https://support.google.com/googleplay/android-developer/answer/9845334?hl=en) · [Data safety](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en)
+- Financial declarations cover financial features and organization-account rules apply to specified financial services. [Financial declaration](https://support.google.com/googleplay/android-developer/answer/13849271?hl=en) · [Account types](https://support.google.com/googleplay/android-developer/answer/13634885?hl=en)
+- New phone/tablet apps and updates require API 36 from 31 August 2026, with native 16 KB compatibility verified in the actual artifact. [Target API](https://support.google.com/googleplay/android-developer/answer/11926878?hl=en) · [Native page sizes](https://developer.android.com/guide/practices/page-sizes)
+- Public privacy and outside-app deletion pathways, UGC moderation and local child definitions affect readiness. Indian teen access requires the operator's approved verification/consent procedure. [User data](https://support.google.com/googleplay/android-developer/answer/10144311?hl=en) · [Deletion](https://support.google.com/googleplay/android-developer/answer/13327111?hl=en) · [UGC](https://support.google.com/googleplay/android-developer/answer/9876937?hl=en) · [Audience](https://support.google.com/googleplay/android-developer/answer/9867159?hl=en)
+- Photo access must match the receipt use case, and signing choices affect cross-distribution upgrades. [Media policy](https://support.google.com/googleplay/android-developer/answer/14115180?hl=en) · [App signing](https://support.google.com/googleplay/android-developer/answer/9842756?hl=en)
+- Expo supports production AAB generation and either manual upload or configured EAS Submit. [Expo submission](https://docs.expo.dev/submit/android/)
+
+## Verification before the gallery-only correction
+
+The following broad test runs and APK checks precede the owner's gallery-only correction.
+Current gallery-only verification is recorded in the next section. The earlier APKs include
+camera acquisition and must be rebuilt for the current receipt flow.
+
+Local evidence is under `.release-tmp/play-store-readiness-20261113/` (ignored; synthetic
+fixtures and credentials must stay there). The environment uses loopback-only MongoDB
+replica set `splitoraLaunchQA` on port 27029, a disposable API on 18795, web preview on
+18796 and final export server on 18798. Native media/core checks use the canonical
+`frontend/` through Metro on 8081 and a dedicated QA package. The final cold-start check
+uses embedded JavaScript/assets in a standalone QA APK. Email and push delivery are
+disabled. Production data has not been used.
+
+| Check | Result / evidence |
+| --- | --- |
+| Full isolated backend regression | **1,647 passed, 2 skipped, 320 deselected** in the final run; `backend-tests.xml`; includes ten real MongoDB/authenticated safety scenarios and both actual-server startup/report scenarios |
+| Full frontend Jest run | **144 suites passed, 1 skipped; 1,298 tests passed, 18 skipped**; `frontend-tests.json`; precedes the final four moderator/provider tests |
+| Final focused frontend regression | **7 suites, 141 tests passed** after the last frontend edits: API, moderator isolation, restored/offline policy loading, authentication, Exact editor/helpers and original group-deletion fix; `frontend-final-focused.json` |
+| Final focused backend safety regression | **10 passed**, including identity-replacement metadata, guardian eligibility/grants/revocation, reports, moderation and account cleanup; `backend-safety-final.xml` |
+| TypeScript | `node node_modules/typescript/bin/tsc --noEmit` passes after regenerating Expo route declarations |
+| Lint | `node node_modules/eslint/bin/eslint.js .` passes with no warnings after the final import correction |
+| Dependency validation | Expo SDK package-map compatibility passes; existing keyboard-controller exclusion retained; offline map check supplemented by Doctor |
+| Expo Doctor | **17/17 pass**; existing app-config/native-directory synchronization check is disabled in project settings |
+| Web production export | Final **49-route** export, including policies and safety/moderation screens; `web-export-reviewed/`; bundle `entry-7b9681dcde6c89770e2e5bcf7245e436.js` |
+| Public browser journeys | Seven pass, no page errors: three signed out policies, adult terms acceptance, three signed in policies; `browser-check.json` |
+| Community browser journeys | Five pass, no page errors: teen terms/request, guardian limited grants, moderator review, withdrawal and under-13 restrictions; `browser-safety-check.json`; email/identity verification explicitly simulated |
+| Listing browser journeys | Five pass, no page errors: report, block, unblock, actual synthetic PDF download and XLSX download; six screenshots captured; `listing-check.json` |
+| Fresh native builds | Initial Metro QA build and release-manifest merge pass (`native-retry.log`); production-JavaScript `export:embed` and standalone QA packaging pass (`standalone-bundle.log`, `standalone-gradle.log`); both installed on Android 15/API 35 x86_64 emulator `emulator-5574` |
+| Native manifest | Fresh debug **and release** merges assert target API 36, no broad/selected media-read or microphone permissions, and legacy write permission capped at API 28; `native-artifact-check.json` |
+| QA native alignment | All **27 x86_64 libraries** pass ELF load-segment and uncompressed ZIP 16 KB alignment checks; `native-alignment-check.json`; final ARM/Play artifact still required |
+| Native media checks | Historical system picker, selection/crop, gallery save and upload pass. Historical camera checks belong to the earlier receipt flow |
+| Native cached access | Standalone cold start with API reverse removed, Wi-Fi off and mobile data off restores Alex's dashboard and INR +4,500 position; reopening the saved Goa weekend group also passes. Network state is restored afterward; `native-standalone-offline-check.json` and `native-device-check.json` |
+| Native pending writes | Freshly refreshed Android preview saves an INR 40 expense while the API is unavailable; reconnection creates exactly one server expense and a repeated resume creates no duplicate; temporary test expense removed; `native-core-offline-check.json` |
+| Native account isolation/deletion | A new synthetic account sees none of Alex's cached group/balance; deleting it clears remembered identity, signs out and revokes its token; Alex's independent account restores successfully; `native-core-cleanup-check.json` |
+| Local QA cleanup | Verified task-owned emulator, Metro, web/export servers, API and MongoDB stopped; all seven task ports clear; evidence and AVD data retained; `cleanup-all.json`, `cleanup-verification.json` |
+
+The 320 deselected backend tests depend on live-API fixtures; they were not silently
+reported as passed. The two skipped backend cases and 18 skipped frontend cases remain
+visible in the evidence. Historical APK 24 device checks do not satisfy new native acceptance.
+
+An earlier full run hit the two isolated server-startup deadlines while native checks were
+running. Both passed in isolation, and the final full run passed after those checks stopped.
+Startup failures now include their isolated server diagnostics; the earlier attempt is
+retained as `backend-tests-startup-timeout-attempt.xml`.
+
+## Initial gallery-only correction verification
+
+The initial gallery-only correction opens the gallery directly from the existing attachment buttons. The focused
+Add/Edit tests exercise Android and iOS selection/cancellation, iOS permission denial,
+populated form preservation and receipt upload. TypeScript and frontend lint pass.
+Fresh native permission evidence is under `.release-tmp/gallery-only-20261114/`.
+
+| Check | Result |
+| --- | --- |
+| Focused Add/Edit regression | 2 suites and 33 tests pass, including 10 gallery selection/cancellation/denial cases. `frontend-tests.json` |
+| TypeScript and frontend lint | Both pass on the corrected source |
+| Fresh Android debug and release manifests | Both merges pass for `com.tripsplitter.app`, target API 36. Camera, microphone and broad media-read permissions are absent. Legacy gallery write is capped at API 28. `native-manifest.log` and `verification.json` |
+| Checked-in Android configuration | Local QA manifest applies the same camera/media exclusions and legacy write limit. EAS continues generating its native project from the canonical Expo configuration |
+| iOS Expo permission introspection | Photo-library selection/saving descriptions present. Camera and microphone descriptions absent. `ios-gallery-permissions.json` |
+
+The corrected application-source review fingerprint is
+`d71f1351ebf433f852c0413dc2c84eb49f4dd02c98bb71599401b06aa943a244`,
+covering 725 Git-listed files under `backend/`, `frontend/` and `shared/` using the
+path/NUL/bytes/NUL algorithm in `verification.json`. Earlier listing and APK fingerprints
+identify their earlier source snapshots.
+
+The final APK audit and human-testing section above supersede this initial permission-only
+evidence, including its API-28-capped write permission. Final artifact device results are
+recorded with the testing release.
+
+### Earlier source and native artifact provenance
+
+The earlier pre-gallery-correction application snapshot has SHA-256
+`a55bab2d4aedb398fe9a150461021b0ca22bf7b6ec11a114c8557decc4782e7d`.
+Its 723 Git-listed `backend/`, `frontend/` and `shared/` files are fingerprinted using
+the exact algorithm in the asset manifest. This is a review fingerprint, not a release
+commit. Record the reviewed commit before any production build or upload.
+
+The earlier standalone QA APK is `qa-standalone.apk` under the evidence directory,
+87,824,056 bytes, SHA-256
+`e747986a7fd829d2e1bdcbbecba1fb7e39ec5ecee62c516d938120a94cd26077`.
+Its embedded Android bundle has SHA-256
+`d84e8052a856652eb895fc78a8e0d5855779141dbc4d6931101a57001f41129a`.
+It uses `com.tripsplitter.app.launchqa`, debug signing, QA loopback transport and
+`EXPO_PUBLIC_OFFLINE_QA=true`. Developer support was disabled only in the disposable
+native project so the app could start without Metro.
+
+Earlier media, single-write synchronization and account-deletion checks used
+`qa-metro.apk`, 77,866,567 bytes, SHA-256
+`558400f4cc6d723682076c367d9243570d1637add7be6b281ee1f8847dc1414b`,
+with the refreshed canonical frontend through Metro. The native journal assigns each
+journey to its artifact. The last backend identity-response fix was applied after the
+standalone client was embedded; the frontend stayed unchanged. The combined review
+fingerprint identifies the final verification snapshot, rather than an immutable APK
+build input. `native-artifact-check.json` also records the frontend/shared fingerprint.
+
+Short CMake staging paths and reduced compiler concurrency were applied only to the
+disposable Windows QA project. Production package configuration was not changed by
+these build workarounds.
+
+This x86_64 development build does not verify ARM 16 KB compatibility, a signed production
+AAB, APK-24 upgrade continuity or Play installation. Those require the final artifact.
+API-28 legacy gallery permission handling and Android-16/API-36 device behaviour still
+need their own device checks. The earlier camera permission-expiry failure belongs to the
+removed camera acquisition path. Current acceptance exercises selection of an existing
+gallery image and verifies that the rebuilt APK excludes camera access.
+
+The initial Metro APK needed its development assets for a fully disconnected cold start.
+The subsequent standalone APK passes with embedded assets and both Wi-Fi/mobile data
+disabled. Final signed-artifact acceptance must repeat this journey without QA overrides.
+
+### Remaining device and operating acceptance
+
+| Journey | Owner / prerequisite | Completion evidence |
+| --- | --- | --- |
+| Existing APK-24 upgrade and terms-review route | Release engineer; coordinated compatible release | Existing accounts can reach review/update and preserve groups/local work; no backend-only lockout |
+| Google OAuth, email verification/reset and invitation links | Engineer + owner; configured OAuth/email provider and QA build | Delivered links/tokens work once, correct routing/session recovery; no synthetic-delivery substitution |
+| Notifications and external UPI app flow | Engineer + testers; approved QA device/provider configuration | Permission denial/re-enable, exact recipient/amount, return/cancel and confirmation checked without claiming bank verification |
+| Offline/restart/account isolation | Engineer + testers; final native artifact | Build 27 passes standalone offline start, cached groups, single-write recovery and account isolation on API 35. Cross-account deletion passed in earlier local QA. Remote revocation and physical-device matrix remain open |
+| Native media across supported Android versions | Android engineer with API-28, API-35 and API-36 devices | Direct gallery selection/crop/upload/save, cancellation and denial recorded. Final manifest excludes camera, microphone and broad media-read permissions |
+| Support/deletion/moderation operations | Named primary and backup operators | Inbox request and report/guardian/appeal/deletion rehearsal accepted, retention process and India review signed off |
+
+For a reproducible isolated run, start a **disposable loopback replica set**, set
+`SPLITORA_TEST_MONGO_URL` in the test process, then run from the repository root:
+
+```powershell
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy backend/.venv/Scripts/python.exe backend/scripts/run_isolated_tests.py tests -q --tb=line
+```
+
+The runner rejects a non-loopback Mongo URL, replaces inherited application/API connections
+with unused loopback endpoints, supplies the seven explicit Mongo test opt-ins and deselects
+the live-API fixtures. Each opted-in test creates its own disposable database. Without the
+Mongo opt-in, those integration cases skip; that is not a complete launch-readiness run.
+
+From `frontend/`, repeat only checks affected by subsequent changes:
+
+```powershell
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy node node_modules/typescript/bin/tsc --noEmit
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy node node_modules/eslint/bin/eslint.js .
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy node node_modules/jest/bin/jest.js --runInBand
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy npx expo install --check
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy npx expo-doctor
+& 'C:\Users\JYOTIRMAY\.headroom\bin\rtk.exe' proxy node node_modules/expo/bin/cli export --platform web
+```
+
+## Remaining owner decisions and release gates
+
+1. **Account holder:** provide the intended Play account after choosing the applicable publisher
+   type and completing enrollment/verification. No account, app URL or production-access state
+   has been supplied. Console actions remain deferred.
+2. **Product owner:** name primary/backup support and moderation coverage and approve the
+   operating procedure, retained shared-record purposes and recovery/deletion handling.
+3. **Product owner + qualified India reviewer:** approve applicable rule commencement,
+   adult/guardian verification, consent/withdrawal/age correction and restricted evidence handling.
+   Ages 13+ remain the approved audience; teen operating approval remains pending.
+4. **Release engineer + owner:** coordinate the reviewed main integration, public policy/review
+   routes and existing APK-24 update path; resolve signing and providers; prepare a fresh
+   traceable production AAB when authorized. Do not equate the delivered QA APK with this bundle.
+5. **Product owner + account holder:** approve final Android listing images/declarations and
+   hosted reviewer access, then complete the actual Console eligibility, review and publication
+   steps. The remaining device/provider evidence stays open; no new QA work is scheduled here.
+
+The documentation milestone is complete when the guides and submission pack agree, private
+access stays private and every remaining action has an owner role and completion criterion.
+Application readiness and launch remain separate, pending milestones. Launch requires the
+applicable Console gates, approved India publication and 72-hour operating observation.

@@ -459,7 +459,7 @@ async def list_expenses(
     for e in expenses:
         e["currency"] = e.get("currency") or trip.get("currency", "INR")
         e["split_mode"] = e.get("split_mode", "PER_CAPITA")
-        e["has_receipt"] = bool(e.get("has_receipt"))
+        e["has_receipt"] = bool(e.get("has_receipt")) and not bool(e.get("receipt_hidden_at"))
         # Additive, DISPLAY-only: per-expense participant share breakdown, re-derived from the SAME
         # calculator the ledger uses (services.expense_shares). Read-time only — never persisted,
         # never feeds balances/settle-up. No existing field is removed or changed.
@@ -485,7 +485,8 @@ async def get_expense(trip_id: str, expense_id: str, user=Depends(get_current_us
         expense = next(row for row in (await read_effective_ledger(trip_id, user, db)).expenses if row["id"] == expense_id)
     expense["currency"] = expense.get("currency") or trip.get("currency", "INR")
     expense["split_mode"] = expense.get("split_mode", "PER_CAPITA")
-    expense["has_receipt"] = bool(expense.get("receipt_id") or expense.get("receipt_base64"))
+    expense["has_receipt"] = bool(expense.get("receipt_id") or expense.get("receipt_base64")) \
+        and not bool(expense.get("receipt_hidden_at"))
     expense.pop("receipt_base64", None)
     expense["shares"] = None if expense.get("deleted_at") else expense_share_breakdown(expense, trip["members"])
     return serialize_bson({key: value for key, value in expense.items() if not key.startswith("_")})

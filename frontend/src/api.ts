@@ -603,6 +603,10 @@ export function receiptUrl(tripId: string, expenseId: string, token: string) {
   return `${BASE}/api/trips/${tripId}/expenses/${expenseId}/receipt?token=${encodeURIComponent(token)}`;
 }
 
+export function reportedReceiptUrl(caseId: string, token: string) {
+  return `${BASE}/api/admin/safety/reports/${encodeURIComponent(caseId)}/receipt?token=${encodeURIComponent(token)}`;
+}
+
 // Step 22: upload a bill image to GridFS via multipart. Pass the picked asset's local uri +
 // mimeType; we must NOT set Content-Type so React Native generates the multipart boundary.
 export async function uploadReceipt(

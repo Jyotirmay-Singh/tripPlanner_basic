@@ -17,6 +17,7 @@ from utils.mobile_numbers import normalize_mobile_number  # noqa: E402
 
 
 CURRENT_USER = {
+    "community_age_band": "18_plus", "community_terms_version": "2026-11-13",
     "id": "u-1",
     "email": "owner@gmail.com",
     "name": "Owner",

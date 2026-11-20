@@ -5,12 +5,17 @@ jest.mock('../../ui/CategoryBadge', () => ({ __esModule: true, default: () => nu
 
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
+import { Platform } from 'react-native';
 const mockToast = jest.fn(); const mockBack = jest.fn();
 jest.mock('expo-router', () => ({ useLocalSearchParams: () => ({ id: 't1', eid: 'e1' }), useRouter: () => ({ back: mockBack }) }));
 jest.mock('../../api', () => ({ api: jest.fn(), quoteExchangeRate: jest.fn(), getExpense: jest.fn(), uploadReceipt: jest.fn(), deleteReceipt: jest.fn(), readExpenses: jest.fn(), getToken: jest.fn().mockResolvedValue(null), receiptUrl: jest.fn() }));
 jest.mock('../../AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1', role: 'user' }, sessionMode: 'online', multiCurrencyCapability: 'enabled', multiCurrencyExpensesEnabled: true, refreshRuntimeConfig: async () => {} }) }));
 jest.mock('../../ThemeContext', () => ({ useTheme: () => ({ colors: new Proxy({}, { get: () => '#123456' }), mode: 'light' }) }));
 jest.mock('../../ReceiptViewer', () => ({ __esModule: true, default: () => null }));
+jest.mock('expo-image-picker', () => ({
+  requestMediaLibraryPermissionsAsync: jest.fn(),
+  launchImageLibraryAsync: jest.fn(),
+}));
 jest.mock('../../FinancialReviewSheet', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../ConfirmModal', () => ({ __esModule: true, default: () => null }));
 jest.mock('../../SplitModeSelector', () => ({ __esModule: true, default: (props: any) => require('react').createElement('SplitModeSelector', props), splitPreviewLabel: () => '' }));
@@ -28,6 +33,59 @@ const trip = { id: 't1', name: 'Trip', currency: 'INR', owner_id: 'u1', admin_id
 const baseline = { id: 'e1', amount: 100, currency: 'INR', category: 'Food', description: 'Original', date: '03-10-26', paid_by_member_id: 'm1', split_member_ids: ['m1'], split_mode: 'PER_CAPITA', created_by: 'u1', original_amount: '100', original_currency: 'INR', conversion_version: 1 };
 beforeEach(() => { jest.clearAllMocks(); (api as jest.Mock).mockImplementation(async (_path: string, options: any) => options?.method === 'PATCH' ? { ...baseline, ...options.body } : trip); (getExpense as jest.Mock).mockResolvedValue(baseline); (readExpenses as jest.Mock).mockResolvedValue({ items: [baseline], complete: true }); });
 async function mount() { let renderer: any; await act(async () => { renderer = TestRenderer.create(<EditExpense />); await Promise.resolve(); }); return renderer; }
+it.each([
+  ['android', false], ['android', true], ['ios', false], ['ios', true],
+] as const)('attaches an existing gallery image on %s and preserves the Edit form when canceled=%s', async (platform, canceled) => {
+  const originalOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: platform });
+  const picker = require('expo-image-picker');
+  picker.requestMediaLibraryPermissionsAsync.mockResolvedValue({ granted: true });
+  picker.launchImageLibraryAsync.mockResolvedValue(canceled ? { canceled: true, assets: null } : {
+    canceled: false, assets: [{ uri: 'file:///bill.jpg', mimeType: 'image/jpeg', fileName: 'bill.jpg' }],
+  });
+  let renderer: any;
+  try {
+    renderer = await mount();
+    const attach = renderer.root.findAll((node: any) => node.props.accessibilityLabel === 'Attach receipt image'
+      && typeof node.props.onPress === 'function')[0];
+    await act(async () => attach.props.onPress());
+    expect(picker.launchImageLibraryAsync).toHaveBeenCalledTimes(1);
+    expect(picker.requestMediaLibraryPermissionsAsync).toHaveBeenCalledTimes(platform === 'ios' ? 1 : 0);
+    expect(renderer.root.findAllByProps({ testID: 'receipt-view' }).length > 0).toBe(!canceled);
+    expect(renderer.root.findByProps({ testID: 'ee-amount' }).props.value).toBe('100');
+    expect(renderer.root.findByProps({ testID: 'ee-desc' }).props.value).toBe('Original');
+    if (!canceled) {
+      await act(async () => renderer.root.findByProps({ testID: 'ee-save' }).props.onPress());
+      expect(require('../../api').uploadReceipt).toHaveBeenCalledWith('t1', 'e1', {
+        uri: 'file:///bill.jpg', mimeType: 'image/jpeg', fileName: 'bill.jpg',
+      });
+    }
+  } finally {
+    if (renderer) await act(async () => renderer.unmount());
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: originalOS });
+  }
+});
+
+it('handles denied iOS gallery access while retaining the loaded Edit form', async () => {
+  const originalOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'ios' });
+  const picker = require('expo-image-picker');
+  picker.requestMediaLibraryPermissionsAsync.mockResolvedValue({ granted: false });
+  let renderer: any;
+  try {
+    renderer = await mount();
+    const attach = renderer.root.findAll((node: any) => node.props.accessibilityLabel === 'Attach receipt image'
+      && typeof node.props.onPress === 'function')[0];
+    await act(async () => attach.props.onPress());
+    expect(picker.launchImageLibraryAsync).not.toHaveBeenCalled();
+    expect(mockToast).toHaveBeenCalledWith('Allow photo access to attach a receipt.', 'error');
+    expect(renderer.root.findByProps({ testID: 'ee-desc' }).props.value).toBe('Original');
+  } finally {
+    if (renderer) await act(async () => renderer.unmount());
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: originalOS });
+  }
+});
+
 it.each(['PER_CAPITA', 'EXACT'])('edits one category while retaining %s allocations and source amount', async (split_mode) => {
   (getExpense as jest.Mock).mockResolvedValue({ ...baseline, split_mode, ...(split_mode === 'EXACT' ? { custom_amounts: { m1: 100 }, original_custom_amounts: { m1: '100' } } : {}) });
   const renderer = await mount();

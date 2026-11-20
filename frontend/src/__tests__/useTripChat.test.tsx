@@ -143,6 +143,16 @@ async function mount(options = defaultOptions()): Promise<void> {
   await flushPromises();
 }
 
+it('clears retained chat when the server revokes community access', async () => {
+  (chatApi.listChatMessages as jest.Mock).mockResolvedValue({ ...emptyPage, items: [savedMessage()] });
+  await mount();
+  expect(latest.messages).toHaveLength(1);
+  await act(async () => { MockWebSocket.instances[0].serverClose(4403); });
+  expect(latest.connection.status).toBe('permission_denied');
+  expect(latest.messages).toEqual([]);
+  expect(latest.unreadCount).toBe(0);
+});
+
 beforeEach(() => {
   jest.resetAllMocks();
   jest.useFakeTimers();

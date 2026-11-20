@@ -24,6 +24,7 @@ import ExpenseTrendChart from '../../../src/ExpenseTrendChart';
 import { trendDetailPath } from '../../../src/expenseTrend';
 import { type SpendSummary } from '../../../src/spend';
 import ReceiptViewer from '../../../src/ReceiptViewer';
+import ReportContentSheet from '../../../src/ReportContentSheet';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { canModifyExpense, roleOf, canEditTripSettings, canManageMembers, canDeleteTrip } from '../../../src/permissions';
 import {
@@ -300,6 +301,8 @@ export default function TripDetail() {
   }, [tabParam]);
   const [token, setToken] = useState<string | null>(null);
   const [viewerUri, setViewerUri] = useState<string | null>(null);
+  const [viewerExpenseId, setViewerExpenseId] = useState<string | null>(null);
+  const [reportedReceipt, setReportedReceipt] = useState<string | null>(null);
   // Per-expense "Split details" disclosure state (collapsed by default), keyed by expense id.
   const [expandedShares, setExpandedShares] = useState<Record<string, boolean>>({});
   const [paymentDetailsExpanded, setPaymentDetailsExpanded] = useState(false);
@@ -633,7 +636,7 @@ export default function TripDetail() {
           label: 'Delete', variant: 'destructive', onPress: () => confirm?.onYes(),
           testID: confirm?.yesId,
           disabled: !!confirm?.requiresTripName
-            && deleteTripName.trim() !== expectedDeleteTripName,
+            && deleteTripName.trim().toLowerCase() !== expectedDeleteTripName,
         },
       ]}
     />
@@ -713,7 +716,7 @@ export default function TripDetail() {
               </T>
               {e.has_receipt ? (
                 token && !offlineView ? (
-                  <TouchableOpacity testID={`expense-bill-${e.id}`} onPress={(event) => { event.stopPropagation(); setViewerUri(receiptUrl(id as string, e.id, token)); }} style={{ marginTop: 6 }} accessibilityLabel="View bill">
+                  <TouchableOpacity testID={`expense-bill-${e.id}`} onPress={(event) => { event.stopPropagation(); setViewerExpenseId(e.id); setViewerUri(receiptUrl(id as string, e.id, token)); }} style={{ marginTop: 6 }} accessibilityLabel="View bill">
                     <Image source={{ uri: receiptUrl(id as string, e.id, token) }} style={[styles.billThumb, { borderColor: colors.border }]} />
                   </TouchableOpacity>
                 ) : <T variant="caption" muted>Receipt available online</T>
@@ -811,6 +814,8 @@ export default function TripDetail() {
             </View>
           )}
           controller={chat}
+          tripId={id as string}
+          onSafetySettings={() => router.push('/community-settings')}
           currentUserId={user?.id}
           isOwner={trip.owner_id === user?.id}
           canModerateMessages={isApplicationAdmin}
@@ -1276,7 +1281,10 @@ export default function TripDetail() {
       </ScrollView>
       )}
 
-      <ReceiptViewer uri={viewerUri} visible={!!viewerUri} onClose={() => setViewerUri(null)} />
+      <ReceiptViewer uri={viewerUri} visible={!!viewerUri} onClose={() => setViewerUri(null)}
+        onReport={viewerExpenseId ? () => { setViewerUri(null); setReportedReceipt(viewerExpenseId); } : undefined} />
+      {reportedReceipt ? <ReportContentSheet key={reportedReceipt} tripId={id as string}
+        target={{ target_type: 'receipt', target_id: reportedReceipt }} onClose={() => setReportedReceipt(null)} /> : null}
 
       <ActionSheet
         visible={!!mobileContact}

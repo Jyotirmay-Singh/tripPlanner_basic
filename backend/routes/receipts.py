@@ -1,3 +1,4 @@
+import hashlib
 import io
 from typing import Optional
 
@@ -17,10 +18,12 @@ from services.receipts import (
 from services.admin_audit import record_admin_action
 from services.settlement_write_guard import activated
 from services.receipt_versions import switch
+from services.community_safety import require_community_access
+from utils.permissions import is_super_admin
 
 router = APIRouter()
 
-_CACHE_HEADERS = {"Cache-Control": "private, max-age=86400"}
+_CACHE_HEADERS = {"Cache-Control": "private, no-store"}
 
 
 # ---------- Receipts (bill images) ----------
@@ -45,11 +48,37 @@ async def _resolve_user(token: Optional[str], authorization: Optional[str]) -> d
     return user
 
 
+@router.get("/admin/safety/reports/{case_id}/receipt")
+async def inspect_reported_receipt(case_id: str, token: Optional[str] = None,
+                                  authorization: Optional[str] = Header(None)):
+    user = await _resolve_user(token, authorization)
+    if not is_super_admin(user):
+        raise HTTPException(403, "Application administrator access is required")
+    case = await db.community_reports.find_one({"id": case_id, "target_type": "receipt"})
+    if not case:
+        raise HTTPException(404, "Receipt report not found")
+    revision = case.get("receipt_revision")
+    result = None
+    if revision and revision != "legacy":
+        result = await read_receipt(revision)
+    elif revision == "legacy" and case.get("receipt_legacy_fingerprint"):
+        expense = await db.expenses.find_one({"id": case["target_id"], "trip_id": case["trip_id"]})
+        inline = (expense or {}).get("receipt_base64")
+        if inline and hashlib.sha256(inline.encode()).hexdigest() == case["receipt_legacy_fingerprint"]:
+            result = decode_data_uri(inline)
+    # Replacements may delete the old file. Never substitute the current receipt for the report.
+    if not result:
+        raise HTTPException(404, "The reported receipt revision is no longer available")
+    data, content_type = result
+    return StreamingResponse(io.BytesIO(data), media_type=content_type, headers=_CACHE_HEADERS)
+
+
 @router.post("/trips/{trip_id}/expenses/{expense_id}/receipt")
 async def upload_receipt(trip_id: str, expense_id: str, file: UploadFile = File(...),
                          user=Depends(get_current_user)):
     # Only the expense creator, their family, or an admin may attach/replace.
     trip, _expense = await _expense_modify_or_403(trip_id, expense_id, user)
+    await require_community_access(db, user, "receipts")
     data = await file.read()
     validate_receipt_upload(file.content_type, len(data))
     if activated(trip):
@@ -65,7 +94,7 @@ async def upload_receipt(trip_id: str, expense_id: str, file: UploadFile = File(
     # Point the expense at the new receipt and drop any legacy inline blob.
     await db.expenses.update_one(
         {"id": expense_id, "trip_id": trip_id},
-        {"$set": {"receipt_id": receipt_id}, "$unset": {"receipt_base64": ""}},
+        {"$set": {"receipt_id": receipt_id}, "$unset": {"receipt_base64": "", "receipt_hidden_at": ""}},
     )
     await record_admin_action(
         user, "receipt.uploaded", trip=trip, resource_type="expense_receipt",
@@ -80,12 +109,22 @@ async def get_receipt(trip_id: str, expense_id: str, token: Optional[str] = None
     # Any trip member may view; auth accepted via header or ?token= query.
     user = await _resolve_user(token, authorization)
     await _trip_or_404(trip_id, user)
+    await require_community_access(db, user, "receipts")
     expense = await _expense_or_404(trip_id, expense_id)
+    if expense.get("receipt_hidden_at") and not is_super_admin(user):
+        raise HTTPException(404, "Receipt unavailable after moderation")
     if version_id:
         version = await db.receipt_versions.find_one({"id": version_id, "expense_id": expense_id, "trip_id": trip_id}, {"_id": 0})
         if not version:
             raise HTTPException(404, "Receipt version not found")
         expense = {"receipt_id": version.get("receipt_id"), "receipt_base64": version.get("legacy_inline")}
+
+    hidden = await db.community_hidden_receipts.find_one({
+        "trip_id": trip_id, "expense_id": expense_id,
+        "revision": expense.get("receipt_id") or "legacy",
+    })
+    if hidden and not is_super_admin(user):
+        raise HTTPException(404, "Receipt unavailable after moderation")
 
     receipt_id = expense.get("receipt_id")
     if receipt_id:

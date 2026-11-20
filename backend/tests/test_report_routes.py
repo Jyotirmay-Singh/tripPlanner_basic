@@ -60,7 +60,7 @@ def install(monkeypatch, snapshot=None):
     snapshot = snapshot or sample_snapshot()
     snapshot.trip['owner_id'] = 'owner'
     fake = SimpleNamespace(
-        users=Collection(one={'id': 'owner'}),
+        users=Collection(one={'id': 'owner', 'community_age_band': '18_plus', 'community_terms_version': '2026-11-13'}),
         trips=Collection(one=snapshot.trip),
         expenses=Collection(snapshot.expenses),
         settlements=Collection(snapshot.settlements),
@@ -87,7 +87,11 @@ def test_download_loads_each_source_once_and_preserves_public_contract(monkeypat
     assert response.media_type == mime
     assert response.headers['content-disposition'] == 'attachment; filename=Coastal_Journey_-_Sample_report.' + kind
     reports.decode_token.assert_called_once_with('token')
-    reports._trip_or_404.assert_awaited_once_with('sample-group', {'id': 'owner'})
+    reports._trip_or_404.assert_awaited_once_with('sample-group', {
+        'id': 'owner',
+        'community_age_band': '18_plus',
+        'community_terms_version': '2026-11-13',
+    })
     fake.users.find_one.assert_awaited_once()
     for collection in (fake.expenses, fake.settlements, fake.payments):
         collection.find.assert_called_once()

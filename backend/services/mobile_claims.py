@@ -303,6 +303,13 @@ async def enrich_trip_mobile_numbers(trip: dict) -> dict:
         {"trip_id": trip["id"]}, {"_id": 0}
     ).to_list(length=None)
     by_user = {claim.get("user_id"): claim for claim in claims if claim.get("user_id")}
+    from services.community_safety import community_permissions, SAFETY_PROFILE_FIELDS
+    profiles = await db.users.find(
+        {"id": {"$in": list(by_user)}}, {"_id": 0, "id": 1, **SAFETY_PROFILE_FIELDS},
+    ).to_list(None) if by_user else []
+    allowed = {profile["id"] for profile in profiles
+               if (await community_permissions(db, profile))["permissions"]["contacts"]}
+    by_user = {key: value for key, value in by_user.items() if key in allowed}
 
     for member in enriched.get("members", []) or []:
         if member.get("kind") != "family":

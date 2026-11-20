@@ -38,7 +38,8 @@ def test_real_primary_client_multi_account_payment_journeys():
         secret = "disposable-payment-client-fixture-key-2026"
         users = {key: {"id": str(uuid4()), "email": f"journey-{key}@gmail.com", "name": key.title(),
                        "email_verified": True, "credentials_set": True, "upi_id": f"journey-{key}@upi",
-                       "upi_updated_at": "fixture-v1"} for key in ("payer", "receiver", "admin", "outsider", "secondPayer", "secondReceiver")}
+                       "upi_updated_at": "fixture-v1", "community_age_band": "18_plus",
+                       "community_terms_version": "2026-11-13"} for key in ("payer", "receiver", "admin", "outsider", "secondPayer", "secondReceiver")}
         database.users.insert_many(list(users.values()))
         fixtures = {"users": {key: {"id": user["id"], "token": jwt.encode({"sub": user["id"], "type": "access",
             "exp": datetime.now(timezone.utc) + timedelta(minutes=15)}, secret, algorithm="HS256")}

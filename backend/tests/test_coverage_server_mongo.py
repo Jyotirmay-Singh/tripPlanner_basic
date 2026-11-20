@@ -53,7 +53,8 @@ def test_actual_server_startup_snapshot_reads_and_existing_reports(legacy_quote_
         bill = {"id": expense_id, "trip_id": trip_id, "amount": 100, "currency": "INR", "created_at": created,
                 "paid_by_member_id": payer, "split_member_ids": [debtor], "split_mode": "PER_CAPITA",
                 "category": "Food", "description": "Dinner", "date": "01-10-26"}
-        database.users.insert_one({"id": user_id, "email": "coverage-smoke@gmail.com", "name": "Smoke"})
+        database.users.insert_one({"id": user_id, "email": "coverage-smoke@gmail.com", "name": "Smoke",
+                                   "community_age_band": "18_plus", "community_terms_version": "2026-11-13"})
         database.trips.insert_one(deepcopy(group))
         database.expenses.insert_one(deepcopy(bill))
         # Only this generated fixture contains an activation marker; no public activation route
@@ -96,7 +97,12 @@ def test_actual_server_startup_snapshot_reads_and_existing_reports(legacy_quote_
                     pass
                 time.sleep(0.1)
             else:
-                pytest.fail("Isolated API failed startup; no shared database was used")
+                log.seek(0)
+                diagnostics = log.read().decode("utf-8", errors="replace")[-6000:]
+                pytest.fail(
+                    f"Isolated API failed startup (exit {process.poll()}); "
+                    f"no shared database was used\n{diagnostics}"
+                )
             assert config.json()["expense_settlement_enabled"] is False
             assert config.json()["expense_settlement_actions_ready"] is False
             token = jwt.encode({"sub": user_id, "type": "access", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)},

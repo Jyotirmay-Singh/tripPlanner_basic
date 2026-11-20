@@ -162,6 +162,7 @@ def _creditor_people(member: dict) -> list[dict]:
 
 
 async def _selected_recipient(member: dict, person_id: str) -> dict:
+    from services.community_safety import community_permissions, SAFETY_PROFILE_FIELDS
     person = next(
         (candidate for candidate in _creditor_people(member)
          if candidate["person_id"] == person_id),
@@ -182,7 +183,7 @@ async def _selected_recipient(member: dict, person_id: str) -> dict:
         )
     profile = await db.users.find_one(
         {"id": linked_user_id},
-        {"_id": 0, "id": 1, "name": 1, "upi_id": 1, "upi_updated_at": 1},
+        {"_id": 0, "id": 1, "name": 1, "upi_id": 1, "upi_updated_at": 1, **SAFETY_PROFILE_FIELDS},
     )
     if not profile:
         raise _error(
@@ -190,6 +191,8 @@ async def _selected_recipient(member: dict, person_id: str) -> dict:
             "recipient_unavailable",
             "The selected recipient no longer has a linked account",
         )
+    if not (await community_permissions(db, profile))["permissions"]["contacts"]:
+        raise _error(409, "recipient_upi_unavailable", "The recipient has not enabled UPI detail sharing")
     try:
         upi_id = normalize_upi_id(profile.get("upi_id"))
     except (TypeError, ValueError) as exc:

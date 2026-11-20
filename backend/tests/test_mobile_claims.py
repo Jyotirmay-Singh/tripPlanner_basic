@@ -139,7 +139,10 @@ def test_legacy_family_account_slots_open_group_and_keep_contacts_private(monkey
         {"trip_id": "t1", "user_id": "u2", "member_id": "family",
          "family_member_id": "person-a", "mobile_number": "+919222222222"},
     ])
-    monkeypatch.setattr(mobile_claims, "db", SimpleNamespace(trip_mobile_claims=claims))
+    monkeypatch.setattr(mobile_claims, "db", SimpleNamespace(trip_mobile_claims=claims, users=Claims([
+        {"id": key, "community_age_band": "18_plus", "community_terms_version": "2026-11-13"}
+        for key in ("u1", "u2")
+    ])))
 
     async def authorized_trip(trip_id, user):
         assert trip_id == "t1"
@@ -184,7 +187,10 @@ def test_claim_conflict_names_live_trip_and_member(monkeypatch):
         "trip_id": "t1", "user_id": "u2", "mobile_number": "+919876543210",
         "member_id": "m2", "family_member_id": None, "member_name": "Old name",
     }])
-    monkeypatch.setattr(mobile_claims, "db", SimpleNamespace(trip_mobile_claims=claims))
+    monkeypatch.setattr(mobile_claims, "db", SimpleNamespace(trip_mobile_claims=claims, users=Claims([
+        {"id": key, "community_age_band": "18_plus", "community_terms_version": "2026-11-13"}
+        for key in ("u1", "u2")
+    ])))
 
     with pytest.raises(HTTPException) as caught:
         asyncio.run(mobile_claims.sync_mobile_claim(trip, {
@@ -379,7 +385,10 @@ def test_trip_enrichment_is_linked_only_and_family_aligned(monkeypatch):
         {"trip_id": "t1", "user_id": "u2", "mobile_number": "+447911123456",
          "member_id": "fam", "family_member_id": "fm1"},
     ])
-    monkeypatch.setattr(mobile_claims, "db", SimpleNamespace(trip_mobile_claims=claims))
+    monkeypatch.setattr(mobile_claims, "db", SimpleNamespace(trip_mobile_claims=claims, users=Claims([
+        {"id": key, "community_age_band": "18_plus", "community_terms_version": "2026-11-13"}
+        for key in ("u1", "u2")
+    ])))
 
     enriched = asyncio.run(mobile_claims.enrich_trip_mobile_numbers(trip))
 

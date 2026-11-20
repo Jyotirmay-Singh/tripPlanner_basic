@@ -94,6 +94,7 @@ def person(trip, wallet_id, person_id):
 
 
 async def parties(trip, binding, method, session):
+    from services.community_safety import community_permissions, SAFETY_PROFILE_FIELDS
     async def resolve(wallet_id, person_id):
         try:
             return person(trip, wallet_id, person_id)
@@ -110,9 +111,12 @@ async def parties(trip, binding, method, session):
     result = {"payer": payer, "recipient": receiver}
     if method == "upi":
         profile = await db.users.find_one({"id": receiver["user_id"]},
-            {"_id": 0, "upi_id": 1, "upi_updated_at": 1, "recipient_account_revision": 1}, session=session) if receiver["user_id"] else None
+            {"_id": 0, "id": 1, "upi_id": 1, "upi_updated_at": 1, "recipient_account_revision": 1,
+             **SAFETY_PROFILE_FIELDS}, session=session) if receiver["user_id"] else None
         if not profile:
             raise CoverageError("recipient_unavailable")
+        if not (await community_permissions(db, profile))["permissions"]["contacts"]:
+            raise CoverageError("recipient_upi_unavailable")
         try:
             result["upi_id_snapshot"] = normalize_upi_id(profile.get("upi_id"))
         except (TypeError, ValueError) as exc:

@@ -54,6 +54,7 @@ class _Cursor:
 
 
 def _collection(*, rows=(), found=None):
+    rows = [{"community_age_band": "18_plus", "community_terms_version": "2026-11-13", **row} for row in rows]
     return SimpleNamespace(
         find=MagicMock(return_value=_Cursor(rows)),
         find_one=AsyncMock(return_value=found),

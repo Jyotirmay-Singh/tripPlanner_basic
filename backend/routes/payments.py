@@ -145,6 +145,7 @@ async def _recipient_candidates(recipient: dict) -> list[dict]:
             "linked_user_id": recipient.get("user_id"),
         }]
 
+    from services.community_safety import community_permissions, SAFETY_PROFILE_FIELDS
     user_ids = list(dict.fromkeys(
         person["linked_user_id"] for person in roster if person["linked_user_id"]
     ))
@@ -152,9 +153,13 @@ async def _recipient_candidates(recipient: dict) -> list[dict]:
     if user_ids:
         profiles = await db.users.find(
             {"id": {"$in": user_ids}},
-            {"_id": 0, "id": 1, "upi_id": 1, "upi_updated_at": 1},
+            {"_id": 0, "id": 1, "upi_id": 1, "upi_updated_at": 1, **SAFETY_PROFILE_FIELDS},
         ).to_list(None)
         profiles_by_id = {profile["id"]: profile for profile in profiles}
+        for profile in profiles:
+            if not (await community_permissions(db, profile))["permissions"]["contacts"]:
+                profile.pop("upi_id", None)
+                profile.pop("upi_updated_at", None)
 
     return [
         {

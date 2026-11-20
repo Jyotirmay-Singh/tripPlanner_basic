@@ -33,8 +33,11 @@ import {
   TYPESCALE,
 } from './theme';
 import type { TripChatController } from './useTripChat';
-import { ActionSheet, Button, Icon, IconButton, useToast } from './ui';
+import { ActionSheet, Button, Icon, IconButton, useToast, type SheetAction } from './ui';
 import { KeyboardAvoidingView, useAppKeyboardState } from './KeyboardController';
+import { api } from './api';
+import ReportContentSheet from './ReportContentSheet';
+import type { ReportTarget } from './communitySafety';
 
 type Props = {
   header: React.ReactNode;
@@ -44,6 +47,8 @@ type Props = {
   canModerateMessages?: boolean;
   canSend: boolean;
   focusMessageId?: string;
+  tripId?: string;
+  onSafetySettings?: () => void;
 };
 
 type ConfirmState = { kind: 'message'; messageId: string } | { kind: 'history' } | null;
@@ -66,6 +71,8 @@ export default function TripChat({
   canModerateMessages = false,
   canSend,
   focusMessageId,
+  tripId,
+  onSafetySettings,
 }: Props) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -78,6 +85,7 @@ export default function TripChat({
   const lastMarked = useRef(0);
   const controllerRef = useRef(controller);
   const focusedMessageId = useRef<string | null>(null);
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
   const [draft, setDraft] = useState('');
   const [editing, setEditing] = useState<LocalChatMessage | null>(null);
   const [selected, setSelected] = useState<LocalChatMessage | null>(null);
@@ -256,6 +264,7 @@ export default function TripChat({
   const renderMessage = ({ item, index }: { item: LocalChatMessage; index: number }) => {
     const mine = item.sender_user_id === currentUserId;
     const canManageMessage = !item.deleted_at && !item.delivery && (mine || canModerateMessages);
+    const canOpenActions = canManageMessage || (!!tripId && !item.delivery && !item.deleted_at);
     const previous = controller.messages[index - 1];
     const showDate = !previous || chatDateKey(previous.created_at) !== chatDateKey(item.created_at);
     const failed = item.delivery === 'failed';
@@ -281,11 +290,11 @@ export default function TripChat({
             </View>
           ) : null}
           <Pressable
-            disabled={!canManageMessage}
+            disabled={!canOpenActions}
             onPress={() => setSelected(item)}
             onLongPress={() => setSelected(item)}
-            accessibilityRole={canManageMessage ? 'button' : undefined}
-            accessibilityLabel={canManageMessage
+            accessibilityRole={canOpenActions ? 'button' : undefined}
+            accessibilityLabel={canOpenActions
               ? `Message from ${label}. Open message actions`
               : `Message from ${label}`}
             accessibilityState={{ selected: item.id === focusMessageId }}
@@ -313,7 +322,7 @@ export default function TripChat({
               >
                 {label}{mine ? ' · You' : ''}
               </T>
-              {canManageMessage ? (
+              {canOpenActions ? (
                 <Icon name="more-vertical" size={14} color={mine ? colors.primaryText : colors.textMuted} />
               ) : null}
             </View>
@@ -577,19 +586,42 @@ export default function TripChat({
       <ActionSheet
         visible={!!selected}
         onClose={() => setSelected(null)}
-        title={selected?.sender_user_id === currentUserId ? 'Your message' : 'Moderate message'}
+        title={selected?.sender_user_id === currentUserId ? 'Your message' : 'Message options'}
         actions={[
-          { label: 'Edit message', icon: 'pencil', onPress: startEdit },
-          {
+          ...(selected?.sender_user_id === currentUserId || canModerateMessages ? [
+            { label: 'Edit message', icon: 'pencil', onPress: startEdit },
+            {
             label: 'Delete message', icon: 'trash', variant: 'destructive',
             onPress: () => {
               if (selected) setConfirm({ kind: 'message', messageId: selected.id });
               setSelected(null);
             },
-          },
+            },
+          ] as SheetAction[] : []),
+          ...(tripId && selected ? [
+            { label: 'Report message', icon: 'shield', onPress: () => {
+              setReportTarget({ target_type: 'message', target_id: selected.id }); setSelected(null);
+            } },
+            ...(selected.sender_user_id !== currentUserId ? [
+              { label: 'Report person', icon: 'user', onPress: () => {
+                setReportTarget({ target_type: 'user', target_id: selected.sender_user_id }); setSelected(null);
+              } },
+              { label: 'Block person in chat', icon: 'shield', onPress: () => {
+                const target = selected.sender_user_id;
+                setSelected(null);
+                void api(`/trips/${tripId}/safety/blocks/${target}`, { method: 'PUT' })
+                  .then(() => controller.loadLatest())
+                  .then(() => toast.show('Person blocked in chat. Manage blocks in Community safety.', 'success'))
+                  .catch((error: any) => toast.show(error?.message || 'Blocking failed. Try again.', 'error'));
+              } },
+            ] : []),
+          ] as SheetAction[] : []),
         ]}
         testID="chat-message-actions"
       />
+      {reportTarget && tripId ? <ReportContentSheet key={`${reportTarget.target_type}-${reportTarget.target_id}`}
+        tripId={tripId} target={reportTarget} onClose={() => setReportTarget(null)} /> : null}
+      {onSafetySettings ? <Button label="Community safety and blocked people" variant="ghost" onPress={onSafetySettings} /> : null}
 
       <ActionSheet
         visible={showOwnerActions}

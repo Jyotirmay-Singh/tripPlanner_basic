@@ -572,12 +572,15 @@ def test_account_deletion_requires_acknowledgement_then_runs_scoped_and_global_c
     users = SimpleNamespace(
         find_one=AsyncMock(return_value=user),
         delete_one=AsyncMock(return_value=SimpleNamespace(deleted_count=1)),
+        update_many=AsyncMock(),
     )
     fake_db = SimpleNamespace(
         users=users,
         auth_tokens=SimpleNamespace(delete_many=AsyncMock()),
         password_reset_tokens=SimpleNamespace(delete_many=AsyncMock()),
         push_devices=SimpleNamespace(delete_many=AsyncMock()),
+        community_blocks=SimpleNamespace(delete_many=AsyncMock()),
+        community_reports=SimpleNamespace(update_many=AsyncMock()),
         expense_mutation_receipts=SimpleNamespace(delete_many=AsyncMock()),
         payment_mutation_receipts=SimpleNamespace(delete_many=AsyncMock()),
     )

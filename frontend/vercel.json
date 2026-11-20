@@ -29,8 +29,13 @@
   ],
   "redirects": [
     {
+      "source": "/download/android-qa",
+      "destination": "https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/download/android-qa-v1.0.0-build.27/splitora-qa-android-1.0.0-build-27.apk",
+      "permanent": false
+    },
+    {
       "source": "/download/android",
-      "destination": "https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/download/android-v1.0.0-build.24/splitora-android-1.0.0-build-24.apk",
+      "destination": "https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/download/android-v1.0.0-build.28/splitora-android-1.0.0-build-28.apk",
       "permanent": false
     }
   ],

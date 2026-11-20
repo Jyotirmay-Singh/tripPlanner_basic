@@ -13,6 +13,18 @@ families, settling balances, and exporting reports.
 See [`USER_GUIDE.md`](USER_GUIDE.md) for full feature documentation and
 [`memory/PRD.md`](memory/PRD.md) for the product spec.
 
+The current public Android APK is **Splitora 1.0.0 build 28**.
+[Download the APK](https://tripsplitter-web.vercel.app/download/android),
+read the [verified release report](docs/releases/android-2026-11-20.md), or copy the
+[shareable message](docs/releases/ANDROID_APK_SHARE_MESSAGE.md). It uses the existing HTTPS
+backend and preserves the main-based app flow with approved gallery-only receipt fixes.
+No new phone installation or provider acceptance was performed for this rebuild.
+
+For publication, start with the [Play Store launch register](docs/PLAY_STORE_LAUNCH.md) and
+[submission pack](docs/PLAY_STORE_SUBMISSION_PACK.md). The separate safety/policy source
+is not deployed to production. Play Console work remains deferred until the owner
+creates the intended developer account.
+
 ## Features
 
 - Create groups and invite members with a private, resettable Android App Link or the
@@ -27,7 +39,7 @@ See [`USER_GUIDE.md`](USER_GUIDE.md) for full feature documentation and
   reviewing every group and its transactions, performing group-scoped maintenance, and reviewing an
   append-only activity trail. Financial validation and settlement safeguards still apply.
 - Retroactive rebalancing when a family's size changes.
-- Receipt photo capture and save-to-gallery.
+- Direct system-gallery receipt attachment; Save to folder on Android 7–12 and Save to gallery on Android 13+.
 - XLSX and PDF report export with whole-number ISO-labelled money and allocation audit sections.
 
 > This project is **Gmail-only**: every email accepted (register, login, password recovery,
@@ -86,7 +98,7 @@ or admin login is unavailable.
 | `DB_NAME` | Database name (required) |
 | `JWT_SECRET` | HS256 signing key for auth tokens (required) |
 | `ADMIN_PASSWORD` | Required when seeding the fixed application admin `jyotirmaysingh03@gmail.com`; existing credentials are preserved |
-| `RESEND_API_KEY`, `SENDER_EMAIL`, `APP_URL` | Verification/password-reset email. If `RESEND_API_KEY` is unset, development links are logged instead of emailed |
+| `EMAIL_FEATURES_ENABLED`, `APP_NAME`, `APP_URL`, `EMAILJS_SERVICE_ID`, `EMAILJS_PUBLIC_KEY`, `EMAILJS_PRIVATE_KEY`, `EMAILJS_VERIFICATION_TEMPLATE_ID`, `EMAILJS_RESET_TEMPLATE_ID` | Backend-only EmailJS verification/reset configuration. New environments default to disabled delivery; production follows the owner's 4 November interim authorization in [EMAIL_SETUP.md](docs/EMAIL_SETUP.md). No logged-link fallback; Resend variables are retired |
 | `GOOGLE_CLIENT_ID` | Comma-separated accepted Google ID-token audiences for `POST /api/auth/google`; include the Web client (web + Android Credential Manager) and iOS client when iOS sign-in is enabled |
 | `INVITE_LINKS_ENABLED` | Runtime rollout/kill switch for secure group links; enable only after the App-Link-capable APK is published |
 | `INVITE_BASE_URL` | Canonical HTTPS host used in generated invite links; initially `https://tripsplitter-web.vercel.app` |

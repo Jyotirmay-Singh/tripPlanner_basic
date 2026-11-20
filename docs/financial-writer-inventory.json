@@ -27,7 +27,8 @@
     "auth": "Account authentication/credential maintenance only; no trip person reassignment or receipt/allocation mutation. Account role changes serialize on the user record with final approvals.",
     "chat": "Chat text/read counters/tombstones only; no financial or roster state.",
     "fx": "Rate cache and unused quote evidence only; cannot reconvert saved expenses or confirm cash. Approved expense conversion goes through the financial writer.",
-    "probe": "Transaction-capability probe in an isolated collection; no ledger data or group activation."
+    "probe": "Transaction-capability probe in an isolated collection; no ledger data or group activation.",
+    "community": "Eligibility, terms, guardian controls, blocks and safety cases only. Receipt moderation hides a specific image revision while retaining ledger evidence; message moderation uses the existing chat writer. Account cleanup participates in the deletion transaction. No financial allocations or cash are changed."
   },
   "writers": [
     {
@@ -125,6 +126,58 @@
     {
       "function": "routes/chat.py:update_chat_message",
       "policy": "chat"
+    },
+    {
+      "function": "routes/community.py:accept_terms",
+      "policy": "community"
+    },
+    {
+      "function": "routes/community.py:block_person",
+      "policy": "community"
+    },
+    {
+      "function": "routes/community.py:correct_age_group",
+      "policy": "community"
+    },
+    {
+      "function": "routes/community.py:create_guardian_request",
+      "policy": "community"
+    },
+    {
+      "function": "routes/community.py:give_guardian_consent",
+      "policy": "community"
+    },
+    {
+      "function": "routes/community.py:preview_guardian_request",
+      "policy": "community"
+    },
+    {
+      "function": "routes/community.py:report_content",
+      "policy": "community"
+    },
+    {
+      "function": "routes/community.py:resolve_report",
+      "policy": "community"
+    },
+    {
+      "function": "routes/community.py:restore_community_access",
+      "policy": "community"
+    },
+    {
+      "function": "routes/community.py:unblock_person",
+      "policy": "community"
+    },
+    {
+      "function": "routes/community.py:update_guardian_controls",
+      "policy": "community"
+    },
+    {
+      "function": "routes/community.py:verify_guardian",
+      "policy": "community"
+    },
+    {
+      "function": "routes/community.py:withdraw_guardian_consent",
+      "policy": "community"
     },
     {
       "function": "routes/departure.py:remove_account",
@@ -383,6 +436,10 @@
       "policy": "reviewed_roster"
     },
     {
+      "function": "routes/trips.py:delete_trip.delete_ledger",
+      "policy": "reviewed_roster"
+    },
+    {
       "function": "routes/trips.py:join_preview",
       "policy": "request_only"
     },
@@ -425,6 +482,14 @@
     {
       "function": "services/admin_audit.py:record_admin_action",
       "policy": "audit"
+    },
+    {
+      "function": "services/community_safety.py:cleanup_community_account",
+      "policy": "community"
+    },
+    {
+      "function": "services/community_safety.py:request_guardian",
+      "policy": "community"
     },
     {
       "function": "services/coverage_journal.py:append_coverage_event.commit",
@@ -473,6 +538,10 @@
     {
       "function": "services/departure.py:delete_account.transaction",
       "policy": "departure"
+    },
+    {
+      "function": "services/email_security_migration.py:migrate_email_security",
+      "policy": "auth"
     },
     {
       "function": "services/exchange_rates.py:_store_alias",
@@ -731,11 +800,23 @@
       "policy": "legacy_migration"
     },
     {
-      "function": "utils/auth_tokens.py:consume_token",
+      "function": "utils/auth_tokens.py:_consume_token.consume",
       "policy": "auth"
     },
     {
-      "function": "utils/auth_tokens.py:issue_token",
+      "function": "utils/auth_tokens.py:issue_token.issue",
+      "policy": "auth"
+    },
+    {
+      "function": "utils/auth_tokens.py:mark_verification_for_recovery",
+      "policy": "auth"
+    },
+    {
+      "function": "utils/email_limits.py:claim_email_send",
+      "policy": "auth"
+    },
+    {
+      "function": "utils/email_limits.py:enforce_email_ip_limit",
       "policy": "auth"
     }
   ]

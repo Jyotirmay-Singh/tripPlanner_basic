@@ -14,6 +14,7 @@ import NotificationSettingsRow from '../../src/NotificationSettingsRow';
 import UnverifiedBanner from '../../src/UnverifiedBanner';
 import { mobileProfileHref, upiProfileHref } from '../../src/inviteNavigation';
 import { formatMobileForDisplay } from '../../src/mobileNumber';
+import LegalLinks from '../../src/LegalLinks';
 
 export default function Profile() {
   const { user, refreshUserProfile, sessionMode, offlineStorageError } = useAuth();
@@ -150,6 +151,17 @@ export default function Profile() {
       </Card>
 
       <NotificationSettingsRow />
+      <Card onPress={() => router.push('/community-settings')} style={styles.row}
+        testID="profile-community-safety" accessibilityLabel="Community safety">
+        <Icon name="shield" size={20} color={colors.primary} />
+        <T style={{ flex: 1 }}>Community safety</T>
+        <Icon name="chevron-right" size={18} color={colors.textMuted} />
+      </Card>
+      {user?.is_super_admin ? <Card onPress={() => router.push('/moderation')} style={styles.row}
+        testID="profile-moderation" accessibilityLabel="Moderation queue">
+        <Icon name="shield-check" size={20} color={colors.primary} /><T>Moderation queue</T>
+      </Card> : null}
+      <LegalLinks />
 
       <Card
         onPress={offline ? undefined : () => router.push('/delete-account' as Href)}

@@ -27,6 +27,14 @@ def run(awaitable):
     return asyncio.run(awaitable)
 
 
+@pytest.fixture(autouse=True)
+def community_policy_is_covered_by_authenticated_safety_tests(monkeypatch):
+    # These isolated tests cover chat persistence/protocol using deliberately minimal DB fakes.
+    # test_community_safety_mongo exercises the real policy, blocks and authenticated APIs.
+    monkeypatch.setattr(chat, "require_community_access", AsyncMock())
+    monkeypatch.setattr(chat, "blocked_chat_users", AsyncMock(return_value=set()))
+
+
 def test_create_persists_before_broadcast_and_snapshots_sender(monkeypatch):
     messages = SimpleNamespace(
         find_one=AsyncMock(return_value=None),
