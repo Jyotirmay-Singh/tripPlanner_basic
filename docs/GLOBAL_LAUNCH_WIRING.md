@@ -1,5 +1,10 @@
 # Splitora production hosting and provider handoff
 
+Later direct-APK update: [build 28](releases/android-2026-11-20.md) is published with the
+existing HTTPS backend and current main-based flow. Its binary/public-download checks do
+not complete the future safety/provider, device or Play gates described below. The earlier
+documentation-only scope statements refer to the preceding handoff milestone.
+
 Updated 20 November 2026. This runbook records the existing services and remaining owner
 steps for a future production release. The current milestone changes documents only: no
 app tests, QA services/accounts, provider settings, builds or deployments.
