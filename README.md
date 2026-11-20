@@ -13,10 +13,17 @@ families, settling balances, and exporting reports.
 See [`USER_GUIDE.md`](USER_GUIDE.md) for full feature documentation and
 [`memory/PRD.md`](memory/PRD.md) for the product spec.
 
+The current public Android APK is **Splitora 1.0.0 build 28**.
+[Download the APK](https://tripsplitter-web.vercel.app/download/android),
+read the [verified release report](docs/releases/android-2026-11-20.md), or copy the
+[shareable message](docs/releases/ANDROID_APK_SHARE_MESSAGE.md). It uses the existing HTTPS
+backend and preserves the main-based app flow with approved gallery-only receipt fixes.
+No new phone installation or provider acceptance was performed for this rebuild.
+
 For publication, start with the [Play Store launch register](docs/PLAY_STORE_LAUNCH.md) and
-[submission pack](docs/PLAY_STORE_SUBMISSION_PACK.md). The current milestone prepares documents
-only; the reviewed safety/policy source is not yet deployed to production, and Play Console
-work remains deferred until the owner creates the intended developer account.
+[submission pack](docs/PLAY_STORE_SUBMISSION_PACK.md). The separate safety/policy source
+is not deployed to production. Play Console work remains deferred until the owner
+creates the intended developer account.
 
 ## Features
 

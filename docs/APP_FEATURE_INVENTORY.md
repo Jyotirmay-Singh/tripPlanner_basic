@@ -1,5 +1,15 @@
 # App Feature Inventory
 
+## Current public Android APK — 20 November 2026
+
+**Splitora 1.0.0 build 28**, `com.tripsplitter.app`, is now the public direct-install APK.
+[Release evidence](releases/android-2026-11-20.md) records source `e049db1`, reviewed main
+`ab97b5a`, approved gallery-only backports, signing/permission/alignment checks and verified
+anonymous download. This current-flow APK excludes the newer Community safety provider and
+mandatory review flow below. The HTTPS API stays at `ef2b25047745`; no backend rollout
+or new device/provider acceptance occurred. The readiness section below describes the
+separate preserved launch preview, not features newly deployed by build 28.
+
 ## Google Play launch readiness — updated 20 November 2026
 
 Implemented in reviewed source `a350d52`, based on main `ab97b5a`; existing documentation/download

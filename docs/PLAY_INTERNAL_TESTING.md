@@ -1,5 +1,10 @@
 # Splitora: Google Play internal testing
 
+Later direct-APK update: [build 28](releases/android-2026-11-20.md) is published with the
+existing HTTPS backend and current main-based flow. Its binary/public-download checks do
+not complete the future safety/provider, device or Play gates described below. The earlier
+documentation-only scope statements refer to the preceding handoff milestone.
+
 Updated 20 November 2026. The shared release and owner register is
 [PLAY_STORE_LAUNCH.md](PLAY_STORE_LAUNCH.md). **Play Console work is deferred** until
 the account holder supplies access. The owner reconfirmed that no developer account exists.

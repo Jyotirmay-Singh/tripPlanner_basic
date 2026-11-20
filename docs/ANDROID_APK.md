@@ -1,14 +1,16 @@
 # Android APK — Build & Install Guide
 
-Updated 20 November 2026. The current milestone prepares documents only; it does not build,
-install, test or publish another application. Use the [launch register](PLAY_STORE_LAUNCH.md)
-for dated observations and the [submission pack](PLAY_STORE_SUBMISSION_PACK.md) for Play drafts.
+Updated 20 November 2026. The current public standalone APK is **Splitora 1.0.0, build 28**,
+package `com.tripsplitter.app`. It preserves the main-based application flow, approved
+gallery-only receipt fixes and existing hosted HTTPS backend. No USB connection is needed.
+See the [build-28 release report](releases/android-2026-11-20.md) and [shareable message](releases/ANDROID_APK_SHARE_MESSAGE.md).
+Play Console work remains deferred; this APK is separate from the future Play AAB.
 
 ## Artifact and configuration boundaries
 
 | Purpose | Package / profile | Backend / status |
 | --- | --- | --- |
-| Public direct-install APK | `com.tripsplitter.app` / `preview` | Production HTTPS API; published APK 24, historical verification below |
+| Public direct-install APK | `com.tripsplitter.app` / `preview` | Production HTTPS API; published APK 28; current verification linked above |
 | Retained local QA APK | `com.tripsplitter.app.qa` / `qaLocal` | `http://127.0.0.1:8000`; APK 27 requires workstation USB/ADB forwarding |
 | Future Play submission | `com.tripsplitter.app` / `production` | Production HTTPS API; a fresh `.aab` is pending account, signing and release gates |
 
@@ -27,48 +29,47 @@ The QA download was revalidated on 20 November: 307/no-store, 132,316,964 bytes,
 `30d14421120480ce49077e2d95961bdc4820ce0e49aa105a881801b245394632`.
 This APK and historical AAB 20 must not be uploaded as the fresh Play launch bundle.
 
-The production-package build-24 record follows; its dated acceptance does not validate
-the readiness source or a future Play-installed release.
+## Current public APK — build 28
 
-A standalone, side-loadable Android APK of Splitora, pointed at the production backend
-(`https://tripsplitter-api.onrender.com`).
+- App: **Splitora 1.0.0, build 28**, `com.tripsplitter.app`.
+- Source: `e049db14bf07d2584ed91b3c5df074412b4ba3a2`, branch `codex/android-apk-20261120`; reviewed main baseline `ab97b5a5430650674700d55e5c95f205b93849d8`.
+- Stable download: <https://tripsplitter-web.vercel.app/download/android>
+- Durable asset: <https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/download/android-v1.0.0-build.28/splitora-android-1.0.0-build-28.apk>
+- EAS build: [`6dcc40a0-19a7-4e7e-9521-4c78b5cf4c80`](https://expo.dev/accounts/jyotirmay03/projects/frontend/builds/6dcc40a0-19a7-4e7e-9521-4c78b5cf4c80), FINISHED.
+- Size: 132,271,116 bytes; SHA-256: `2c8678423f4431258db43a7ae45b67b4bd56cc3cc5092ae2b804bd6b3a662d5a`.
+- Actual binary checks: package/version/signing continuity, eight permission exclusions, release/HTTPS configuration and 54 ARM64/x86_64 libraries at 16 KB alignment passed.
+- Source checks: Expo compatibility, Doctor 17/17, lint, TypeScript, pip check and 44-route web export passed.
+- Anonymous full download through the stable 307/no-store link matched size and checksum.
+- No new application tests or phone installation were performed. Google sign-in, notifications, external UPI and physical/Android-version acceptance remain unverified.
 
-App: **Splitora** · package `com.tripsplitter.app` · version **1.0.0**.
-Current public binary: **build 24**, built from commit `4e964ba37a6911bc2f966b068b48c208bb3e9a88`.
-The saved GPay-style UI branch is separate and is not included.
-
-- Stable latest-APK link: <https://tripsplitter-web.vercel.app/download/android>
-- Durable APK asset: <https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/download/android-v1.0.0-build.24/splitora-android-1.0.0-build-24.apk>
-- Release: <https://github.com/Jyotirmay-Singh/tripPlanner_basic/releases/tag/android-v1.0.0-build.24>
-- EAS build: <https://expo.dev/accounts/jyotirmay03/projects/frontend/builds/15988520-f034-48ad-b5cb-43089e529c5d>
-- Size: 132,270,264 bytes
-- SHA-256: `039332ef1229df83e0371cac439c0393c50609badd842c7a8f68876d36e56f4b`
-- Full verification: [release report](releases/android-1.0.0-build-24.md)
+The older [build-24 report](releases/android-1.0.0-build-24.md) is historical. Its install/upgrade
+results do not establish runtime acceptance for build 28. QA build 27 remains separate and
+requires USB forwarding. Neither direct APK is a Play submission bundle.
 
 Group invitations and group-code fallbacks include the stable latest-APK link. The redirect
 is temporary and revalidated on each request; update it after every verified APK release so previously shared
 messages continue to reach the newest public build.
 
-Build 24 passed fresh installation, upgrade from build 22 with app-data marker retention,
-cold launch/restart, login/registration screens, and invitation routing on an isolated Android 15 emulator.
-No physical-phone or real sign-in test was performed.
+Build 24 previously passed installation/upgrade and navigation on an Android 15 emulator.
+Those dated results are retained in its report; they were not repeated for build 28.
 
 ---
 
 ## 1. How the APK is built (for maintainers)
 
-Future release instructions only; none are executed by the documentation milestone.
+Use these steps for future releases. Build 28 execution and exact results are recorded above.
 
 - Confirm the clean, reviewed source and its pushed remote revision. The approved readiness
-  source is `a350d52`, based on main `ab97b5a`; documentation/download commit is `4ec0a02`.
+  preview source is `a350d52`, based on main `ab97b5a`; its documentation/download commit is `4ec0a02`.
+  The selected current-flow build-28 source is `e049db1`, also based on `ab97b5a`.
   Preserve the reviewed deletion fix and keep `7bbee46` outside the release ancestry.
 - EAS owner `jyotirmay03` and pinned CLI **21.4.0** were accessible on 20 November. Recheck
   access, credential ownership, quota and active builds before starting a release. Do not
   start a duplicate build or buy an upgrade as an automatic recovery step.
 - `preview` is an internal APK; `production` is an app bundle. Both use remote app versioning
   and auto-increment. Check the final resolved configuration, provider files, HTTPS backend
-  and all used/reserved version codes before building. The observed QA counter of 27 is
-  not a production-counter or Console check; do not hard-code the next code from this guide.
+  and all used/reserved version codes before building. Build 28 incremented the production-package counter from 27 to 28 after checking history.
+  Recheck remote and all Console-reserved codes for every subsequent release.
 - Complete the required source/dependency/Doctor/type/lint/regression/export checks for the
   final source when release execution is authorized. The launch register's 14 November
   results remain historical; no new check result is claimed here.
@@ -162,7 +163,7 @@ file/credential prerequisites are in [the hosting runbook](GLOBAL_LAUNCH_WIRING.
 
 ## 2. How to install (for testers)
 
-Retained direct-install instructions; no installation is requested by the current milestone.
+Direct-install instructions for the public standalone APK. No phone installation was performed during this release.
 Preserve unresolved local actions and compare package/signing identity before an update.
 Never uninstall the production app or clear storage to resolve a QA/signature mismatch.
 

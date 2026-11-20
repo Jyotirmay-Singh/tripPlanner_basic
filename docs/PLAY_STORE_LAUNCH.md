@@ -2,13 +2,27 @@
 
 Updated 20 November 2026. This is the shared source, readiness and owner-action register.
 
-## Current APK request — 20 November 2026
+## Current direct-APK release — build 28
 
-The owner now requests a fresh standalone APK and updated shareable download message.
-They selected the reviewed main-based application with the approved gallery-only fixes,
-preserving the current flow and existing HTTPS backend. The newer Community safety rollout
-remains separate. See [the APK release record](releases/android-2026-11-20.md) for build and
-publication evidence. No backend deployment, Play action or new app QA is requested.
+The owner subsequently authorized a standalone APK rebuild and selected the current
+main-based application flow. **Splitora 1.0.0 build 28**, package `com.tripsplitter.app`,
+is published at [the stable Android link](https://tripsplitter-web.vercel.app/download/android).
+See the [build-28 release report](releases/android-2026-11-20.md) and [updated shareable message](releases/ANDROID_APK_SHARE_MESSAGE.md)
+for exact source, build, signing, checksums, public verification and recovery steps.
+
+Source `e049db14bf07d2584ed91b3c5df074412b4ba3a2` uses reviewed main `ab97b5a`
+with the approved gallery-only fixes and case-insensitive deletion confirmation. The existing
+HTTPS backend remains at `ef2b25047745`; main's reviewed backend group-deletion restriction
+is preserved in source and was not deployed by this APK task. The newer Community safety
+provider and mandatory age/terms review are not included in build 28. The launch-preview
+source, local QA build 27 and all future Play/teen operating gates remain preserved.
+
+The APK and anonymous public download passed binary/configuration/checksum checks.
+Application/device journeys were not rerun and the connected phone was not modified.
+Google sign-in, notifications, external UPI and remaining device/version acceptance stay open.
+No production website rebuild, backend rollout or Play action occurred; the EmailJS interim
+authorization remains unchanged. These later release actions supersede the earlier
+documentation-only scope below, whose dated evidence remains historical.
 
 ## Completed documentation milestone — 20 November 2026
 
