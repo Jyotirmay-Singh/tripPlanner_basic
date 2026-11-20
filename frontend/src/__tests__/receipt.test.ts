@@ -1,4 +1,15 @@
 import { parseDataUri, extForMime } from '../receipt';
+import appConfig from '../../app.base.json';
+
+it('blocks camera, microphone and broad storage permission declarations', () => {
+  expect(appConfig.expo.android.permissions).toEqual([]);
+  expect(appConfig.expo.android.blockedPermissions).toEqual(expect.arrayContaining([
+    'android.permission.CAMERA', 'android.permission.RECORD_AUDIO',
+    'android.permission.READ_EXTERNAL_STORAGE', 'android.permission.WRITE_EXTERNAL_STORAGE',
+    'android.permission.READ_MEDIA_IMAGES', 'android.permission.READ_MEDIA_VIDEO',
+    'android.permission.READ_MEDIA_AUDIO', 'android.permission.READ_MEDIA_VISUAL_USER_SELECTED',
+  ]));
+});
 
 describe('extForMime', () => {
   it('maps known image mimes to extensions', () => {

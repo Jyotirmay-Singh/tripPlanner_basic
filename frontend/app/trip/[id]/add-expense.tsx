@@ -33,7 +33,7 @@ import ReceiptViewer from '../../../src/ReceiptViewer';
 import ConfirmModal from '../../../src/ConfirmModal';
 import { formatDDMMYYYY, partsFromLocalDate, ddmmyyyyToDDMMYY, ddmmyyToDDMMYYYY, toISO } from '../../../src/date';
 import {
-  FormScreen, Screen, Card, Button, Input, CategoryPicker, Icon, ActionSheet, SkeletonCard, EmptyState, useToast,
+  FormScreen, Screen, Card, Button, Input, CategoryPicker, Icon, SkeletonCard, EmptyState, useToast,
   CurrencyPicker, DateField, TimeField, ExchangeRatePanel,
 } from '../../../src/ui';
 import type { ApprovedConversion } from '../../../src/ui';
@@ -89,7 +89,6 @@ export default function AddExpense() {
   const [reviewItem, setReviewItem] = useState<PendingExpense | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [receiptWarn, setReceiptWarn] = useState(false);
-  const [sourceSheet, setSourceSheet] = useState(false);
   const [budgetWarn, setBudgetWarn] = useState<string | null>(null);
   const [approvedConversion, setApprovedConversion] = useState<ApprovedConversion | null>(null);
   const [previewCanonicalAmount, setPreviewCanonicalAmount] = useState<number | null>(null);
@@ -203,24 +202,12 @@ export default function AddExpense() {
   };
 
   const pickFromLibrary = async () => {
-    setSourceSheet(false);
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) return toast.show('Allow photo access to attach a receipt.', 'error');
-    applyAsset(await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.4, allowsEditing: true }));
-  };
-
-  const takePhoto = async () => {
-    setSourceSheet(false);
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) return toast.show('Allow camera access to capture a receipt.', 'error');
-    applyAsset(await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.4, allowsEditing: true }));
-  };
-
-  const chooseReceiptSource = () => {
     if (offlineView || localCapture) return;
-    // Web has no camera flow here; go straight to file picker. Native shows a themed action sheet.
-    if (Platform.OS === 'web') { pickFromLibrary(); return; }
-    setSourceSheet(true);
+    if (Platform.OS === 'ios') {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) return toast.show('Allow photo access to attach a receipt.', 'error');
+    }
+    applyAsset(await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.4, allowsEditing: true }));
   };
 
   const submit = async (force = false, withoutReceipt = false) => {
@@ -647,7 +634,7 @@ export default function AddExpense() {
                   </TouchableOpacity>
                 </View>
               ) : (
-                <TouchableOpacity testID="ae-receipt" onPress={chooseReceiptSource} disabled={offlineView || localCapture}
+                <TouchableOpacity testID="ae-receipt" onPress={pickFromLibrary} disabled={offlineView || localCapture}
                   style={[styles.receiptBtn, { backgroundColor: colors.surface, borderColor: colors.border }]} accessibilityRole="button" accessibilityLabel="Attach receipt image">
                   <Icon name="image-plus" size={18} color={colors.primary} />
                   <T color={colors.primary} style={{ fontWeight: '700' }}>Attach image</T>
@@ -660,16 +647,6 @@ export default function AddExpense() {
             <Button label={localCapture ? 'Save on device' : 'Save transaction'} icon="check" onPress={() => submit(false)} loading={saving} disabled={(offlineView && !localCapture) || (!!reviewId && !localCapture) || !!amountPrecisionIssue || currencyBlocked || conversionPending || (splitMode === 'EXACT' && !exactRec.isValid)} fullWidth size="lg" testID="ae-submit" style={{ marginTop: SPACING.sm }} />
           </View>
       </FormScreen>
-
-      <ActionSheet
-        visible={sourceSheet}
-        onClose={() => setSourceSheet(false)}
-        title="Add receipt"
-        actions={[
-          { label: 'Take photo', icon: 'camera', onPress: takePhoto },
-          { label: 'Choose from library', icon: 'image', onPress: pickFromLibrary },
-        ]}
-      />
 
       <ConfirmModal
         visible={receiptWarn}

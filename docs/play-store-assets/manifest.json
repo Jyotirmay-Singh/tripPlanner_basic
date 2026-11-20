@@ -1,0 +1,78 @@
+{
+  "product": "Splitora",
+  "captured": "2026-11-14",
+  "source": {
+    "baseline": "ed26aee5dbb69f94f004d13242e2102ca546e5df",
+    "state": "uncommitted approved main plus readiness changes",
+    "fingerprintAlgorithm": "SHA-256 of sorted Git-listed backend/frontend/shared file paths, NUL, file bytes, NUL; cached and nonignored untracked files; missing files omitted",
+    "sourceSha256": "a55bab2d4aedb398fe9a150461021b0ca22bf7b6ec11a114c8557decc4782e7d",
+    "fileCount": 723
+  },
+  "screenshots": {
+    "platform": "Chromium mobile web draft, exported production JavaScript",
+    "viewport": "432x960",
+    "deviceScaleFactor": 2.5,
+    "exportDirectory": ".release-tmp/play-store-readiness-20261113/web-export-reviewed",
+    "transport": "Production API/WebSocket destinations intercepted to disposable loopback API; unrelated external requests blocked",
+    "data": "Synthetic Goa weekend group; no real accounts, finances or payment completion",
+    "approval": "Drafts; Android final-artifact recapture/review remains required"
+  },
+  "assets": [
+    {
+      "file": "draft-01-group-overview.png",
+      "width": 1080,
+      "height": 2400,
+      "bytes": 180135,
+      "sha256": "c24ad8dd1a14ca9d83bbc0b24f8af400013c45cdaf37e1a8de2219d5105ead28"
+    },
+    {
+      "file": "draft-02-exact-split.png",
+      "width": 1080,
+      "height": 2400,
+      "bytes": 177745,
+      "sha256": "d90417324064185a02a6ff4f2b7f23db17de5da2854c88bb7d5391b10fec90e3"
+    },
+    {
+      "file": "draft-03-settle-up.png",
+      "width": 1080,
+      "height": 2400,
+      "bytes": 104243,
+      "sha256": "247318ef5f521c2ff7f33bed1f77508d099b49bb3017aa3d6ba756638eccc163"
+    },
+    {
+      "file": "draft-04-receipt.png",
+      "width": 1080,
+      "height": 2400,
+      "bytes": 145929,
+      "sha256": "c53a8911f4ba5c3998a3033ffca1137bde827b3cb00cf12bfd08868ffc69e223"
+    },
+    {
+      "file": "draft-05-chat-safety.png",
+      "width": 1080,
+      "height": 2400,
+      "bytes": 182703,
+      "sha256": "0cf33a17c2917f2fa18ced30781616c61aed5f254c189a5f62870cb79f8adc0a"
+    },
+    {
+      "file": "draft-06-reports.png",
+      "width": 1080,
+      "height": 2400,
+      "bytes": 70158,
+      "sha256": "9fdc1d54a37e5cd411a285f87855678558544fb381daaf71ba78e1747e118bad"
+    },
+    {
+      "file": "feature-graphic-1024x500.png",
+      "width": 1024,
+      "height": 500,
+      "bytes": 112512,
+      "sha256": "1492ed3f14d0f6eac00ab7c5210386f7d2be03f829fe0eb3af497728fb5cc27b"
+    },
+    {
+      "file": "store-icon-512.png",
+      "width": 512,
+      "height": 512,
+      "bytes": 292968,
+      "sha256": "a1e108028550c948ddfeba1f9c0dc0084ea1577650c58b8956190f333d635f7f"
+    }
+  ]
+}

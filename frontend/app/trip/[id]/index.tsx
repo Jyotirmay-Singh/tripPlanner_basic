@@ -633,7 +633,7 @@ export default function TripDetail() {
           label: 'Delete', variant: 'destructive', onPress: () => confirm?.onYes(),
           testID: confirm?.yesId,
           disabled: !!confirm?.requiresTripName
-            && deleteTripName.trim() !== expectedDeleteTripName,
+            && deleteTripName.trim().toLowerCase() !== expectedDeleteTripName,
         },
       ]}
     />

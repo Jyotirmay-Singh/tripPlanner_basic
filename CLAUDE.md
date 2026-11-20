@@ -106,7 +106,7 @@ Backend (`backend/.env`):
 - `MONGO_URL`, `DB_NAME`: MongoDB connection and database.
 - `JWT_SECRET`: HS256 signing secret.
 - `ADMIN_EMAIL`, `ADMIN_PASSWORD`: seeded administrator credentials; email must be Gmail.
-- `EMAILJS_SERVICE_ID`, `EMAILJS_PUBLIC_KEY`, `EMAILJS_PRIVATE_KEY`, `EMAILJS_VERIFICATION_TEMPLATE_ID`, `EMAILJS_RESET_TEMPLATE_ID`, `APP_NAME`, `APP_URL`: backend-only EmailJS configuration. Keep `EMAIL_FEATURES_ENABLED` disabled until the authorization checks in `docs/EMAIL_SETUP.md` pass.
+- `EMAILJS_SERVICE_ID`, `EMAILJS_PUBLIC_KEY`, `EMAILJS_PRIVATE_KEY`, `EMAILJS_VERIFICATION_TEMPLATE_ID`, `EMAILJS_RESET_TEMPLATE_ID`, `APP_NAME`, `APP_URL`: backend-only EmailJS configuration. New environments default to disabled delivery. Production follows the owner's 4 November interim authorization in `docs/EMAIL_SETUP.md`; preserve that decision and the unresolved provider limitation rather than reinstating the earlier rollout hold.
 - `GOOGLE_CLIENT_ID`: one accepted OAuth audience or a comma-separated list; include the Web client
   used by Android Credential Manager/web and the iOS client when iOS sign-in is enabled.
 - `MULTI_CURRENCY_EXPENSES_ENABLED`: runtime rollout flag for expense conversion; defaults to
