@@ -160,6 +160,30 @@ it('uses one keyboard adjustment for the list and composer and removes the botto
   act(() => renderer.unmount());
 });
 
+it.each([false, true])('keeps the safety shortcut inside bottom clearance with keyboard visible: %s', async (isVisible) => {
+  mockUseKeyboardState.mockImplementation((selector: any) => selector({
+    height: isVisible ? 320 : 0, isVisible,
+  }));
+  const controller = baseController();
+  const openSafety = jest.fn();
+  let renderer: any;
+  await act(async () => {
+    renderer = TestRenderer.create(
+      <TripChat header={null} controller={controller} currentUserId="u1" isOwner={false}
+        canSend onSafetySettings={openSafety} />,
+    );
+  });
+  const shell = renderer.root.findByProps({ testID: 'chat-composer-shell' });
+  const shortcut = shell.findByProps({ label: 'Community safety and blocked people' });
+  expect(StyleSheet.flatten(shell.props.style).paddingBottom).toBe(isVisible ? 8 : 32);
+  act(() => renderer.root.findByProps({ testID: 'chat-composer' }).props.onChangeText('Keep my draft'));
+  act(() => shortcut.props.onPress());
+  expect(openSafety).toHaveBeenCalledTimes(1);
+  expect(renderer.root.findByProps({ testID: 'chat-composer' }).props.value).toBe('Keep my draft');
+  expect(controller.send).not.toHaveBeenCalled();
+  act(() => renderer.unmount());
+});
+
 it.each(['ios', 'android'] as const)('keeps following the latest messages as the keyboard and multiline composer resize on %s', async (platform) => {
   jest.replaceProperty(Platform, 'OS', platform);
   const scrollToEnd = jest.spyOn(FlatList.prototype, 'scrollToEnd').mockImplementation(() => {});

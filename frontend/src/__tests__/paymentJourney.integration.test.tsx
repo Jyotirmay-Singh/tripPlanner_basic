@@ -43,6 +43,10 @@ async function until(check: () => boolean, state = 'reviewed state') {
   throw new Error(`Client did not reach ${state}`);
 }
 async function press(tree: ReactTestRenderer, id: string) {
+  // Return-to-app and mutation refreshes can temporarily replace live actions.
+  // Locate the enabled control after intervening HTTP assertions have settled.
+  await until(() => tree.root.findAll(node => typeof node.type === 'string'
+    && node.props.testID === id && node.props.disabled !== true).length === 1, `enabled ${id}`);
   const control = host(tree, id);
   expect(control.props.disabled).not.toBe(true);
   await act(async () => { control.props.onPress(); await new Promise(resolve => setTimeout(resolve, 20)); });

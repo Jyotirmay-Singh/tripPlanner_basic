@@ -579,6 +579,7 @@ export default function TripChat({
           {draft.length >= 1800 ? (
             <T variant="caption" muted style={{ textAlign: 'right', marginTop: 2 }}>{draft.length}/2000</T>
           ) : null}
+          {onSafetySettings ? <Button label="Community safety and blocked people" variant="ghost" onPress={onSafetySettings} /> : null}
           </View>
         </View>
       </View>
@@ -621,8 +622,6 @@ export default function TripChat({
       />
       {reportTarget && tripId ? <ReportContentSheet key={`${reportTarget.target_type}-${reportTarget.target_id}`}
         tripId={tripId} target={reportTarget} onClose={() => setReportTarget(null)} /> : null}
-      {onSafetySettings ? <Button label="Community safety and blocked people" variant="ghost" onPress={onSafetySettings} /> : null}
-
       <ActionSheet
         visible={showOwnerActions}
         onClose={() => setShowOwnerActions(false)}

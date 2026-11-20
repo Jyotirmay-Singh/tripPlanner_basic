@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from fastapi import HTTPException
 
+from config import APP_URL
 from utils.common import now_utc
 from utils.email_rules import email_is_verified, normalize_email
 
@@ -80,7 +81,15 @@ async def require_community_access(database, user: dict, feature: str) -> None:
         code, message = "community_suspended", "Community access is suspended. Contact support to appeal."
     else:
         code, message = "guardian_permission_required", "A verified parent or guardian must enable this feature."
-    raise HTTPException(403, {"code": code, "message": message})
+    detail = {"code": code, "message": message}
+    if code == "community_terms_required" and APP_URL.startswith("https://"):
+        # Existing APKs display detail.message but do not have the review screen.
+        # Keep a usable review/update path without bypassing consent enforcement.
+        review_url = f"{APP_URL}/community-settings"
+        update_url = f"{APP_URL}/download/android"
+        detail.update(review_url=review_url, update_url=update_url)
+        detail["message"] = f"{message} Open {review_url} or update Splitora at {update_url}."
+    raise HTTPException(403, detail)
 
 
 async def blocked_chat_users(database, user_id: str) -> set[str]:

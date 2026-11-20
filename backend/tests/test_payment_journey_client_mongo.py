@@ -108,7 +108,9 @@ def test_real_primary_client_multi_account_payment_journeys():
             EXPENSE_SETTLEMENT_ENABLED="true", PUSH_NOTIFICATIONS_ENABLED="true", EMAIL_FEATURES_ENABLED="false",
             MULTI_CURRENCY_EXPENSES_ENABLED="false", INVITE_LINKS_ENABLED="false", RESEND_API_KEY="", GOOGLE_CLIENT_ID="",
             EXPO_PUSH_ACCESS_TOKEN="", APP_URL="", ADMIN_PASSWORD="disposable-journey-only")
-        with tempfile.TemporaryDirectory(prefix="payment-client-", dir=root / ".release-tmp") as temp, tempfile.TemporaryFile() as log:
+        scratch = root / ".release-tmp"
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="payment-client-", dir=scratch) as temp, tempfile.TemporaryFile() as log:
             api_process = subprocess.Popen([sys.executable, "-m", "uvicorn", "server:app", "--host", "127.0.0.1",
                 "--port", str(port), "--log-level", "warning"], cwd=root / "backend", env=environment,
                 stdout=log, stderr=log, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)

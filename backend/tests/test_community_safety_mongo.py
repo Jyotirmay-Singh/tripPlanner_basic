@@ -101,9 +101,17 @@ async def approve(http, code):
 
 
 def test_new_existing_underage_and_terms_renewal(monkeypatch):
+    monkeypatch.setattr(safety, "APP_URL", "https://app.example.com")
     async def exercise():
         async with isolated(monkeypatch) as (db, http, _):
-            assert (await http.get("/api/trips", headers=bearer("legacy"))).status_code == 403
+            legacy = await http.get("/api/trips", headers=bearer("legacy"))
+            assert legacy.status_code == 403
+            detail = legacy.json()["detail"]
+            assert detail["code"] == "community_terms_required"
+            assert detail["review_url"] == "https://app.example.com/community-settings"
+            assert detail["update_url"] == "https://app.example.com/download/android"
+            assert detail["review_url"] in detail["message"]
+            assert detail["update_url"] in detail["message"]
             stale = await http.post("/api/auth/me/safety/terms", headers=bearer("legacy"),
                                     json={"version": "old", "age_band": "18_plus"})
             assert stale.status_code == 409

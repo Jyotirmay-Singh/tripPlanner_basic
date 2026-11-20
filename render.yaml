@@ -12,7 +12,8 @@ services:
     dockerfilePath: ./backend/Dockerfile.prod
     dockerContext: ./backend
     healthCheckPath: /api/health
-    autoDeploy: true
+    # Release the safety backend together with a compatible web/native client.
+    autoDeploy: false
     envVars:
       - { key: MONGO_URL,        sync: false }   # SECRET — Atlas SRV string w/ URL-encoded password
       - { key: DB_NAME,          sync: false }   # unchanged from local
